@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light" />
+    <title>青序生活 · 微信小程序原型</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="prototype-canvas">
+      <aside class="canvas-sidebar" aria-label="原型页面导航">
+        <div class="brand-lockup">
+          <span class="brand-mark" aria-hidden="true">青</span>
+          <div>
+            <strong>青序生活</strong>
+            <span>MINI PROGRAM / V1.0</span>
+          </div>
+        </div>
+
+        <div class="canvas-caption">核心购买路径</div>
+        <nav class="screen-nav" id="screenNav">
+          <button class="screen-nav__item is-active" data-screen="home"><span>01</span>首页</button>
+          <button class="screen-nav__item" data-screen="category"><span>02</span>分类选购</button>
+          <button class="screen-nav__item" data-screen="search"><span>03</span>搜索结果</button>
+          <button class="screen-nav__item" data-screen="product"><span>04</span>商品详情</button>
+          <button class="screen-nav__item" data-screen="cart"><span>05</span>购物车</button>
+          <button class="screen-nav__item" data-screen="checkout"><span>06</span>确认订单</button>
+          <button class="screen-nav__item" data-screen="orders"><span>07</span>我的订单</button>
+          <button class="screen-nav__item" data-screen="aftersale"><span>08</span>退款售后</button>
+          <button class="screen-nav__item" data-screen="profile"><span>09</span>个人中心</button>
+        </nav>
+
+        <div class="sidebar-note">
+          <span class="status-dot"></span>
+          <div><strong>Interactive Prototype</strong><br />点击画布内控件体验完整链路</div>
+        </div>
+      </aside>
+
+      <section class="canvas-main">
+        <header class="canvas-toolbar">
+          <div>
+            <span class="canvas-eyebrow">小程序高保真原型</span>
+            <h1 id="canvasTitle">首页 · 发现日常之美</h1>
+          </div>
+          <div class="toolbar-actions">
+            <div class="segmented" aria-label="设备宽度">
+              <button class="is-active" data-device="375">375</button>
+              <button data-device="414">414</button>
+            </div>
+            <button class="icon-tool" id="resetPrototype" title="重置原型" aria-label="重置原型">↻</button>
+          </div>
+        </header>
+
+        <div class="canvas-stage">
+          <div class="phone-shell" id="phoneShell">
+            <div class="phone-speaker" aria-hidden="true"></div>
+            <div class="phone-viewport" id="phoneViewport">
+              <div class="app-mount" id="app" aria-live="polite"></div>
+              <div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
+              <section class="bottom-sheet" id="bottomSheet" aria-modal="true" role="dialog" hidden></section>
+              <div class="toast" id="toast" role="status" aria-live="polite"></div>
+            </div>
+            <div class="phone-home-indicator" aria-hidden="true"></div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="canvas-inspector" aria-label="设计说明">
+        <section>
+          <span class="canvas-eyebrow">当前画板</span>
+          <h2 id="inspectorTitle">首页</h2>
+          <p id="inspectorDescription">品牌心智、快捷分类与推荐商品在首屏完成呈现。</p>
+        </section>
+
+        <section>
+          <div class="inspector-label">核心交互</div>
+          <ul class="interaction-list" id="interactionList">
+            <li>搜索入口进入搜索结果</li>
+            <li>分类入口联动分类页</li>
+            <li>商品卡片进入商品详情</li>
+          </ul>
+        </section>
+
+        <section>
+          <div class="inspector-label">Design tokens</div>
+          <div class="swatch-grid">
+            <div><i style="--swatch:#496859"></i><span>Sage</span></div>
+            <div><i style="--swatch:#2f6578"></i><span>Blue</span></div>
+            <div><i style="--swatch:#e27766"></i><span>Coral</span></div>
+            <div><i style="--swatch:#202522"></i><span>Charcoal</span></div>
+          </div>
+        </section>
+
+        <section class="token-list">
+          <div><span>Grid</span><strong>4px</strong></div>
+          <div><span>Page gutter</span><strong>16px</strong></div>
+          <div><span>Card radius</span><strong>8px</strong></div>
+          <div><span>Tap target</span><strong>44px</strong></div>
+          <div><span>Device</span><strong id="deviceLabel">375 × 812</strong></div>
+        </section>
+      </aside>
+    </main>
+
+    <noscript>此原型需要启用 JavaScript 才能运行交互。</noscript>
+    <script src="./app.js"></script>
+  </body>
+</html>

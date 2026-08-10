@@ -77,13 +77,13 @@
           <span class="brand-mark"><span></span><span></span></span>
           <strong>青序生活</strong>
         </div>
-        <span class="eyebrow dark">ADMIN CONSOLE</span>
+        <span class="eyebrow dark">HQ SUPER ADMIN</span>
         <h2>欢迎回来</h2>
-        <p class="muted">登录后管理您的商城经营数据</p>
-        <label class="field-label" for="username">管理员账号</label>
+        <p class="muted">使用超级管理员账号登录总部管理后台</p>
+        <label class="field-label" for="username">超级管理员账号</label>
         <div class="input-with-icon">
           <svg class="icon"><use href="#i-users"></use></svg>
-          <input id="username" name="username" value="admin" autocomplete="username" placeholder="请输入管理员账号">
+          <input id="username" name="username" value="admin" autocomplete="username" placeholder="请输入超级管理员账号">
         </div>
         <label class="field-label" for="password">登录密码</label>
         <div class="input-with-icon">
@@ -96,9 +96,9 @@
         <div id="loginError" class="form-error" hidden>请输入账号和密码</div>
         <div class="login-options">
           <label class="check"><input type="checkbox" checked><span>记住账号</span></label>
-          <button class="link-button" type="button" data-toast="请联系系统所有者重置密码">忘记密码</button>
+          <button class="link-button" type="button" data-toast="请联系总部技术支持重置密码">忘记密码</button>
         </div>
-        <button class="button primary login-submit" type="submit">登录管理后台</button>
+        <button class="button primary login-submit" type="submit">登录总部管理后台</button>
         <div class="security-note"><svg class="icon"><use href="#i-shield"></use></svg>演示账号 admin · 密码 123456</div>
       </form>
     </div>
@@ -128,6 +128,13 @@
         <button class="nav-item" type="button" data-page="customers" title="客户管理">
           <svg class="icon"><use href="#i-users"></use></svg><span>客户管理</span>
         </button>
+        <div class="nav-label">渠道与结算</div>
+        <button class="nav-item" type="button" data-page="agents" title="代理管理">
+          <svg class="icon"><use href="#i-user-plus"></use></svg><span>代理管理</span>
+        </button>
+        <button class="nav-item" type="button" data-page="withdrawals" title="提现审核">
+          <svg class="icon"><use href="#i-wallet"></use></svg><span>提现审核</span><b class="nav-count coral">2</b>
+        </button>
       </nav>
       <div class="sidebar-bottom">
         <div class="store-card">
@@ -156,8 +163,8 @@
           <button id="notificationButton" class="icon-button notification-button" type="button" title="消息通知" aria-label="消息通知">
             <svg class="icon"><use href="#i-bell"></use></svg><span class="notification-dot"></span>
           </button>
-          <button class="profile-button" type="button" data-toast="账号：商城所有者 · 全部权限">
-            <span class="avatar">林</span><span class="profile-copy"><strong>林老板</strong><small>商城所有者</small></span><svg class="icon"><use href="#i-chevron-down"></use></svg>
+          <button class="profile-button" type="button" data-toast="账号：超级管理员 · 平台全部权限">
+            <span class="avatar">林</span><span class="profile-copy"><strong>林老板</strong><small>超级管理员</small></span><svg class="icon"><use href="#i-chevron-down"></use></svg>
           </button>
         </div>
       </header>
@@ -165,9 +172,10 @@
       <div class="page-scroll">
         <section class="page-view active" data-view="dashboard">
           <div class="page-heading">
-            <div><p class="page-kicker">经营概览</p><h2>数据看板</h2><p>早上好，以下是商城截至今天 10:30 的经营情况。</p></div>
+            <div><p class="page-kicker">经营概览</p><h2>数据看板</h2><p id="dashboardReportCaption">日报 · 2026-08-10 截至 10:30 的经营情况。</p></div>
             <div class="heading-actions">
-              <button class="button secondary date-button" type="button"><svg class="icon"><use href="#i-calendar"></use></svg>2026-08-06</button>
+              <div class="segmented" role="group" aria-label="销售报表周期"><button class="active" type="button" data-report-range="day">日报</button><button type="button" data-report-range="month">月报</button></div>
+              <button id="dashboardDateButton" class="button secondary date-button" type="button"><svg class="icon"><use href="#i-calendar"></use></svg>2026-08-10</button>
             </div>
           </div>
 
@@ -180,12 +188,12 @@
           <div class="metric-grid">
             <article class="metric-card">
               <div class="metric-icon green"><svg class="icon"><use href="#i-wallet"></use></svg></div>
-              <span>今日销售额</span><strong>¥ 12,680.50</strong>
+              <span id="dashboardSalesLabel">今日销售额</span><strong id="dashboardSalesValue">¥ 12,680.50</strong>
               <div class="metric-foot positive"><svg class="icon"><use href="#i-arrow-up"></use></svg>12.6% <small>较昨日</small></div>
             </article>
             <article class="metric-card">
               <div class="metric-icon blue"><svg class="icon"><use href="#i-orders"></use></svg></div>
-              <span>今日订单</span><strong>86</strong>
+              <span id="dashboardOrdersLabel">今日订单</span><strong id="dashboardOrdersMetric">86</strong>
               <div class="metric-foot positive"><svg class="icon"><use href="#i-arrow-up"></use></svg>8.2% <small>较昨日</small></div>
             </article>
             <article class="metric-card">
@@ -195,10 +203,12 @@
             </article>
             <article class="metric-card">
               <div class="metric-icon amber"><svg class="icon"><use href="#i-package"></use></svg></div>
-              <span>本月销售额</span><strong>¥ 268,420</strong>
+              <span id="dashboardPeriodSalesLabel">本月销售额</span><strong id="dashboardPeriodSalesValue">¥ 268,420</strong>
               <div class="metric-foot negative"><svg class="icon"><use href="#i-arrow-down"></use></svg>2.4% <small>较上月同期</small></div>
             </article>
           </div>
+
+          <div class="report-total-strip"><div><span>累计总销售额</span><strong>¥ 1,286,420.80</strong></div><div><span id="reportNetSalesLabel">今日净销售额</span><strong id="reportNetSalesValue">¥ 12,286.50</strong></div><div><span id="reportRefundLabel">今日退款</span><strong id="reportRefundValue">¥ 394.00</strong></div><small>总销售额按有效支付金额累计，报表含退款冲减口径。</small></div>
 
           <div class="dashboard-grid">
             <article class="panel chart-panel">
@@ -212,7 +222,7 @@
               <div class="chart-wrap"><canvas id="salesChart" aria-label="销售趋势折线图"></canvas></div>
             </article>
             <article class="panel ranking-panel">
-              <div class="panel-heading"><div><h3>商品销量排行</h3><p>本月支付件数</p></div><button class="button text" type="button" data-go="products">全部商品</button></div>
+              <div class="panel-heading"><div><h3 id="rankingTitle">商品销量排行</h3><p id="rankingSubtitle">本月支付件数</p></div><div class="segmented compact-segmented" role="group" aria-label="排行榜类型"><button class="active" type="button" data-ranking-type="product">商品</button><button type="button" data-ranking-type="customer">客户</button></div></div>
               <div id="rankingList" class="ranking-list"></div>
             </article>
           </div>
@@ -322,7 +332,7 @@
             </div>
             <div class="detail-column narrow">
               <section class="panel detail-panel"><div class="panel-heading"><h3>收货信息</h3><button class="icon-button" title="复制收货信息" data-copy="林晓月 138****6821 广东省深圳市南山区"><svg class="icon"><use href="#i-copy"></use></svg></button></div><div class="contact-card"><span class="avatar soft-green">林</span><div><strong>林晓月 <small>138****6821</small></strong><p>广东省 深圳市 南山区 粤海街道<br>科技园南区 18 栋 1206</p></div></div></section>
-              <section class="panel detail-panel"><div class="panel-heading"><h3>订单信息</h3></div><dl class="order-info-list"><div><dt>订单来源</dt><dd>微信小程序</dd></div><div><dt>支付方式</dt><dd>微信支付（模拟）</dd></div><div><dt>配送方式</dt><dd>普通快递</dd></div><div><dt>买家留言</dt><dd>请用环保包装，谢谢</dd></div><div><dt>内部备注</dt><dd class="muted">暂无</dd></div></dl></section>
+              <section class="panel detail-panel"><div class="panel-heading"><h3>订单信息</h3></div><dl class="order-info-list"><div><dt>订单来源</dt><dd>微信小程序</dd></div><div><dt>服务归属</dt><dd>清源生活馆</dd></div><div><dt>佣金快照</dt><dd>8.00% · 预计 ¥18.16</dd></div><div><dt>支付方式</dt><dd>微信支付（模拟）</dd></div><div><dt>配送方式</dt><dd>普通快递</dd></div><div><dt>买家留言</dt><dd>请用环保包装，谢谢</dd></div><div><dt>内部备注</dt><dd class="muted">暂无</dd></div></dl></section>
               <section class="panel detail-panel action-panel"><h3>订单操作</h3><button class="button primary full-width" id="sideShipButton" type="button"><svg class="icon"><use href="#i-truck"></use></svg>填写物流并发货</button><button class="button secondary full-width" type="button" data-toast="已联系客户：林晓月 138****6821"><svg class="icon"><use href="#i-phone"></use></svg>联系客户</button></section>
             </div>
           </div>
@@ -340,6 +350,23 @@
           <div class="customer-insights"><div><span>客户总数</span><strong>3,286</strong><small>较上月 +8.6%</small></div><div><span>本月新增</span><strong>386</strong><small>今日新增 32</small></div><div><span>复购客户</span><strong>1,268</strong><small>复购率 38.6%</small></div><div><span>人均净消费</span><strong>¥328.40</strong><small>近 90 天</small></div></div>
           <div class="filter-bar customer-filter"><div class="filter-search"><svg class="icon"><use href="#i-search"></use></svg><input id="customerSearch" placeholder="微信昵称 / 姓名 / 手机号"></div><button id="customerReset" class="button ghost" type="button"><svg class="icon"><use href="#i-refresh"></use></svg>重置</button></div>
           <article class="panel table-panel"><div class="table-toolbar"><div><strong id="customerCount">共 7 位客户</strong><span class="muted">数据更新于今天 10:30</span></div></div><div class="table-scroll"><table><thead><tr><th>客户</th><th>净消费额</th><th>消费次数</th><th class="optional-wide">客单价</th><th>最近购买</th><th class="optional-wide">注册时间</th><th>操作</th></tr></thead><tbody id="customerRows"></tbody></table></div></article>
+        </section>
+
+        <section class="page-view" data-view="agents">
+          <div class="page-heading">
+            <div><p class="page-kicker">渠道运营</p><h2>代理管理</h2><p>由超级管理员统一开通账号、设置佣金比例并管理服务归属。</p></div>
+            <div class="heading-actions"><button id="openCreateAgent" class="button primary" type="button"><svg class="icon"><use href="#i-plus"></use></svg>新增代理</button></div>
+          </div>
+          <div class="mini-metric-grid agent-metrics"><article><span>启用代理</span><strong>24</strong><small class="positive-text">本月新增 3</small></article><article><span>已归属客户</span><strong>1,268</strong><small>仅计有效绑定</small></article><article><span>本月归属销售</span><strong>¥86,420</strong><small>实付净商品额</small></article><article><span>待结算佣金</span><strong>¥6,914</strong><small>收货后转可提现</small></article></div>
+          <div class="filter-bar"><div class="filter-search"><svg class="icon"><use href="#i-search"></use></svg><input id="agentSearch" placeholder="名称 / 账号 / 邀请码"></div><select id="agentStatus"><option value="">全部状态</option><option>已启用</option><option>已停用</option></select><button id="agentReset" class="button ghost" type="button"><svg class="icon"><use href="#i-refresh"></use></svg>重置</button></div>
+          <article class="panel table-panel"><div class="table-toolbar"><div><strong id="agentCount">共 5 个代理</strong><span class="muted">仅展示单层服务关系</span></div></div><div class="table-scroll"><table class="agents-table"><thead><tr><th>代理信息</th><th>佣金比例</th><th>邀请码</th><th>归属客户</th><th>归属销售</th><th>可提现余额</th><th>状态</th><th>操作</th></tr></thead><tbody id="agentRows"></tbody></table></div></article>
+        </section>
+
+        <section class="page-view" data-view="withdrawals">
+          <div class="page-heading"><div><p class="page-kicker">财务结算</p><h2>提现审核</h2><p>核对代理银行账户、审核申请并留存线下打款凭证。</p></div></div>
+          <div class="mini-metric-grid withdrawal-metrics"><article><span>待审核</span><strong class="coral-text">2</strong><small>最长等待 6 小时</small></article><article><span>已审核待打款</span><strong>1</strong><small>需上传打款凭证</small></article><article><span>本月已打款</span><strong>¥18,680</strong><small>16 笔申请</small></article><article><span>异常余额</span><strong>1</strong><small>负余额已限制提现</small></article></div>
+          <div class="filter-bar"><div class="filter-search"><svg class="icon"><use href="#i-search"></use></svg><input id="withdrawalSearch" placeholder="申请单 / 代理名称"></div><select id="withdrawalStatus"><option value="">全部状态</option><option>待审核</option><option>待打款</option><option>已打款</option><option>已拒绝</option></select><button id="withdrawalReset" class="button ghost" type="button"><svg class="icon"><use href="#i-refresh"></use></svg>重置</button></div>
+          <article class="panel table-panel"><div class="table-toolbar"><div><strong id="withdrawalCount">共 5 笔申请</strong><span class="muted">当前采用银行卡线下转账</span></div></div><div class="table-scroll"><table class="withdrawals-table"><thead><tr><th>申请单</th><th>代理</th><th>提现金额</th><th>收款账户</th><th>状态</th><th class="optional-wide">申请时间</th><th>操作</th></tr></thead><tbody id="withdrawalRows"></tbody></table></div></article>
         </section>
       </div>
     </main>
@@ -378,9 +405,51 @@
     <div class="modal-actions split"><button id="rejectAftersale" class="button danger-outline" type="button"><svg class="icon"><use href="#i-x"></use></svg>拒绝申请</button><div><button class="button secondary modal-close" type="button">取消</button><button id="approveAftersale" class="button primary" type="button"><svg class="icon"><use href="#i-check"></use></svg>同意退款</button></div></div>
   </section>
 
+  <section id="agentModal" class="modal wide-modal" role="dialog" aria-modal="true" aria-labelledby="agentModalTitle" hidden>
+    <div class="modal-heading"><div><h3 id="agentModalTitle">新增代理</h3><p id="agentModalSubtitle">开通单独代理工作台账号</p></div><button class="icon-button modal-close" type="button" title="关闭"><svg class="icon"><use href="#i-x"></use></svg></button></div>
+    <div class="modal-body"><div class="form-grid two-cols"><label class="form-field"><span>代理名称 <b>*</b></span><input id="agentNameInput" value="清和日用馆" placeholder="对用户展示的名称"></label><label class="form-field"><span>登录账号 <b>*</b></span><input id="agentAccountInput" value="qinghe.store" placeholder="仅用于代理工作台"></label><label class="form-field"><span>佣金比例 <b>*</b></span><div class="rate-input"><input id="agentRateInput" type="number" min="0" max="100" step="0.1" value="8.0"><span>%</span></div><small>只影响保存后产生的新订单</small></label><label class="form-field"><span>账号状态</span><select id="agentStatusInput"><option>已启用</option><option>已停用</option></select><small>停用后禁止登录、新绑定与新佣金</small></label><label class="form-field full"><span>运营联系人</span><input id="agentContactInput" value="安然 138****3916" placeholder="姓名与联系方式"></label><div class="agent-auth-editor"><label class="form-field"><span>商品授权模式</span><select id="agentAuthModeInput"><option>全部在售商品</option><option>自定义白名单</option></select><small>默认授权全部在售商品</small></label><div><span>当前授权范围</span><strong id="agentAuthSummary">全部在售商品 · 116 件</strong><button id="configureAgentProducts" class="button secondary small" type="button">配置商品</button></div></div></div><div class="permission-callout"><svg class="icon"><use href="#i-shield"></use></svg><div><strong>代理工作台为推广与只读查询权限</strong><span>可查看授权商品、脱敏客户、归属订单、佣金与提现；不可改价、改库存、发货或处理售后。</span></div></div></div>
+    <div class="modal-actions"><button class="button secondary modal-close" type="button">取消</button><button id="saveAgent" class="button primary" type="button"><svg class="icon"><use href="#i-check"></use></svg>保存并发放临时密码</button></div>
+  </section>
+
+  <section id="credentialModal" class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="credentialTitle" hidden>
+    <div class="modal-heading"><div><h3 id="credentialTitle">代理账号已创建</h3><p>登录凭证仅在本次操作中展示</p></div><button class="icon-button modal-close" type="button" title="关闭"><svg class="icon"><use href="#i-x"></use></svg></button></div>
+    <div class="modal-body"><div class="credential-warning"><svg class="icon"><use href="#i-alert"></use></svg><span>关闭后将无法再次查看临时密码，代理首次登录必须修改密码。</span></div><div class="credential-row"><span>登录账号</span><strong id="credentialAccount">待生成</strong><button id="copyCredentialAccount" class="icon-button" type="button" title="复制账号"><svg class="icon"><use href="#i-copy"></use></svg></button></div><div class="credential-row"><span>临时密码</span><strong id="credentialPassword">仅本次显示</strong><button id="copyCredentialPassword" class="icon-button" type="button" title="复制临时密码"><svg class="icon"><use href="#i-copy"></use></svg></button></div></div>
+    <div class="modal-actions"><button class="button primary modal-close" type="button">我已安全记录</button></div>
+  </section>
+
+  <section id="bankVerifyModal" class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="bankVerifyTitle" hidden>
+    <div class="modal-heading"><div><h3 id="bankVerifyTitle">二次验证查看卡号</h3><p>完整银行卡号属于敏感打款信息</p></div><button class="icon-button modal-close" type="button" title="关闭"><svg class="icon"><use href="#i-x"></use></svg></button></div>
+    <div class="modal-body"><div class="security-callout"><svg class="icon"><use href="#i-shield"></use></svg><div><strong>临时授权 60 秒</strong><span>验证通过后才从安全服务返回卡号，超时自动恢复掩码。</span></div></div><label class="form-field"><span>超级管理员密码 <b>*</b></span><input id="bankVerifyPassword" type="password" value="demo-pass" autocomplete="current-password"></label><label class="form-field"><span>总部安全验证码 <b>*</b></span><input id="bankVerifyCode" inputmode="numeric" value="826413" maxlength="6"><small>原型演示已预填验证信息</small></label></div>
+    <div class="modal-actions"><button class="button secondary modal-close" type="button">取消</button><button id="confirmBankVerification" class="button primary" type="button"><svg class="icon"><use href="#i-eye"></use></svg>验证并临时查看</button></div>
+  </section>
+
+  <section id="commissionAuditModal" class="modal wide-modal" role="dialog" aria-modal="true" aria-labelledby="commissionAuditTitle" hidden>
+    <div class="modal-heading"><div><h3 id="commissionAuditTitle">佣金审计流水</h3><p id="commissionAuditAgent">清源生活馆 · 不可变记录</p></div><button class="icon-button modal-close" type="button" title="关闭"><svg class="icon"><use href="#i-x"></use></svg></button></div>
+    <div class="modal-body"><div class="audit-summary"><div><span>当前比例</span><strong id="auditRate">8.00%</strong></div><div><span>可提现</span><strong id="auditAvailable">¥4,820.60</strong></div><div><span>冻结中</span><strong id="auditFrozen">¥2,680.00</strong></div><div><span>负余额</span><strong id="auditNegative">¥0.00</strong></div></div><div class="audit-list"><div><span class="audit-type success">CREDIT</span><p><strong>订单 QY202608060025 确认收货</strong><small>净商品额 ¥109.00 × 8.00% · 08-09 18:26</small></p><b>+¥8.72</b></div><div><span class="audit-type neutral">FREEZE</span><p><strong>提现 WD202608100021 申请冻结</strong><small>从可提现转入冻结 · 08-10 09:26</small></p><b>-¥2,680.00</b></div><div><span class="audit-type danger">REVERSAL</span><p><strong>售后 AS202608050009 退款冲减</strong><small>历史订单快照保留 · 08-10 10:18</small></p><b>-¥5.52</b></div></div></div>
+    <div class="modal-actions"><button class="button primary modal-close" type="button">关闭</button></div>
+  </section>
+
+  <section id="attributionModal" class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="attributionTitle" hidden>
+    <div class="modal-heading"><div><h3 id="attributionTitle">调整客户服务归属</h3><p id="attributionCustomer">客户 · 林晓月</p></div><button class="icon-button modal-close" type="button" title="关闭"><svg class="icon"><use href="#i-x"></use></svg></button></div>
+    <div class="modal-body"><div class="warning-callout"><svg class="icon"><use href="#i-alert"></use></svg><div><strong>仅影响后续订单</strong><span>历史订单保留原代理、佣金比例和佣金金额快照。</span></div></div><label class="form-field"><span>新服务代理 <b>*</b></span><select id="attributionAgent"><option value="A1038">清源生活馆</option><option value="A1026">清悦日用馆</option><option value="A1019">简木洗护顾问</option><option value="DIRECT">平台直接客户</option></select></label><label class="form-field"><span>调整原因 <b>*</b></span><textarea id="attributionReason" rows="3">客户反馈邀请归属异常，已核对原始邀请记录。</textarea></label></div>
+    <div class="modal-actions"><button class="button secondary modal-close" type="button">取消</button><button id="confirmAttribution" class="button primary" type="button">确认调整</button></div>
+  </section>
+
+  <section id="withdrawalModal" class="modal wide-modal" role="dialog" aria-modal="true" aria-labelledby="withdrawalModalTitle" hidden>
+    <div class="modal-heading"><div><h3 id="withdrawalModalTitle">审核提现申请</h3><p id="withdrawalModalNo">WD202608100021 · 待审核</p></div><button class="icon-button modal-close" type="button" title="关闭"><svg class="icon"><use href="#i-x"></use></svg></button></div>
+    <div class="modal-body"><div class="withdrawal-review-grid"><div class="withdrawal-amount-card"><span>申请金额</span><strong id="withdrawalAmount">¥2,680.00</strong><small id="withdrawalAgentName">清源生活馆</small></div><dl class="review-facts"><div><dt>当前可提现</dt><dd id="withdrawalBalance">¥4,820.60</dd></div><div><dt>申请冻结</dt><dd id="withdrawalFrozen">¥2,680.00</dd></div><div><dt>负余额</dt><dd id="withdrawalNegative">¥0.00</dd></div><div><dt>收款人</dt><dd id="withdrawalHolder">安然</dd></div><div><dt>开户行</dt><dd id="withdrawalBank">招商银行</dd></div><div><dt>银行卡</dt><dd class="bank-card-value"><span id="withdrawalCard">**** **** **** 3916</span><button id="openBankVerification" type="button">二次验证查看</button><small id="withdrawalCardTimer" hidden>60 秒后自动隐藏</small></dd></div></dl></div><label class="form-field"><span>审核备注</span><textarea id="withdrawalReviewNote" rows="3">账户信息与代理资料一致，可安排线下转账。</textarea></label><div id="paymentProofArea" class="payment-proof-area" hidden><div><strong>线下打款凭证 <b>*</b></strong><span>上传后才可标记已打款</span></div><button id="paymentProofButton" class="upload-proof-button" type="button"><svg class="icon"><use href="#i-upload"></use></svg><strong id="paymentProofLabel">上传转账凭证</strong><span>JPG / PNG，单张不超过 5MB</span></button></div></div>
+    <div class="modal-actions split"><button id="rejectWithdrawal" class="button danger-outline" type="button"><svg class="icon"><use href="#i-x"></use></svg>拒绝申请</button><div><button class="button secondary modal-close" type="button">取消</button><button id="approveWithdrawal" class="button primary" type="button"><svg class="icon"><use href="#i-check"></use></svg>审核通过</button><button id="markWithdrawalPaid" class="button primary" type="button" hidden disabled><svg class="icon"><use href="#i-check"></use></svg>标记已打款</button></div></div>
+  </section>
+
+  <aside id="agentDrawer" class="drawer" aria-labelledby="agentDrawerTitle" hidden>
+    <div class="drawer-heading"><div><span class="avatar large soft-green" id="agentDrawerAvatar">清</span><div><h3 id="agentDrawerTitle">清源生活馆</h3><p id="agentDrawerAccount">qingyuan.store</p></div></div><button class="icon-button drawer-close" type="button" title="关闭"><svg class="icon"><use href="#i-x"></use></svg></button></div>
+    <div class="drawer-body"><div class="drawer-metrics"><div><span>归属客户</span><strong id="agentDrawerCustomers">386</strong></div><div><span>归属销售</span><strong id="agentDrawerSales">¥86,420</strong></div><div><span>可提现</span><strong id="agentDrawerBalance">¥4,821</strong></div></div><section><h4>账号与结算</h4><dl class="drawer-list"><div><dt>佣金比例</dt><dd id="agentDrawerRate">8.00%</dd></div><div><dt>商品授权</dt><dd><button id="configureDrawerProducts" class="inline-config-button" type="button"><span id="agentDrawerAuthMode">全部在售商品</span> · <span id="agentDrawerAuthCount">116 件</span></button></dd></div><div><dt>邀请码</dt><dd id="agentDrawerInvite">QX-A1038</dd></div><div><dt>银行账户</dt><dd id="agentDrawerBank">招商银行 · ****3916</dd></div><div><dt>账号状态</dt><dd id="agentDrawerStatus">已启用</dd></div></dl></section><section><div class="section-mini-heading"><h4>佣金钱包</h4><button id="openCommissionAudit" type="button">查看审计流水</button></div><div class="wallet-breakdown"><div><span>可提现</span><strong id="agentWalletAvailable">¥4,820.60</strong></div><div><span>申请冻结</span><strong id="agentWalletFrozen">¥2,680.00</strong></div><div><span>负余额</span><strong id="agentWalletNegative">¥0.00</strong></div></div><p class="attribution-note">负余额会阻止新提现，后续佣金入账将优先抵扣。</p></section><section><h4>最近归属客户（脱敏预览）</h4><div class="masked-customer"><span class="avatar soft-green">林</span><div><strong>Moon</strong><small>138****6821 · 广东深圳</small></div><b>累计 ¥3,286</b></div><div class="masked-customer"><span class="avatar soft-green">周</span><div><strong>Mina</strong><small>186****3096 · 广东珠海</small></div><b>累计 ¥1,688</b></div></section></div>
+    <div class="drawer-actions"><button class="button secondary" type="button" id="copyDrawerInvite"><svg class="icon"><use href="#i-copy"></use></svg>复制邀请码</button><button class="button primary" type="button" id="editDrawerAgent"><svg class="icon"><use href="#i-edit"></use></svg>编辑代理</button></div>
+  </aside>
+
   <aside id="customerDrawer" class="drawer" aria-labelledby="customerDrawerTitle" hidden>
     <div class="drawer-heading"><div><span class="avatar large soft-green" id="drawerAvatar">林</span><div><h3 id="customerDrawerTitle">林晓月</h3><p id="drawerPhone">138****6821</p></div></div><button class="icon-button drawer-close" type="button" title="关闭"><svg class="icon"><use href="#i-x"></use></svg></button></div>
-    <div class="drawer-body"><div class="drawer-metrics"><div><span>净消费额</span><strong id="drawerSpend">¥3,286</strong></div><div><span>消费次数</span><strong id="drawerOrders">18</strong></div><div><span>客单价</span><strong id="drawerAov">¥182</strong></div></div><section><h4>基础信息</h4><dl class="drawer-list"><div><dt>注册时间</dt><dd>2025-11-18</dd></div><div><dt>最近访问</dt><dd>今天 09:17</dd></div><div><dt>收货城市</dt><dd>广东省深圳市</dd></div></dl></section><section><h4>最近购买</h4><div class="recent-purchase"><div class="product-art art-green"><i></i><b>植萃研</b></div><div><strong id="drawerRecent">氨基酸净澈洁面乳</strong><span>2026-08-06 · 2 件</span></div><b>¥138</b></div><div class="recent-purchase"><div class="product-art art-coral"><i></i><b>青木序</b></div><div><strong>积雪草舒缓修护霜</strong><span>2026-07-16 · 1 件</span></div><b>¥129</b></div></section></div>
+    <div class="drawer-body"><div class="drawer-metrics"><div><span>净消费额</span><strong id="drawerSpend">¥3,286</strong></div><div><span>消费次数</span><strong id="drawerOrders">18</strong></div><div><span>客单价</span><strong id="drawerAov">¥182</strong></div></div><section><h4>基础信息</h4><dl class="drawer-list"><div><dt>注册时间</dt><dd>2025-11-18</dd></div><div><dt>最近访问</dt><dd>今天 09:17</dd></div><div><dt>收货城市</dt><dd>广东省深圳市</dd></div></dl></section><section><div class="section-mini-heading"><h4>服务归属</h4><button id="openAttributionModal" type="button">调整归属</button></div><div class="attribution-card"><span id="drawerAgentAvatar" class="avatar soft-green">清</span><div><strong id="drawerAgentName">清源生活馆</strong><small id="drawerAgentBoundAt">绑定于 2026-07-18 14:26</small></div><span id="drawerAgentStatus" class="tag success">有效</span></div><p class="attribution-note">归属调整仅影响后续订单，历史订单和佣金快照保持不变。</p></section><section><h4>最近购买</h4><div class="recent-purchase"><div class="product-art art-green"><i></i><b>植萃研</b></div><div><strong id="drawerRecent">氨基酸净澈洁面乳</strong><span>2026-08-06 · 2 件</span></div><b>¥138</b></div><div class="recent-purchase"><div class="product-art art-coral"><i></i><b>青木序</b></div><div><strong>积雪草舒缓修护霜</strong><span>2026-07-16 · 1 件</span></div><b>¥129</b></div></section></div>
     <div class="drawer-actions"><button class="button secondary" type="button" data-toast="已复制客户手机号"><svg class="icon"><use href="#i-copy"></use></svg>复制手机号</button><button class="button primary" type="button" data-toast="客户订单筛选已应用" data-go="orders"><svg class="icon"><use href="#i-orders"></use></svg>查看订单</button></div>
   </aside>
 

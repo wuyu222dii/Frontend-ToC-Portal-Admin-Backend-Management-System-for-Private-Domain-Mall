@@ -99,6 +99,11 @@
     ["家庭清洁", "⌂"]
   ];
 
+  const inviteAgents = {
+    "QX-A1038": { id: "AGT-01038", name: "清源生活馆", contact: "顾问 安然", phone: "138****3916", city: "广东·深圳", inviteCode: "QX-A1038", boundAt: "2026-07-18 14:26" },
+    "QX-A1026": { id: "AGT-01026", name: "清悦日用馆", contact: "顾问 陈悦", phone: "186****2077", city: "广东·珠海", inviteCode: "QX-A1026", boundAt: "" }
+  };
+
   const screenMeta = {
     home: {
       canvasTitle: "首页 · 发现日常之美",
@@ -152,7 +157,13 @@
       canvasTitle: "我的 · 客户资产中心",
       title: "个人中心",
       description: "订单状态为第一层入口，地址、收藏、客服等高频服务集中管理。",
-      interactions: ["订单捷径带状态计数", "收藏数量即时同步", "地址、收藏与客服快捷入口"]
+      interactions: ["订单捷径带状态计数", "服务代理归属清晰可见", "地址、收藏与客服快捷入口"]
+    },
+    "service-agent": {
+      canvasTitle: "服务代理 · 归属与服务说明",
+      title: "服务代理",
+      description: "用户可以查看当前服务代理及绑定时间，价格、发货和售后仍由平台统一保障。",
+      interactions: ["有效邀请链路登录后显式确认", "绑定后不提供自助更换", "异常归属通过平台客服处理"]
     }
   };
 
@@ -171,6 +182,8 @@
     sku: "30ml 单瓶",
     quantity: 1,
     skuIntent: "cart",
+    agentBindingStatus: "bound",
+    serviceAgent: { ...inviteAgents["QX-A1038"] },
     cart: [
       { product: products[0], quantity: 1, selected: true },
       { product: products[3], quantity: 2, selected: true }
@@ -530,6 +543,18 @@
   }
 
   function renderProfile() {
+    const agent = state.serviceAgent;
+    const agentCard = state.agentBindingStatus === "bound" ? `
+      <button class="service-agent-card" data-screen="service-agent">
+        <span class="service-agent-card__mark">清</span>
+        <span class="service-agent-card__copy"><small>我的服务代理</small><strong>${agent.name}</strong><em>已绑定 · ${agent.city}</em></span>
+        <span class="service-agent-card__arrow">›</span>
+      </button>` : `
+      <button class="service-agent-card is-unbound" data-screen="service-agent">
+        <span class="service-agent-card__mark">青</span>
+        <span class="service-agent-card__copy"><small>服务代理</small><strong>暂未绑定</strong><em>从有效邀请入口登录后确认</em></span>
+        <span class="service-agent-card__arrow">›</span>
+      </button>`;
     return `
       <section class="app-screen with-tabbar profile-page">
         <div class="screen-scroll">
@@ -539,12 +564,46 @@
             <div class="profile-user"><div class="avatar">青</div><div><h2>林青</h2><p>微信用户 · 已加入青序 128 天</p></div></div>
           </div>
           <div class="profile-body">
+            ${agentCard}
             <section class="profile-card"><div class="profile-card__head"><strong>我的订单</strong><button data-screen="orders">全部订单 ›</button></div><div class="order-shortcuts"><button data-order-shortcut="待付款"><i>◴</i><span>待付款</span></button><button data-order-shortcut="待发货"><span class="notice-dot">1</span><i>▣</i><span>待发货</span></button><button data-order-shortcut="待收货"><span class="notice-dot">1</span><i>♧</i><span>待收货</span></button><button data-order-shortcut="已完成"><i>✓</i><span>已完成</span></button><button data-screen="aftersale"><i>↺</i><span>退款/售后</span></button></div></section>
             <section class="profile-card"><div class="profile-card__head"><strong>常用功能</strong></div><div class="benefit-row"><button data-action="favorite-list"><strong>${state.favorite ? 1 : 0}</strong><span>商品收藏</span></button><button data-action="address"><strong>1</strong><span>收货地址</span></button><button data-action="service"><strong>◉</strong><span>联系商家</span></button></div></section>
             <section class="profile-card menu-list"><button class="menu-item" data-action="address"><i>⌖</i><span>收货地址</span><span>›</span></button><button class="menu-item" data-action="service"><i>◉</i><span>联系商家</span><span>›</span></button><button class="menu-item" data-action="quality"><i>◇</i><span>正品与服务保障</span><span>›</span></button><button class="menu-item" data-action="feedback"><i>✎</i><span>意见反馈</span><span>›</span></button></section>
           </div>
         </div>
         ${tabbar("profile")}
+      </section>`;
+  }
+
+  function renderServiceAgent() {
+    const agent = state.serviceAgent;
+    const isBound = state.agentBindingStatus === "bound";
+    return `
+      <section class="app-screen service-agent-page">
+        <div class="screen-scroll">
+          ${statusBar()}
+          ${header("服务代理")}
+          <div class="service-agent-body">
+            ${isBound ? `
+              <article class="service-agent-identity">
+                <span class="service-agent-identity__mark">清</span>
+                <div><small>CURRENT SERVICE AGENT</small><h3>${agent.name}</h3><p>${agent.contact} · ${agent.city}</p></div>
+                <span class="binding-badge">已绑定</span>
+              </article>
+              <section class="agent-fact-card">
+                <div><span>绑定时间</span><strong>${agent.boundAt}</strong></div>
+                <div><span>服务联系</span><strong>${agent.phone}</strong></div>
+                <div><span>服务编号</span><strong>${agent.id}</strong></div>
+              </section>` : `
+              <article class="service-agent-empty"><span>青</span><h3>暂未绑定服务代理</h3><p>从有效分享链接或邀请二维码进入，登录后将显示绑定确认。</p></article>`}
+
+            <section class="agent-policy-card">
+              <div class="agent-policy-card__head"><span>◇</span><div><strong>商城服务保障</strong><small>归属关系不改变您的购物权益</small></div></div>
+              <ul><li>商品价格、支付与发货由青序生活统一提供</li><li>退款与售后仍由平台客服统一受理</li><li>绑定后不可自助更换，异常情况请联系客服</li></ul>
+            </section>
+
+            <section class="agent-help-card"><div><strong>需要帮助？</strong><p>对服务归属有疑问，平台客服会核实处理。</p></div><button class="secondary-button" data-action="service">联系平台客服</button></section>
+          </div>
+        </div>
       </section>`;
   }
 
@@ -557,7 +616,8 @@
     checkout: renderCheckout,
     orders: renderOrders,
     aftersale: renderAfterSale,
-    profile: renderProfile
+    profile: renderProfile,
+    "service-agent": renderServiceAgent
   };
 
   function render() {
@@ -626,6 +686,21 @@
   function paymentSheet(total) {
     return `
       <div class="sheet-handle"></div><div class="payment-sheet"><div class="pay-icon">✓</div><h3>微信支付</h3><p>订单已创建，请完成支付</p><div class="payment-amount"><small>¥</small>${Number(total).toFixed(2)}</div><div class="payment-note">原型演示环境不会发起真实扣款。确认后模拟支付成功并进入订单列表。</div><div class="sheet-footer"><button class="secondary-button" data-action="close-sheet">稍后支付</button><button class="primary-button" data-action="mock-pay" data-total="${total}">模拟支付成功</button></div></div>`;
+  }
+
+  function agentBindingSheet() {
+    const agent = state.serviceAgent;
+    return `
+      <div class="sheet-handle"></div>
+      <div class="binding-sheet">
+        <span class="binding-sheet__mark">清</span>
+        <small>SERVICE INVITATION</small>
+        <h3>确认服务代理</h3>
+        <p>您正在通过 <strong>${agent.name}</strong> 的邀请进入青序生活。确认后，该服务代理将为您提供选购咨询服务。</p>
+        <div class="binding-assurance"><span>✓</span><div><strong>购物权益不受影响</strong><small>商品价格、支付、发货与售后均由青序生活统一保障。</small></div></div>
+        <div class="binding-warning">绑定后不可自行更换；如归属异常，可联系平台客服核实。</div>
+        <div class="sheet-footer"><button class="secondary-button" data-action="decline-agent-binding">暂不绑定</button><button class="primary-button" data-action="confirm-agent-binding">确认绑定</button></div>
+      </div>`;
   }
 
   function handleSkuConfirm() {
@@ -826,6 +901,19 @@
       return render();
     }
     if (action === "clear-search-history") return showToast("搜索记录已清空");
+    if (action === "confirm-agent-binding") {
+      state.agentBindingStatus = "bound";
+      if (!state.serviceAgent.boundAt) state.serviceAgent.boundAt = "2026-08-10 11:08";
+      closeSheet();
+      render();
+      return showToast(`已绑定服务代理：${state.serviceAgent.name}`);
+    }
+    if (action === "decline-agent-binding") {
+      state.agentBindingStatus = "unbound";
+      closeSheet();
+      render();
+      return showToast("已保留未绑定状态");
+    }
     if (action === "manage-cart") return showToast("管理模式：可左滑删除商品");
     if (action === "share") return showToast("已生成小程序分享卡片");
     if (action === "service") return showToast("正在连接商家客服…");
@@ -860,6 +948,8 @@
     state.favorite = false;
     state.quantity = 1;
     state.afterSaleSubmitted = false;
+    state.agentBindingStatus = "bound";
+    state.serviceAgent = { ...inviteAgents["QX-A1038"] };
     closeSheet();
     render();
     showToast("原型已重置");
@@ -868,7 +958,22 @@
   const prototypeParams = new URLSearchParams(window.location.search);
   const requestedScreen = prototypeParams.get("screen");
   const requestedDevice = Number(prototypeParams.get("device"));
+  const inviteCode = prototypeParams.get("invite");
+  const requestedBinding = prototypeParams.get("binding");
+  let inviteNotice = "";
   if (requestedScreen && renderers[requestedScreen]) state.screen = requestedScreen;
+  if (requestedBinding === "unbound") state.agentBindingStatus = "unbound";
+  if (inviteCode) {
+    const invitedAgent = inviteAgents[inviteCode];
+    if (!invitedAgent) {
+      inviteNotice = "邀请码无效或已失效，未建立服务归属";
+    } else if (state.agentBindingStatus === "unbound") {
+      state.serviceAgent = { ...invitedAgent };
+      state.agentBindingStatus = "pending";
+    } else {
+      inviteNotice = `您已绑定 ${state.serviceAgent.name}，本次邀请不改变归属`;
+    }
+  }
   if ([375, 414].includes(requestedDevice)) {
     state.device = requestedDevice;
     phoneShell.style.setProperty("--device-width", `${requestedDevice}px`);
@@ -879,4 +984,6 @@
   }
 
   render();
+  if (state.agentBindingStatus === "pending") setTimeout(() => openSheet(agentBindingSheet()), 120);
+  else if (inviteNotice) setTimeout(() => showToast(inviteNotice), 120);
 })();

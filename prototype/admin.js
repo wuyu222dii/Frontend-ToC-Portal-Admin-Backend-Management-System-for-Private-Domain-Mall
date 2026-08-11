@@ -10,6 +10,7 @@
     aftersales: "售后审核",
     customers: "客户管理",
     agents: "代理管理",
+    "commission-rules": "统一佣金规则",
     withdrawals: "提现审核"
   };
 
@@ -55,11 +56,30 @@
   ];
 
   const agents = [
-    { id: "A1038", name: "清源生活馆", account: "qingyuan.store", contact: "安然 138****3916", rate: 8, invite: "QX-A1038", authMode: "全部在售商品", authorizedCount: 116, customers: 386, sales: 86420, available: 4820.6, frozen: 2680, negative: 0, bank: "招商银行", cardLast4: "3916", status: "已启用", avatar: "清" },
-    { id: "A1026", name: "清悦日用馆", account: "qingyue.store", contact: "陈悦 186****2077", rate: 7.5, invite: "QX-A1026", authMode: "自定义白名单", authorizedCount: 42, customers: 274, sales: 62180, available: 3686.2, frozen: 1200, negative: 0, bank: "中国建设银行", cardLast4: "2077", status: "已启用", avatar: "悦" },
-    { id: "A1019", name: "简木洗护顾问", account: "jianmu.care", contact: "林木 159****6128", rate: 9, invite: "QX-A1019", authMode: "全部在售商品", authorizedCount: 116, customers: 226, sales: 58960, available: 5218.4, frozen: 3200, negative: 0, bank: "中国工商银行", cardLast4: "6128", status: "已启用", avatar: "简" },
-    { id: "A1012", name: "素研生活家", account: "suyan.life", contact: "徐研 137****4632", rate: 8, invite: "QX-A1012", authMode: "自定义白名单", authorizedCount: 28, customers: 198, sales: 41860, available: 0, frozen: 0, negative: 328.5, bank: "中国农业银行", cardLast4: "4632", status: "已启用", avatar: "素" },
-    { id: "A1007", name: "白茶日用馆", account: "baicha.store", contact: "宋宁 135****7810", rate: 7, invite: "QX-A1007", authMode: "全部在售商品", authorizedCount: 116, customers: 184, sales: 36240, available: 896.8, frozen: 0, negative: 0, bank: "中国银行", cardLast4: "7810", status: "已停用", avatar: "白" }
+    { id: "A1038", name: "清源生活馆", account: "qingyuan.store", contact: "安然 138****3916", invite: "QX-A1038", authMode: "全部在售商品", authorizedCount: 116, customers: 386, sales: 86420, available: 4820.6, frozen: 2680, negative: 0, bank: "招商银行", cardLast4: "3916", status: "已启用", avatar: "清" },
+    { id: "A1026", name: "清悦日用馆", account: "qingyue.store", contact: "陈悦 186****2077", invite: "QX-A1026", authMode: "自定义白名单", authorizedCount: 42, customers: 274, sales: 62180, available: 3686.2, frozen: 1200, negative: 0, bank: "中国建设银行", cardLast4: "2077", status: "已启用", avatar: "悦" },
+    { id: "A1019", name: "简木洗护顾问", account: "jianmu.care", contact: "林木 159****6128", invite: "QX-A1019", authMode: "全部在售商品", authorizedCount: 116, customers: 226, sales: 58960, available: 5218.4, frozen: 3200, negative: 0, bank: "中国工商银行", cardLast4: "6128", status: "已启用", avatar: "简" },
+    { id: "A1012", name: "素研生活家", account: "suyan.life", contact: "徐研 137****4632", invite: "QX-A1012", authMode: "自定义白名单", authorizedCount: 28, customers: 198, sales: 41860, available: 0, frozen: 0, negative: 328.5, bank: "中国农业银行", cardLast4: "4632", status: "已启用", avatar: "素" },
+    { id: "A1007", name: "白茶日用馆", account: "baicha.store", contact: "宋宁 135****7810", invite: "QX-A1007", authMode: "全部在售商品", authorizedCount: 116, customers: 184, sales: 36240, available: 896.8, frozen: 0, negative: 0, bank: "中国银行", cardLast4: "7810", status: "已停用", avatar: "白" }
+  ];
+
+  const commissionRuleSet = { platformRate: 5 };
+  const commissionCategories = [
+    { id: "CAT-SKIN", name: "护肤品", productCount: 36, skuCount: 52, rate: 10, overrideCount: 1, updated: "08-11 10:18" },
+    { id: "CAT-HAIR", name: "洗发水", productCount: 18, skuCount: 27, rate: 8, overrideCount: 1, updated: "08-11 09:42" },
+    { id: "CAT-BODY", name: "沐浴露", productCount: 16, skuCount: 25, rate: 7, overrideCount: 0, updated: "08-10 17:06" },
+    { id: "CAT-SUN", name: "防晒产品", productCount: 9, skuCount: 12, rate: 9, overrideCount: 0, updated: "08-10 16:28" },
+    { id: "CAT-FRAGRANCE", name: "香水", productCount: 12, skuCount: 19, rate: 8, overrideCount: 0, updated: "08-09 15:12" },
+    { id: "CAT-MAKEUP", name: "彩妆", productCount: 14, skuCount: 31, rate: 10, overrideCount: 1, updated: "08-11 08:56" },
+    { id: "CAT-MEN", name: "男士护理", productCount: 11, skuCount: 16, rate: 7, overrideCount: 0, updated: "08-08 13:20" },
+    { id: "CAT-HOME", name: "家庭清洁", productCount: 20, skuCount: 34, rate: 5, overrideCount: 1, updated: "08-11 08:16" }
+  ];
+
+  const commissionSkuRules = [
+    { id: "CLEAN-120X2", name: "植萃研氨基酸净澈洁面乳", spec: "120g 两支装", brand: "植萃研", category: "护肤品", price: 128, rate: 12, art: "art-green", updated: "08-11 10:18" },
+    { id: "HAIR-500R", name: "沐光无硅油蓬松洗发水", spec: "500ml 补充装", brand: "沐光", category: "洗发水", price: 79, rate: 6.5, art: "art-blue", updated: "08-11 09:42" },
+    { id: "MAKEUP-GIFT", name: "青木序轻盈通勤彩妆礼盒", spec: "限定礼盒", brand: "青木序", category: "彩妆", price: 199, rate: 12, art: "art-coral", updated: "08-11 08:56" },
+    { id: "HOME-021", name: "净简柑橘厨房重油污清洁剂", spec: "临期批次 500ml", brand: "净简", category: "家庭清洁", price: 39, rate: 0, art: "art-amber", updated: "08-11 08:16" }
   ];
 
   const withdrawals = [
@@ -84,7 +104,10 @@
     paymentProofReady: false,
     oneTimeCredentials: null,
     bankRevealContext: null,
-    bankRevealTimer: null
+    bankRevealTimer: null,
+    activeCommissionRule: null,
+    commissionRuleMode: "custom",
+    commissionRuleRevision: 3
   };
 
   const $ = (selector, root = document) => root.querySelector(selector);
@@ -267,7 +290,7 @@
     $("#agentCount").textContent = `共 ${filtered.length} 个代理`;
     $("#agentRows").innerHTML = filtered.length ? filtered.map((agent) => `<tr data-agent-id="${agent.id}">
       <td><div class="agent-cell"><span class="avatar soft-green">${agent.avatar}</span><div><strong>${agent.name}</strong><span>${agent.account} · ${agent.contact}</span></div></div></td>
-      <td><span class="cell-main">${agent.rate.toFixed(2)}%</span><span class="cell-sub">新订单生效</span></td>
+      <td><span class="cell-main">统一商品规则</span><span class="cell-sub">SKU &gt; 分类 &gt; 平台</span></td>
       <td><button class="invite-code copy-agent-invite" type="button" title="复制邀请码">${agent.invite}${icon("copy")}</button></td>
       <td><span class="cell-main">${agent.customers.toLocaleString("zh-CN")}</span><span class="cell-sub">有效归属</span></td>
       <td><span class="cell-main">¥${agent.sales.toLocaleString("zh-CN")}</span><span class="cell-sub">本月净商品额</span></td>
@@ -275,6 +298,56 @@
       <td><span class="tag ${statusClass(agent.status)}">${agent.status}</span></td>
       <td><div class="row-actions"><button class="icon-button view-agent" type="button" title="查看代理">${icon("eye")}</button><button class="icon-button edit-agent" type="button" title="编辑代理">${icon("edit")}</button><button class="button text toggle-agent" type="button">${agent.status === "已启用" ? "停用" : "启用"}</button></div></td>
     </tr>`).join("") : `<tr><td colspan="8"><div class="empty-state">${icon("users")}<strong>没有找到匹配代理</strong><span>请调整搜索或状态筛选</span></div></td></tr>`;
+  }
+
+  function categoryRate(categoryName) {
+    const category = commissionCategories.find((item) => item.name === categoryName);
+    return category && category.rate !== null ? category.rate : commissionRuleSet.platformRate;
+  }
+
+  function renderCommissionRules() {
+    $("#ruleVersionBadge").innerHTML = `${icon("shield")}当前版本 CR-20260811-${String(state.commissionRuleRevision).padStart(2, "0")}`;
+    $("#platformDefaultMetric").textContent = `${commissionRuleSet.platformRate.toFixed(2)}%`;
+    $("#platformDefaultRate").textContent = `${commissionRuleSet.platformRate.toFixed(2)}%`;
+    $("#commissionCategoryRows").innerHTML = commissionCategories.map((category) => {
+      const inherited = category.rate === null;
+      const effectiveRate = inherited ? commissionRuleSet.platformRate : category.rate;
+      return `<tr data-category-id="${category.id}">
+        <td><span class="cell-main">${category.name}</span><span class="cell-sub">${category.id}</span></td>
+        <td><span class="cell-main">${category.productCount} 件商品</span><span class="cell-sub">${category.skuCount} 个 SKU</span></td>
+        <td><span class="rate-value">${effectiveRate.toFixed(2)}%</span><span class="cell-sub">${inherited ? "继承平台默认" : "分类单独设置"}</span></td>
+        <td><span class="rule-source ${inherited ? "platform" : "category"}">${inherited ? "平台默认" : "一级分类"}</span></td>
+        <td><span class="cell-main">${commissionSkuRules.filter((rule) => rule.rate !== null && rule.category === category.name).length} 个</span><span class="cell-sub">优先于本规则</span></td>
+        <td>${category.updated}</td>
+        <td><button class="icon-button edit-category-rule" type="button" title="编辑分类佣金规则">${icon("edit")}</button></td>
+      </tr>`;
+    }).join("");
+
+    const keyword = $("#commissionSkuSearch") ? $("#commissionSkuSearch").value.trim().toLowerCase() : "";
+    const categoryFilter = $("#commissionSkuCategory") ? $("#commissionSkuCategory").value : "";
+    const visibleSkuRules = commissionSkuRules.filter((rule) => rule.rate !== null).filter((rule) => {
+      const matchesKeyword = !keyword || `${rule.name}${rule.spec}${rule.id}${rule.brand}`.toLowerCase().includes(keyword);
+      return matchesKeyword && (!categoryFilter || rule.category === categoryFilter);
+    });
+    const overrideCount = commissionSkuRules.filter((rule) => rule.rate !== null).length;
+    $("#skuOverrideMetric").textContent = overrideCount;
+    $("#skuTabCount").textContent = overrideCount;
+    $("#commissionSkuCount").textContent = `共 ${visibleSkuRules.length} 个 SKU 例外`;
+    $("#commissionSkuRows").innerHTML = visibleSkuRules.length ? visibleSkuRules.map((rule) => {
+      const inheritedRate = categoryRate(rule.category);
+      const effectiveRate = rule.rate;
+      const isZero = effectiveRate === 0;
+      return `<tr data-sku-rule-id="${rule.id}">
+        <td><div class="product-cell">${renderProductArt(rule.art, rule.brand)}<div class="product-cell-copy"><strong title="${rule.name}">${rule.name}</strong><span>${rule.spec} · ${rule.id}</span></div></div></td>
+        <td><span class="cell-main">${rule.category}</span><span class="cell-sub">分类 ${inheritedRate.toFixed(2)}%</span></td>
+        <td><span class="cell-main">${money(rule.price)}</span></td>
+        <td><span class="rate-value muted-rate">${inheritedRate.toFixed(2)}%</span><span class="cell-sub">一级分类</span></td>
+        <td><span class="rate-value ${isZero ? "zero-rate" : ""}">${effectiveRate.toFixed(2)}%</span><span class="cell-sub">${isZero ? "明确不计佣" : "覆盖分类比例"}</span></td>
+        <td><span class="cell-main ${isZero ? "muted" : "positive-text"}">${money(rule.price * effectiveRate / 100)}</span><span class="cell-sub">按当前零售价估算</span></td>
+        <td><span class="rule-source ${isZero ? "zero" : "sku"}">${isZero ? "SKU 例外 · 0%" : "SKU 例外"}</span></td>
+        <td><button class="icon-button edit-sku-rule" type="button" title="编辑 SKU 佣金规则">${icon("edit")}</button><button class="button text remove-sku-rule" type="button">恢复继承</button></td>
+      </tr>`;
+    }).join("") : `<tr><td colspan="8"><div class="empty-state">${icon("search")}<strong>没有匹配的 SKU 例外</strong><span>可调整商品关键词或一级分类筛选</span></div></td></tr>`;
   }
 
   function renderWithdrawals() {
@@ -448,7 +521,6 @@
     $("#agentModalSubtitle").textContent = agent ? `${agent.id} · 调整只影响后续业务` : "开通单独代理工作台账号";
     $("#agentNameInput").value = agent ? agent.name : "清和日用馆";
     $("#agentAccountInput").value = agent ? agent.account : "qinghe.store";
-    $("#agentRateInput").value = agent ? agent.rate : 8;
     $("#agentStatusInput").value = agent ? agent.status : "已启用";
     $("#agentContactInput").value = agent ? agent.contact : "安和 138****4206";
     $("#agentAuthModeInput").value = agent ? agent.authMode : "全部在售商品";
@@ -467,7 +539,6 @@
     $("#agentDrawerCustomers").textContent = agent.customers.toLocaleString("zh-CN");
     $("#agentDrawerSales").textContent = `¥${agent.sales.toLocaleString("zh-CN")}`;
     $("#agentDrawerBalance").textContent = money(agent.available);
-    $("#agentDrawerRate").textContent = `${agent.rate.toFixed(2)}%`;
     $("#agentDrawerInvite").textContent = agent.invite;
     $("#agentDrawerAuthMode").textContent = agent.authMode;
     $("#agentDrawerAuthCount").textContent = `${agent.authorizedCount} 件`;
@@ -480,6 +551,71 @@
     closeOverlays();
     $("#modalBackdrop").hidden = false;
     $("#agentDrawer").hidden = false;
+  }
+
+  function setCommissionRuleMode(mode) {
+    state.commissionRuleMode = mode;
+    $$('[data-rule-mode]').forEach((button) => button.classList.toggle("active", button.dataset.ruleMode === mode));
+    const active = state.activeCommissionRule;
+    const rateInput = $("#ruleRateInput");
+    rateInput.disabled = mode === "inherit";
+    $("#ruleRateField").classList.toggle("is-inherited", mode === "inherit");
+    if (mode === "inherit" && active) {
+      if (active.type === "category") rateInput.value = commissionRuleSet.platformRate;
+      if (active.type === "sku") rateInput.value = categoryRate(active.item.category);
+    } else if (active) {
+      const currentRate = active.type === "platform" ? commissionRuleSet.platformRate : active.item.rate;
+      rateInput.value = currentRate === null ? (active.type === "category" ? commissionRuleSet.platformRate : categoryRate(active.item.category)) : currentRate;
+    }
+    $("#ruleModeHelp").textContent = mode === "inherit" ? "不保存独立比例，后续自动使用上一级有效规则。" : "单独设置后，将覆盖上一级继承来源。";
+    updateCommissionRulePreview();
+  }
+
+  function updateCommissionRulePreview() {
+    const active = state.activeCommissionRule;
+    if (!active) return;
+    const enteredRate = Math.max(0, Math.min(100, Number($("#ruleRateInput").value) || 0));
+    let effectiveRate = enteredRate;
+    let source = "平台默认";
+    if (active.type === "category") {
+      effectiveRate = state.commissionRuleMode === "inherit" ? commissionRuleSet.platformRate : enteredRate;
+      source = state.commissionRuleMode === "inherit" ? "平台默认" : `一级分类“${active.item.name}”`;
+    }
+    if (active.type === "sku") {
+      effectiveRate = state.commissionRuleMode === "inherit" ? categoryRate(active.item.category) : enteredRate;
+      source = state.commissionRuleMode === "inherit" ? `一级分类“${active.item.category}”` : `SKU 例外“${active.item.id}”`;
+    }
+    $("#rulePreviewRate").textContent = `有效比例 ${effectiveRate.toFixed(2)}%`;
+    $("#rulePreviewSource").textContent = `规则来源：${source}${active.type === "sku" ? ` · 预计 ${money(active.item.price * effectiveRate / 100)} / 件` : ""}`;
+    const explicitZero = state.commissionRuleMode === "custom" && effectiveRate === 0;
+    $("#ruleZeroNotice").hidden = !explicitZero;
+  }
+
+  function openCommissionRuleEditor(type, id = null) {
+    let item = null;
+    if (type === "category") item = commissionCategories.find((entry) => entry.id === id);
+    if (type === "sku") item = commissionSkuRules.find((entry) => entry.id === id);
+    if (type !== "platform" && !item) return;
+    state.activeCommissionRule = { type, item };
+    const isPlatform = type === "platform";
+    const isCategory = type === "category";
+    const currentRate = isPlatform ? commissionRuleSet.platformRate : item.rate;
+    $("#commissionRuleModalTitle").textContent = isPlatform ? "编辑平台默认佣金" : isCategory ? `编辑分类规则 · ${item.name}` : `编辑 SKU 例外 · ${item.id}`;
+    $("#commissionRuleModalSubtitle").textContent = "变更适用于全部一级代理，仅影响保存后支付的订单";
+    $("#ruleTargetType").textContent = isPlatform ? "平台默认" : isCategory ? "一级分类" : "商品 SKU";
+    $("#ruleTargetName").textContent = isPlatform ? "全平台佣金兜底规则" : isCategory ? item.name : `${item.name} · ${item.spec}`;
+    $("#ruleTargetContext").textContent = isPlatform ? "8 个一级分类 · 全部授权商品" : isCategory ? `${item.productCount} 件商品 · ${item.skuCount} 个 SKU` : `${item.category} · ${item.id} · 零售价 ${money(item.price)}`;
+    $("#ruleCurrentSource").textContent = isPlatform ? "平台默认" : isCategory ? (currentRate === null ? "继承平台" : "一级分类") : (currentRate === 0 ? "SKU 例外 · 0%" : "SKU 例外");
+    $("#ruleCurrentSource").className = `rule-source ${isPlatform ? "platform" : isCategory ? (currentRate === null ? "platform" : "category") : currentRate === 0 ? "zero" : "sku"}`;
+    $('[data-rule-mode="inherit"]').hidden = isPlatform;
+    $("#ruleModeSection").classList.toggle("platform-mode", isPlatform);
+    $("#ruleRateInput").value = currentRate === null ? (isCategory ? commissionRuleSet.platformRate : categoryRate(item.category)) : currentRate;
+    $("#ruleChangeReason").value = "";
+    $("#ruleImpactScope").textContent = isPlatform ? "全部授权商品与全部一级代理" : isCategory ? `${item.productCount} 件商品 · ${item.skuCount} 个 SKU` : `1 个 SKU · 全部一级代理`;
+    $("#ruleImpactDetail").textContent = isPlatform ? "仅在 SKU 与一级分类均未设置时命中，影响后续支付订单商品行。" : isCategory ? "仅影响保存后支付且未命中 SKU 例外的该分类订单商品行。" : "仅影响保存后支付并命中该 SKU 的订单商品行，历史快照保持不变。";
+    $("#ruleNextVersion").textContent = `CR-20260811-${String(state.commissionRuleRevision + 1).padStart(2, "0")}`;
+    openModal("#commissionRuleModal");
+    setCommissionRuleMode(isPlatform || currentRate !== null ? "custom" : "inherit");
   }
 
   function openWithdrawal(id) {
@@ -532,7 +668,7 @@
     if (!agent) return;
     openModal("#commissionAuditModal");
     $("#commissionAuditAgent").textContent = `${agent.name} · 不可变记录`;
-    $("#auditRate").textContent = `${agent.rate.toFixed(2)}%`;
+    $("#auditRule").textContent = "统一商品规则";
     $("#auditAvailable").textContent = money(agent.available);
     $("#auditFrozen").textContent = money(agent.frozen);
     $("#auditNegative").textContent = money(agent.negative);
@@ -769,6 +905,36 @@
         $$("[data-edit-panel]").forEach((panel) => panel.classList.toggle("active", panel.dataset.editPanel === editTab.dataset.editTab));
       }
 
+      const commissionTab = event.target.closest("[data-commission-tab]");
+      if (commissionTab) {
+        $$('[data-commission-tab]').forEach((item) => item.classList.toggle("active", item === commissionTab));
+        $("#categoryRulePanel").hidden = commissionTab.dataset.commissionTab !== "category";
+        $("#skuRulePanel").hidden = commissionTab.dataset.commissionTab !== "sku";
+      }
+
+      const editPlatformRule = event.target.closest(".edit-platform-rule");
+      if (editPlatformRule) openCommissionRuleEditor("platform");
+
+      const editCategoryRule = event.target.closest(".edit-category-rule");
+      if (editCategoryRule) openCommissionRuleEditor("category", editCategoryRule.closest("tr").dataset.categoryId);
+
+      const editSkuRule = event.target.closest(".edit-sku-rule");
+      if (editSkuRule) openCommissionRuleEditor("sku", editSkuRule.closest("tr").dataset.skuRuleId);
+
+      const removeSkuRule = event.target.closest(".remove-sku-rule");
+      if (removeSkuRule) {
+        const rule = commissionSkuRules.find((item) => item.id === removeSkuRule.closest("tr").dataset.skuRuleId);
+        if (rule) {
+          rule.rate = null;
+          state.commissionRuleRevision += 1;
+          renderCommissionRules();
+          showToast(`${rule.id} 已恢复继承 ${rule.category} 分类规则，并生成新版本`);
+        }
+      }
+
+      const ruleMode = event.target.closest("[data-rule-mode]");
+      if (ruleMode) setCommissionRuleMode(ruleMode.dataset.ruleMode);
+
       const skuDelete = event.target.closest(".sku-delete");
       if (skuDelete) {
         const rows = $$("#skuRows tr");
@@ -857,25 +1023,23 @@
     $("#saveAgent").addEventListener("click", () => {
       const name = $("#agentNameInput").value.trim();
       const account = $("#agentAccountInput").value.trim();
-      const rate = Math.max(0, Math.min(100, Number($("#agentRateInput").value)));
-      if (!name || !account || Number.isNaN(rate)) return showToast("请完整填写代理名称、账号和佣金比例");
+      if (!name || !account) return showToast("请完整填写代理名称和登录账号");
       const agent = agents.find((item) => item.id === state.activeAgentId);
       if (agent) {
         agent.name = name;
         agent.account = account;
-        agent.rate = rate;
         agent.status = $("#agentStatusInput").value;
         agent.contact = $("#agentContactInput").value.trim();
         agent.authMode = $("#agentAuthModeInput").value;
         agent.authorizedCount = agent.authMode === "全部在售商品" ? 116 : Number($("#agentAuthSummary").textContent.match(/\d+/)?.[0] || 0);
         renderAgents();
         closeOverlays();
-        showToast("代理资料已保存，新佣金比例仅影响后续订单");
+        showToast("代理资料已保存，继续适用统一商品佣金规则");
         return;
       }
       const sequence = 1040 + agents.length;
       const authMode = $("#agentAuthModeInput").value;
-      agents.unshift({ id: `A${sequence}`, name, account, contact: $("#agentContactInput").value.trim(), rate, invite: `QX-A${sequence}`, authMode, authorizedCount: authMode === "全部在售商品" ? 116 : 42, customers: 0, sales: 0, available: 0, frozen: 0, negative: 0, bank: "未设置", cardLast4: "----", status: $("#agentStatusInput").value, avatar: name.slice(0, 1) });
+      agents.unshift({ id: `A${sequence}`, name, account, contact: $("#agentContactInput").value.trim(), invite: `QX-A${sequence}`, authMode, authorizedCount: authMode === "全部在售商品" ? 116 : 42, customers: 0, sales: 0, available: 0, frozen: 0, negative: 0, bank: "未设置", cardLast4: "----", status: $("#agentStatusInput").value, avatar: name.slice(0, 1) });
       renderAgents();
       showOneTimeCredentials(account);
       showToast("代理已创建，请安全交付一次性登录凭证");
@@ -932,6 +1096,30 @@
       showToast("临时密码已复制，请通过安全通道交付");
     });
 
+    $("#ruleRateInput").addEventListener("input", updateCommissionRulePreview);
+    $("#saveCommissionRule").addEventListener("click", () => {
+      const active = state.activeCommissionRule;
+      const reason = $("#ruleChangeReason").value.trim();
+      if (!active) return;
+      if (!reason) return showToast("请填写佣金规则变更原因");
+      const rate = Number($("#ruleRateInput").value);
+      if (state.commissionRuleMode === "custom" && (Number.isNaN(rate) || rate < 0 || rate > 100)) return showToast("佣金比例需在 0% 至 100% 之间");
+      if (active.type === "platform") commissionRuleSet.platformRate = rate;
+      if (active.type === "category") {
+        active.item.rate = state.commissionRuleMode === "inherit" ? null : rate;
+        active.item.updated = "08-11 11:26";
+      }
+      if (active.type === "sku") {
+        active.item.rate = state.commissionRuleMode === "inherit" ? null : rate;
+        active.item.updated = "08-11 11:26";
+      }
+      state.commissionRuleRevision += 1;
+      const version = `CR-20260811-${String(state.commissionRuleRevision).padStart(2, "0")}`;
+      renderCommissionRules();
+      closeOverlays();
+      showToast(`佣金规则已保存并生成新版本 ${version}`);
+    });
+
     $("#approveWithdrawal").addEventListener("click", () => {
       const item = withdrawals.find((withdrawal) => withdrawal.id === state.activeWithdrawalId);
       if (!item || item.status !== "待审核") return;
@@ -983,7 +1171,7 @@
     });
 
     $("#addSku").addEventListener("click", () => {
-      $("#skuRows").insertAdjacentHTML("beforeend", `<tr><td><input value="新规格"></td><td><input value="NEW-SKU"></td><td><div class="money-input"><span>¥</span><input value="0.00"></div></td><td><input type="number" value="0"></td><td><button class="icon-button danger sku-delete" title="删除规格">${icon("trash")}</button></td></tr>`);
+      $("#skuRows").insertAdjacentHTML("beforeend", `<tr><td><input value="新规格"></td><td><input value="NEW-SKU"></td><td><div class="money-input"><span>¥</span><input value="0.00"></div></td><td><input type="number" value="0"></td><td><div class="sku-commission-cell"><strong>10.00%</strong><small>预计 ¥0.00 / 件</small></div></td><td><span class="rule-source category">一级分类</span></td><td><button class="icon-button danger sku-delete" title="删除规格">${icon("trash")}</button></td></tr>`);
       showToast("已新增规格，请填写价格和库存");
     });
 
@@ -995,6 +1183,8 @@
     $("#agentStatus").addEventListener("change", renderAgents);
     $("#withdrawalSearch").addEventListener("input", renderWithdrawals);
     $("#withdrawalStatus").addEventListener("change", renderWithdrawals);
+    $("#commissionSkuSearch").addEventListener("input", renderCommissionRules);
+    $("#commissionSkuCategory").addEventListener("change", renderCommissionRules);
 
     $("#productReset").addEventListener("click", () => {
       $("#productSearch").value = ""; $("#productCategory").value = ""; $("#productBrand").value = ""; $("#productStatus").value = ""; renderProducts();
@@ -1004,6 +1194,7 @@
     $("#customerReset").addEventListener("click", () => { $("#customerSearch").value = ""; renderCustomers(); });
     $("#agentReset").addEventListener("click", () => { $("#agentSearch").value = ""; $("#agentStatus").value = ""; renderAgents(); });
     $("#withdrawalReset").addEventListener("click", () => { $("#withdrawalSearch").value = ""; $("#withdrawalStatus").value = ""; renderWithdrawals(); });
+    $("#commissionSkuReset").addEventListener("click", () => { $("#commissionSkuSearch").value = ""; $("#commissionSkuCategory").value = ""; renderCommissionRules(); });
 
     $$('[data-status-shortcut]').forEach((button) => button.addEventListener("click", () => {
       $("#productStatus").value = button.dataset.statusShortcut;
@@ -1035,6 +1226,7 @@
     renderAftersales();
     renderCustomers();
     renderAgents();
+    renderCommissionRules();
     renderWithdrawals();
     setupEvents();
     if (prototypeParams.get("autologin") === "1" || sessionStorage.getItem("qingyuAdminLoggedIn") === "1") showApp();

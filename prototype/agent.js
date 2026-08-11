@@ -12,14 +12,38 @@
   };
 
   const products = [
-    { id: 1, name: "植萃研氨基酸净澈洁面乳 120g", brand: "植萃研", category: "护肤品", price: 69, commission: 5.52, sales: 1826, image: "assets/product-1.png", tag: "热销", stock: "库存充足" },
-    { id: 2, name: "沐光无硅油蓬松洗发水 500ml", brand: "沐光", category: "洗发水", price: 89, commission: 7.12, sales: 1432, image: "assets/product-2.png", tag: "热销", stock: "库存充足" },
-    { id: 3, name: "青木序积雪草舒缓修护霜 50g", brand: "青木序", category: "护肤品", price: 129, commission: 10.32, sales: 986, image: "assets/product-3.png", tag: "新品", stock: "库存充足" },
-    { id: 4, name: "净简酵素浓缩洗衣凝珠 30颗", brand: "净简", category: "家庭清洁", price: 49, commission: 3.92, sales: 862, image: "assets/product-4.png", tag: "家庭装", stock: "库存充足" },
-    { id: 5, name: "植萃研烟酰胺焕亮精华液 30ml", brand: "植萃研", category: "护肤品", price: 159, commission: 12.72, sales: 748, image: "assets/product-5.png", tag: "精选", stock: "库存较少" },
-    { id: 6, name: "沐光白茶香氛沐浴露 500ml", brand: "沐光", category: "沐浴露", price: 79, commission: 6.32, sales: 635, image: "assets/product-6.png", tag: "热销", stock: "库存充足" },
-    { id: 7, name: "青木序轻透倍护防晒乳 SPF50+", brand: "青木序", category: "护肤品", price: 119, commission: 9.52, sales: 528, image: "assets/product-7.png", tag: "夏日", stock: "补货中" },
-    { id: 8, name: "净简柑橘厨房重油污清洁剂", brand: "净简", category: "家庭清洁", price: 39, commission: 3.12, sales: 426, image: "assets/product-8.png", tag: "新品", stock: "库存充足" }
+    { id: 1, name: "植萃研氨基酸净澈洁面乳", brand: "植萃研", category: "护肤品", sales: 1826, image: "assets/product-1.png", tag: "热销", stock: "库存充足", skus: [
+      { code: "ZCY-CLEAN-120", spec: "正装 120g", price: 69, rate: 10, source: "分类默认" },
+      { code: "CLEAN-120X2", spec: "120g 两支装", price: 128, rate: 12, source: "SKU 覆盖" }
+    ] },
+    { id: 2, name: "沐光无硅油蓬松洗发水", brand: "沐光", category: "洗发水", sales: 1432, image: "assets/product-2.png", tag: "热销", stock: "库存充足", skus: [
+      { code: "MG-SHAMPOO-500", spec: "正装 500ml", price: 89, rate: 8, source: "分类默认" },
+      { code: "HAIR-500R", spec: "500ml 补充装", price: 79, rate: 6.5, source: "SKU 覆盖" }
+    ] },
+    { id: 3, name: "青木序积雪草舒缓修护霜", brand: "青木序", category: "护肤品", sales: 986, image: "assets/product-3.png", tag: "新品", stock: "库存充足", skus: [
+      { code: "QMX-CREAM-050", spec: "正装 50g", price: 129, rate: 10, source: "分类默认" },
+      { code: "QMX-CREAM-030", spec: "轻享装 30g", price: 89, rate: 10, source: "分类默认" }
+    ] },
+    { id: 4, name: "净简酵素浓缩洗衣凝珠", brand: "净简", category: "家庭清洁", sales: 862, image: "assets/product-4.png", tag: "家庭装", stock: "库存充足", skus: [
+      { code: "JJ-LAUNDRY-030", spec: "30 颗", price: 49, rate: 5, source: "分类默认" },
+      { code: "JJ-LAUNDRY-060", spec: "60 颗家庭装", price: 89, rate: 5, source: "分类默认" }
+    ] },
+    { id: 5, name: "植萃研烟酰胺焕亮精华液", brand: "植萃研", category: "护肤品", sales: 748, image: "assets/product-5.png", tag: "精选", stock: "库存较少", skus: [
+      { code: "ZCY-SERUM-030", spec: "正装 30ml", price: 159, rate: 10, source: "分类默认" },
+      { code: "ZCY-SERUM-015", spec: "体验装 15ml", price: 89, rate: 10, source: "分类默认" }
+    ] },
+    { id: 6, name: "沐光白茶香氛沐浴露", brand: "沐光", category: "沐浴露", sales: 635, image: "assets/product-6.png", tag: "热销", stock: "库存充足", skus: [
+      { code: "MG-BODY-500", spec: "正装 500ml", price: 79, rate: 7, source: "分类默认" },
+      { code: "MG-BODY-400R", spec: "补充装 400ml", price: 59, rate: 7, source: "分类默认" }
+    ] },
+    { id: 7, name: "青木序轻透倍护防晒乳 SPF50+", brand: "青木序", category: "防晒产品", sales: 528, image: "assets/product-7.png", tag: "夏日", stock: "补货中", skus: [
+      { code: "QMX-SUN-050", spec: "正装 50ml", price: 119, rate: 9, source: "分类默认" },
+      { code: "QMX-SUN-030", spec: "便携装 30ml", price: 79, rate: 9, source: "分类默认" }
+    ] },
+    { id: 8, name: "净简柑橘厨房重油污清洁剂", brand: "净简", category: "家庭清洁", sales: 426, image: "assets/product-8.png", tag: "新品", stock: "库存充足", skus: [
+      { code: "HOME-021", spec: "临期批次 500ml", price: 39, rate: 0, source: "SKU 覆盖" },
+      { code: "JJ-KITCHEN-1L", spec: "补充装 1L", price: 59, rate: 5, source: "分类默认" }
+    ] }
   ];
 
   const customers = [
@@ -33,25 +57,44 @@
   ];
 
   const orders = [
-    { id: "QX202608100028", customer: "Moon", phone: "6821", city: "杭州", product: "氨基酸洁面乳等 2 款", productId: 1, count: 3, amount: 227, status: "待发货", commission: 18.16, commissionStatus: "预计", time: "08-10 09:18", aftersale: "无" },
-    { id: "QX202608100027", customer: "Mina", phone: "3096", city: "宁波", product: "无硅油蓬松洗发水", productId: 2, count: 1, amount: 89, status: "退款售后", commission: -7.12, commissionStatus: "冲减", time: "08-10 09:02", aftersale: "平台退款中" },
-    { id: "QX202608100026", customer: "嘉禾", phone: "2218", city: "绍兴", product: "酵素浓缩洗衣凝珠", productId: 4, count: 2, amount: 84, status: "运输中", commission: 6.72, commissionStatus: "预计", time: "08-10 08:46", aftersale: "无" },
-    { id: "QX202608100025", customer: "Zoe", phone: "5107", city: "杭州", product: "积雪草舒缓修护霜", productId: 3, count: 1, amount: 109, status: "已完成", commission: 8.72, commissionStatus: "已入账", time: "08-10 08:25", aftersale: "无" },
-    { id: "QX202608090186", customer: "悦悦", phone: "8432", city: "湖州", product: "白茶香氛沐浴露等 3 款", productId: 6, count: 5, amount: 326, status: "待发货", commission: 26.08, commissionStatus: "预计", time: "08-09 18:12", aftersale: "无" },
-    { id: "QX202608090142", customer: "Yuki", phone: "0076", city: "嘉兴", product: "烟酰胺焕亮精华液", productId: 5, count: 1, amount: 139, status: "已完成", commission: 11.12, commissionStatus: "已入账", time: "08-09 16:58", aftersale: "无" },
-    { id: "QX202608080095", customer: "Moon", phone: "6821", city: "杭州", product: "氨基酸洁面乳旅行装", productId: 1, count: 2, amount: 50, status: "运输中", commission: 4, commissionStatus: "预计", time: "08-08 12:31", aftersale: "无" },
-    { id: "QX202608070251", customer: "Zoe", phone: "5107", city: "杭州", product: "轻透倍护防晒乳", productId: 7, count: 1, amount: 99, status: "已完成", commission: 7.92, commissionStatus: "已入账", time: "08-07 10:16", aftersale: "售后期内" }
+    { id: "QX202608100028", customer: "Moon", phone: "6821", city: "杭州", product: "氨基酸洁面乳等 2 款", productId: 1, count: 3, amount: 227, status: "待发货", commission: 20.92, commissionStatus: "预计", time: "08-10 09:18", aftersale: "无", items: [
+      { product: "氨基酸净澈洁面乳", sku: "正装 120g · ZCY-CLEAN-120", quantity: 2, base: 138, rate: 10, source: "分类默认", commission: 13.8 },
+      { product: "无硅油蓬松洗发水", sku: "正装 500ml · MG-SHAMPOO-500", quantity: 1, base: 89, rate: 8, source: "分类默认", commission: 7.12 }
+    ] },
+    { id: "QX202608100027", customer: "Mina", phone: "3096", city: "宁波", product: "无硅油蓬松洗发水", productId: 2, count: 1, amount: 89, status: "退款售后", commission: -7.12, commissionStatus: "冲减", time: "08-10 09:02", aftersale: "平台退款中", items: [
+      { product: "无硅油蓬松洗发水", sku: "正装 500ml · MG-SHAMPOO-500", quantity: 1, base: 89, rate: 8, source: "分类默认", commission: -7.12 }
+    ] },
+    { id: "QX202608100026", customer: "嘉禾", phone: "2218", city: "绍兴", product: "酵素浓缩洗衣凝珠", productId: 4, count: 2, amount: 84, status: "运输中", commission: 4.2, commissionStatus: "预计", time: "08-10 08:46", aftersale: "无", items: [
+      { product: "酵素浓缩洗衣凝珠", sku: "30 颗 · JJ-LAUNDRY-030", quantity: 2, base: 84, rate: 5, source: "分类默认", commission: 4.2 }
+    ] },
+    { id: "QX202608100025", customer: "Zoe", phone: "5107", city: "杭州", product: "积雪草舒缓修护霜", productId: 3, count: 1, amount: 109, status: "已完成", commission: 10.9, commissionStatus: "已入账", time: "08-10 08:25", aftersale: "无", items: [
+      { product: "积雪草舒缓修护霜", sku: "正装 50g · QMX-CREAM-050", quantity: 1, base: 109, rate: 10, source: "分类默认", commission: 10.9 }
+    ] },
+    { id: "QX202608090186", customer: "悦悦", phone: "8432", city: "湖州", product: "白茶香氛沐浴露等 3 款", productId: 6, count: 5, amount: 326, status: "待发货", commission: 25.06, commissionStatus: "预计", time: "08-09 18:12", aftersale: "无", items: [
+      { product: "白茶香氛沐浴露", sku: "正装 500ml · MG-BODY-500", quantity: 2, base: 138, rate: 7, source: "分类默认", commission: 9.66 },
+      { product: "厨房重油污清洁剂", sku: "补充装 1L · JJ-KITCHEN-1L", quantity: 2, base: 68, rate: 5, source: "分类默认", commission: 3.4 },
+      { product: "积雪草舒缓修护霜", sku: "正装 50g · QMX-CREAM-050", quantity: 1, base: 120, rate: 10, source: "分类默认", commission: 12 }
+    ] },
+    { id: "QX202608090142", customer: "Yuki", phone: "0076", city: "嘉兴", product: "烟酰胺焕亮精华液", productId: 5, count: 1, amount: 139, status: "已完成", commission: 13.9, commissionStatus: "已入账", time: "08-09 16:58", aftersale: "无", items: [
+      { product: "烟酰胺焕亮精华液", sku: "正装 30ml · ZCY-SERUM-030", quantity: 1, base: 139, rate: 10, source: "分类默认", commission: 13.9 }
+    ] },
+    { id: "QX202608080095", customer: "Moon", phone: "6821", city: "杭州", product: "氨基酸洁面乳两支装", productId: 1, count: 1, amount: 128, status: "运输中", commission: 15.36, commissionStatus: "预计", time: "08-08 12:31", aftersale: "无", items: [
+      { product: "氨基酸净澈洁面乳", sku: "120g 两支装 · CLEAN-120X2", quantity: 1, base: 128, rate: 12, source: "SKU 覆盖", commission: 15.36 }
+    ] },
+    { id: "QX202608070251", customer: "Zoe", phone: "5107", city: "杭州", product: "轻透倍护防晒乳", productId: 7, count: 1, amount: 99, status: "已完成", commission: 8.91, commissionStatus: "已入账", time: "08-07 10:16", aftersale: "售后期内", items: [
+      { product: "轻透倍护防晒乳 SPF50+", sku: "正装 50ml · QMX-SUN-050", quantity: 1, base: 99, rate: 9, source: "分类默认", commission: 8.91 }
+    ] }
   ];
 
   const commissions = [
-    { id: 1, time: "08-10 09:18", type: "预计", order: "QX202608100028", product: "氨基酸洁面乳等 2 款", base: 227, rate: "8.00%", amount: 18.16, impact: "待订单完成" },
-    { id: 2, time: "08-10 09:11", type: "冲减", order: "QX202608100027", product: "无硅油蓬松洗发水", base: 89, rate: "8.00%", amount: -7.12, impact: "已扣减余额" },
-    { id: 3, time: "08-10 08:46", type: "预计", order: "QX202608100026", product: "酵素浓缩洗衣凝珠", base: 84, rate: "8.00%", amount: 6.72, impact: "待订单完成" },
-    { id: 4, time: "08-10 08:25", type: "入账", order: "QX202608100025", product: "积雪草舒缓修护霜", base: 109, rate: "8.00%", amount: 8.72, impact: "可提现" },
-    { id: 5, time: "08-09 18:12", type: "预计", order: "QX202608090186", product: "白茶香氛沐浴露等 3 款", base: 326, rate: "8.00%", amount: 26.08, impact: "待订单完成" },
-    { id: 6, time: "08-09 16:58", type: "入账", order: "QX202608090142", product: "烟酰胺焕亮精华液", base: 139, rate: "8.00%", amount: 11.12, impact: "可提现" },
-    { id: 7, time: "08-08 15:36", type: "冲减", order: "QX202608050077", product: "白茶香氛沐浴露", base: 69, rate: "8.00%", amount: -5.52, impact: "已扣减余额" },
-    { id: 8, time: "08-08 12:31", type: "入账", order: "QX202608080095", product: "氨基酸洁面乳旅行装", base: 50, rate: "8.00%", amount: 4, impact: "可提现" }
+    { id: 1, time: "08-10 09:18", type: "预计", order: "QX202608100028", product: "氨基酸净澈洁面乳", sku: "正装 120g · ZCY-CLEAN-120", base: 138, rate: 10, source: "分类默认", amount: 13.8, impact: "待订单完成" },
+    { id: 2, time: "08-10 09:18", type: "预计", order: "QX202608100028", product: "无硅油蓬松洗发水", sku: "正装 500ml · MG-SHAMPOO-500", base: 89, rate: 8, source: "分类默认", amount: 7.12, impact: "待订单完成" },
+    { id: 3, time: "08-10 09:11", type: "冲减", order: "QX202608100027", product: "无硅油蓬松洗发水", sku: "正装 500ml · MG-SHAMPOO-500", base: 89, rate: 8, source: "分类默认", amount: -7.12, impact: "已扣减余额" },
+    { id: 4, time: "08-10 08:46", type: "预计", order: "QX202608100026", product: "酵素浓缩洗衣凝珠", sku: "30 颗 · JJ-LAUNDRY-030", base: 84, rate: 5, source: "分类默认", amount: 4.2, impact: "待订单完成" },
+    { id: 5, time: "08-10 08:25", type: "入账", order: "QX202608100025", product: "积雪草舒缓修护霜", sku: "正装 50g · QMX-CREAM-050", base: 109, rate: 10, source: "分类默认", amount: 10.9, impact: "可提现" },
+    { id: 6, time: "08-09 18:12", type: "预计", order: "QX202608090186", product: "白茶香氛沐浴露", sku: "正装 500ml · MG-BODY-500", base: 138, rate: 7, source: "分类默认", amount: 9.66, impact: "待订单完成" },
+    { id: 7, time: "08-09 16:58", type: "入账", order: "QX202608090142", product: "烟酰胺焕亮精华液", sku: "正装 30ml · ZCY-SERUM-030", base: 139, rate: 10, source: "分类默认", amount: 13.9, impact: "可提现" },
+    { id: 8, time: "08-08 12:31", type: "入账", order: "QX202608080095", product: "氨基酸净澈洁面乳", sku: "120g 两支装 · CLEAN-120X2", base: 128, rate: 12, source: "SKU 覆盖", amount: 15.36, impact: "可提现" }
   ];
 
   const withdrawals = [
@@ -74,7 +117,44 @@
   const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
   const icon = (id) => `<svg class="icon"><use href="#i-${id}"></use></svg>`;
   const money = (value) => `${Number(value) < 0 ? "- " : ""}¥ ${Math.abs(Number(value)).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const percent = (value) => `${Number(value).toFixed(2)}%`;
   const safe = (value) => String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[character]));
+
+  function primarySku(product) {
+    return product.skus[0];
+  }
+
+  function skuCommission(sku) {
+    return Number((sku.price * sku.rate / 100).toFixed(2));
+  }
+
+  function commissionText(sku) {
+    return sku.rate === 0 ? "无佣金" : money(skuCommission(sku));
+  }
+
+  function sourceTag(source) {
+    return `<span class="tag ${source === "SKU 覆盖" ? "info" : "success"}">${source}</span>`;
+  }
+
+  function orderRuleSummary(order) {
+    if (order.items.length === 1) return `${percent(order.items[0].rate)} · ${order.items[0].source}`;
+    return `${order.items.length} 个订单项规则`;
+  }
+
+  function productPriceRange(product) {
+    const prices = product.skus.map((sku) => sku.price);
+    const low = Math.min(...prices);
+    const high = Math.max(...prices);
+    return low === high ? money(low) : `${money(low)} - ${money(high)}`;
+  }
+
+  function skuRuleList(product) {
+    return product.skus.map((sku) => `<article class="sku-rule-item"><div class="sku-rule-heading"><div><strong>${sku.spec}</strong><small>${sku.code}</small></div>${sourceTag(sku.source)}</div><div class="sku-rule-values"><div><span>平台零售价</span><strong>${money(sku.price)}</strong></div><div><span>有效比例</span><strong>${percent(sku.rate)}${sku.rate === 0 ? " · 无佣金" : ""}</strong></div><div><span>单件预计佣金</span><strong class="${sku.rate === 0 ? "danger-text" : "positive"}">${commissionText(sku)}</strong></div></div></article>`).join("");
+  }
+
+  function orderSnapshotList(order) {
+    return order.items.map((item) => `<article class="snapshot-item"><div class="snapshot-heading"><div><strong>${item.product}</strong><small>${item.sku} · ${item.quantity} 件</small></div>${sourceTag(item.source)}</div><div class="snapshot-formula"><span>${money(item.base)}</span><b>×</b><span>${percent(item.rate)}</span><b>=</b><strong class="${item.commission < 0 ? "danger-text" : "positive"}">${money(item.commission)}</strong></div></article>`).join("");
+  }
 
   function statusClass(status) {
     return {
@@ -111,14 +191,15 @@
     const category = $("#productCategory").value;
     const sort = $("#productSort").value;
     const filtered = products.filter((product) => (!keyword || `${product.name}${product.brand}`.toLowerCase().includes(keyword)) && (!category || product.category === category));
-    filtered.sort((a, b) => sort === "commission" ? b.commission - a.commission : sort === "new" ? b.id - a.id : b.sales - a.sales);
-    $("#productGrid").innerHTML = filtered.length ? filtered.map((product) => `<article class="product-card">
+    filtered.sort((a, b) => sort === "commission" ? skuCommission(primarySku(b)) - skuCommission(primarySku(a)) : sort === "new" ? b.id - a.id : b.sales - a.sales);
+    $("#productGrid").innerHTML = filtered.length ? filtered.map((product) => { const sku = primarySku(product); return `<article class="product-card">
       <div class="product-image"><img src="${product.image}" alt="${safe(product.name)}"><span class="tag ${product.tag === "热销" ? "danger" : product.tag === "新品" ? "info" : "success"}">${product.tag}</span></div>
       <div class="product-body"><span class="product-brand">${product.brand} · ${product.category}</span><h3 title="${safe(product.name)}">${product.name}</h3>
-        <div class="product-price"><div><span>平台零售价</span><strong>${money(product.price)}</strong></div><span>预计佣金 ${money(product.commission)}</span></div>
+        <div class="product-price"><div><span>平台零售价 · ${sku.spec}</span><strong>${money(sku.price)}</strong></div><div class="product-commission"><span>预计佣金</span><strong>${commissionText(sku)}</strong></div></div>
+        <div class="commission-source-line">${sourceTag(sku.source)}<small>${percent(sku.rate)} · 默认推广规格</small></div>
         <div class="product-meta"><span>累计销量 ${product.sales.toLocaleString("zh-CN")}</span><span>${product.stock}</span></div>
         <div class="product-actions"><button class="button secondary" type="button" data-product-detail="${product.id}"><svg class="icon"><use href="#i-eye"></use></svg>查看</button><button class="button primary" type="button" data-share-product="${product.id}"><svg class="icon"><use href="#i-share"></use></svg>立即推广</button></div>
-      </div></article>`).join("") : `<div class="panel empty-state">${icon("package")}<strong>没有找到匹配商品</strong><span>可尝试调整关键词或分类</span></div>`;
+      </div></article>`; }).join("") : `<div class="panel empty-state">${icon("package")}<strong>没有找到匹配商品</strong><span>可尝试调整关键词或分类</span></div>`;
   }
 
   function customerCard(customer) {
@@ -135,7 +216,7 @@
   }
 
   function orderCard(order) {
-    return `<article class="mobile-data-card"><div class="mobile-card-head"><div><strong>${order.id}</strong><span>${order.time} · ${order.customer}（${order.phone}）</span></div><span class="tag ${statusClass(order.status)}">${order.status}</span></div><div class="mobile-card-body"><div><span>商品</span><strong>${order.product}</strong></div><div><span>实付金额</span><strong>${money(order.amount)}</strong></div><div><span>佣金</span><strong class="${order.commission < 0 ? "danger-text" : ""}">${money(order.commission)}</strong></div><div><span>佣金状态</span><strong>${order.commissionStatus}</strong></div></div><div class="mobile-card-action"><span>${order.aftersale === "无" ? "平台统一履约" : `售后：${order.aftersale}`}</span><button class="button secondary" type="button" data-order-detail="${order.id}">查看详情</button></div></article>`;
+    return `<article class="mobile-data-card"><div class="mobile-card-head"><div><strong>${order.id}</strong><span>${order.time} · ${order.customer}（${order.phone}）</span></div><span class="tag ${statusClass(order.status)}">${order.status}</span></div><div class="mobile-card-body"><div><span>商品</span><strong>${order.product}</strong></div><div><span>实付金额</span><strong>${money(order.amount)}</strong></div><div><span>佣金</span><strong class="${order.commission < 0 ? "danger-text" : ""}">${money(order.commission)}</strong></div><div><span>佣金状态</span><strong>${order.commissionStatus}</strong></div><div><span>规则快照</span><strong>${orderRuleSummary(order)}</strong></div></div><div class="mobile-card-action"><span>${order.aftersale === "无" ? "平台统一履约" : `售后：${order.aftersale}`}</span><button class="button secondary" type="button" data-order-detail="${order.id}">查看详情</button></div></article>`;
   }
 
   function renderOrders() {
@@ -143,26 +224,26 @@
     const status = $("#orderStatus").value;
     const filtered = orders.filter((order) => (!keyword || `${order.id}${order.customer}${order.product}`.toLowerCase().includes(keyword)) && (!status || order.status === status));
     $("#orderCount").textContent = `共 ${filtered.length} 笔归属订单`;
-    $("#orderRows").innerHTML = filtered.length ? filtered.map((order) => { const product = productById(order.productId); return `<tr><td><button class="order-number" type="button" data-order-detail="${order.id}">${order.id}</button><span class="cell-sub">${order.time}</span></td><td><span class="cell-main">${order.customer}</span><span class="cell-sub">手机尾号 ${order.phone} · ${order.city}</span></td><td><div class="table-product"><img src="${product.image}" alt=""><div><strong>${order.product}</strong><span>共 ${order.count} 件</span></div></div></td><td><span class="cell-main">${money(order.amount)}</span></td><td><span class="tag ${statusClass(order.status)}">${order.status}</span></td><td><span class="cell-main ${order.commission < 0 ? "danger-text" : ""}">${money(order.commission)}</span><span class="cell-sub">${order.commissionStatus}</span></td><td>${order.time}</td><td><button class="icon-button" type="button" data-order-detail="${order.id}" title="查看订单详情">${icon("eye")}</button></td></tr>`; }).join("") : `<tr><td colspan="8"><div class="empty-state">${icon("orders")}<strong>没有找到匹配订单</strong><span>请调整订单状态或搜索内容</span></div></td></tr>`;
+    $("#orderRows").innerHTML = filtered.length ? filtered.map((order) => { const product = productById(order.productId); return `<tr><td><button class="order-number" type="button" data-order-detail="${order.id}">${order.id}</button><span class="cell-sub">${order.time}</span></td><td><span class="cell-main">${order.customer}</span><span class="cell-sub">手机尾号 ${order.phone} · ${order.city}</span></td><td><div class="table-product"><img src="${product.image}" alt=""><div><strong>${order.product}</strong><span>共 ${order.count} 件</span></div></div></td><td><span class="cell-main">${money(order.amount)}</span></td><td><span class="tag ${statusClass(order.status)}">${order.status}</span></td><td><span class="cell-main ${order.commission < 0 ? "danger-text" : ""}">${money(order.commission)}</span><span class="cell-sub">${order.commissionStatus} · ${orderRuleSummary(order)}</span></td><td>${order.time}</td><td><button class="icon-button" type="button" data-order-detail="${order.id}" title="查看订单详情">${icon("eye")}</button></td></tr>`; }).join("") : `<tr><td colspan="8"><div class="empty-state">${icon("orders")}<strong>没有找到匹配订单</strong><span>请调整订单状态或搜索内容</span></div></td></tr>`;
     $("#orderCards").innerHTML = filtered.length ? filtered.map(orderCard).join("") : `<div class="empty-state">${icon("orders")}<strong>没有找到匹配订单</strong></div>`;
   }
 
   function renderDashboardOrders() {
     const data = orders.slice(0, 5);
-    $("#dashboardOrderRows").innerHTML = data.map((order) => `<tr><td><button class="order-number" type="button" data-order-detail="${order.id}">${order.id}</button></td><td>${order.customer} · ${order.phone}</td><td>${order.product}</td><td><span class="cell-main">${money(order.amount)}</span></td><td><span class="tag ${statusClass(order.status)}">${order.status}</span></td><td><span class="cell-main ${order.commission < 0 ? "danger-text" : ""}">${money(order.commission)}</span></td><td><button class="icon-button" type="button" data-order-detail="${order.id}" title="查看订单详情">${icon("eye")}</button></td></tr>`).join("");
+    $("#dashboardOrderRows").innerHTML = data.map((order) => `<tr><td><button class="order-number" type="button" data-order-detail="${order.id}">${order.id}</button></td><td>${order.customer} · ${order.phone}</td><td>${order.product}</td><td><span class="cell-main">${money(order.amount)}</span></td><td><span class="tag ${statusClass(order.status)}">${order.status}</span></td><td><span class="cell-main ${order.commission < 0 ? "danger-text" : ""}">${money(order.commission)}</span><span class="cell-sub">${orderRuleSummary(order)}</span></td><td><button class="icon-button" type="button" data-order-detail="${order.id}" title="查看订单详情">${icon("eye")}</button></td></tr>`).join("");
     $("#dashboardOrderCards").innerHTML = data.slice(0, 4).map(orderCard).join("");
   }
 
   function commissionCard(record) {
-    return `<article class="mobile-data-card"><div class="mobile-card-head"><div><strong>${record.order}</strong><span>${record.time} · ${record.product}</span></div><span class="tag ${statusClass(record.type)}">${record.type === "入账" ? "可提现入账" : record.type === "预计" ? "预计佣金" : "退款冲减"}</span></div><div class="mobile-card-body"><div><span>商品净实付</span><strong>${money(record.base)}</strong></div><div><span>比例快照</span><strong>${record.rate}</strong></div><div><span>佣金变动</span><strong class="${record.amount < 0 ? "danger-text" : ""}">${money(record.amount)}</strong></div><div><span>余额影响</span><strong>${record.impact}</strong></div></div><div class="mobile-card-action"><span>订单与比例快照已冻结</span><button class="button secondary" type="button" data-commission-detail="${record.id}">查看详情</button></div></article>`;
+    return `<article class="mobile-data-card"><div class="mobile-card-head"><div><strong>${record.order}</strong><span>${record.time} · ${record.sku}</span></div><span class="tag ${statusClass(record.type)}">${record.type === "入账" ? "可提现入账" : record.type === "预计" ? "预计佣金" : "退款冲减"}</span></div><div class="mobile-card-body"><div><span>商品净实付</span><strong>${money(record.base)}</strong></div><div><span>比例快照</span><strong>${percent(record.rate)}</strong></div><div><span>规则来源</span><strong>${record.source}</strong></div><div><span>佣金变动</span><strong class="${record.amount < 0 ? "danger-text" : ""}">${money(record.amount)}</strong></div><div><span>余额影响</span><strong>${record.impact}</strong></div></div><div class="mobile-card-action"><span>SKU 与规则来源快照已冻结</span><button class="button secondary" type="button" data-commission-detail="${record.id}">查看详情</button></div></article>`;
   }
 
   function renderCommissions() {
     const keyword = $("#commissionSearch").value.trim().toLowerCase();
     const type = $("#commissionType").value;
-    const filtered = commissions.filter((record) => (!keyword || `${record.order}${record.product}`.toLowerCase().includes(keyword)) && (!type || record.type === type));
+    const filtered = commissions.filter((record) => (!keyword || `${record.order}${record.product}${record.sku}${record.source}`.toLowerCase().includes(keyword)) && (!type || record.type === type));
     $("#commissionCount").textContent = `共 ${filtered.length} 笔佣金记录`;
-    $("#commissionRows").innerHTML = filtered.length ? filtered.map((record) => `<tr><td>${record.time}</td><td><span class="tag ${statusClass(record.type)}">${record.type === "入账" ? "可提现入账" : record.type === "预计" ? "预计佣金" : "退款冲减"}</span></td><td><button class="order-number" type="button" data-order-detail="${record.order}">${record.order}</button><span class="cell-sub">${record.product}</span></td><td>${money(record.base)}</td><td>${record.rate}</td><td><span class="cell-main ${record.amount < 0 ? "danger-text" : "positive"}">${money(record.amount)}</span></td><td>${record.impact}</td><td><button class="icon-button" type="button" data-commission-detail="${record.id}" title="查看佣金详情">${icon("eye")}</button></td></tr>`).join("") : `<tr><td colspan="8"><div class="empty-state">${icon("coins")}<strong>没有找到匹配记录</strong></div></td></tr>`;
+    $("#commissionRows").innerHTML = filtered.length ? filtered.map((record) => `<tr><td>${record.time}</td><td><span class="tag ${statusClass(record.type)}">${record.type === "入账" ? "可提现入账" : record.type === "预计" ? "预计佣金" : "退款冲减"}</span></td><td><button class="order-number" type="button" data-order-detail="${record.order}">${record.order}</button><span class="cell-sub">${record.product}</span><span class="cell-sub">${record.sku}</span></td><td>${money(record.base)}</td><td>${percent(record.rate)}</td><td>${sourceTag(record.source)}</td><td><span class="cell-main ${record.amount < 0 ? "danger-text" : "positive"}">${money(record.amount)}</span></td><td>${record.impact}</td><td><button class="icon-button" type="button" data-commission-detail="${record.id}" title="查看佣金详情">${icon("eye")}</button></td></tr>`).join("") : `<tr><td colspan="9"><div class="empty-state">${icon("coins")}<strong>没有找到匹配记录</strong></div></td></tr>`;
     $("#commissionCards").innerHTML = filtered.length ? filtered.map(commissionCard).join("") : `<div class="empty-state">${icon("coins")}<strong>没有找到匹配记录</strong></div>`;
   }
 
@@ -261,7 +342,7 @@
     $("#shareLink").textContent = link;
     const preview = $("#shareProduct");
     if (isStore) preview.innerHTML = `<img src="assets/hero-banner.png" alt="青序生活商城"><div><span>青序生活</span><strong>品质洗护 · 平台官方商城</strong><small>进入商城浏览全部授权商品</small></div>`;
-    else preview.innerHTML = `<img src="${product.image}" alt="${safe(product.name)}"><div><span>${product.brand}</span><strong>${product.name}</strong><small>平台零售价 ${money(product.price)}</small></div>`;
+    else { const sku = primarySku(product); preview.innerHTML = `<img src="${product.image}" alt="${safe(product.name)}"><div><span>${product.brand}</span><strong>${product.name}</strong><small>${sku.spec} · 零售价 ${money(sku.price)} · 预计佣金 ${commissionText(sku)}</small></div>`; }
     drawQr(link);
     openOverlay($("#shareModal"));
   }
@@ -270,8 +351,9 @@
     const product = productById(productId);
     $("#drawerKicker").textContent = "授权商品";
     $("#drawerTitle").textContent = "商品详情";
-    $("#drawerBody").innerHTML = `<section class="drawer-section"><div class="drawer-product"><img src="${product.image}" alt="${safe(product.name)}"><div><strong>${product.name}</strong><span>${money(product.price)}</span><small>${product.brand} · ${product.category}</small></div></div></section>
-      <section class="drawer-section"><h4>推广收益</h4><div class="drawer-stat-grid"><div><span>佣金比例</span><strong>8.00%</strong></div><div><span>单件预计佣金</span><strong>${money(product.commission)}</strong></div><div><span>平台销量</span><strong>${product.sales.toLocaleString("zh-CN")}</strong></div><div><span>可售状态</span><strong>${product.stock}</strong></div></div></section>
+    $("#drawerBody").innerHTML = `<section class="drawer-section"><div class="drawer-product"><img src="${product.image}" alt="${safe(product.name)}"><div><strong>${product.name}</strong><span>${productPriceRange(product)}</span><small>${product.brand} · ${product.category} · ${product.skus.length} 个 SKU</small></div></div></section>
+      <section class="drawer-section"><h4>SKU 佣金规则</h4><div class="sku-rule-list">${skuRuleList(product)}</div><div class="rule-callout compact-callout">${icon("info")}<span>所有代理共享平台商品规则；SKU 覆盖优先于分类默认，实际佣金以订单支付时快照为准。</span></div></section>
+      <section class="drawer-section"><h4>推广概览</h4><div class="drawer-stat-grid"><div><span>平台销量</span><strong>${product.sales.toLocaleString("zh-CN")}</strong></div><div><span>可售状态</span><strong>${product.stock}</strong></div></div></section>
       <section class="drawer-section"><h4>平台服务</h4><dl class="detail-list"><div><dt>商品定价</dt><dd>平台统一管理</dd></div><div><dt>库存与发货</dt><dd>平台统一履约</dd></div><div><dt>售后处理</dt><dd>平台客服统一处理</dd></div><div><dt>归属规则</dt><dd>新客户首次确认后长期绑定</dd></div></dl></section>
       <button class="button primary full-width" type="button" data-share-product="${product.id}">${icon("share")}生成专属推广码</button>`;
     openOverlay($("#detailDrawer"));
@@ -290,10 +372,10 @@
   }
 
   function orderTimeline(order) {
-    if (order.status === "退款售后") return `<li><strong>订单支付成功</strong><span>${order.time} · 归属关系与比例已冻结</span></li><li><strong>客户发起售后</strong><span>08-10 09:06 · 平台客服已受理</span></li><li><strong>平台退款处理中</strong><span>预计 1-3 个工作日原路退回，佣金已同步冲减</span></li>`;
+    if (order.status === "退款售后") return `<li><strong>订单支付成功</strong><span>${order.time} · SKU 比例与规则来源已冻结</span></li><li><strong>客户发起售后</strong><span>08-10 09:06 · 平台客服已受理</span></li><li><strong>平台退款处理中</strong><span>预计 1-3 个工作日原路退回，佣金已按原快照冲减</span></li>`;
     const shipped = ["运输中", "已完成"].includes(order.status);
     const complete = order.status === "已完成";
-    return `<li><strong>订单支付成功</strong><span>${order.time} · 归属关系与比例已冻结</span></li><li><strong>${shipped ? "平台已发货" : "等待平台发货"}</strong><span>${shipped ? "圆通速递 YT9068****1026" : "平台仓库正在备货"}</span></li>${shipped ? `<li><strong>${complete ? "客户已确认收货" : "商品运输中"}</strong><span>${complete ? "佣金已进入可提现余额" : "物流信息由平台持续同步"}</span></li>` : ""}`;
+    return `<li><strong>订单支付成功</strong><span>${order.time} · SKU 比例与规则来源已冻结</span></li><li><strong>${shipped ? "平台已发货" : "等待平台发货"}</strong><span>${shipped ? "圆通速递 YT9068****1026" : "平台仓库正在备货"}</span></li>${shipped ? `<li><strong>${complete ? "客户已确认收货" : "商品运输中"}</strong><span>${complete ? "佣金已进入可提现余额" : "物流信息由平台持续同步"}</span></li>` : ""}`;
   }
 
   function openOrderDetail(orderId) {
@@ -303,7 +385,7 @@
     $("#drawerTitle").textContent = order.id;
     $("#drawerBody").innerHTML = `<section class="drawer-section"><div class="drawer-product"><img src="${product.image}" alt=""><div><strong>${order.product}</strong><span>${money(order.amount)}</span><small>共 ${order.count} 件 · 平台统一履约</small></div></div></section>
       <section class="drawer-section"><h4>订单信息</h4><dl class="detail-list"><div><dt>订单状态</dt><dd><span class="tag ${statusClass(order.status)}">${order.status}</span></dd></div><div><dt>客户</dt><dd>${order.customer} · 手机尾号 ${order.phone}</dd></div><div><dt>收货城市</dt><dd>${order.city}（详细地址不可见）</dd></div><div><dt>归属渠道</dt><dd>邀请码 QY6088</dd></div><div><dt>订单净实付</dt><dd>${money(order.amount)}</dd></div></dl></section>
-      <section class="drawer-section"><h4>佣金快照</h4><div class="drawer-stat-grid"><div><span>比例快照</span><strong>8.00%</strong></div><div><span>佣金金额</span><strong class="${order.commission < 0 ? "danger-text" : ""}">${money(order.commission)}</strong></div><div><span>当前状态</span><strong>${order.commissionStatus}</strong></div><div><span>售后进度</span><strong>${order.aftersale}</strong></div></div></section>
+      <section class="drawer-section"><h4>佣金快照</h4><div class="drawer-stat-grid"><div><span>订单项规则</span><strong>${order.items.length} 项</strong></div><div><span>佣金合计</span><strong class="${order.commission < 0 ? "danger-text" : "positive"}">${money(order.commission)}</strong></div><div><span>当前状态</span><strong>${order.commissionStatus}</strong></div><div><span>售后进度</span><strong>${order.aftersale}</strong></div></div><div class="snapshot-list">${orderSnapshotList(order)}</div></section>
       <section class="drawer-section"><h4>${order.status === "退款售后" ? "售后进度" : "履约进度"}</h4><ol class="timeline">${orderTimeline(order)}</ol></section>
       <div class="rule-callout">${icon("info")}<span>代理端仅供查询。发货、物流、退款和售后由平台统一处理。</span></div>`;
     openOverlay($("#detailDrawer"));
@@ -314,8 +396,8 @@
     $("#drawerKicker").textContent = "佣金流水";
     $("#drawerTitle").textContent = record.type === "冲减" ? "退款佣金冲减" : record.type === "预计" ? "预计佣金详情" : "可提现佣金入账";
     $("#drawerBody").innerHTML = `<section class="drawer-section"><div class="drawer-stat-grid"><div><span>佣金变动</span><strong class="${record.amount < 0 ? "danger-text" : "positive"}">${money(record.amount)}</strong></div><div><span>余额影响</span><strong>${record.impact}</strong></div></div></section>
-      <section class="drawer-section"><h4>计算快照</h4><dl class="detail-list"><div><dt>关联订单</dt><dd>${record.order}</dd></div><div><dt>商品</dt><dd>${record.product}</dd></div><div><dt>商品净实付</dt><dd>${money(record.base)}</dd></div><div><dt>佣金比例</dt><dd>${record.rate}</dd></div><div><dt>计算结果</dt><dd>${money(record.amount)}</dd></div><div><dt>发生时间</dt><dd>${record.time}</dd></div></dl></section>
-      <section class="drawer-section"><h4>记录说明</h4><div class="rule-callout">${icon("shield")}<span>${record.type === "冲减" ? "客户退款后按退款商品净实付比例生成负向流水，原入账记录保留。" : record.type === "预计" ? "订单完成前为预计佣金，金额以支付时快照计算。" : "客户确认收货后，预计佣金已转入可提现余额。"}</span></div></section>
+      <section class="drawer-section"><h4>订单项计算快照</h4><dl class="detail-list"><div><dt>关联订单</dt><dd>${record.order}</dd></div><div><dt>商品</dt><dd>${record.product}</dd></div><div><dt>SKU</dt><dd>${record.sku}</dd></div><div><dt>商品净实付</dt><dd>${money(record.base)}</dd></div><div><dt>有效比例</dt><dd>${percent(record.rate)}</dd></div><div><dt>规则来源</dt><dd>${sourceTag(record.source)}</dd></div><div><dt>计算结果</dt><dd>${money(record.amount)}</dd></div><div><dt>发生时间</dt><dd>${record.time}</dd></div></dl></section>
+      <section class="drawer-section"><h4>记录说明</h4><div class="rule-callout">${icon("shield")}<span>${record.type === "冲减" ? "客户退款后按该 SKU 支付时快照生成负向流水，原入账记录保留。" : record.type === "预计" ? "订单完成前为预计佣金，SKU、比例与规则来源均以支付时快照为准。" : "客户确认收货后，该订单项预计佣金已转入可提现余额。"}</span></div></section>
       <button class="button secondary full-width" type="button" data-order-detail="${record.order}">${icon("orders")}查看关联订单</button>`;
     openOverlay($("#detailDrawer"));
   }

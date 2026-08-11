@@ -43,12 +43,13 @@ const cases = [
     viewport: { width: 1440, height: 1000 },
     kind: "admin-login"
   },
-  ...["dashboard", "products", "product-edit", "orders", "aftersales", "customers", "agents", "withdrawals"].map((view) => ({
+  ...["dashboard", "products", "product-edit", "orders", "aftersales", "customers", "agents", "commission-rules", "withdrawals"].map((view) => ({
     name: `admin-${view}`,
     file: "admin.html",
     query: { autologin: "1", view },
     viewport: { width: 1440, height: 1000 },
-    kind: view === "dashboard" ? "admin-dashboard" : "admin"
+    kind: view === "dashboard" ? "admin-dashboard" : "admin",
+    expectedTerms: view === "commission-rules" ? ["平台默认", "分类规则", "SKU", "全部一级代理"] : []
   })),
   {
     name: "admin-dashboard-1024",
@@ -63,6 +64,14 @@ const cases = [
     query: { autologin: "1", view: "agents" },
     viewport: { width: 1024, height: 900 },
     kind: "admin"
+  },
+  {
+    name: "admin-commission-rules-1024",
+    file: "admin.html",
+    query: { autologin: "1", view: "commission-rules" },
+    viewport: { width: 1024, height: 900 },
+    kind: "admin",
+    expectedTerms: ["平台默认", "分类规则", "SKU", "全部一级代理"]
   },
   {
     name: "agent-login",
@@ -98,6 +107,22 @@ const cases = [
     query: { autologin: "1", view: "wallet" },
     viewport: { width: 390, height: 844 },
     kind: "agent-mobile"
+  },
+  {
+    name: "agent-products-390",
+    file: "agent.html",
+    query: { autologin: "1", view: "products" },
+    viewport: { width: 390, height: 844 },
+    kind: "agent-mobile",
+    expectedTerms: ["预计佣金", "SKU 覆盖", "无佣金"]
+  },
+  {
+    name: "agent-commission-390",
+    file: "agent.html",
+    query: { autologin: "1", view: "commission" },
+    viewport: { width: 390, height: 844 },
+    kind: "agent-mobile",
+    expectedTerms: ["佣金", "规则来源"]
   }
 ];
 
@@ -116,7 +141,7 @@ const deferredTerms = [
   "批量打标签"
 ];
 
-const forbiddenPrototypeTerms = ["二级代理", "下级代理", "团队代理", "团佣金", "自动打款", "微信零钱提现", "商城所有者", "operator"];
+const forbiddenPrototypeTerms = ["二级代理", "下级代理", "团队代理", "团佣金", "自动打款", "微信零钱提现", "商城所有者", "operator", "当前佣金比例"];
 
 function buildUrl(testCase) {
   const url = new URL(pathToFileURL(path.join(prototypeDir, testCase.file)));
@@ -125,7 +150,7 @@ function buildUrl(testCase) {
 }
 
 async function inspectPage(page, testCase) {
-  const result = await page.evaluate(({ kind, viewport, deferredTerms, forbiddenPrototypeTerms }) => {
+  const result = await page.evaluate(({ kind, viewport, deferredTerms, forbiddenPrototypeTerms, expectedTerms }) => {
     const bodyText = document.body.innerText;
     const brokenImages = [...document.images]
       .filter((image) => getComputedStyle(image).display !== "none" && !image.hidden && image.complete && image.naturalWidth === 0)
@@ -140,6 +165,7 @@ async function inspectPage(page, testCase) {
       overflow,
       exposedTerms,
       exposedForbiddenTerms,
+      missingExpectedTerms: expectedTerms.filter((term) => !bodyText.includes(term)),
       viewport: { width: window.innerWidth, height: window.innerHeight }
     };
 
@@ -176,7 +202,13 @@ async function inspectPage(page, testCase) {
     }
 
     return checks;
-  }, { kind: testCase.kind, viewport: testCase.viewport, deferredTerms, forbiddenPrototypeTerms });
+  }, {
+    kind: testCase.kind,
+    viewport: testCase.viewport,
+    deferredTerms,
+    forbiddenPrototypeTerms,
+    expectedTerms: testCase.expectedTerms || []
+  });
 
   const failures = [];
   if (!result.nonBlank) failures.push("页面内容为空");
@@ -184,6 +216,7 @@ async function inspectPage(page, testCase) {
   if (result.overflow > 1) failures.push(`页面横向溢出 ${result.overflow}px`);
   if (result.exposedTerms.length) failures.push(`延期功能词露出: ${result.exposedTerms.join(", ")}`);
   if (result.exposedForbiddenTerms.length) failures.push(`超出单层代理范围: ${result.exposedForbiddenTerms.join(", ")}`);
+  if (result.missingExpectedTerms.length) failures.push(`缺少关键内容: ${result.missingExpectedTerms.join(", ")}`);
   if (result.viewport.width !== testCase.viewport.width || result.viewport.height !== testCase.viewport.height) {
     failures.push(`视口不一致: ${result.viewport.width}x${result.viewport.height}`);
   }

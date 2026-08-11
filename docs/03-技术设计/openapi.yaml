@@ -1,0 +1,1040 @@
+openapi: 3.1.0
+info:
+  title: 洗化产品私域商城核心 API
+  version: 1.0.1
+  description: >-
+    对应 MVP/PRD v2.3 与 CH-004 的核心契约。CH-004 仅将后端数据库改为
+    Supabase 托管 PostgreSQL，不改变业务接口；三端仍只访问 NestJS API。
+    该文件用于接口评审和后续代码生成，当前不代表服务已经实现。
+servers:
+  - url: /api/v1
+tags:
+  - name: StoreProfile
+  - name: Attribution
+  - name: Cart
+  - name: Orders
+  - name: Aftersales
+  - name: AgentPromotion
+  - name: AdminSecurity
+  - name: AdminAgents
+  - name: AdminCommission
+  - name: AdminFinance
+  - name: Callbacks
+security:
+  - bearerAuth: []
+paths:
+  /store/profile/phone-authorizations:
+    post:
+      tags: [StoreProfile]
+      summary: 自愿授权并验证消费者账户手机号
+      operationId: authorizeCustomerPhone
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PhoneAuthorizationRequest'
+      responses:
+        '200':
+          description: 已验证手机号，只返回掩码和尾号
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhoneAuthorizationResponse'
+        '422':
+          $ref: '#/components/responses/BusinessError'
+  /store/privacy/deletion-requests:
+    post:
+      tags: [StoreProfile]
+      summary: 提交账号删除申请
+      operationId: createAccountDeletionRequest
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: 删除申请已受理
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountDeletionResponse'
+        '409':
+          description: 存在未完成订单或售后
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /store/attribution/candidates:
+    post:
+      tags: [Attribution]
+      summary: 校验代理推广素材并设置 30 分钟候选
+      operationId: setAttributionCandidate
+      security:
+        - bearerAuth: []
+        - anonymousId: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttributionCandidateRequest'
+      responses:
+        '200':
+          description: 候选结果；撤权商品可返回公开跳转但不可归因
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttributionCandidateResponse'
+  /store/attribution/candidate/confirm:
+    post:
+      tags: [Attribution]
+      summary: 确认长期代理绑定
+      operationId: confirmAttributionCandidate
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: 已建立或幂等返回现有绑定
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttributionBindingResponse'
+        '409':
+          $ref: '#/components/responses/StateConflict'
+  /store/cart/items/{skuId}:
+    put:
+      tags: [Cart]
+      summary: 按 SKU 设置购物车数量
+      operationId: putCartItem
+      security:
+        - bearerAuth: []
+        - anonymousId: []
+      parameters:
+        - name: skuId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quantity]
+              properties:
+                quantity:
+                  type: integer
+                  minimum: 1
+                  maximum: 99
+      responses:
+        '200':
+          description: 服务端补全的购物车 SKU 项
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartItemResponse'
+        '422':
+          $ref: '#/components/responses/BusinessError'
+  /store/orders:
+    post:
+      tags: [Orders]
+      summary: 创建待付款订单并锁定库存
+      operationId: createOrder
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201':
+          description: 订单已创建，尚未发起支付
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '409':
+          $ref: '#/components/responses/StateConflict'
+        '422':
+          $ref: '#/components/responses/BusinessError'
+    get:
+      tags: [Orders]
+      summary: 查询当前消费者订单
+      operationId: listCustomerOrders
+      parameters:
+        - name: display_status
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 订单分页
+  /store/orders/{orderId}:
+    get:
+      tags: [Orders]
+      summary: 查询订单聚合详情
+      operationId: getCustomerOrder
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: 同时返回订单、支付、退款、履约和展示状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /store/orders/{orderId}/payment-intents:
+    post:
+      tags: [Orders]
+      summary: 为未过期订单创建或复用唯一 OPEN 支付意图
+      operationId: createPaymentIntent
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: 已创建或幂等复用的 Provider 支付参数
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentIntentResponse'
+        '409':
+          $ref: '#/components/responses/StateConflict'
+  /store/aftersales:
+    post:
+      tags: [Aftersales]
+      summary: 创建售后并事务性占用可退数量和金额
+      operationId: createAftersale
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAftersaleRequest'
+      responses:
+        '201':
+          description: 售后与占用已创建
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AftersaleResponse'
+        '422':
+          $ref: '#/components/responses/BusinessError'
+  /store/aftersales/{aftersaleId}/cancel:
+    post:
+      tags: [Aftersales]
+      summary: 在允许阶段取消并释放可退额度占用
+      operationId: cancelAftersale
+      parameters:
+        - name: aftersaleId
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: 已取消
+        '409':
+          $ref: '#/components/responses/StateConflict'
+  /agent/promotion-assets:
+    post:
+      tags: [AgentPromotion]
+      summary: 为商城主页或当前授权商品生成推广素材
+      operationId: createPromotionAsset
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePromotionAssetRequest'
+      responses:
+        '201':
+          description: 推广素材已生成
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/auth/reauth:
+    post:
+      tags: [AdminSecurity]
+      summary: 为指定敏感操作签发 60 秒单次授权
+      operationId: createReauthGrant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReauthRequest'
+      responses:
+        '200':
+          description: 短时授权
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReauthResponse'
+        '429':
+          description: 连续失败达到限制
+  /admin/agents/{agentId}/invite-code/rotate-preview:
+    post:
+      tags: [AdminAgents]
+      summary: 预览邀请码轮换影响并签发短时确认 token
+      operationId: previewAgentInviteCodeRotation
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InviteCodeRotationPreviewRequest'
+      responses:
+        '200':
+          description: 轮换影响与确认凭证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HighRiskPreviewResponse'
+  /admin/agents/{agentId}/invite-code/rotate:
+    post:
+      tags: [AdminAgents]
+      summary: 轮换代理邀请码并立即失效旧码
+      operationId: rotateAgentInviteCode
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InviteCodeRotationConfirmRequest'
+      responses:
+        '200':
+          description: 新邀请码；旧码只保留审计用途
+        '409':
+          $ref: '#/components/responses/StateConflict'
+  /admin/commission-rule-versions/preview:
+    post:
+      tags: [AdminCommission]
+      summary: 预览佣金规则影响并签发短时确认 token
+      operationId: previewCommissionRuleVersion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommissionRulePreviewRequest'
+      responses:
+        '200':
+          description: 受影响 SKU、资源版本与确认凭证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HighRiskPreviewResponse'
+  /admin/commission-rule-versions:
+    post:
+      tags: [AdminCommission]
+      summary: 保存全体一级代理共用的新佣金规则集版本
+      operationId: createCommissionRuleVersion
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCommissionRuleVersionRequest'
+      responses:
+        '201':
+          description: 已创建不可变规则集版本
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommissionRuleVersionResponse'
+        '409':
+          $ref: '#/components/responses/StateConflict'
+  /admin/aftersales/{aftersaleId}/refund-preview:
+    post:
+      tags: [Aftersales]
+      summary: 预览退款的库存、订单与佣金影响
+      operationId: previewAftersaleRefund
+      parameters:
+        - name: aftersaleId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefundPreviewRequest'
+      responses:
+        '200':
+          description: 退款影响、资源版本与确认凭证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HighRiskPreviewResponse'
+  /admin/aftersales/{aftersaleId}/refunds:
+    post:
+      tags: [Aftersales]
+      summary: 按订单项创建退款并处理库存、订单与佣金
+      operationId: createAftersaleRefund
+      parameters:
+        - name: aftersaleId
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRefundRequest'
+      responses:
+        '201':
+          description: 退款已创建或提交 Provider
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundResponse'
+        '409':
+          $ref: '#/components/responses/StateConflict'
+  /admin/refunds/{refundId}/retry-preview:
+    post:
+      tags: [Aftersales]
+      summary: 预览失败退款重试并签发短时确认 token
+      operationId: previewRefundRetry
+      parameters:
+        - name: refundId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 2, maxLength: 500 }
+      responses:
+        '200':
+          description: 重试影响、资源版本与确认凭证
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HighRiskPreviewResponse'
+  /admin/refunds/{refundId}/retry:
+    post:
+      tags: [Aftersales]
+      summary: 以新幂等键重试同一退款单和稳定商户退款号
+      operationId: retryRefund
+      parameters:
+        - name: refundId
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefundRetryRequest'
+      responses:
+        '200':
+          description: 已追加新的退款尝试
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundResponse'
+        '409':
+          $ref: '#/components/responses/StateConflict'
+  /admin/withdrawals/{withdrawalId}/payout-account-reveal:
+    post:
+      tags: [AdminFinance]
+      summary: 仅 APPROVED 提现可消费短时授权查看一次完整账号
+      operationId: revealPayoutAccount
+      parameters:
+        - name: withdrawalId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reauth_grant]
+              properties:
+                reauth_grant: { type: string }
+      responses:
+        '200':
+          description: 完整账号只返回一次
+          headers:
+            Cache-Control:
+              schema: { type: string, const: 'no-store, private' }
+            Pragma:
+              schema: { type: string, const: no-cache }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayoutAccountRevealResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/StateConflict'
+  /callbacks/wechat-pay:
+    post:
+      tags: [Callbacks]
+      summary: 微信支付结果回调收件箱
+      operationId: receiveWechatPayCallback
+      security:
+        - providerSignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '204':
+          description: 已接收；重复事件幂等确认
+        '401':
+          description: Provider 签名无效
+  /callbacks/wechat-refund:
+    post:
+      tags: [Callbacks]
+      summary: 微信退款结果回调收件箱
+      operationId: receiveWechatRefundCallback
+      security:
+        - providerSignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '204':
+          description: 已接收；按 Provider event ID 幂等确认
+        '401':
+          description: Provider 签名无效
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    anonymousId:
+      type: apiKey
+      in: header
+      name: X-Anonymous-Id
+    providerSignature:
+      type: apiKey
+      in: header
+      name: Wechatpay-Signature
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: 预览时返回的资源 ETag，例如 "12"
+      schema:
+        type: string
+        pattern: '^"[1-9][0-9]*"$'
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: page_size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema: { type: string }
+  responses:
+    BusinessError:
+      description: 业务校验失败
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    StateConflict:
+      description: 状态或资源版本冲突
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: 权限不足或敏感操作授权无效
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: 资源不存在或当前主体无权访问
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [code, message, request_id]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        details: { type: object, additionalProperties: true }
+        request_id: { type: string }
+    PositiveMoney:
+      type: string
+      description: 大于 0 的两位十进制金额，仅用于业务输入和必须为正的事实
+      pattern: '^(?:0\.(?:0[1-9]|[1-9][0-9])|[1-9][0-9]*\.[0-9]{2})$'
+      examples: ['128.00', '0.01']
+    NonNegativeMoney:
+      type: string
+      description: 大于等于 0 的两位十进制金额，用于余额、累计值和普通响应
+      pattern: '^(?:0|[1-9][0-9]*)\.[0-9]{2}$'
+      examples: ['128.00', '0.00']
+    SignedMoney:
+      type: string
+      description: 可正可负的两位十进制金额，仅用于佣金和钱包账本变动
+      pattern: '^-?(?:0|[1-9][0-9]*)\.[0-9]{2}$'
+      examples: ['128.00', '-20.00', '0.00']
+    CommissionLedgerDelta:
+      type: object
+      required: [expected_change, available_change, frozen_change]
+      properties:
+        expected_change: { $ref: '#/components/schemas/SignedMoney' }
+        available_change: { $ref: '#/components/schemas/SignedMoney' }
+        frozen_change: { $ref: '#/components/schemas/SignedMoney' }
+    RatePercentValue:
+      type: string
+      pattern: '^(100|[0-9]{1,2})\.[0-9]{4}$'
+      examples: ['12.5000', '0.0000']
+    NullableRatePercent:
+      oneOf:
+        - $ref: '#/components/schemas/RatePercentValue'
+        - type: 'null'
+    PhoneAuthorizationRequest:
+      type: object
+      required: [provider, provider_credential, consent_version]
+      properties:
+        provider: { type: string, enum: [WECHAT, MOCK] }
+        provider_credential: { type: string, minLength: 1 }
+        consent_version: { type: string, minLength: 1 }
+    PhoneAuthorizationResponse:
+      type: object
+      required: [code, data, request_id]
+      properties:
+        code: { const: OK }
+        data:
+          type: object
+          required: [phone_masked, phone_tail, source, verified_at]
+          properties:
+            phone_masked: { type: string }
+            phone_tail: { type: string, minLength: 4, maxLength: 4 }
+            source: { type: string, enum: [WECHAT, MOCK] }
+            verified_at: { type: string, format: date-time }
+        request_id: { type: string }
+    AccountDeletionResponse:
+      type: object
+      properties:
+        code: { const: OK }
+        data:
+          type: object
+          properties:
+            deletion_request_id: { type: string }
+            status: { type: string, enum: [SUBMITTED, PROCESSING, COMPLETED, REJECTED] }
+        request_id: { type: string }
+    AttributionCandidateRequest:
+      type: object
+      required: [invite_code, promotion_asset_id, target_type]
+      properties:
+        invite_code: { type: string }
+        promotion_asset_id: { type: string }
+        target_type: { type: string, enum: [STOREFRONT, PRODUCT] }
+        target_id: { type: [string, 'null'] }
+    AttributionCandidateResponse:
+      type: object
+      properties:
+        code: { const: OK }
+        data:
+          type: object
+          properties:
+            attribution_eligible: { type: boolean }
+            confirmation_required: { type: boolean }
+            expires_at: { type: [string, 'null'], format: date-time }
+            agent_name: { type: [string, 'null'] }
+            public_target_url: { type: [string, 'null'] }
+            reason: { type: [string, 'null'] }
+        request_id: { type: string }
+    AttributionBindingResponse:
+      type: object
+      properties:
+        code: { const: OK }
+        data:
+          type: object
+          properties:
+            binding_id: { type: string }
+            agent_id: { type: string }
+            agent_name: { type: string }
+            bound_at: { type: string, format: date-time }
+        request_id: { type: string }
+    CartItemResponse:
+      type: object
+      properties:
+        code: { const: OK }
+        data:
+          type: object
+          properties:
+            product_id: { type: string }
+            sku_id: { type: string }
+            sku_name: { type: string }
+            quantity: { type: integer }
+            unit_price: { $ref: '#/components/schemas/NonNegativeMoney' }
+            available_stock: { type: integer }
+            valid: { type: boolean }
+        request_id: { type: string }
+    CreateOrderRequest:
+      type: object
+      required: [source, address_id, items]
+      properties:
+        source: { type: string, enum: [CART, BUY_NOW] }
+        address_id: { type: string }
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [sku_id, quantity]
+            properties:
+              sku_id: { type: string }
+              quantity: { type: integer, minimum: 1, maximum: 99 }
+    OrderItem:
+      type: object
+      required: [order_item_id, product_id, sku_id, product_name, sku_name, unit_price, quantity, line_amount]
+      properties:
+        order_item_id: { type: string }
+        product_id: { type: string }
+        sku_id: { type: string }
+        product_name: { type: string }
+        sku_name: { type: string }
+        unit_price: { $ref: '#/components/schemas/NonNegativeMoney' }
+        quantity: { type: integer }
+        refunded_quantity: { type: integer }
+        reserved_aftersale_quantity: { type: integer }
+        line_amount: { $ref: '#/components/schemas/NonNegativeMoney' }
+    OrderResponse:
+      type: object
+      required: [code, data, request_id]
+      properties:
+        code: { const: OK }
+        data:
+          type: object
+          required:
+            - order_id
+            - order_no
+            - order_status
+            - payment_status
+            - refund_status
+            - fulfillment_status
+            - close_reason
+            - display_status
+            - items
+          properties:
+            order_id: { type: string }
+            order_no: { type: string }
+            order_status:
+              type: string
+              enum: [PENDING_PAYMENT, PENDING_SHIPMENT, SHIPPING, COMPLETED, CLOSED]
+            payment_status: { type: string, enum: [UNPAID, PROCESSING, PAID] }
+            refund_status: { type: string, enum: [NONE, REFUNDING, PARTIAL, FULL, FAILED] }
+            fulfillment_status:
+              type: string
+              enum: [NOT_STARTED, READY_TO_SHIP, SHIPPED, IN_TRANSIT, DELIVERED, CANCELLED]
+            close_reason:
+              type: [string, 'null']
+              enum: [USER_CANCELLED, PAYMENT_TIMEOUT, FULL_REFUND_BEFORE_SHIPMENT, null]
+            display_status:
+              type: string
+              description: 服务端按文档优先级真值表计算，客户端不得自行推导
+              enum: [待付款, 待发货, 运输中, 已完成, 退款处理中, 部分退款, 退款完成, 退款异常待处理, 已关闭, 支付异常处理中]
+            pay_expires_at: { type: [string, 'null'], format: date-time }
+            server_time: { type: string, format: date-time }
+            payment_resolution:
+              type: string
+              enum: [NORMAL, LATE_SUCCESS_REFUND_PENDING, LATE_SUCCESS_REFUNDED, MANUAL_REQUIRED]
+            payable_amount: { $ref: '#/components/schemas/NonNegativeMoney' }
+            paid_amount: { $ref: '#/components/schemas/NonNegativeMoney' }
+            refunded_amount: { $ref: '#/components/schemas/NonNegativeMoney' }
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/OrderItem' }
+        request_id: { type: string }
+    PaymentIntentResponse:
+      type: object
+      required: [code, data, request_id]
+      properties:
+        code: { const: OK }
+        data:
+          type: object
+          required: [payment_intent_id, merchant_intent_no, provider, expires_at, provider_payload]
+          properties:
+            payment_intent_id: { type: string }
+            merchant_intent_no: { type: string }
+            provider: { type: string, enum: [WECHAT, MOCK] }
+            expires_at: { type: string, format: date-time }
+            provider_payload: { type: object, additionalProperties: true }
+        request_id: { type: string }
+    CreateAftersaleRequest:
+      type: object
+      required: [order_id, type, reason_code, items]
+      properties:
+        order_id: { type: string }
+        type: { type: string, enum: [REFUND_ONLY, RETURN_REFUND] }
+        reason_code: { type: string }
+        reason_text: { type: [string, 'null'], maxLength: 500 }
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [order_item_id, quantity, requested_amount]
+            properties:
+              order_item_id: { type: string }
+              quantity: { type: integer, minimum: 1 }
+              requested_amount: { $ref: '#/components/schemas/PositiveMoney' }
+        evidence_file_ids:
+          type: array
+          items: { type: string }
+    AftersaleResponse:
+      type: object
+      properties:
+        code: { const: OK }
+        data:
+          type: object
+          properties:
+            aftersale_id: { type: string }
+            aftersale_no: { type: string }
+            status:
+              type: string
+              enum:
+                - PENDING_REVIEW
+                - REJECTED
+                - REFUNDING
+                - WAITING_RETURN
+                - WAITING_RECEIPT
+                - REFUNDING_AFTER_RETURN
+                - REFUND_FAILED
+                - COMPLETED
+                - CANCELLED
+            reserved_amount: { $ref: '#/components/schemas/NonNegativeMoney' }
+        request_id: { type: string }
+    CreatePromotionAssetRequest:
+      type: object
+      required: [target_type]
+      properties:
+        target_type: { type: string, enum: [STOREFRONT, PRODUCT] }
+        target_id: { type: [string, 'null'] }
+    ReauthRequest:
+      type: object
+      required: [password, one_time_code, action, target_id]
+      properties:
+        password: { type: string, format: password }
+        one_time_code: { type: string, pattern: '^[0-9]{6}$' }
+        action: { type: string, enum: [PAYOUT_ACCOUNT_REVEAL] }
+        target_id: { type: string }
+    ReauthResponse:
+      type: object
+      properties:
+        code: { const: OK }
+        data:
+          type: object
+          properties:
+            reauth_grant: { type: string }
+            expires_at: { type: string, format: date-time }
+            single_use: { const: true }
+        request_id: { type: string }
+    HighRiskConfirmationFields:
+      type: object
+      required: [preview_token, confirmation_hash]
+      properties:
+        preview_token: { type: string, minLength: 16 }
+        confirmation_hash: { type: string, pattern: '^[a-f0-9]{64}$' }
+    HighRiskPreviewResponse:
+      type: object
+      required: [code, data, request_id]
+      properties:
+        code: { const: OK }
+        data:
+          type: object
+          required: [preview_token, confirmation_hash, resource_etag, expires_at, impact]
+          properties:
+            preview_token: { type: string }
+            confirmation_hash: { type: string, pattern: '^[a-f0-9]{64}$' }
+            resource_etag: { type: string, pattern: '^"[1-9][0-9]*"$' }
+            expires_at: { type: string, format: date-time }
+            impact: { type: object, additionalProperties: true }
+        request_id: { type: string }
+    InviteCodeRotationPreviewRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 2, maxLength: 500 }
+        expires_at: { type: [string, 'null'], format: date-time }
+    InviteCodeRotationConfirmRequest:
+      allOf:
+        - $ref: '#/components/schemas/InviteCodeRotationPreviewRequest'
+        - $ref: '#/components/schemas/HighRiskConfirmationFields'
+    PlatformCommissionRuleChange:
+      type: object
+      additionalProperties: false
+      required: [target_type, configured_rate]
+      properties:
+        target_type: { type: string, const: PLATFORM }
+        configured_rate: { $ref: '#/components/schemas/RatePercentValue' }
+    ScopedCommissionRuleChange:
+      type: object
+      additionalProperties: false
+      required: [target_type, target_id, configured_rate]
+      properties:
+        target_type: { type: string, enum: [CATEGORY, SKU] }
+        target_id: { type: string, minLength: 1 }
+        configured_rate: { $ref: '#/components/schemas/NullableRatePercent' }
+    CommissionRuleChange:
+      oneOf:
+        - $ref: '#/components/schemas/PlatformCommissionRuleChange'
+        - $ref: '#/components/schemas/ScopedCommissionRuleChange'
+      discriminator:
+        propertyName: target_type
+        mapping:
+          PLATFORM: '#/components/schemas/PlatformCommissionRuleChange'
+          CATEGORY: '#/components/schemas/ScopedCommissionRuleChange'
+          SKU: '#/components/schemas/ScopedCommissionRuleChange'
+    CommissionRulePreviewRequest:
+      type: object
+      required: [base_version_id, reason, changes]
+      properties:
+        base_version_id: { type: string }
+        reason: { type: string, minLength: 2, maxLength: 500 }
+        changes:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/CommissionRuleChange' }
+    CreateCommissionRuleVersionRequest:
+      allOf:
+        - $ref: '#/components/schemas/CommissionRulePreviewRequest'
+        - $ref: '#/components/schemas/HighRiskConfirmationFields'
+    CommissionRuleVersionResponse:
+      type: object
+      properties:
+        code: { const: OK }
+        data:
+          type: object
+          properties:
+            version_id: { type: string }
+            version_no: { type: integer }
+            status: { type: string, enum: [PUBLISHED] }
+            affected_sku_count: { type: integer }
+            effective_at: { type: string, format: date-time }
+        request_id: { type: string }
+    RefundItemInput:
+      type: object
+      required: [aftersale_item_id, quantity, amount]
+      properties:
+        aftersale_item_id: { type: string }
+        quantity: { type: integer, minimum: 1 }
+        amount: { $ref: '#/components/schemas/PositiveMoney' }
+    RefundPreviewRequest:
+      type: object
+      required: [reason, items]
+      properties:
+        reason: { type: string, minLength: 2, maxLength: 500 }
+        items:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/RefundItemInput' }
+    CreateRefundRequest:
+      allOf:
+        - $ref: '#/components/schemas/RefundPreviewRequest'
+        - $ref: '#/components/schemas/HighRiskConfirmationFields'
+    RefundRetryRequest:
+      allOf:
+        - type: object
+          required: [reason]
+          properties:
+            reason: { type: string, minLength: 2, maxLength: 500 }
+        - $ref: '#/components/schemas/HighRiskConfirmationFields'
+    RefundResponse:
+      type: object
+      required: [code, data, request_id]
+      properties:
+        code: { const: OK }
+        data:
+          type: object
+          required: [refund_id, merchant_refund_no, status, amount, latest_attempt]
+          properties:
+            refund_id: { type: string }
+            merchant_refund_no: { type: string, description: 失败重试时保持不变 }
+            provider_refund_id: { type: [string, 'null'] }
+            status: { type: string, enum: [PENDING, PROCESSING, SUCCEEDED, FAILED, CANCELLED] }
+            amount: { $ref: '#/components/schemas/PositiveMoney' }
+            latest_attempt:
+              type: object
+              required: [attempt_no, status, requested_at]
+              properties:
+                attempt_no: { type: integer, minimum: 1 }
+                status: { type: string, enum: [INITIATED, PROCESSING, SUCCEEDED, FAILED] }
+                requested_at: { type: string, format: date-time }
+                failure_code: { type: [string, 'null'] }
+        request_id: { type: string }
+    PayoutAccountRevealResponse:
+      type: object
+      properties:
+        code: { const: OK }
+        data:
+          type: object
+          required: [account_holder, bank_name, account_number, expires_at]
+          properties:
+            account_holder: { type: string }
+            bank_name: { type: string }
+            account_number: { type: string }
+            expires_at: { type: string, format: date-time }
+        request_id: { type: string }

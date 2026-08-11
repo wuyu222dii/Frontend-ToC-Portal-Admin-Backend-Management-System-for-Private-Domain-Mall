@@ -53,7 +53,7 @@
     { id: 4, name: "Zoe", phone: "5107", city: "杭州", bound: "2026-01-26", spend: 4290, orders: 26, recent: "积雪草舒缓修护霜", recentTime: "昨天 20:25", status: "消费客户", avatar: "Z" },
     { id: 5, name: "悦悦", phone: "8432", city: "湖州", bound: "2026-05-09", spend: 2386, orders: 13, recent: "白茶香氛沐浴露", recentTime: "08-08 18:12", status: "消费客户", avatar: "悦" },
     { id: 6, name: "Yuki", phone: "0076", city: "嘉兴", bound: "2026-07-19", spend: 658, orders: 4, recent: "烟酰胺焕亮精华液", recentTime: "08-07 07:58", status: "消费客户", avatar: "Y" },
-    { id: 7, name: "Kira", phone: "4175", city: "金华", bound: "2026-08-06", spend: 0, orders: 0, recent: "暂无购买", recentTime: "-", status: "未消费", avatar: "K" }
+    { id: 7, name: "Kira", phone: null, phoneVerified: false, city: "金华", bound: "2026-08-06", spend: 0, orders: 0, recent: "暂无购买", recentTime: "-", status: "未消费", avatar: "K" }
   ];
 
   const orders = [
@@ -61,10 +61,10 @@
       { product: "氨基酸净澈洁面乳", sku: "正装 120g · ZCY-CLEAN-120", quantity: 2, base: 138, rate: 10, source: "分类默认", commission: 13.8 },
       { product: "无硅油蓬松洗发水", sku: "正装 500ml · MG-SHAMPOO-500", quantity: 1, base: 89, rate: 8, source: "分类默认", commission: 7.12 }
     ] },
-    { id: "QX202608100027", customer: "Mina", phone: "3096", city: "宁波", product: "无硅油蓬松洗发水", productId: 2, count: 1, amount: 89, status: "退款售后", commission: -7.12, commissionStatus: "冲减", time: "08-10 09:02", aftersale: "平台退款中", items: [
-      { product: "无硅油蓬松洗发水", sku: "正装 500ml · MG-SHAMPOO-500", quantity: 1, base: 89, rate: 8, source: "分类默认", commission: -7.12 }
+    { id: "QX202608100027", customer: "Mina", phone: "3096", city: "宁波", product: "无硅油蓬松洗发水", productId: 2, count: 1, amount: 89, status: "退款售后", commission: 7.12, refundDebit: 7.12, netCommission: 0, commissionStatus: "原佣金已冲减", time: "08-10 09:02", aftersale: "平台退款中", items: [
+      { product: "无硅油蓬松洗发水", sku: "正装 500ml · MG-SHAMPOO-500", quantity: 1, base: 89, rate: 8, source: "分类默认", commission: 7.12 }
     ] },
-    { id: "QX202608100026", customer: "嘉禾", phone: "2218", city: "绍兴", product: "酵素浓缩洗衣凝珠", productId: 4, count: 2, amount: 84, status: "运输中", commission: 4.2, commissionStatus: "预计", time: "08-10 08:46", aftersale: "无", items: [
+    { id: "QX202608100026", customer: "嘉禾", phone: "2218", city: "绍兴", product: "酵素浓缩洗衣凝珠", productId: 4, count: 2, amount: 84, status: "退款售后", commission: 4.2, refundDebit: 4.2, netCommission: 0, commissionStatus: "预计佣金已取消", time: "08-10 08:46", aftersale: "未发货全额退款", items: [
       { product: "酵素浓缩洗衣凝珠", sku: "30 颗 · JJ-LAUNDRY-030", quantity: 2, base: 84, rate: 5, source: "分类默认", commission: 4.2 }
     ] },
     { id: "QX202608100025", customer: "Zoe", phone: "5107", city: "杭州", product: "积雪草舒缓修护霜", productId: 3, count: 1, amount: 109, status: "已完成", commission: 10.9, commissionStatus: "已入账", time: "08-10 08:25", aftersale: "无", items: [
@@ -87,22 +87,25 @@
   ];
 
   const commissions = [
-    { id: 1, time: "08-10 09:18", type: "预计", order: "QX202608100028", product: "氨基酸净澈洁面乳", sku: "正装 120g · ZCY-CLEAN-120", base: 138, rate: 10, source: "分类默认", amount: 13.8, impact: "待订单完成" },
-    { id: 2, time: "08-10 09:18", type: "预计", order: "QX202608100028", product: "无硅油蓬松洗发水", sku: "正装 500ml · MG-SHAMPOO-500", base: 89, rate: 8, source: "分类默认", amount: 7.12, impact: "待订单完成" },
-    { id: 3, time: "08-10 09:11", type: "冲减", order: "QX202608100027", product: "无硅油蓬松洗发水", sku: "正装 500ml · MG-SHAMPOO-500", base: 89, rate: 8, source: "分类默认", amount: -7.12, impact: "已扣减余额" },
-    { id: 4, time: "08-10 08:46", type: "预计", order: "QX202608100026", product: "酵素浓缩洗衣凝珠", sku: "30 颗 · JJ-LAUNDRY-030", base: 84, rate: 5, source: "分类默认", amount: 4.2, impact: "待订单完成" },
-    { id: 5, time: "08-10 08:25", type: "入账", order: "QX202608100025", product: "积雪草舒缓修护霜", sku: "正装 50g · QMX-CREAM-050", base: 109, rate: 10, source: "分类默认", amount: 10.9, impact: "可提现" },
-    { id: 6, time: "08-09 18:12", type: "预计", order: "QX202608090186", product: "白茶香氛沐浴露", sku: "正装 500ml · MG-BODY-500", base: 138, rate: 7, source: "分类默认", amount: 9.66, impact: "待订单完成" },
-    { id: 7, time: "08-09 16:58", type: "入账", order: "QX202608090142", product: "烟酰胺焕亮精华液", sku: "正装 30ml · ZCY-SERUM-030", base: 139, rate: 10, source: "分类默认", amount: 13.9, impact: "可提现" },
-    { id: 8, time: "08-08 12:31", type: "入账", order: "QX202608080095", product: "氨基酸净澈洁面乳", sku: "120g 两支装 · CLEAN-120X2", base: 128, rate: 12, source: "SKU 覆盖", amount: 15.36, impact: "可提现" }
+    { id: 1, ledgerType: "ESTIMATE", time: "08-10 09:18", type: "预计", order: "QX202608100028", product: "氨基酸净澈洁面乳", sku: "正装 120g · ZCY-CLEAN-120", base: 138, rate: 10, source: "分类默认", amount: 13.8, impact: "待订单完成" },
+    { id: 2, ledgerType: "ESTIMATE", time: "08-10 09:18", type: "预计", order: "QX202608100028", product: "无硅油蓬松洗发水", sku: "正装 500ml · MG-SHAMPOO-500", base: 89, rate: 8, source: "分类默认", amount: 7.12, impact: "待订单完成" },
+    { id: 3, ledgerType: "CREDIT", time: "08-10 09:02", type: "入账", order: "QX202608100027", product: "无硅油蓬松洗发水", sku: "正装 500ml · MG-SHAMPOO-500", base: 89, rate: 8, source: "分类默认", amount: 7.12, impact: "原始入账保留" },
+    { id: 4, ledgerType: "REFUND_DEBIT", time: "08-10 09:11", type: "冲减", order: "QX202608100027", product: "无硅油蓬松洗发水", sku: "正装 500ml · MG-SHAMPOO-500", base: 89, rate: 8, source: "分类默认", amount: -7.12, impact: "独立退款冲正" },
+    { id: 5, ledgerType: "ESTIMATE", time: "08-10 08:46", type: "预计", order: "QX202608100026", product: "酵素浓缩洗衣凝珠", sku: "30 颗 · JJ-LAUNDRY-030", base: 84, rate: 5, source: "分类默认", amount: 4.2, impact: "待订单完成" },
+    { id: 6, ledgerType: "CANCELLED", time: "08-10 08:50", type: "取消", order: "QX202608100026", product: "酵素浓缩洗衣凝珠", sku: "30 颗 · JJ-LAUNDRY-030", base: 84, rate: 5, source: "分类默认", amount: -4.2, impact: "预计佣金已取消" },
+    { id: 7, ledgerType: "CREDIT", time: "08-10 08:25", type: "入账", order: "QX202608100025", product: "积雪草舒缓修护霜", sku: "正装 50g · QMX-CREAM-050", base: 109, rate: 10, source: "分类默认", amount: 10.9, impact: "可提现" },
+    { id: 8, ledgerType: "ESTIMATE", time: "08-09 18:12", type: "预计", order: "QX202608090186", product: "白茶香氛沐浴露", sku: "正装 500ml · MG-BODY-500", base: 138, rate: 7, source: "分类默认", amount: 9.66, impact: "待订单完成" },
+    { id: 9, ledgerType: "CREDIT", time: "08-09 16:58", type: "入账", order: "QX202608090142", product: "烟酰胺焕亮精华液", sku: "正装 30ml · ZCY-SERUM-030", base: 139, rate: 10, source: "分类默认", amount: 13.9, impact: "可提现" },
+    { id: 10, ledgerType: "CREDIT", time: "08-08 12:31", type: "入账", order: "QX202608080095", product: "氨基酸净澈洁面乳", sku: "120g 两支装 · CLEAN-120X2", base: 128, rate: 12, source: "SKU 覆盖", amount: 15.36, impact: "可提现" }
   ];
 
   const withdrawals = [
-    { id: "WD202608020018", time: "2026-08-02 10:28", amount: 2000, bank: "招商银行 · 6088", status: "已到账", completed: "2026-08-03 16:42", note: "银行转账成功", proof: "PAY202608031642" },
-    { id: "WD202607180012", time: "2026-07-18 09:16", amount: 1500, bank: "招商银行 · 6088", status: "已到账", completed: "2026-07-19 14:08", note: "银行转账成功", proof: "PAY202607191408" },
-    { id: "WD202607060009", time: "2026-07-06 18:30", amount: 3000, bank: "招商银行 · 6088", status: "已到账", completed: "2026-07-08 11:22", note: "银行转账成功", proof: "PAY202607081122" },
-    { id: "WD202606220006", time: "2026-06-22 08:12", amount: 200, bank: "招商银行 · 6088", status: "已驳回", completed: "2026-06-22 15:30", note: "收款账户姓名与代理实名信息不一致", proof: "-" },
-    { id: "WD202606080003", time: "2026-06-08 12:45", amount: 1200, bank: "招商银行 · 6088", status: "已到账", completed: "2026-06-09 17:05", note: "银行转账成功", proof: "PAY202606091705" }
+    { id: "WD202608100021", time: "2026-08-10 10:42", amount: 680, bank: "招商银行 · 6088", status: "已审核待打款", statusCode: "APPROVED", completed: "等待平台线下打款", note: "平台审核通过，款项已进入打款队列", proof: "-" },
+    { id: "WD202608020018", time: "2026-08-02 10:28", amount: 2000, bank: "招商银行 · 6088", status: "已到账", statusCode: "PAID", completed: "2026-08-03 16:42", note: "银行转账成功", proof: "PAY202608031642" },
+    { id: "WD202607180012", time: "2026-07-18 09:16", amount: 1500, bank: "招商银行 · 6088", status: "已到账", statusCode: "PAID", completed: "2026-07-19 14:08", note: "银行转账成功", proof: "PAY202607191408" },
+    { id: "WD202607060009", time: "2026-07-06 18:30", amount: 3000, bank: "招商银行 · 6088", status: "已到账", statusCode: "PAID", completed: "2026-07-08 11:22", note: "银行转账成功", proof: "PAY202607081122" },
+    { id: "WD202606220006", time: "2026-06-22 08:12", amount: 200, bank: "招商银行 · 6088", status: "已驳回", statusCode: "REJECTED", completed: "2026-06-22 15:30", note: "收款账户姓名与代理实名信息不一致", proof: "-" },
+    { id: "WD202606080003", time: "2026-06-08 12:45", amount: 1200, bank: "招商银行 · 6088", status: "已到账", statusCode: "PAID", completed: "2026-06-09 17:05", note: "银行转账成功", proof: "PAY202606091705" }
   ];
 
   const state = {
@@ -110,7 +113,8 @@
     chartRange: 7,
     forcePassword: false,
     balanceVisible: true,
-    activeProductId: 1
+    activeProductId: 1,
+    walletScenario: "normal"
   };
 
   const $ = (selector, root = document) => root.querySelector(selector);
@@ -130,6 +134,19 @@
 
   function commissionText(sku) {
     return sku.rate === 0 ? "无佣金" : money(skuCommission(sku));
+  }
+
+  function phoneText(phone) {
+    return phone ? `手机尾号 ${phone}` : "手机号未绑定";
+  }
+
+  function ledgerLabel(record) {
+    return {
+      ESTIMATE: "预计佣金",
+      CREDIT: "可提现入账",
+      REFUND_DEBIT: "退款冲减",
+      CANCELLED: "预计佣金取消"
+    }[record.ledgerType] || record.type;
   }
 
   function sourceTag(source) {
@@ -159,8 +176,8 @@
   function statusClass(status) {
     return {
       "待发货": "warning", "运输中": "info", "已完成": "success", "退款售后": "danger",
-      "预计": "warning", "入账": "success", "已入账": "success", "冲减": "danger",
-      "已到账": "success", "审核中": "warning", "已审核": "info", "已驳回": "danger"
+      "预计": "warning", "入账": "success", "已入账": "success", "冲减": "danger", "取消": "neutral",
+      "已到账": "success", "审核中": "warning", "已审核": "info", "已审核待打款": "info", "已驳回": "danger"
     }[status] || "";
   }
 
@@ -203,20 +220,21 @@
   }
 
   function customerCard(customer) {
-    return `<article class="mobile-data-card" data-customer-id="${customer.id}"><div class="mobile-card-head"><div><strong>${customer.name} · 手机尾号 ${customer.phone}</strong><span>${customer.city} · ${customer.bound} 绑定</span></div><span class="tag ${customer.status === "消费客户" ? "success" : ""}">${customer.status}</span></div><div class="mobile-card-body"><div><span>归属消费</span><strong>${money(customer.spend)}</strong></div><div><span>消费次数</span><strong>${customer.orders} 次</strong></div><div><span>最近购买</span><strong>${customer.recent}</strong></div><div><span>最近时间</span><strong>${customer.recentTime}</strong></div></div><div class="mobile-card-action"><span>客户隐私信息已脱敏</span><button class="button secondary" type="button" data-customer-detail="${customer.id}">查看详情</button></div></article>`;
+    return `<article class="mobile-data-card" data-customer-id="${customer.id}"><div class="mobile-card-head"><div><strong>${customer.name} · ${phoneText(customer.phone)}</strong><span>${customer.city} · ${customer.bound} 绑定</span></div><span class="tag ${customer.status === "消费客户" ? "success" : ""}">${customer.status}</span></div><div class="mobile-card-body"><div><span>归属消费</span><strong>${money(customer.spend)}</strong></div><div><span>消费次数</span><strong>${customer.orders} 次</strong></div><div><span>最近购买</span><strong>${customer.recent}</strong></div><div><span>最近时间</span><strong>${customer.recentTime}</strong></div></div><div class="mobile-card-action"><span>${customer.phone ? "客户隐私信息已脱敏" : "客户尚未自愿授权手机号"}</span><button class="button secondary" type="button" data-customer-detail="${customer.id}">查看详情</button></div></article>`;
   }
 
   function renderCustomers() {
     const keyword = $("#customerSearch").value.trim().toLowerCase();
     const status = $("#customerStatus").value;
-    const filtered = customers.filter((customer) => (!keyword || `${customer.name}${customer.phone}${customer.city}`.toLowerCase().includes(keyword)) && (!status || customer.status === status));
+    const filtered = customers.filter((customer) => (!keyword || `${customer.name}${customer.phone || "未绑定"}${customer.city}`.toLowerCase().includes(keyword)) && (!status || customer.status === status));
     $("#customerCount").textContent = `共 ${filtered.length} 位客户`;
-    $("#customerRows").innerHTML = filtered.length ? filtered.map((customer) => `<tr><td><div class="customer-cell"><span class="customer-avatar">${customer.avatar}</span><div><span class="cell-main">${customer.name}</span><span class="cell-sub">手机尾号 ${customer.phone}</span></div></div></td><td>${customer.city}</td><td>${customer.bound}</td><td><span class="cell-main">${money(customer.spend)}</span></td><td>${customer.orders} 次</td><td><span class="cell-main">${customer.recent}</span><span class="cell-sub">${customer.recentTime}</span></td><td><button class="icon-button" type="button" data-customer-detail="${customer.id}" title="查看客户详情">${icon("eye")}</button></td></tr>`).join("") : `<tr><td colspan="7"><div class="empty-state">${icon("users")}<strong>没有找到匹配客户</strong><span>请调整筛选条件</span></div></td></tr>`;
+    $("#customerRows").innerHTML = filtered.length ? filtered.map((customer) => `<tr><td><div class="customer-cell"><span class="customer-avatar">${customer.avatar}</span><div><span class="cell-main">${customer.name}</span><span class="cell-sub">${phoneText(customer.phone)}</span></div></div></td><td>${customer.city}</td><td>${customer.bound}</td><td><span class="cell-main">${money(customer.spend)}</span></td><td>${customer.orders} 次</td><td><span class="cell-main">${customer.recent}</span><span class="cell-sub">${customer.recentTime}</span></td><td><button class="icon-button" type="button" data-customer-detail="${customer.id}" title="查看客户详情">${icon("eye")}</button></td></tr>`).join("") : `<tr><td colspan="7"><div class="empty-state">${icon("users")}<strong>没有找到匹配客户</strong><span>请调整筛选条件</span></div></td></tr>`;
     $("#customerCards").innerHTML = filtered.length ? filtered.map(customerCard).join("") : `<div class="empty-state">${icon("users")}<strong>没有找到匹配客户</strong></div>`;
   }
 
   function orderCard(order) {
-    return `<article class="mobile-data-card"><div class="mobile-card-head"><div><strong>${order.id}</strong><span>${order.time} · ${order.customer}（${order.phone}）</span></div><span class="tag ${statusClass(order.status)}">${order.status}</span></div><div class="mobile-card-body"><div><span>商品</span><strong>${order.product}</strong></div><div><span>实付金额</span><strong>${money(order.amount)}</strong></div><div><span>佣金</span><strong class="${order.commission < 0 ? "danger-text" : ""}">${money(order.commission)}</strong></div><div><span>佣金状态</span><strong>${order.commissionStatus}</strong></div><div><span>规则快照</span><strong>${orderRuleSummary(order)}</strong></div></div><div class="mobile-card-action"><span>${order.aftersale === "无" ? "平台统一履约" : `售后：${order.aftersale}`}</span><button class="button secondary" type="button" data-order-detail="${order.id}">查看详情</button></div></article>`;
+    const net = order.netCommission === undefined ? order.commission : order.netCommission;
+    return `<article class="mobile-data-card"><div class="mobile-card-head"><div><strong>${order.id}</strong><span>${order.time} · ${order.customer}（${order.phone || "未绑定"}）</span></div><span class="tag ${statusClass(order.status)}">${order.status}</span></div><div class="mobile-card-body"><div><span>商品</span><strong>${order.product}</strong></div><div><span>实付金额</span><strong>${money(order.amount)}</strong></div><div><span>佣金净额</span><strong class="${net < 0 ? "danger-text" : ""}">${money(net)}</strong></div><div><span>佣金状态</span><strong>${order.commissionStatus}</strong></div><div><span>规则快照</span><strong>${orderRuleSummary(order)}</strong></div></div><div class="mobile-card-action"><span>${order.aftersale === "无" ? "平台统一履约" : `售后：${order.aftersale}`}</span><button class="button secondary" type="button" data-order-detail="${order.id}">查看详情</button></div></article>`;
   }
 
   function renderOrders() {
@@ -224,18 +242,18 @@
     const status = $("#orderStatus").value;
     const filtered = orders.filter((order) => (!keyword || `${order.id}${order.customer}${order.product}`.toLowerCase().includes(keyword)) && (!status || order.status === status));
     $("#orderCount").textContent = `共 ${filtered.length} 笔归属订单`;
-    $("#orderRows").innerHTML = filtered.length ? filtered.map((order) => { const product = productById(order.productId); return `<tr><td><button class="order-number" type="button" data-order-detail="${order.id}">${order.id}</button><span class="cell-sub">${order.time}</span></td><td><span class="cell-main">${order.customer}</span><span class="cell-sub">手机尾号 ${order.phone} · ${order.city}</span></td><td><div class="table-product"><img src="${product.image}" alt=""><div><strong>${order.product}</strong><span>共 ${order.count} 件</span></div></div></td><td><span class="cell-main">${money(order.amount)}</span></td><td><span class="tag ${statusClass(order.status)}">${order.status}</span></td><td><span class="cell-main ${order.commission < 0 ? "danger-text" : ""}">${money(order.commission)}</span><span class="cell-sub">${order.commissionStatus} · ${orderRuleSummary(order)}</span></td><td>${order.time}</td><td><button class="icon-button" type="button" data-order-detail="${order.id}" title="查看订单详情">${icon("eye")}</button></td></tr>`; }).join("") : `<tr><td colspan="8"><div class="empty-state">${icon("orders")}<strong>没有找到匹配订单</strong><span>请调整订单状态或搜索内容</span></div></td></tr>`;
+    $("#orderRows").innerHTML = filtered.length ? filtered.map((order) => { const product = productById(order.productId); const net = order.netCommission === undefined ? order.commission : order.netCommission; return `<tr><td><button class="order-number" type="button" data-order-detail="${order.id}">${order.id}</button><span class="cell-sub">${order.time}</span></td><td><span class="cell-main">${order.customer}</span><span class="cell-sub">${phoneText(order.phone)} · ${order.city}</span></td><td><div class="table-product"><img src="${product.image}" alt=""><div><strong>${order.product}</strong><span>共 ${order.count} 件</span></div></div></td><td><span class="cell-main">${money(order.amount)}</span></td><td><span class="tag ${statusClass(order.status)}">${order.status}</span></td><td><span class="cell-main ${net < 0 ? "danger-text" : ""}">${money(net)}</span><span class="cell-sub">${order.commissionStatus} · ${orderRuleSummary(order)}</span></td><td>${order.time}</td><td><button class="icon-button" type="button" data-order-detail="${order.id}" title="查看订单详情">${icon("eye")}</button></td></tr>`; }).join("") : `<tr><td colspan="8"><div class="empty-state">${icon("orders")}<strong>没有找到匹配订单</strong><span>请调整订单状态或搜索内容</span></div></td></tr>`;
     $("#orderCards").innerHTML = filtered.length ? filtered.map(orderCard).join("") : `<div class="empty-state">${icon("orders")}<strong>没有找到匹配订单</strong></div>`;
   }
 
   function renderDashboardOrders() {
     const data = orders.slice(0, 5);
-    $("#dashboardOrderRows").innerHTML = data.map((order) => `<tr><td><button class="order-number" type="button" data-order-detail="${order.id}">${order.id}</button></td><td>${order.customer} · ${order.phone}</td><td>${order.product}</td><td><span class="cell-main">${money(order.amount)}</span></td><td><span class="tag ${statusClass(order.status)}">${order.status}</span></td><td><span class="cell-main ${order.commission < 0 ? "danger-text" : ""}">${money(order.commission)}</span><span class="cell-sub">${orderRuleSummary(order)}</span></td><td><button class="icon-button" type="button" data-order-detail="${order.id}" title="查看订单详情">${icon("eye")}</button></td></tr>`).join("");
+    $("#dashboardOrderRows").innerHTML = data.map((order) => { const net = order.netCommission === undefined ? order.commission : order.netCommission; return `<tr><td><button class="order-number" type="button" data-order-detail="${order.id}">${order.id}</button></td><td>${order.customer} · ${order.phone || "未绑定"}</td><td>${order.product}</td><td><span class="cell-main">${money(order.amount)}</span></td><td><span class="tag ${statusClass(order.status)}">${order.status}</span></td><td><span class="cell-main ${net < 0 ? "danger-text" : ""}">${money(net)}</span><span class="cell-sub">${orderRuleSummary(order)}</span></td><td><button class="icon-button" type="button" data-order-detail="${order.id}" title="查看订单详情">${icon("eye")}</button></td></tr>`; }).join("");
     $("#dashboardOrderCards").innerHTML = data.slice(0, 4).map(orderCard).join("");
   }
 
   function commissionCard(record) {
-    return `<article class="mobile-data-card"><div class="mobile-card-head"><div><strong>${record.order}</strong><span>${record.time} · ${record.sku}</span></div><span class="tag ${statusClass(record.type)}">${record.type === "入账" ? "可提现入账" : record.type === "预计" ? "预计佣金" : "退款冲减"}</span></div><div class="mobile-card-body"><div><span>商品净实付</span><strong>${money(record.base)}</strong></div><div><span>比例快照</span><strong>${percent(record.rate)}</strong></div><div><span>规则来源</span><strong>${record.source}</strong></div><div><span>佣金变动</span><strong class="${record.amount < 0 ? "danger-text" : ""}">${money(record.amount)}</strong></div><div><span>余额影响</span><strong>${record.impact}</strong></div></div><div class="mobile-card-action"><span>SKU 与规则来源快照已冻结</span><button class="button secondary" type="button" data-commission-detail="${record.id}">查看详情</button></div></article>`;
+    return `<article class="mobile-data-card"><div class="mobile-card-head"><div><strong>${record.order}</strong><span>${record.time} · ${record.sku}</span></div><span class="tag ${statusClass(record.type)}">${ledgerLabel(record)}</span></div><div class="mobile-card-body"><div><span>流水类型</span><strong>${record.ledgerType}</strong></div><div><span>商品净实付</span><strong>${money(record.base)}</strong></div><div><span>比例快照</span><strong>${percent(record.rate)}</strong></div><div><span>规则来源</span><strong>${record.source}</strong></div><div><span>佣金变动</span><strong class="${record.amount < 0 ? "danger-text" : ""}">${money(record.amount)}</strong></div><div><span>余额影响</span><strong>${record.impact}</strong></div></div><div class="mobile-card-action"><span>原始流水不修改，冲正独立追加</span><button class="button secondary" type="button" data-commission-detail="${record.id}">查看详情</button></div></article>`;
   }
 
   function renderCommissions() {
@@ -243,7 +261,7 @@
     const type = $("#commissionType").value;
     const filtered = commissions.filter((record) => (!keyword || `${record.order}${record.product}${record.sku}${record.source}`.toLowerCase().includes(keyword)) && (!type || record.type === type));
     $("#commissionCount").textContent = `共 ${filtered.length} 笔佣金记录`;
-    $("#commissionRows").innerHTML = filtered.length ? filtered.map((record) => `<tr><td>${record.time}</td><td><span class="tag ${statusClass(record.type)}">${record.type === "入账" ? "可提现入账" : record.type === "预计" ? "预计佣金" : "退款冲减"}</span></td><td><button class="order-number" type="button" data-order-detail="${record.order}">${record.order}</button><span class="cell-sub">${record.product}</span><span class="cell-sub">${record.sku}</span></td><td>${money(record.base)}</td><td>${percent(record.rate)}</td><td>${sourceTag(record.source)}</td><td><span class="cell-main ${record.amount < 0 ? "danger-text" : "positive"}">${money(record.amount)}</span></td><td>${record.impact}</td><td><button class="icon-button" type="button" data-commission-detail="${record.id}" title="查看佣金详情">${icon("eye")}</button></td></tr>`).join("") : `<tr><td colspan="9"><div class="empty-state">${icon("coins")}<strong>没有找到匹配记录</strong></div></td></tr>`;
+    $("#commissionRows").innerHTML = filtered.length ? filtered.map((record) => `<tr><td>${record.time}</td><td><span class="tag ${statusClass(record.type)}">${ledgerLabel(record)}</span><span class="cell-sub">${record.ledgerType}</span></td><td><button class="order-number" type="button" data-order-detail="${record.order}">${record.order}</button><span class="cell-sub">${record.product}</span><span class="cell-sub">${record.sku}</span></td><td>${money(record.base)}</td><td>${percent(record.rate)}</td><td>${sourceTag(record.source)}</td><td><span class="cell-main ${record.amount < 0 ? "danger-text" : "positive"}">${money(record.amount)}</span></td><td>${record.impact}</td><td><button class="icon-button" type="button" data-commission-detail="${record.id}" title="查看佣金详情">${icon("eye")}</button></td></tr>`).join("") : `<tr><td colspan="9"><div class="empty-state">${icon("coins")}<strong>没有找到匹配记录</strong></div></td></tr>`;
     $("#commissionCards").innerHTML = filtered.length ? filtered.map(commissionCard).join("") : `<div class="empty-state">${icon("coins")}<strong>没有找到匹配记录</strong></div>`;
   }
 
@@ -256,13 +274,35 @@
     $("#withdrawalCards").innerHTML = withdrawals.map(withdrawalCard).join("");
   }
 
+  function renderWalletScenario() {
+    const negative = state.walletScenario === "negative";
+    const available = negative ? 0 : 1826.4;
+    $("#walletBalance").textContent = state.balanceVisible ? money(available) : "¥ ••••••";
+    $("#walletNegative").textContent = negative ? "- ¥ 328.50" : "¥ 0.00";
+    $("#walletNegativeHint").textContent = negative ? "后续佣金优先抵扣" : "无待抵扣欠款";
+    $("#walletBalanceHint").textContent = negative ? "负余额未清零，提现功能已暂停" : "当前账户可正常申请提现";
+    $("#negativeWalletCallout").hidden = !negative;
+    $("#walletWithdrawButton").disabled = negative;
+    $("#dashboardWithdrawButton").disabled = negative;
+    $("#dashboardWalletAvailable").textContent = money(available);
+    $("#dashboardWalletSecondaryLabel").textContent = negative ? "负余额" : "提现处理中";
+    $("#dashboardWalletSecondary").textContent = negative ? "- ¥ 328.50" : "¥ 0.00";
+    $("#withdrawAvailable").textContent = money(available);
+    $$('[data-wallet-scenario]').forEach((button) => button.classList.toggle("active", button.dataset.walletScenario === state.walletScenario));
+  }
+
   function showPage(page) {
     if (!pageTitles[page]) return;
     state.page = page;
     $$(".page-view").forEach((view) => view.classList.toggle("active", view.dataset.view === page));
     $$(".nav-item[data-page]").forEach((button) => button.classList.toggle("active", button.dataset.page === page));
     const mobilePage = page === "wallet" ? "commission" : page === "customers" ? "account" : page;
-    $$(".mobile-nav [data-page]").forEach((button) => button.classList.toggle("active", button.dataset.page === mobilePage));
+    $$(".mobile-nav [data-page]").forEach((button) => {
+      const active = button.dataset.page === mobilePage;
+      button.classList.toggle("active", active);
+      if (active) button.setAttribute("aria-current", "page");
+      else button.removeAttribute("aria-current");
+    });
     $("#breadcrumbTitle").textContent = pageTitles[page];
     document.title = `${pageTitles[page]} · 青序伙伴`;
     $(".page-scroll").scrollTop = 0;
@@ -363,16 +403,16 @@
     const customer = customers.find((item) => item.id === Number(customerId)) || customers[0];
     $("#drawerKicker").textContent = "绑定客户";
     $("#drawerTitle").textContent = `${customer.name} 的客户概览`;
-    $("#drawerBody").innerHTML = `<section class="drawer-section"><div class="customer-cell"><span class="customer-avatar">${customer.avatar}</span><div><span class="cell-main">微信昵称 ${customer.name}</span><span class="cell-sub">手机尾号 ${customer.phone} · ${customer.city}</span></div></div></section>
+    $("#drawerBody").innerHTML = `<section class="drawer-section"><div class="customer-cell"><span class="customer-avatar">${customer.avatar}</span><div><span class="cell-main">微信昵称 ${customer.name}</span><span class="cell-sub">${phoneText(customer.phone)} · ${customer.city}</span></div></div></section>
       <section class="drawer-section"><h4>归属信息</h4><dl class="detail-list"><div><dt>归属代理</dt><dd>清源生活馆</dd></div><div><dt>绑定时间</dt><dd>${customer.bound}</dd></div><div><dt>绑定状态</dt><dd><span class="tag success">长期有效</span></dd></div><div><dt>信息范围</dt><dd>仅展示脱敏运营信息</dd></div></dl></section>
       <section class="drawer-section"><h4>消费概览</h4><div class="drawer-stat-grid"><div><span>归属消费</span><strong>${money(customer.spend)}</strong></div><div><span>消费次数</span><strong>${customer.orders} 次</strong></div><div><span>最近购买</span><strong>${customer.recent}</strong></div><div><span>最近时间</span><strong>${customer.recentTime}</strong></div></div></section>
-      <section class="drawer-section"><div class="rule-callout">${icon("shield")}<span>为保护客户隐私，代理端不展示完整手机号、姓名或详细收货地址。</span></div></section>
+      <section class="drawer-section"><div class="rule-callout">${icon("shield")}<span>${customer.phone ? "手机号来自客户自愿授权，仅显示后四位；代理端不展示姓名或详细收货地址。" : "客户尚未自愿授权手机号；系统不会从收货地址提取或补写账户手机号。"}</span></div></section>
       <button class="button secondary full-width" type="button" data-go="orders">${icon("orders")}查看该客户归属订单</button>`;
     openOverlay($("#detailDrawer"));
   }
 
   function orderTimeline(order) {
-    if (order.status === "退款售后") return `<li><strong>订单支付成功</strong><span>${order.time} · SKU 比例与规则来源已冻结</span></li><li><strong>客户发起售后</strong><span>08-10 09:06 · 平台客服已受理</span></li><li><strong>平台退款处理中</strong><span>预计 1-3 个工作日原路退回，佣金已按原快照冲减</span></li>`;
+    if (order.status === "退款售后") return `<li><strong>订单支付成功</strong><span>${order.time} · SKU 比例与规则来源已冻结</span></li><li><strong>客户发起售后</strong><span>08-10 09:06 · 平台客服已受理并占用可退数量</span></li><li><strong>平台退款处理中</strong><span>${order.commissionStatus.includes("取消") ? "完成前退款追加 CANCELLED，原 ESTIMATE 保留" : "完成后退款追加 REFUND_DEBIT，原 CREDIT 保留"}</span></li>`;
     const shipped = ["运输中", "已完成"].includes(order.status);
     const complete = order.status === "已完成";
     return `<li><strong>订单支付成功</strong><span>${order.time} · SKU 比例与规则来源已冻结</span></li><li><strong>${shipped ? "平台已发货" : "等待平台发货"}</strong><span>${shipped ? "圆通速递 YT9068****1026" : "平台仓库正在备货"}</span></li>${shipped ? `<li><strong>${complete ? "客户已确认收货" : "商品运输中"}</strong><span>${complete ? "佣金已进入可提现余额" : "物流信息由平台持续同步"}</span></li>` : ""}`;
@@ -383,9 +423,10 @@
     const product = productById(order.productId);
     $("#drawerKicker").textContent = "归属订单";
     $("#drawerTitle").textContent = order.id;
+    const netCommission = order.netCommission === undefined ? order.commission : order.netCommission;
     $("#drawerBody").innerHTML = `<section class="drawer-section"><div class="drawer-product"><img src="${product.image}" alt=""><div><strong>${order.product}</strong><span>${money(order.amount)}</span><small>共 ${order.count} 件 · 平台统一履约</small></div></div></section>
-      <section class="drawer-section"><h4>订单信息</h4><dl class="detail-list"><div><dt>订单状态</dt><dd><span class="tag ${statusClass(order.status)}">${order.status}</span></dd></div><div><dt>客户</dt><dd>${order.customer} · 手机尾号 ${order.phone}</dd></div><div><dt>收货城市</dt><dd>${order.city}（详细地址不可见）</dd></div><div><dt>归属渠道</dt><dd>邀请码 QY6088</dd></div><div><dt>订单净实付</dt><dd>${money(order.amount)}</dd></div></dl></section>
-      <section class="drawer-section"><h4>佣金快照</h4><div class="drawer-stat-grid"><div><span>订单项规则</span><strong>${order.items.length} 项</strong></div><div><span>佣金合计</span><strong class="${order.commission < 0 ? "danger-text" : "positive"}">${money(order.commission)}</strong></div><div><span>当前状态</span><strong>${order.commissionStatus}</strong></div><div><span>售后进度</span><strong>${order.aftersale}</strong></div></div><div class="snapshot-list">${orderSnapshotList(order)}</div></section>
+      <section class="drawer-section"><h4>订单信息</h4><dl class="detail-list"><div><dt>订单状态</dt><dd><span class="tag ${statusClass(order.status)}">${order.status}</span></dd></div><div><dt>客户</dt><dd>${order.customer} · ${phoneText(order.phone)}</dd></div><div><dt>收货城市</dt><dd>${order.city}（详细地址不可见）</dd></div><div><dt>归属渠道</dt><dd>邀请码 QY6088</dd></div><div><dt>订单净实付</dt><dd>${money(order.amount)}</dd></div></dl></section>
+      <section class="drawer-section"><h4>佣金快照</h4><div class="drawer-stat-grid"><div><span>订单项规则</span><strong>${order.items.length} 项</strong></div><div><span>原始佣金</span><strong class="positive">${money(order.commission)}</strong></div><div><span>独立冲减</span><strong class="${order.refundDebit ? "danger-text" : ""}">${order.refundDebit ? money(-order.refundDebit) : money(0)}</strong></div><div><span>佣金净额</span><strong>${money(netCommission)}</strong></div><div><span>当前状态</span><strong>${order.commissionStatus}</strong></div><div><span>售后进度</span><strong>${order.aftersale}</strong></div></div><div class="snapshot-list">${orderSnapshotList(order)}</div></section>
       <section class="drawer-section"><h4>${order.status === "退款售后" ? "售后进度" : "履约进度"}</h4><ol class="timeline">${orderTimeline(order)}</ol></section>
       <div class="rule-callout">${icon("info")}<span>代理端仅供查询。发货、物流、退款和售后由平台统一处理。</span></div>`;
     openOverlay($("#detailDrawer"));
@@ -394,22 +435,23 @@
   function openCommissionDetail(recordId) {
     const record = commissions.find((item) => item.id === Number(recordId)) || commissions[0];
     $("#drawerKicker").textContent = "佣金流水";
-    $("#drawerTitle").textContent = record.type === "冲减" ? "退款佣金冲减" : record.type === "预计" ? "预计佣金详情" : "可提现佣金入账";
+    $("#drawerTitle").textContent = ledgerLabel(record);
     $("#drawerBody").innerHTML = `<section class="drawer-section"><div class="drawer-stat-grid"><div><span>佣金变动</span><strong class="${record.amount < 0 ? "danger-text" : "positive"}">${money(record.amount)}</strong></div><div><span>余额影响</span><strong>${record.impact}</strong></div></div></section>
-      <section class="drawer-section"><h4>订单项计算快照</h4><dl class="detail-list"><div><dt>关联订单</dt><dd>${record.order}</dd></div><div><dt>商品</dt><dd>${record.product}</dd></div><div><dt>SKU</dt><dd>${record.sku}</dd></div><div><dt>商品净实付</dt><dd>${money(record.base)}</dd></div><div><dt>有效比例</dt><dd>${percent(record.rate)}</dd></div><div><dt>规则来源</dt><dd>${sourceTag(record.source)}</dd></div><div><dt>计算结果</dt><dd>${money(record.amount)}</dd></div><div><dt>发生时间</dt><dd>${record.time}</dd></div></dl></section>
-      <section class="drawer-section"><h4>记录说明</h4><div class="rule-callout">${icon("shield")}<span>${record.type === "冲减" ? "客户退款后按该 SKU 支付时快照生成负向流水，原入账记录保留。" : record.type === "预计" ? "订单完成前为预计佣金，SKU、比例与规则来源均以支付时快照为准。" : "客户确认收货后，该订单项预计佣金已转入可提现余额。"}</span></div></section>
+      <section class="drawer-section"><h4>订单项计算快照</h4><dl class="detail-list"><div><dt>流水类型</dt><dd>${record.ledgerType}</dd></div><div><dt>关联订单</dt><dd>${record.order}</dd></div><div><dt>商品</dt><dd>${record.product}</dd></div><div><dt>SKU</dt><dd>${record.sku}</dd></div><div><dt>商品净实付</dt><dd>${money(record.base)}</dd></div><div><dt>有效比例</dt><dd>${percent(record.rate)}</dd></div><div><dt>规则来源</dt><dd>${sourceTag(record.source)}</dd></div><div><dt>计算结果</dt><dd>${money(record.amount)}</dd></div><div><dt>发生时间</dt><dd>${record.time}</dd></div></dl></section>
+      <section class="drawer-section"><h4>记录说明</h4><div class="rule-callout">${icon("shield")}<span>${record.ledgerType === "REFUND_DEBIT" ? "客户退款后按该 SKU 支付时快照追加 REFUND_DEBIT，原 CREDIT 入账记录保持不变。" : record.ledgerType === "CANCELLED" ? "订单完成前发生退款或关闭时追加 CANCELLED，原 ESTIMATE 记录保持不变。" : record.ledgerType === "ESTIMATE" ? "订单完成前为预计佣金，SKU、比例与规则来源均以支付时快照为准。" : "客户确认收货后，该订单项佣金通过 CREDIT 进入可提现余额。"}</span></div></section>
       <button class="button secondary full-width" type="button" data-order-detail="${record.order}">${icon("orders")}查看关联订单</button>`;
     openOverlay($("#detailDrawer"));
   }
 
   function openWithdrawalDetail(withdrawalId) {
     const record = withdrawals.find((item) => item.id === withdrawalId) || withdrawals[0];
+    const approved = record.statusCode === "APPROVED";
     $("#drawerKicker").textContent = "提现记录";
     $("#drawerTitle").textContent = record.id;
     $("#drawerBody").innerHTML = `<section class="drawer-section"><div class="drawer-stat-grid"><div><span>提现金额</span><strong>${money(record.amount)}</strong></div><div><span>当前状态</span><strong>${record.status}</strong></div></div></section>
       <section class="drawer-section"><h4>提现信息</h4><dl class="detail-list"><div><dt>申请时间</dt><dd>${record.time}</dd></div><div><dt>收款账户</dt><dd>${record.bank}<br>周清源 · **** **** **** 6088</dd></div><div><dt>完成时间</dt><dd>${record.completed}</dd></div><div><dt>处理说明</dt><dd>${record.note}</dd></div></dl></section>
-      <section class="drawer-section"><h4>${record.status === "已到账" ? "平台打款凭证" : "审核记录"}</h4>${record.status === "已到账" ? `<div class="bank-card"><span class="bank-icon">${icon("image")}</span><div><strong>线下转账凭证</strong><span>凭证编号 ${record.proof}</span></div><span class="tag success">已上传</span></div>` : `<div class="rule-callout">${icon("alert")}<span>${record.note}，请更新银行卡后重新提交。</span></div>`}</section>
-      <ol class="timeline"><li><strong>提现申请已提交</strong><span>${record.time}</span></li><li><strong>${record.status === "已驳回" ? "平台审核未通过" : "平台审核通过"}</strong><span>${record.status === "已驳回" ? record.note : "财务已核对收款账户"}</span></li>${record.status === "已到账" ? `<li><strong>平台已线下转账</strong><span>${record.completed} · 打款凭证已上传</span></li>` : ""}</ol>`;
+      <section class="drawer-section"><h4>${record.status === "已到账" ? "平台打款凭证" : "审核记录"}</h4>${record.status === "已到账" ? `<div class="bank-card"><span class="bank-icon">${icon("image")}</span><div><strong>线下转账凭证</strong><span>凭证编号 ${record.proof}</span></div><span class="tag success">已上传</span></div>` : approved ? `<div class="rule-callout">${icon("clock")}<span>审核已通过，财务将在打款完成后上传凭证；代理端只能查看脱敏银行卡。</span></div>` : `<div class="rule-callout">${icon("alert")}<span>${record.note}，请更新银行卡后重新提交。</span></div>`}</section>
+      <ol class="timeline"><li><strong>提现申请已提交</strong><span>${record.time}</span></li><li><strong>${record.status === "已驳回" ? "平台审核未通过" : "平台审核通过"}</strong><span>${record.status === "已驳回" ? record.note : "财务已核对收款账户"}</span></li>${record.status === "已到账" ? `<li><strong>平台已线下转账</strong><span>${record.completed} · 打款凭证已上传</span></li>` : approved ? `<li><strong>等待平台线下打款</strong><span>当前状态 APPROVED · 不支持代理侧催改或撤回</span></li>` : ""}</ol>`;
     openOverlay($("#detailDrawer"));
   }
 
@@ -475,9 +517,10 @@
     $("#withdrawForm").addEventListener("submit", (event) => {
       event.preventDefault();
       const amount = Number($("#withdrawAmount").value);
-      if (!amount || amount < 100 || amount > 1826.4 || !$("#withdrawAgree").checked) { $("#withdrawError").hidden = false; return; }
+      const available = state.walletScenario === "negative" ? 0 : 1826.4;
+      if (!amount || amount < 100 || amount > available || !$("#withdrawAgree").checked) { $("#withdrawError").hidden = false; return; }
       $("#withdrawError").hidden = true;
-      withdrawals.unshift({ id: "WD202608100021", time: "2026-08-10 10:42", amount, bank: "招商银行 · 6088", status: "审核中", completed: "-", note: "等待平台超级管理员审核", proof: "-" });
+      withdrawals.unshift({ id: "WD202608100022", time: "2026-08-10 10:42", amount, bank: "招商银行 · 6088", status: "审核中", statusCode: "PENDING", completed: "-", note: "等待平台超级管理员审核", proof: "-" });
       renderWithdrawals();
       closeOverlays(true);
       $("#withdrawForm").reset();
@@ -529,12 +572,38 @@
       const withdrawalDetail = event.target.closest("[data-withdrawal-detail]");
       if (withdrawalDetail) openWithdrawalDetail(withdrawalDetail.dataset.withdrawalDetail);
 
-      if (event.target.closest("[data-withdraw]")) openOverlay($("#withdrawModal"));
+      if (event.target.closest("[data-withdraw]")) {
+        if (state.walletScenario === "negative") showToast("负余额未清零，暂不能申请提现");
+        else openOverlay($("#withdrawModal"));
+      }
       if (event.target.closest("[data-bank]")) { closeOverlays(true); openOverlay($("#bankModal")); }
       if (event.target.closest("[data-password]")) { $("#currentPassword").value = ""; openOverlay($("#passwordModal")); }
 
       const rangeButton = event.target.closest("[data-range]");
       if (rangeButton) { state.chartRange = Number(rangeButton.dataset.range); $$("[data-range]").forEach((button) => button.classList.toggle("active", button === rangeButton)); renderSalesBars(); }
+
+      const walletScenario = event.target.closest("[data-wallet-scenario]");
+      if (walletScenario) {
+        state.walletScenario = walletScenario.dataset.walletScenario;
+        state.balanceVisible = true;
+        renderWalletScenario();
+        showToast(state.walletScenario === "negative" ? "已切换到负余额限制状态" : "已恢复正常钱包状态");
+      }
+
+      const stateButton = event.target.closest("[data-agent-state]");
+      if (stateButton) {
+        const preview = $("#agentStatePreview");
+        const examples = {
+          loading: ["loading-state", "加载中：正在同步佣金与提现记录..."],
+          error: ["error-state", "网络错误：请求失败，可保留筛选条件后重试。"],
+          forbidden: ["forbidden-state", "403 权限不足：当前代理不能访问其他代理数据。"],
+          conflict: ["conflict-state", "409 数据冲突：记录已更新，请刷新后重新提交。"],
+          success: ["success-state", "操作成功：资料已同步，审计编号 AUD-AG-0811-26"]
+        };
+        const example = examples[stateButton.dataset.agentState];
+        preview.className = `state-preview ${example[0]}`;
+        preview.textContent = example[1];
+      }
 
       const orderTab = event.target.closest("[data-order-tab]");
       if (orderTab) { $$("[data-order-tab]").forEach((button) => button.classList.toggle("active", button === orderTab)); $("#orderStatus").value = orderTab.dataset.orderTab; renderOrders(); }
@@ -554,7 +623,8 @@
 
     $("#toggleBalance").addEventListener("click", () => {
       state.balanceVisible = !state.balanceVisible;
-      $("#walletBalance").textContent = state.balanceVisible ? "¥ 1,826.40" : "¥ ••••••";
+      const available = state.walletScenario === "negative" ? 0 : 1826.4;
+      $("#walletBalance").textContent = state.balanceVisible ? money(available) : "¥ ••••••";
       $("#toggleBalance use").setAttribute("href", state.balanceVisible ? "#i-eye" : "#i-eye-off");
     });
 
@@ -589,6 +659,7 @@
     renderCommissions();
     renderWithdrawals();
     renderSalesBars();
+    renderWalletScenario();
     setupEvents();
     if (params.get("autologin") === "1" || sessionStorage.getItem("qingxuAgentLoggedIn") === "1") showApp();
     else showLogin();

@@ -1,0 +1,1773 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider     = "postgresql"
+  relationMode = "foreignKeys"
+  schemas      = ["public"]
+}
+
+// PostgreSQL/Supabase migration contract:
+// - Former nonnegative numeric fields use Prisma Int/BigInt; migrations enforce CHECK constraints.
+// - Partial unique indexes are migration-managed because Prisma cannot express their predicates; the complete list is in 数据库设计.md 7.3.
+
+enum AccountRole {
+  SUPER_ADMIN
+  AGENT_ADMIN
+  CUSTOMER
+
+  @@schema("public")
+}
+
+enum AccountStatus {
+  ACTIVE
+  DISABLED
+  DELETION_PENDING
+  ANONYMIZED
+
+  @@schema("public")
+}
+
+enum AgentStatus {
+  ACTIVE
+  DISABLED
+
+  @@schema("public")
+}
+
+enum ProductAuthorizationMode {
+  ALL_ACTIVE_PRODUCTS
+  CUSTOM_WHITELIST
+
+  @@schema("public")
+}
+
+enum InviteCodeStatus {
+  ACTIVE
+  DISABLED
+  ROTATED
+  EXPIRED
+
+  @@schema("public")
+}
+
+enum PromotionTargetType {
+  STOREFRONT
+  PRODUCT
+
+  @@schema("public")
+}
+
+enum PromotionAssetStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+
+  @@schema("public")
+}
+
+enum AttributionCandidateStatus {
+  ACTIVE
+  CONFIRMED
+  REJECTED
+  EXPIRED
+  INVALIDATED
+
+  @@schema("public")
+}
+
+enum BindingEndReason {
+  TRANSFERRED
+  DIRECTED
+  ACCOUNT_DELETED
+
+  @@schema("public")
+}
+
+enum EntityStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+
+  @@schema("public")
+}
+
+enum SkuStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+
+  @@schema("public")
+}
+
+enum FileVisibility {
+  PUBLIC
+  PRIVATE
+
+  @@schema("public")
+}
+
+enum FileStatus {
+  PENDING
+  READY
+  REJECTED
+  DELETED
+
+  @@schema("public")
+}
+
+enum CartOwnerType {
+  ANONYMOUS
+  CUSTOMER
+
+  @@schema("public")
+}
+
+enum InventoryReservationStatus {
+  ACTIVE
+  CONSUMED
+  RELEASED
+  EXPIRED
+
+  @@schema("public")
+}
+
+enum InventoryLedgerType {
+  INITIAL
+  MANUAL_INCREASE
+  MANUAL_DECREASE
+  ORDER_PAID_DEDUCT
+  ORDER_RESERVE
+  ORDER_RELEASE
+  REFUND_RESTOCK
+  RETURN_RESTOCK
+  RETURN_DAMAGED
+  COMPENSATION
+
+  @@schema("public")
+}
+
+enum OrderSource {
+  CART
+  BUY_NOW
+
+  @@schema("public")
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PENDING_SHIPMENT
+  SHIPPING
+  COMPLETED
+  CLOSED
+
+  @@schema("public")
+}
+
+enum PaymentStatus {
+  UNPAID
+  PROCESSING
+  PAID
+
+  @@schema("public")
+}
+
+enum RefundAggregateStatus {
+  NONE
+  REFUNDING
+  PARTIAL
+  FULL
+  FAILED
+
+  @@schema("public")
+}
+
+enum FulfillmentStatus {
+  NOT_STARTED
+  READY_TO_SHIP
+  SHIPPED
+  IN_TRANSIT
+  DELIVERED
+  CANCELLED
+
+  @@schema("public")
+}
+
+enum OrderCloseReason {
+  USER_CANCELLED
+  PAYMENT_TIMEOUT
+  FULL_REFUND_BEFORE_SHIPMENT
+
+  @@schema("public")
+}
+
+enum PaymentResolution {
+  NORMAL
+  LATE_SUCCESS_REFUND_PENDING
+  LATE_SUCCESS_REFUNDED
+  MANUAL_REQUIRED
+
+  @@schema("public")
+}
+
+enum AttributionChannel {
+  DIRECT
+  AGENT
+
+  @@schema("public")
+}
+
+enum PaymentProvider {
+  WECHAT
+  MOCK
+
+  @@schema("public")
+}
+
+enum PaymentIntentStatus {
+  OPEN
+  CLOSED
+  SUCCEEDED
+  EXPIRED
+
+  @@schema("public")
+}
+
+enum PaymentAttemptStatus {
+  INITIATED
+  SUCCEEDED
+  SUCCEEDED_LATE
+  FAILED
+  CANCELLED
+
+  @@schema("public")
+}
+
+enum CallbackStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
+
+  @@schema("public")
+}
+
+enum ShipmentStatus {
+  CREATED
+  SHIPPED
+  IN_TRANSIT
+  DELIVERED
+  CANCELLED
+
+  @@schema("public")
+}
+
+enum AftersaleType {
+  REFUND_ONLY
+  RETURN_REFUND
+
+  @@schema("public")
+}
+
+enum AftersaleStatus {
+  PENDING_REVIEW
+  REJECTED
+  REFUNDING
+  WAITING_RETURN
+  WAITING_RECEIPT
+  REFUNDING_AFTER_RETURN
+  REFUND_FAILED
+  COMPLETED
+  CANCELLED
+
+  @@schema("public")
+}
+
+enum RefundStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+
+  @@schema("public")
+}
+
+enum RefundAttemptStatus {
+  INITIATED
+  PROCESSING
+  SUCCEEDED
+  FAILED
+
+  @@schema("public")
+}
+
+enum CommissionRuleVersionStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+
+  @@schema("public")
+}
+
+enum CommissionTargetType {
+  PLATFORM
+  CATEGORY
+  SKU
+
+  @@schema("public")
+}
+
+enum CommissionSourceType {
+  PLATFORM
+  CATEGORY
+  SKU
+
+  @@schema("public")
+}
+
+enum CommissionSnapshotState {
+  NONE
+  EXPECTED
+  CANCELLED
+  AVAILABLE
+
+  @@schema("public")
+}
+
+enum CommissionLedgerType {
+  EXPECTED_CREATED
+  EXPECTED_REDUCED
+  EXPECTED_CANCELLED
+  AVAILABLE_CREDIT
+  REFUND_DEBIT
+  WITHDRAWAL_FREEZE
+  WITHDRAWAL_RELEASE
+  WITHDRAWAL_PAID
+  MANUAL_COMPENSATION
+
+  @@schema("public")
+}
+
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
+
+  @@schema("public")
+}
+
+enum ReauthAction {
+  PAYOUT_ACCOUNT_REVEAL
+
+  @@schema("public")
+}
+
+enum ReauthGrantStatus {
+  ACTIVE
+  CONSUMED
+  EXPIRED
+  REVOKED
+
+  @@schema("public")
+}
+
+enum ConsentType {
+  USER_AGREEMENT
+  PRIVACY_POLICY
+  PHONE_AUTHORIZATION
+
+  @@schema("public")
+}
+
+enum AccountDeletionStatus {
+  SUBMITTED
+  PROCESSING
+  COMPLETED
+  REJECTED
+
+  @@schema("public")
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  PUBLISHED
+  FAILED
+
+  @@schema("public")
+}
+
+enum AuditResult {
+  SUCCESS
+  FAILURE
+
+  @@schema("public")
+}
+
+model Account {
+  id                    String                  @id @db.Char(26)
+  role                  AccountRole
+  status                AccountStatus          @default(ACTIVE)
+  login_name            String?                 @unique @db.VarChar(80)
+  password_hash         String?                 @db.VarChar(255)
+  wechat_open_id        String?                 @unique @db.VarChar(128)
+  wechat_union_id       String?                 @db.VarChar(128)
+  must_change_password  Boolean                 @default(false)
+  last_login_at         DateTime?               @db.Timestamptz(3)
+  version               Int                     @default(1)
+  created_at            DateTime                @default(now()) @db.Timestamptz(3)
+  updated_at            DateTime                @updatedAt @db.Timestamptz(3)
+  deleted_at            DateTime?               @db.Timestamptz(3)
+
+  customer_profile      CustomerProfile?
+  agent_profile         AgentProfile?
+  sessions              AuthSession[]
+  consents              ConsentRecord[]
+  deletion_requests     AccountDeletionRequest[]
+  reauth_attempts       AdminReauthAttempt[]
+  reauth_grants         AdminReauthGrant[]
+  high_risk_previews    HighRiskOperationPreview[]
+  created_rule_versions CommissionRuleVersion[] @relation("RuleVersionCreator")
+
+  @@index([role, status])
+  @@map("account")
+  @@schema("public")
+}
+
+model AuthSession {
+  id                 String    @id @db.Char(26)
+  account_id         String    @db.Char(26)
+  access_jti         String    @unique @db.VarChar(80)
+  refresh_token_hash String    @unique @db.VarChar(128)
+  expires_at         DateTime  @db.Timestamptz(3)
+  revoked_at         DateTime? @db.Timestamptz(3)
+  last_seen_at       DateTime? @db.Timestamptz(3)
+  created_at         DateTime  @default(now()) @db.Timestamptz(3)
+
+  account Account @relation(fields: [account_id], references: [id])
+  high_risk_previews HighRiskOperationPreview[]
+
+  @@index([account_id, revoked_at])
+  @@map("auth_session")
+  @@schema("public")
+}
+
+model CustomerProfile {
+  id           String    @id @db.Char(26)
+  account_id   String    @unique @db.Char(26)
+  nickname     String?   @db.VarChar(80)
+  avatar_url   String?   @db.VarChar(500)
+  city         String?   @db.VarChar(120)
+  registered_at DateTime @default(now()) @db.Timestamptz(3)
+  anonymized_at DateTime? @db.Timestamptz(3)
+  version      Int       @default(1)
+  created_at   DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at   DateTime  @updatedAt @db.Timestamptz(3)
+
+  account             Account                     @relation(fields: [account_id], references: [id])
+  phone_verifications CustomerPhoneVerification[]
+  attribution_candidates AttributionCandidate[]
+  bindings            CustomerAgentBinding[]
+  favorites           Favorite[]
+  carts               Cart[]
+  addresses           CustomerAddress[]
+  orders              SalesOrder[]
+  aftersales          Aftersale[]
+
+  @@map("customer_profile")
+  @@schema("public")
+}
+
+model CustomerPhoneVerification {
+  id                     String    @id @db.Char(26)
+  customer_id            String    @db.Char(26)
+  phone_ciphertext       Bytes
+  phone_hash             String    @db.Char(64)
+  phone_last4            String    @db.Char(4)
+  encryption_key_id      String    @db.VarChar(80)
+  source                 String    @db.VarChar(30)
+  consent_version        String    @db.VarChar(80)
+  verified_at            DateTime  @db.Timestamptz(3)
+  revoked_at             DateTime? @db.Timestamptz(3)
+  // Migration creates a partial unique index on (customer_id) WHERE revoked_at IS NULL.
+  created_at             DateTime  @default(now()) @db.Timestamptz(3)
+
+  customer CustomerProfile @relation(fields: [customer_id], references: [id])
+
+  @@index([customer_id, revoked_at])
+  @@index([phone_hash])
+  @@map("customer_phone_verification")
+  @@schema("public")
+}
+
+model ConsentRecord {
+  id               String      @id @db.Char(26)
+  account_id       String      @db.Char(26)
+  consent_type     ConsentType
+  document_version String      @db.VarChar(80)
+  accepted         Boolean
+  accepted_at      DateTime    @db.Timestamptz(3)
+  source_terminal  String      @db.VarChar(30)
+  created_at       DateTime    @default(now()) @db.Timestamptz(3)
+
+  account Account @relation(fields: [account_id], references: [id])
+
+  @@index([account_id, consent_type, accepted_at])
+  @@map("consent_record")
+  @@schema("public")
+}
+
+model AccountDeletionRequest {
+  id                   String                @id @db.Char(26)
+  account_id           String                @db.Char(26)
+  status               AccountDeletionStatus @default(SUBMITTED)
+  block_summary        Json?
+  rejection_reason     String?               @db.VarChar(500)
+  // Migration creates a partial unique index on (account_id)
+  // WHERE status IN ('SUBMITTED', 'PROCESSING').
+  submitted_at         DateTime              @default(now()) @db.Timestamptz(3)
+  processing_at        DateTime?             @db.Timestamptz(3)
+  completed_at         DateTime?             @db.Timestamptz(3)
+  created_at           DateTime              @default(now()) @db.Timestamptz(3)
+  updated_at           DateTime              @updatedAt @db.Timestamptz(3)
+
+  account Account @relation(fields: [account_id], references: [id])
+
+  @@index([account_id, status])
+  @@map("account_deletion_request")
+  @@schema("public")
+}
+
+model AdminReauthAttempt {
+  id             String       @id @db.Char(26)
+  account_id     String       @db.Char(26)
+  action         ReauthAction
+  target_id      String       @db.Char(26)
+  succeeded      Boolean
+  failure_reason String?      @db.VarChar(120)
+  attempted_at   DateTime     @default(now()) @db.Timestamptz(3)
+
+  account Account @relation(fields: [account_id], references: [id])
+
+  @@index([account_id, action, attempted_at])
+  @@map("admin_reauth_attempt")
+  @@schema("public")
+}
+
+model AdminReauthGrant {
+  id             String            @id @db.Char(26)
+  account_id     String            @db.Char(26)
+  session_id     String            @db.Char(26)
+  action         ReauthAction
+  target_id      String            @db.Char(26)
+  token_hash     String            @unique @db.Char(64)
+  status         ReauthGrantStatus @default(ACTIVE)
+  expires_at     DateTime          @db.Timestamptz(3)
+  consumed_at    DateTime?         @db.Timestamptz(3)
+  created_at     DateTime          @default(now()) @db.Timestamptz(3)
+
+  account Account @relation(fields: [account_id], references: [id])
+
+  @@index([account_id, action, target_id, status])
+  @@map("admin_reauth_grant")
+  @@schema("public")
+}
+
+model AgentProfile {
+  id                         String                   @id @db.Char(26)
+  account_id                 String                   @unique @db.Char(26)
+  agent_no                   String                   @unique @db.VarChar(32)
+  name                       String                   @db.VarChar(120)
+  contact_name               String?                  @db.VarChar(80)
+  contact_phone_ciphertext   Bytes?
+  contact_phone_last4        String?                  @db.Char(4)
+  status                     AgentStatus              @default(ACTIVE)
+  product_authorization_mode ProductAuthorizationMode @default(ALL_ACTIVE_PRODUCTS)
+  version                    Int                      @default(1)
+  created_at                 DateTime                 @default(now()) @db.Timestamptz(3)
+  updated_at                 DateTime                 @updatedAt @db.Timestamptz(3)
+  deleted_at                 DateTime?                @db.Timestamptz(3)
+
+  account                 Account                       @relation(fields: [account_id], references: [id])
+  invite_codes            AgentInviteCode[]
+  product_whitelist       AgentProductWhitelist[]
+  promotion_assets        PromotionAsset[]
+  attribution_candidates AttributionCandidate[]
+  customer_bindings      CustomerAgentBinding[]
+  final_orders           SalesOrder[]                  @relation("FinalAgentOrders")
+  order_candidates       OrderAttributionCandidate[]   @relation("OrderCandidateAgent")
+  commission_snapshots   OrderItemCommissionSnapshot[]
+  commission_ledger      CommissionLedger[]
+  wallet                 AgentWallet?
+  bank_accounts          AgentBankAccount[]
+  withdrawals           Withdrawal[]
+  daily_aggregates       SalesDailyAggregate[]
+
+  @@index([status, created_at])
+  @@map("agent_profile")
+  @@schema("public")
+}
+
+model AgentInviteCode {
+  id                String           @id @db.Char(26)
+  agent_id          String           @db.Char(26)
+  code_hash         String           @unique @db.Char(64)
+  code_ciphertext   Bytes
+  code_last4        String           @db.Char(4)
+  encryption_key_id String           @db.VarChar(80)
+  status            InviteCodeStatus @default(ACTIVE)
+  effective_at      DateTime         @default(now()) @db.Timestamptz(3)
+  expires_at        DateTime?        @db.Timestamptz(3)
+  ended_at          DateTime?        @db.Timestamptz(3)
+  end_reason        String?          @db.VarChar(120)
+  created_at        DateTime         @default(now()) @db.Timestamptz(3)
+
+  agent            AgentProfile           @relation(fields: [agent_id], references: [id])
+  promotion_assets PromotionAsset[]
+  candidates       AttributionCandidate[]
+
+  @@index([agent_id, status, expires_at])
+  @@map("agent_invite_code")
+  @@schema("public")
+}
+
+model AgentProductWhitelist {
+  id         String    @id @db.Char(26)
+  agent_id   String    @db.Char(26)
+  product_id String    @db.Char(26)
+  created_at DateTime  @default(now()) @db.Timestamptz(3)
+  deleted_at DateTime? @db.Timestamptz(3)
+
+  agent   AgentProfile @relation(fields: [agent_id], references: [id])
+  product Product      @relation(fields: [product_id], references: [id])
+
+  @@unique([agent_id, product_id])
+  @@index([product_id, deleted_at])
+  @@map("agent_product_whitelist")
+  @@schema("public")
+}
+
+model PromotionAsset {
+  id                     String               @id @db.Char(26)
+  agent_id               String               @db.Char(26)
+  invite_code_id         String               @db.Char(26)
+  target_type            PromotionTargetType
+  target_product_id      String?              @db.Char(26)
+  status                 PromotionAssetStatus @default(ACTIVE)
+  authorization_version  Int                  @default(1)
+  public_url             String               @db.VarChar(500)
+  qr_file_id             String?              @db.Char(26)
+  expires_at             DateTime?            @db.Timestamptz(3)
+  revoked_at             DateTime?            @db.Timestamptz(3)
+  created_at             DateTime             @default(now()) @db.Timestamptz(3)
+
+  agent          AgentProfile        @relation(fields: [agent_id], references: [id])
+  invite_code    AgentInviteCode     @relation(fields: [invite_code_id], references: [id])
+  target_product Product?            @relation(fields: [target_product_id], references: [id])
+  qr_file        FileAsset?          @relation("PromotionQrFile", fields: [qr_file_id], references: [id])
+  candidates     AttributionCandidate[]
+
+  @@index([agent_id, status, target_type])
+  @@map("promotion_asset")
+  @@schema("public")
+}
+
+model AttributionCandidate {
+  id                 String                      @id @db.Char(26)
+  anonymous_id       String?                     @db.VarChar(80)
+  customer_id        String?                     @db.Char(26)
+  agent_id           String                      @db.Char(26)
+  invite_code_id     String                      @db.Char(26)
+  promotion_asset_id String                      @db.Char(26)
+  status             AttributionCandidateStatus @default(ACTIVE)
+  expires_at         DateTime                    @db.Timestamptz(3)
+  confirmed_at       DateTime?                   @db.Timestamptz(3)
+  invalid_reason     String?                     @db.VarChar(120)
+  created_at         DateTime                    @default(now()) @db.Timestamptz(3)
+  updated_at         DateTime                    @updatedAt @db.Timestamptz(3)
+
+  customer       CustomerProfile? @relation(fields: [customer_id], references: [id])
+  agent          AgentProfile     @relation(fields: [agent_id], references: [id])
+  invite_code    AgentInviteCode  @relation(fields: [invite_code_id], references: [id])
+  promotion_asset PromotionAsset  @relation(fields: [promotion_asset_id], references: [id])
+
+  @@index([anonymous_id, status, expires_at])
+  @@index([customer_id, status, expires_at])
+  @@map("attribution_candidate")
+  @@schema("public")
+}
+
+model CustomerAgentBinding {
+  id          String            @id @db.Char(26)
+  customer_id String            @db.Char(26)
+  agent_id    String            @db.Char(26)
+  started_at  DateTime          @db.Timestamptz(3)
+  ended_at    DateTime?         @db.Timestamptz(3)
+  end_reason  BindingEndReason?
+  created_at  DateTime          @default(now()) @db.Timestamptz(3)
+
+  customer CustomerProfile @relation(fields: [customer_id], references: [id])
+  agent    AgentProfile     @relation(fields: [agent_id], references: [id])
+  orders   OrderAttributionCandidate[]
+
+  @@index([customer_id, ended_at])
+  @@index([agent_id, ended_at, started_at])
+  @@map("customer_agent_binding")
+  @@schema("public")
+}
+
+model BindingChangeLog {
+  id                 String    @id @db.Char(26)
+  customer_id        String    @db.Char(26)
+  old_binding_id     String?   @db.Char(26)
+  new_binding_id     String?   @db.Char(26)
+  old_agent_id       String?   @db.Char(26)
+  new_agent_id       String?   @db.Char(26)
+  actor_account_id   String    @db.Char(26)
+  reason             String    @db.VarChar(500)
+  created_at         DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([customer_id, created_at])
+  @@map("binding_change_log")
+  @@schema("public")
+}
+
+model Brand {
+  id         String       @id @db.Char(26)
+  name       String       @unique @db.VarChar(120)
+  logo_file_id String?    @db.Char(26)
+  status     EntityStatus @default(ACTIVE)
+  sort_order Int          @default(0)
+  version    Int          @default(1)
+  created_at DateTime     @default(now()) @db.Timestamptz(3)
+  updated_at DateTime     @updatedAt @db.Timestamptz(3)
+  deleted_at DateTime?    @db.Timestamptz(3)
+
+  products Product[]
+
+  @@index([status, sort_order])
+  @@map("brand")
+  @@schema("public")
+}
+
+model Category {
+  id         String       @id @db.Char(26)
+  name       String       @unique @db.VarChar(120)
+  status     EntityStatus @default(ACTIVE)
+  sort_order Int          @default(0)
+  version    Int          @default(1)
+  created_at DateTime     @default(now()) @db.Timestamptz(3)
+  updated_at DateTime     @updatedAt @db.Timestamptz(3)
+  deleted_at DateTime?    @db.Timestamptz(3)
+
+  products    Product[]
+  order_items OrderItem[]
+
+  @@index([status, sort_order])
+  @@map("category")
+  @@schema("public")
+}
+
+model Product {
+  id                String       @id @db.Char(26)
+  brand_id          String       @db.Char(26)
+  category_id       String       @db.Char(26)
+  name              String       @db.VarChar(200)
+  subtitle          String?      @db.VarChar(300)
+  introduction      String?      @db.Text
+  ingredients       String?      @db.Text
+  usage_method      String?      @db.Text
+  status            EntityStatus @default(DRAFT)
+  is_hot            Boolean      @default(false)
+  is_new            Boolean      @default(false)
+  sales_count       Int          @default(0)
+  published_at      DateTime?    @db.Timestamptz(3)
+  version           Int          @default(1)
+  created_at        DateTime     @default(now()) @db.Timestamptz(3)
+  updated_at        DateTime     @updatedAt @db.Timestamptz(3)
+  deleted_at        DateTime?    @db.Timestamptz(3)
+
+  brand             Brand                   @relation(fields: [brand_id], references: [id])
+  category          Category                @relation(fields: [category_id], references: [id])
+  skus              Sku[]
+  images            ProductImage[]
+  favorites         Favorite[]
+  whitelist_entries AgentProductWhitelist[]
+  promotion_assets  PromotionAsset[]
+  order_items       OrderItem[]
+
+  @@index([status, category_id, brand_id, published_at])
+  @@map("product")
+  @@schema("public")
+}
+
+model Sku {
+  id          String    @id @db.Char(26)
+  product_id  String    @db.Char(26)
+  code        String    @unique @db.VarChar(80)
+  name        String    @db.VarChar(160)
+  spec_json   Json?
+  retail_price Decimal  @db.Decimal(18, 2)
+  status      SkuStatus @default(ACTIVE)
+  version     Int       @default(1)
+  created_at  DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at  DateTime  @updatedAt @db.Timestamptz(3)
+  deleted_at  DateTime? @db.Timestamptz(3)
+
+  product           Product                    @relation(fields: [product_id], references: [id])
+  inventory_balance InventoryBalance?
+  cart_items        CartItem[]
+  reservation_items InventoryReservationItem[]
+  inventory_ledger  InventoryLedger[]
+  order_items       OrderItem[]
+
+  @@index([product_id, status])
+  @@map("sku")
+  @@schema("public")
+}
+
+model FileAsset {
+  id                 String         @id @db.Char(26)
+  object_key         String         @unique @db.VarChar(500)
+  original_name      String         @db.VarChar(255)
+  mime_type          String         @db.VarChar(120)
+  byte_size          BigInt
+  sha256             String         @db.Char(64)
+  visibility         FileVisibility @default(PRIVATE)
+  status             FileStatus     @default(PENDING)
+  created_by_id      String?        @db.Char(26)
+  created_at         DateTime       @default(now()) @db.Timestamptz(3)
+  deleted_at         DateTime?      @db.Timestamptz(3)
+
+  product_images     ProductImage[]
+  banners            Banner[]
+  promotion_qr_files PromotionAsset[] @relation("PromotionQrFile")
+  aftersale_evidence AftersaleEvidence[]
+  withdrawal_proofs WithdrawalProof[]
+
+  @@index([status, visibility])
+  @@map("file_asset")
+  @@schema("public")
+}
+
+model ProductImage {
+  id         String   @id @db.Char(26)
+  product_id String   @db.Char(26)
+  file_id    String   @db.Char(26)
+  sort_order Int      @default(0)
+  created_at DateTime @default(now()) @db.Timestamptz(3)
+
+  product Product   @relation(fields: [product_id], references: [id])
+  file    FileAsset @relation(fields: [file_id], references: [id])
+
+  @@unique([product_id, sort_order])
+  @@map("product_image")
+  @@schema("public")
+}
+
+model Banner {
+  id          String       @id @db.Char(26)
+  file_id     String       @db.Char(26)
+  title       String       @db.VarChar(160)
+  target_type String       @db.VarChar(30)
+  target_id   String?      @db.Char(26)
+  status      EntityStatus @default(ACTIVE)
+  sort_order  Int          @default(0)
+  starts_at   DateTime?    @db.Timestamptz(3)
+  ends_at     DateTime?    @db.Timestamptz(3)
+  version     Int          @default(1)
+  created_at  DateTime     @default(now()) @db.Timestamptz(3)
+  updated_at  DateTime     @updatedAt @db.Timestamptz(3)
+  deleted_at  DateTime?    @db.Timestamptz(3)
+
+  file FileAsset @relation(fields: [file_id], references: [id])
+
+  @@index([status, sort_order, starts_at, ends_at])
+  @@map("banner")
+  @@schema("public")
+}
+
+model Favorite {
+  id          String   @id @db.Char(26)
+  customer_id String   @db.Char(26)
+  product_id  String   @db.Char(26)
+  created_at  DateTime @default(now()) @db.Timestamptz(3)
+
+  customer CustomerProfile @relation(fields: [customer_id], references: [id])
+  product  Product         @relation(fields: [product_id], references: [id])
+
+  @@unique([customer_id, product_id])
+  @@map("favorite")
+  @@schema("public")
+}
+
+model Cart {
+  id           String        @id @db.Char(26)
+  owner_type   CartOwnerType
+  anonymous_id String?       @db.VarChar(80)
+  customer_id  String?       @db.Char(26)
+  created_at   DateTime      @default(now()) @db.Timestamptz(3)
+  updated_at   DateTime      @updatedAt @db.Timestamptz(3)
+
+  customer CustomerProfile? @relation(fields: [customer_id], references: [id])
+  items    CartItem[]
+
+  @@index([anonymous_id])
+  @@index([customer_id])
+  @@map("cart")
+  @@schema("public")
+}
+
+model CartItem {
+  id         String   @id @db.Char(26)
+  cart_id    String   @db.Char(26)
+  sku_id     String   @db.Char(26)
+  quantity   Int
+  selected   Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamptz(3)
+  updated_at DateTime @updatedAt @db.Timestamptz(3)
+
+  cart Cart @relation(fields: [cart_id], references: [id])
+  sku  Sku  @relation(fields: [sku_id], references: [id])
+
+  @@unique([cart_id, sku_id])
+  @@map("cart_item")
+  @@schema("public")
+}
+
+model CustomerAddress {
+  id                    String    @id @db.Char(26)
+  customer_id           String    @db.Char(26)
+  recipient_name        String    @db.VarChar(80)
+  phone_ciphertext      Bytes
+  phone_hash            String    @db.Char(64)
+  phone_last4           String    @db.Char(4)
+  encryption_key_id     String    @db.VarChar(80)
+  province              String    @db.VarChar(80)
+  city                  String    @db.VarChar(80)
+  district              String    @db.VarChar(80)
+  detail_ciphertext     Bytes
+  is_default            Boolean   @default(false)
+  version               Int       @default(1)
+  created_at            DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at            DateTime  @updatedAt @db.Timestamptz(3)
+  deleted_at            DateTime? @db.Timestamptz(3)
+
+  customer CustomerProfile @relation(fields: [customer_id], references: [id])
+
+  // Migration creates a partial unique index on (customer_id)
+  // WHERE is_default = TRUE AND deleted_at IS NULL.
+  @@index([customer_id, is_default, deleted_at])
+  @@map("customer_address")
+  @@schema("public")
+}
+
+model InventoryBalance {
+  id           String   @id @db.Char(26)
+  sku_id       String   @unique @db.Char(26)
+  physical_qty Int      @default(0)
+  locked_qty   Int      @default(0)
+  version      Int      @default(1)
+  updated_at   DateTime @updatedAt @db.Timestamptz(3)
+
+  sku Sku @relation(fields: [sku_id], references: [id])
+
+  @@map("inventory_balance")
+  @@schema("public")
+}
+
+model InventoryReservation {
+  id          String                     @id @db.Char(26)
+  order_id    String                     @unique @db.Char(26)
+  status      InventoryReservationStatus @default(ACTIVE)
+  expires_at  DateTime                   @db.Timestamptz(3)
+  consumed_at DateTime?                  @db.Timestamptz(3)
+  released_at DateTime?                  @db.Timestamptz(3)
+  created_at  DateTime                   @default(now()) @db.Timestamptz(3)
+
+  order SalesOrder                  @relation(fields: [order_id], references: [id])
+  items InventoryReservationItem[]
+
+  @@index([status, expires_at])
+  @@map("inventory_reservation")
+  @@schema("public")
+}
+
+model InventoryReservationItem {
+  id             String   @id @db.Char(26)
+  reservation_id String   @db.Char(26)
+  sku_id         String   @db.Char(26)
+  quantity       Int
+  created_at     DateTime @default(now()) @db.Timestamptz(3)
+
+  reservation InventoryReservation @relation(fields: [reservation_id], references: [id])
+  sku         Sku                  @relation(fields: [sku_id], references: [id])
+
+  @@unique([reservation_id, sku_id])
+  @@map("inventory_reservation_item")
+  @@schema("public")
+}
+
+model InventoryLedger {
+  id              String              @id @db.Char(26)
+  sku_id          String              @db.Char(26)
+  ledger_type     InventoryLedgerType
+  business_id     String?             @db.Char(26)
+  physical_change Int                 @default(0)
+  locked_change   Int                 @default(0)
+  physical_after  Int
+  locked_after    Int
+  reason          String              @db.VarChar(500)
+  actor_account_id String?            @db.Char(26)
+  occurred_at     DateTime            @default(now()) @db.Timestamptz(3)
+
+  sku Sku @relation(fields: [sku_id], references: [id])
+
+  @@index([sku_id, occurred_at])
+  @@index([business_id])
+  @@map("inventory_ledger")
+  @@schema("public")
+}
+
+model SalesOrder {
+  id                    String                @id @db.Char(26)
+  order_no              String                @unique @db.VarChar(32)
+  customer_id           String                @db.Char(26)
+  source                OrderSource
+  order_status          OrderStatus           @default(PENDING_PAYMENT)
+  payment_status        PaymentStatus         @default(UNPAID)
+  refund_status         RefundAggregateStatus @default(NONE)
+  fulfillment_status    FulfillmentStatus     @default(NOT_STARTED)
+  close_reason          OrderCloseReason?
+  payment_resolution    PaymentResolution     @default(NORMAL)
+  final_channel         AttributionChannel?
+  final_agent_id        String?               @db.Char(26)
+  goods_amount          Decimal               @db.Decimal(18, 2)
+  shipping_amount       Decimal               @default(0) @db.Decimal(18, 2)
+  payable_amount        Decimal               @db.Decimal(18, 2)
+  paid_amount           Decimal               @default(0) @db.Decimal(18, 2)
+  refunded_amount       Decimal               @default(0) @db.Decimal(18, 2)
+  pay_expires_at        DateTime               @db.Timestamptz(3)
+  paid_at               DateTime?              @db.Timestamptz(3)
+  completed_at          DateTime?              @db.Timestamptz(3)
+  closed_at             DateTime?              @db.Timestamptz(3)
+  version               Int                    @default(1)
+  created_at            DateTime               @default(now()) @db.Timestamptz(3)
+  updated_at            DateTime               @updatedAt @db.Timestamptz(3)
+
+  customer              CustomerProfile          @relation(fields: [customer_id], references: [id])
+  final_agent           AgentProfile?             @relation("FinalAgentOrders", fields: [final_agent_id], references: [id])
+  items                 OrderItem[]
+  address_snapshot      OrderAddressSnapshot?
+  attribution_candidate OrderAttributionCandidate?
+  attribution_snapshot  OrderAttributionSnapshot?
+  inventory_reservation InventoryReservation?
+  payment_intents       PaymentIntent[]
+  shipments             Shipment[]
+  aftersales            Aftersale[]
+  refunds               Refund[]
+
+  @@index([customer_id, created_at])
+  @@index([order_status, created_at])
+  @@index([final_agent_id, paid_at])
+  @@map("sales_order")
+  @@schema("public")
+}
+
+model OrderItem {
+  id                         String   @id @db.Char(26)
+  order_id                   String   @db.Char(26)
+  product_id                 String   @db.Char(26)
+  category_id                String   @db.Char(26)
+  sku_id                     String   @db.Char(26)
+  product_name_snapshot      String   @db.VarChar(200)
+  brand_name_snapshot        String   @db.VarChar(120)
+  category_name_snapshot     String   @db.VarChar(120)
+  sku_name_snapshot          String   @db.VarChar(160)
+  sku_code_snapshot          String   @db.VarChar(80)
+  unit_price                 Decimal  @db.Decimal(18, 2)
+  quantity                   Int
+  line_paid_amount           Decimal  @db.Decimal(18, 2)
+  refunded_qty               Int      @default(0)
+  refunded_amount            Decimal  @default(0) @db.Decimal(18, 2)
+  aftersale_reserved_qty     Int      @default(0)
+  aftersale_reserved_amount  Decimal  @default(0) @db.Decimal(18, 2)
+  shipped_qty                Int      @default(0)
+  version                    Int      @default(1)
+  created_at                 DateTime @default(now()) @db.Timestamptz(3)
+
+  order               SalesOrder                   @relation(fields: [order_id], references: [id])
+  product             Product                      @relation(fields: [product_id], references: [id])
+  category            Category                     @relation(fields: [category_id], references: [id])
+  sku                 Sku                          @relation(fields: [sku_id], references: [id])
+  shipment_items      ShipmentItem[]
+  aftersale_items     AftersaleItem[]
+  refund_items        RefundItem[]
+  commission_snapshot OrderItemCommissionSnapshot?
+
+  @@unique([order_id, sku_id])
+  @@index([sku_id, created_at])
+  @@map("order_item")
+  @@schema("public")
+}
+
+model OrderAddressSnapshot {
+  id                    String   @id @db.Char(26)
+  order_id              String   @unique @db.Char(26)
+  recipient_name        String   @db.VarChar(80)
+  phone_ciphertext      Bytes
+  phone_last4           String   @db.Char(4)
+  encryption_key_id     String   @db.VarChar(80)
+  province              String   @db.VarChar(80)
+  city                  String   @db.VarChar(80)
+  district              String   @db.VarChar(80)
+  detail_ciphertext     Bytes
+  created_at            DateTime @default(now()) @db.Timestamptz(3)
+
+  order SalesOrder @relation(fields: [order_id], references: [id])
+
+  @@map("order_address_snapshot")
+  @@schema("public")
+}
+
+model OrderAttributionCandidate {
+  id                  String             @id @db.Char(26)
+  order_id            String             @unique @db.Char(26)
+  submit_channel      AttributionChannel
+  candidate_agent_id  String?            @db.Char(26)
+  binding_id          String?            @db.Char(26)
+  submitted_at        DateTime           @db.Timestamptz(3)
+  finalization_result String?            @db.VarChar(80)
+  finalized_at        DateTime?          @db.Timestamptz(3)
+
+  order           SalesOrder            @relation(fields: [order_id], references: [id])
+  candidate_agent AgentProfile?         @relation("OrderCandidateAgent", fields: [candidate_agent_id], references: [id])
+  binding         CustomerAgentBinding? @relation(fields: [binding_id], references: [id])
+
+  @@index([candidate_agent_id, submitted_at])
+  @@map("order_attribution_candidate")
+  @@schema("public")
+}
+
+model OrderAttributionSnapshot {
+  id                           String             @id @db.Char(26)
+  order_id                     String             @unique @db.Char(26)
+  final_channel                AttributionChannel
+  agent_id_snapshot            String?            @db.Char(26)
+  binding_id_snapshot          String?            @db.Char(26)
+  customer_nickname_snapshot   String?            @db.VarChar(80)
+  customer_phone_tail_snapshot String?            @db.Char(4)
+  customer_city_snapshot       String?            @db.VarChar(120)
+  captured_at                  DateTime           @db.Timestamptz(3)
+
+  order SalesOrder @relation(fields: [order_id], references: [id])
+
+  @@index([agent_id_snapshot, captured_at])
+  @@map("order_attribution_snapshot")
+  @@schema("public")
+}
+
+model PaymentIntent {
+  id                 String              @id @db.Char(26)
+  intent_no          String              @unique @db.VarChar(32)
+  order_id           String              @db.Char(26)
+  provider           PaymentProvider
+  provider_intent_id String?             @db.VarChar(128)
+  status             PaymentIntentStatus @default(OPEN)
+  amount             Decimal             @db.Decimal(18, 2)
+  expires_at         DateTime            @db.Timestamptz(3)
+  closed_at          DateTime?           @db.Timestamptz(3)
+  succeeded_at       DateTime?           @db.Timestamptz(3)
+  // Migration creates a partial unique index on (order_id) WHERE status = 'OPEN'.
+  created_at         DateTime            @default(now()) @db.Timestamptz(3)
+
+  order    SalesOrder       @relation(fields: [order_id], references: [id])
+  attempts PaymentAttempt[]
+
+  @@index([order_id, status])
+  @@unique([provider, provider_intent_id])
+  @@map("payment_intent")
+  @@schema("public")
+}
+
+model PaymentAttempt {
+  id                      String               @id @db.Char(26)
+  payment_intent_id       String               @db.Char(26)
+  provider                PaymentProvider
+  provider_transaction_id String?              @db.VarChar(128)
+  status                  PaymentAttemptStatus @default(INITIATED)
+  amount                  Decimal              @db.Decimal(18, 2)
+  provider_payload        Json?
+  failure_code            String?              @db.VarChar(80)
+  initiated_at            DateTime             @default(now()) @db.Timestamptz(3)
+  finished_at             DateTime?            @db.Timestamptz(3)
+
+  payment_intent PaymentIntent @relation(fields: [payment_intent_id], references: [id])
+
+  @@index([payment_intent_id, status])
+  @@unique([provider, provider_transaction_id])
+  @@map("payment_attempt")
+  @@schema("public")
+}
+
+model CallbackInbox {
+  id                String         @id @db.Char(26)
+  provider          PaymentProvider
+  event_type        String         @db.VarChar(80)
+  provider_event_id String         @db.VarChar(128)
+  payload           Json
+  signature_valid   Boolean
+  status            CallbackStatus @default(RECEIVED)
+  retry_count       Int            @default(0)
+  received_at       DateTime       @default(now()) @db.Timestamptz(3)
+  processed_at      DateTime?      @db.Timestamptz(3)
+  error_message     String?        @db.VarChar(500)
+
+  @@unique([provider, provider_event_id])
+  @@index([status, received_at])
+  @@map("callback_inbox")
+  @@schema("public")
+}
+
+model Shipment {
+  id             String         @id @db.Char(26)
+  order_id       String         @db.Char(26)
+  status         ShipmentStatus @default(CREATED)
+  carrier_code   String?        @db.VarChar(40)
+  carrier_name   String?        @db.VarChar(80)
+  tracking_no    String?        @db.VarChar(120)
+  shipped_at     DateTime?      @db.Timestamptz(3)
+  delivered_at   DateTime?      @db.Timestamptz(3)
+  cancelled_at   DateTime?      @db.Timestamptz(3)
+  created_at     DateTime       @default(now()) @db.Timestamptz(3)
+  updated_at     DateTime       @updatedAt @db.Timestamptz(3)
+
+  order  SalesOrder       @relation(fields: [order_id], references: [id])
+  items  ShipmentItem[]
+  events LogisticsEvent[]
+
+  // Migration creates a partial unique index on (order_id) WHERE status <> 'CANCELLED'.
+  @@index([order_id])
+  @@index([status, shipped_at])
+  @@map("shipment")
+  @@schema("public")
+}
+
+model ShipmentItem {
+  id            String   @id @db.Char(26)
+  shipment_id   String   @db.Char(26)
+  order_item_id String   @db.Char(26)
+  quantity      Int
+  created_at    DateTime @default(now()) @db.Timestamptz(3)
+
+  shipment  Shipment  @relation(fields: [shipment_id], references: [id])
+  order_item OrderItem @relation(fields: [order_item_id], references: [id])
+
+  @@unique([shipment_id, order_item_id])
+  @@map("shipment_item")
+  @@schema("public")
+}
+
+model LogisticsEvent {
+  id          String   @id @db.Char(26)
+  shipment_id String   @db.Char(26)
+  status_code String   @db.VarChar(40)
+  description String   @db.VarChar(300)
+  location    String?  @db.VarChar(160)
+  occurred_at DateTime @db.Timestamptz(3)
+  created_at  DateTime @default(now()) @db.Timestamptz(3)
+
+  shipment Shipment @relation(fields: [shipment_id], references: [id])
+
+  @@index([shipment_id, occurred_at])
+  @@map("logistics_event")
+  @@schema("public")
+}
+
+model Aftersale {
+  id                String          @id @db.Char(26)
+  aftersale_no      String          @unique @db.VarChar(32)
+  order_id          String          @db.Char(26)
+  customer_id       String          @db.Char(26)
+  type              AftersaleType
+  status            AftersaleStatus @default(PENDING_REVIEW)
+  reason_code       String          @db.VarChar(80)
+  reason_text       String?         @db.VarChar(500)
+  review_reason     String?         @db.VarChar(500)
+  reviewed_by_id    String?         @db.Char(26)
+  reviewed_at       DateTime?       @db.Timestamptz(3)
+  completed_at      DateTime?       @db.Timestamptz(3)
+  cancelled_at      DateTime?       @db.Timestamptz(3)
+  version           Int             @default(1)
+  created_at        DateTime        @default(now()) @db.Timestamptz(3)
+  updated_at        DateTime        @updatedAt @db.Timestamptz(3)
+
+  order           SalesOrder         @relation(fields: [order_id], references: [id])
+  customer        CustomerProfile    @relation(fields: [customer_id], references: [id])
+  items           AftersaleItem[]
+  evidence        AftersaleEvidence[]
+  return_shipment ReturnShipment?
+  refunds         Refund[]
+
+  @@index([status, created_at])
+  @@index([order_id])
+  @@map("aftersale")
+  @@schema("public")
+}
+
+model AftersaleItem {
+  id                       String   @id @db.Char(26)
+  aftersale_id             String   @db.Char(26)
+  order_item_id            String   @db.Char(26)
+  requested_qty            Int
+  requested_amount         Decimal  @db.Decimal(18, 2)
+  reserved_qty             Int
+  reserved_amount          Decimal  @db.Decimal(18, 2)
+  refunded_qty             Int      @default(0)
+  refunded_amount          Decimal  @default(0) @db.Decimal(18, 2)
+  created_at               DateTime @default(now()) @db.Timestamptz(3)
+
+  aftersale   Aftersale   @relation(fields: [aftersale_id], references: [id])
+  order_item  OrderItem   @relation(fields: [order_item_id], references: [id])
+  refund_items RefundItem[]
+
+  @@unique([aftersale_id, order_item_id])
+  @@index([order_item_id])
+  @@map("aftersale_item")
+  @@schema("public")
+}
+
+model AftersaleEvidence {
+  id           String   @id @db.Char(26)
+  aftersale_id String   @db.Char(26)
+  file_id      String   @db.Char(26)
+  created_at   DateTime @default(now()) @db.Timestamptz(3)
+
+  aftersale Aftersale @relation(fields: [aftersale_id], references: [id])
+  file      FileAsset @relation(fields: [file_id], references: [id])
+
+  @@unique([aftersale_id, file_id])
+  @@map("aftersale_evidence")
+  @@schema("public")
+}
+
+model ReturnShipment {
+  id            String   @id @db.Char(26)
+  aftersale_id  String   @unique @db.Char(26)
+  carrier_code  String   @db.VarChar(40)
+  carrier_name  String   @db.VarChar(80)
+  tracking_no   String   @db.VarChar(120)
+  submitted_at  DateTime @db.Timestamptz(3)
+  received_at   DateTime? @db.Timestamptz(3)
+  created_at    DateTime @default(now()) @db.Timestamptz(3)
+
+  aftersale Aftersale @relation(fields: [aftersale_id], references: [id])
+
+  @@map("return_shipment")
+  @@schema("public")
+}
+
+model Refund {
+  id                     String         @id @db.Char(26)
+  refund_no              String         @unique @db.VarChar(32)
+  order_id               String         @db.Char(26)
+  aftersale_id           String?        @db.Char(26)
+  provider               PaymentProvider
+  provider_refund_id     String?        @db.VarChar(128)
+  status                 RefundStatus   @default(PENDING)
+  amount                 Decimal        @db.Decimal(18, 2)
+  reason                 String         @db.VarChar(500)
+  is_late_payment_refund Boolean        @default(false)
+  failure_code           String?        @db.VarChar(80)
+  requested_at           DateTime       @default(now()) @db.Timestamptz(3)
+  succeeded_at           DateTime?      @db.Timestamptz(3)
+  failed_at              DateTime?      @db.Timestamptz(3)
+  version                Int            @default(1)
+  updated_at             DateTime       @updatedAt @db.Timestamptz(3)
+
+  order             SalesOrder         @relation(fields: [order_id], references: [id])
+  aftersale         Aftersale?          @relation(fields: [aftersale_id], references: [id])
+  items             RefundItem[]
+  attempts          RefundAttempt[]
+  commission_ledger CommissionLedger[]
+
+  @@index([order_id, status])
+  @@index([aftersale_id])
+  @@unique([provider, provider_refund_id])
+  @@map("refund")
+  @@schema("public")
+}
+
+model RefundAttempt {
+  id                  String              @id @db.Char(26)
+  refund_id           String              @db.Char(26)
+  attempt_no          Int
+  idempotency_key     String              @db.VarChar(80)
+  provider            PaymentProvider
+  provider_request_id String?             @db.VarChar(128)
+  status              RefundAttemptStatus @default(INITIATED)
+  provider_payload    Json?
+  failure_code        String?             @db.VarChar(80)
+  requested_at        DateTime            @default(now()) @db.Timestamptz(3)
+  finished_at         DateTime?           @db.Timestamptz(3)
+
+  refund Refund @relation(fields: [refund_id], references: [id])
+
+  @@unique([refund_id, attempt_no])
+  @@unique([refund_id, idempotency_key])
+  @@unique([provider, provider_request_id])
+  @@index([refund_id, status])
+  @@map("refund_attempt")
+  @@schema("public")
+}
+
+model RefundItem {
+  id                  String   @id @db.Char(26)
+  refund_id           String   @db.Char(26)
+  order_item_id       String   @db.Char(26)
+  aftersale_item_id   String?  @db.Char(26)
+  quantity            Int
+  amount              Decimal  @db.Decimal(18, 2)
+  auto_restock        Boolean  @default(false)
+  commission_reversal Decimal  @default(0) @db.Decimal(18, 2)
+  created_at          DateTime @default(now()) @db.Timestamptz(3)
+
+  refund         Refund         @relation(fields: [refund_id], references: [id])
+  order_item     OrderItem      @relation(fields: [order_item_id], references: [id])
+  aftersale_item AftersaleItem? @relation(fields: [aftersale_item_id], references: [id])
+
+  @@unique([refund_id, order_item_id])
+  @@index([order_item_id])
+  @@map("refund_item")
+  @@schema("public")
+}
+
+model CommissionRuleVersion {
+  id               String                      @id @db.Char(26)
+  version_no       Int                         @unique
+  base_version_id  String?                     @db.Char(26)
+  status           CommissionRuleVersionStatus @default(DRAFT)
+  reason           String                      @db.VarChar(500)
+  created_by_id    String                      @db.Char(26)
+  effective_at     DateTime?                   @db.Timestamptz(3)
+  created_at       DateTime                    @default(now()) @db.Timestamptz(3)
+
+  base_version     CommissionRuleVersion?       @relation("RuleVersionBase", fields: [base_version_id], references: [id])
+  derived_versions CommissionRuleVersion[]      @relation("RuleVersionBase")
+  created_by       Account                      @relation("RuleVersionCreator", fields: [created_by_id], references: [id])
+  entries          CommissionRuleEntry[]
+  snapshots        OrderItemCommissionSnapshot[]
+
+  @@index([status, effective_at])
+  @@map("commission_rule_version")
+  @@schema("public")
+}
+
+model CommissionRuleEntry {
+  id                 String               @id @db.Char(26)
+  rule_version_id    String               @db.Char(26)
+  target_type        CommissionTargetType
+  target_id          String?              @db.Char(26)
+  target_key         String               @db.VarChar(80)
+  configured_rate    Decimal              @db.Decimal(7, 4)
+  created_at         DateTime             @default(now()) @db.Timestamptz(3)
+
+  rule_version CommissionRuleVersion @relation(fields: [rule_version_id], references: [id])
+
+  @@unique([rule_version_id, target_key])
+  @@index([target_type, target_id])
+  @@map("commission_rule_entry")
+  @@schema("public")
+}
+
+model OrderItemCommissionSnapshot {
+  id                    String                  @id @db.Char(26)
+  order_item_id         String                  @unique @db.Char(26)
+  agent_id              String                  @db.Char(26)
+  rule_version_id       String                  @db.Char(26)
+  source_type           CommissionSourceType
+  category_id_snapshot  String                  @db.Char(26)
+  category_name_snapshot String                 @db.VarChar(120)
+  product_id_snapshot   String                  @db.Char(26)
+  sku_id_snapshot       String                  @db.Char(26)
+  effective_rate        Decimal                 @db.Decimal(7, 4)
+  commission_base       Decimal                 @db.Decimal(18, 2)
+  original_commission   Decimal                 @db.Decimal(18, 2)
+  created_at            DateTime                @default(now()) @db.Timestamptz(3)
+
+  order_item   OrderItem              @relation(fields: [order_item_id], references: [id])
+  agent        AgentProfile           @relation(fields: [agent_id], references: [id])
+  rule_version CommissionRuleVersion  @relation(fields: [rule_version_id], references: [id])
+  position     OrderItemCommissionPosition?
+  ledger       CommissionLedger[]
+
+  @@index([agent_id, created_at])
+  @@map("order_item_commission_snapshot")
+  @@schema("public")
+}
+
+model OrderItemCommissionPosition {
+  id                 String                  @id @db.Char(26)
+  snapshot_id        String                  @unique @db.Char(26)
+  state              CommissionSnapshotState
+  expected_remaining Decimal                 @db.Decimal(18, 2)
+  reversed_total     Decimal                 @default(0) @db.Decimal(18, 2)
+  available_at       DateTime?               @db.Timestamptz(3)
+  version            Int                     @default(1)
+  updated_at         DateTime                @updatedAt @db.Timestamptz(3)
+
+  snapshot OrderItemCommissionSnapshot @relation(fields: [snapshot_id], references: [id])
+
+  @@index([state, updated_at])
+  @@map("order_item_commission_position")
+  @@schema("public")
+}
+
+model CommissionLedger {
+  id                     String               @id @db.Char(26)
+  agent_id               String               @db.Char(26)
+  snapshot_id            String?              @db.Char(26)
+  refund_id              String?              @db.Char(26)
+  withdrawal_id          String?              @db.Char(26)
+  ledger_type            CommissionLedgerType
+  expected_change        Decimal              @default(0) @db.Decimal(18, 2)
+  available_change       Decimal              @default(0) @db.Decimal(18, 2)
+  frozen_change          Decimal              @default(0) @db.Decimal(18, 2)
+  reason                 String               @db.VarChar(500)
+  idempotency_key        String               @db.VarChar(80)
+  occurred_at            DateTime             @default(now()) @db.Timestamptz(3)
+
+  agent      AgentProfile                 @relation(fields: [agent_id], references: [id])
+  snapshot   OrderItemCommissionSnapshot? @relation(fields: [snapshot_id], references: [id])
+  refund     Refund?                       @relation(fields: [refund_id], references: [id])
+  withdrawal Withdrawal?                   @relation(fields: [withdrawal_id], references: [id])
+
+  @@unique([agent_id, idempotency_key])
+  @@index([agent_id, occurred_at])
+  @@map("commission_ledger")
+  @@schema("public")
+}
+
+model AgentWallet {
+  id                String   @id @db.Char(26)
+  agent_id          String   @unique @db.Char(26)
+  available_balance Decimal  @default(0) @db.Decimal(18, 2)
+  frozen_balance    Decimal  @default(0) @db.Decimal(18, 2)
+  version           Int      @default(1)
+  updated_at        DateTime @updatedAt @db.Timestamptz(3)
+
+  agent AgentProfile @relation(fields: [agent_id], references: [id])
+
+  @@map("agent_wallet")
+  @@schema("public")
+}
+
+model AgentBankAccount {
+  id                    String    @id @db.Char(26)
+  agent_id              String    @db.Char(26)
+  account_holder        String    @db.VarChar(120)
+  bank_name             String    @db.VarChar(160)
+  account_no_ciphertext Bytes
+  account_no_hash       String    @db.Char(64)
+  account_no_last4      String    @db.Char(4)
+  encryption_key_id     String    @db.VarChar(80)
+  is_active             Boolean   @default(true)
+  version               Int       @default(1)
+  created_at            DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at            DateTime  @updatedAt @db.Timestamptz(3)
+  deleted_at            DateTime? @db.Timestamptz(3)
+
+  agent                AgentProfile             @relation(fields: [agent_id], references: [id])
+  withdrawal_snapshots WithdrawalBankSnapshot[]
+
+  @@index([agent_id, is_active, deleted_at])
+  @@index([account_no_hash])
+  @@map("agent_bank_account")
+  @@schema("public")
+}
+
+model Withdrawal {
+  id                    String           @id @db.Char(26)
+  withdrawal_no         String           @unique @db.VarChar(32)
+  agent_id              String           @db.Char(26)
+  status                WithdrawalStatus @default(PENDING)
+  amount                Decimal          @db.Decimal(18, 2)
+  available_before      Decimal          @db.Decimal(18, 2)
+  frozen_after          Decimal          @db.Decimal(18, 2)
+  review_reason         String?          @db.VarChar(500)
+  reviewed_by_id        String?          @db.Char(26)
+  reviewed_at           DateTime?        @db.Timestamptz(3)
+  paid_by_id            String?          @db.Char(26)
+  paid_at               DateTime?        @db.Timestamptz(3)
+  version               Int              @default(1)
+  created_at            DateTime         @default(now()) @db.Timestamptz(3)
+  updated_at            DateTime         @updatedAt @db.Timestamptz(3)
+
+  agent          AgentProfile            @relation(fields: [agent_id], references: [id])
+  bank_snapshot  WithdrawalBankSnapshot?
+  proofs         WithdrawalProof[]
+  ledger         CommissionLedger[]
+
+  @@index([agent_id, status, created_at])
+  @@index([status, created_at])
+  @@map("withdrawal")
+  @@schema("public")
+}
+
+model WithdrawalBankSnapshot {
+  id                    String   @id @db.Char(26)
+  withdrawal_id         String   @unique @db.Char(26)
+  source_bank_account_id String? @db.Char(26)
+  account_holder        String   @db.VarChar(120)
+  bank_name             String   @db.VarChar(160)
+  account_no_ciphertext Bytes
+  account_no_last4      String   @db.Char(4)
+  encryption_key_id     String   @db.VarChar(80)
+  created_at            DateTime @default(now()) @db.Timestamptz(3)
+
+  withdrawal        Withdrawal       @relation(fields: [withdrawal_id], references: [id])
+  source_bank_account AgentBankAccount? @relation(fields: [source_bank_account_id], references: [id])
+
+  @@map("withdrawal_bank_snapshot")
+  @@schema("public")
+}
+
+model WithdrawalProof {
+  id            String   @id @db.Char(26)
+  withdrawal_id String   @db.Char(26)
+  file_id       String   @db.Char(26)
+  created_at    DateTime @default(now()) @db.Timestamptz(3)
+
+  withdrawal Withdrawal @relation(fields: [withdrawal_id], references: [id])
+  file       FileAsset  @relation(fields: [file_id], references: [id])
+
+  @@unique([withdrawal_id, file_id])
+  @@map("withdrawal_proof")
+  @@schema("public")
+}
+
+model BusinessRule {
+  id                  String   @id @db.Char(26)
+  rule_key            String   @unique @db.VarChar(100)
+  value_json          Json
+  version             Int      @default(1)
+  updated_by_id       String   @db.Char(26)
+  reason              String   @db.VarChar(500)
+  effective_at        DateTime @db.Timestamptz(3)
+  created_at          DateTime @default(now()) @db.Timestamptz(3)
+  updated_at          DateTime @updatedAt @db.Timestamptz(3)
+
+  @@map("business_rule")
+  @@schema("public")
+}
+
+model IdempotencyRecord {
+  id                 String   @id @db.Char(26)
+  actor_id           String   @db.Char(26)
+  scope              String   @db.VarChar(160)
+  idempotency_key    String   @db.VarChar(80)
+  request_hash       String   @db.Char(64)
+  response_status    Int
+  response_body      Json?
+  response_body_hash String?  @db.Char(64)
+  resource_id        String?  @db.Char(26)
+  expires_at         DateTime @db.Timestamptz(3)
+  created_at         DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([actor_id, scope, idempotency_key])
+  @@index([expires_at])
+  @@map("idempotency_record")
+  @@schema("public")
+}
+
+model HighRiskOperationPreview {
+  id                 String    @id @db.Char(26)
+  actor_account_id   String    @db.Char(26)
+  session_id         String    @db.Char(26)
+  action             String    @db.VarChar(120)
+  target_type        String    @db.VarChar(80)
+  target_id          String    @db.VarChar(80)
+  resource_version   Int
+  request_hash       String    @db.Char(64)
+  confirmation_hash  String    @db.Char(64)
+  preview_token_hash String    @unique @db.Char(64)
+  expires_at         DateTime  @db.Timestamptz(3)
+  consumed_at        DateTime? @db.Timestamptz(3)
+  created_at         DateTime  @default(now()) @db.Timestamptz(3)
+
+  actor   Account     @relation(fields: [actor_account_id], references: [id])
+  session AuthSession @relation(fields: [session_id], references: [id])
+
+  @@index([actor_account_id, action, target_id, expires_at])
+  @@map("high_risk_operation_preview")
+  @@schema("public")
+}
+
+model OutboxEvent {
+  id             String       @id @db.Char(26)
+  aggregate_type String       @db.VarChar(80)
+  aggregate_id   String       @db.Char(26)
+  event_type     String       @db.VarChar(120)
+  payload        Json
+  status         OutboxStatus @default(PENDING)
+  retry_count    Int          @default(0)
+  next_retry_at  DateTime?    @db.Timestamptz(3)
+  created_at     DateTime     @default(now()) @db.Timestamptz(3)
+  published_at   DateTime?    @db.Timestamptz(3)
+  error_message  String?      @db.VarChar(500)
+
+  @@index([status, next_retry_at, created_at])
+  @@index([aggregate_type, aggregate_id])
+  @@map("outbox_event")
+  @@schema("public")
+}
+
+model AuditLog {
+  id                String      @id @db.Char(26)
+  actor_account_id  String?     @db.Char(26)
+  actor_role        AccountRole?
+  module            String      @db.VarChar(80)
+  object_type       String      @db.VarChar(80)
+  object_id         String      @db.VarChar(80)
+  action            String      @db.VarChar(120)
+  reason            String?     @db.VarChar(500)
+  before_json       Json?
+  after_json        Json?
+  result            AuditResult
+  request_id        String      @db.VarChar(80)
+  ip_hash           String?     @db.Char(64)
+  occurred_at       DateTime    @default(now()) @db.Timestamptz(3)
+
+  @@index([object_type, object_id, occurred_at])
+  @@index([actor_account_id, occurred_at])
+  @@index([module, occurred_at])
+  @@map("audit_log")
+  @@schema("public")
+}
+
+model SalesDailyAggregate {
+  id                 String              @id @db.Char(26)
+  business_date      DateTime            @db.Date
+  channel            AttributionChannel
+  agent_id           String?             @db.Char(26)
+  /// DIRECT or AGENT:<agent_id>; paired with business_date for uniqueness.
+  scope_key          String              @db.VarChar(40)
+  paid_order_count   Int                 @default(0)
+  paid_amount        Decimal             @default(0) @db.Decimal(18, 2)
+  refunded_amount    Decimal             @default(0) @db.Decimal(18, 2)
+  net_sales_amount   Decimal             @default(0) @db.Decimal(18, 2)
+  product_units      Int                 @default(0)
+  new_customer_count Int                 @default(0)
+  rebuilt_at         DateTime            @db.Timestamptz(3)
+
+  agent AgentProfile? @relation(fields: [agent_id], references: [id])
+
+  @@unique([business_date, scope_key])
+  @@map("sales_daily_aggregate")
+  @@schema("public")
+}

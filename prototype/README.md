@@ -12,9 +12,9 @@
 
 ## 验收脚本
 
-`verify-prototype.cjs` 使用 Playwright 和本机 Chrome 渲染三端核心画面，检查脚本错误、图片加载、横向溢出、响应式导航、看板图表和范围边界，并刷新 `exports/` 中的 PNG。
+`verify-prototype.cjs` 使用 Playwright 和本机 Chrome 渲染三端核心画面，检查脚本错误、图片加载、横向溢出、响应式导航、看板图表、范围边界和关键业务交互。默认只验收、不改写 `exports/` 中的 PNG；设置 `UPDATE_PROTOTYPE_EXPORTS=1` 时才刷新截图。
 
-当前 v2.1 验收基线共 35 个画面，已覆盖 ADM-22 的 1440/1024 响应式布局、代理商品与佣金页 390 移动布局，以及统一分类/SKU 规则、0% 无佣金、混合订单项快照等关键交互。
+当前 v2.3（CH-004）产品基线沿用 CH-003 的业务原型验收结果，共 75 个渲染视图，覆盖小程序 375/414、总部后台 1440/1024、代理端 1440/1024/390，并执行 8 条小程序关键流程和 6 条管理/代理流程。CH-004 只调整数据库选型，无需改动画面；门禁仍包含 SKU 结算、待付款与支付重试、售后占用、手机号/账号删除、动态订单绑定、佣金版本、高风险确认、银行卡短时授权、负余额禁提和不可变佣金流水。
 
 本工作区可使用 Codex 内置 Node 运行：
 
@@ -24,11 +24,20 @@ NODE_PATH=/Users/harry/.cache/codex-runtimes/codex-primary-runtime/dependencies/
   prototype/verify-prototype.cjs
 ```
 
+需要显式刷新验收截图时：
+
+```bash
+UPDATE_PROTOTYPE_EXPORTS=1 \
+  NODE_PATH=/Users/harry/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules \
+  /Users/harry/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node \
+  prototype/verify-prototype.cjs
+```
+
 ## 交互范围
 
-小程序覆盖首页、分类、搜索、商品详情、SKU 选择、购物车、确认订单、Mock 支付、订单、售后、个人中心和服务代理绑定。画布内控件可串联购买、归因确认与售后流程。
+小程序覆盖首页、分类、搜索、商品详情、SKU 选择、购物车、确认订单、Mock 支付、四轴订单详情、物流、售后、地址、收藏、手机号授权、账号删除、个人中心和服务代理绑定。画布内控件可串联购买、归因确认、支付恢复、售后与隐私流程。
 
-总部管理后台覆盖登录、数据看板、商品、订单、发货、售后、客户、代理管理、统一商品佣金规则和提现审核。一级代理工作台覆盖经营概览、推广商品、专属二维码/链接、脱敏客户、归属订单、售后进度、佣金台账、钱包提现和账户资料。
+总部管理后台覆盖登录、数据看板、商品、品牌、分类、Banner、库存、订单、发货、售后、客户、代理管理、统一商品佣金规则、提现、业务规则和审计日志。一级代理工作台覆盖经营概览、推广商品、专属二维码/链接、脱敏客户、归属订单、售后进度、佣金台账、钱包提现和账户资料。
 
 所有一级代理共用同一套商品佣金规则，规则优先级为 `SKU 覆盖 > 一级分类默认 > 平台默认`。总部可在 `admin.html?autologin=1&view=commission-rules` 查看和编辑交互原型；代理端仅展示各 SKU 的有效比例、规则来源和预计佣金，不提供佣金配置入口。
 

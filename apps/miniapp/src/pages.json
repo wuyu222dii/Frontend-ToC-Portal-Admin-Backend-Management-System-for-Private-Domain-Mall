@@ -1,0 +1,15 @@
+{
+  "pages": [
+    {
+      "path": "pages/index/index",
+      "style": {
+        "navigationBarBackgroundColor": "#173b31",
+        "navigationBarTextStyle": "white",
+        "navigationBarTitleText": "青序生活"
+      }
+    }
+  ],
+  "globalStyle": {
+    "backgroundColor": "#f6f8f6"
+  }
+}

@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Quality, contracts and database
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18.3-alpine
+        env:
+          POSTGRES_DB: mall_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d mall_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      CI: "true"
+      ALLOW_CI_EPHEMERAL_POSTGRES: "1"
+      DATABASE_URL: postgresql://mall_runtime:ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}-runtime@127.0.0.1:5432/mall_ci
+      DIRECT_URL: postgresql://mall_migrator:ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}@127.0.0.1:5432/mall_ci
+      REPLAY_DATABASE_URL: postgresql://postgres:ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}@127.0.0.1:5432/mall_ci
+      REDIS_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+      REDIS_URL: redis://:ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}@127.0.0.1:6379/0
+      MINIO_ROOT_USER: ci-${{ github.run_id }}
+      MINIO_ROOT_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+      S3_ENDPOINT: http://127.0.0.1:9000
+      S3_BUCKET: mall-ci
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY: ci-${{ github.run_id }}
+      S3_SECRET_KEY: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+      S3_FORCE_PATH_STYLE: "true"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install PostgreSQL and Redis clients
+        run: sudo apt-get update && sudo apt-get install --yes postgresql-client redis-tools
+
+      - name: Validate local service definition
+        run: docker compose config --quiet
+
+      - name: Start Redis and MinIO
+        run: docker compose up --detach --wait redis minio
+
+      - name: Wait for Redis and MinIO
+        run: scripts/ci/wait-for-services.sh
+
+      - name: Create private CI bucket
+        run: docker compose run --rm minio-init
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Validate environment contract
+        run: pnpm config:check
+
+      - name: Lint source
+        run: pnpm lint
+
+      - name: Check types
+        run: pnpm typecheck
+
+      - name: Lint OpenAPI
+        run: pnpm contracts:lint
+
+      - name: Check generated contract drift
+        run: |
+          pnpm contracts:generate
+          git diff --exit-code -- packages/contracts
+          test -z "$(git status --porcelain --untracked-files=all -- packages/contracts)"
+
+      - name: Scan credentials and PII fixtures
+        run: pnpm scan:sensitive
+
+      - name: Validate Prisma schema
+        run: pnpm prisma:validate
+
+      - name: Verify frozen database artifacts
+        run: pnpm db:check-frozen
+
+      - name: Replay and verify baseline migration
+        run: pnpm db:migrate:baseline
+
+      - name: Test permission gates with fault injection
+        run: pnpm db:test-permissions
+
+      - name: Verify Prisma migration drift
+        run: pnpm db:diff
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Build all five applications
+        run: pnpm build
+
+      - name: Build MP-Weixin target
+        run: pnpm build:miniapp
+
+      - name: Run B0 vertical browser E2E
+        run: pnpm e2e

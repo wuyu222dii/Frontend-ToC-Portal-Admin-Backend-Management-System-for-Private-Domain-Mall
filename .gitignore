@@ -1,0 +1,42 @@
+# Dependencies and generated output
+node_modules/
+.pnpm-store/
+dist/
+coverage/
+.turbo/
+.vite/
+/generated/
+
+# Runtime and framework output
+.cache/
+.eslintcache
+*.tsbuildinfo
+apps/miniapp/unpackage/
+playwright-report/
+test-results/
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local object and service data
+.minio/
+.redis/
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+
+# Logs and temporary files
+*.log
+*.tmp
+tmp/

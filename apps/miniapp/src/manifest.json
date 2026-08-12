@@ -1,0 +1,19 @@
+{
+  "name": "青序生活",
+  "appid": "__UNI__QINGXU_MALL",
+  "description": "青序生活微信小程序商城",
+  "versionName": "0.0.0",
+  "versionCode": "1",
+  "transformPx": false,
+  "uniStatistics": {
+    "enable": false
+  },
+  "h5": {},
+  "mp-weixin": {
+    "appid": "",
+    "setting": {
+      "urlCheck": false
+    },
+    "usingComponents": true
+  }
+}

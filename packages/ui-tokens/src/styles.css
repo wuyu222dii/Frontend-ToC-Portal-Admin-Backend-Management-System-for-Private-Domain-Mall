@@ -1,0 +1,35 @@
+:root {
+  color: #1f2925;
+  background: #f6f8f6;
+  font-family:
+    Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --qx-background: #f6f8f6;
+  --qx-brand: #315e50;
+  --qx-brand-strong: #173b31;
+  --qx-border: #dce3df;
+  --qx-surface: #ffffff;
+  --qx-text: #1f2925;
+  --qx-text-muted: #66736d;
+  --qx-warm-accent: #c96855;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--qx-background);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}

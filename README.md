@@ -1,0 +1,55 @@
+# 青序生活三端私域商城
+
+本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。当前开发按 `B0` 至 `B19` 小批次推进；本阶段只完成 B0 工程底座，不代表业务功能或生产上线已完成。
+
+## 工程结构
+
+```text
+apps/
+  miniapp/       uni-app Vue 3 小程序/H5
+  agent-web/     Vue 3 一级代理工作台
+  admin-web/     Vue 3 + Element Plus 总部后台
+  api/           NestJS HTTP API
+  worker/        NestJS 异步任务进程
+packages/
+  contracts/     OpenAPI 契约产物
+  config/        共享配置与工程规则
+  ui-tokens/     三端设计令牌
+  testing/       测试公共能力
+prisma/          PostgreSQL 模型与人工审定迁移
+product-materials/
+  docs/           产品、技术、风控与开发文档
+  prototype/      三端可点击原型、设计素材与验收截图
+```
+
+产品资料统一从 [资料索引](product-materials/README.md) 进入，业务契约以 [技术设计索引](product-materials/docs/03-技术设计/README.md) 为准。三端只访问 NestJS API，不使用 Supabase SDK、Data API、数据库连接或 `service_role`。
+
+## 本地启动
+
+前置条件：Node.js `22.23.1`、pnpm `10.34.5`、Docker Desktop。PostgreSQL 不在本地 Compose 中运行，开发连接须指向新加坡区域的 Supabase 开发项目。
+
+```bash
+pnpm install --frozen-lockfile
+docker compose up -d --wait redis minio
+docker compose run --rm minio-init
+pnpm check
+```
+
+启动 Compose 前以 `.env.example` 为字段清单创建 `.env`，真实数据库密码仍应从 Secret Store 注入，不能提交。Redis 与 MinIO 仅监听本机回环地址；MinIO 控制台默认为 `http://127.0.0.1:9001`。端口被占用时，只在本地 `.env` 设置 `REDIS_PORT`、`MINIO_API_PORT` 或 `MINIO_CONSOLE_PORT`，不修改共享默认值。
+
+常用命令：
+
+```bash
+pnpm dev:miniapp
+pnpm dev:agent
+pnpm dev:admin
+pnpm dev:api
+pnpm dev:worker
+pnpm contracts:lint
+pnpm prisma:validate
+pnpm db:migrate:baseline # CI 临时空库专用
+pnpm db:supabase:bootstrap # 受控的 Supabase 首次初始化
+pnpm db:diff
+```
+
+Supabase 项目创建、连接分权和受保护烟测见 [B0 工程与 Supabase](product-materials/docs/05-开发管理/B0-工程与Supabase.md)。普通 PR 只使用 CI 的临时 PostgreSQL，不读取 Supabase 凭据。

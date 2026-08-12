@@ -1,0 +1,69 @@
+name: Supabase development smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_ref:
+        description: Supabase development project reference being checked
+        required: true
+        type: string
+      confirmation:
+        description: Confirm this is the Singapore development project with no real customer data
+        required: true
+        type: choice
+        options:
+          - CANCEL
+          - DEVELOPMENT_SMOKE_APPROVED
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-development-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    if: inputs.confirmation == 'DEVELOPMENT_SMOKE_APPROVED'
+    name: Protected read-only smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: supabase-development
+    env:
+      CI: "true"
+      DIRECT_URL: ${{ secrets.SUPABASE_DIRECT_URL }}
+      PGSSLROOTCERT: /tmp/supabase-prod-ca.crt
+      SUPABASE_PROJECT_REF: ${{ inputs.project_ref }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install --yes postgresql-client
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Supabase production CA
+        run: >-
+          curl --fail --silent --show-error --location
+          https://supabase-downloads.s3-ap-southeast-1.amazonaws.com/prod/ssl/prod-ca-2021.crt
+          --output "$PGSSLROOTCERT"
+
+      - name: Validate Prisma schema
+        run: pnpm prisma:validate
+
+      - name: Run read-only Supabase checks
+        run: scripts/ci/supabase-smoke.sh

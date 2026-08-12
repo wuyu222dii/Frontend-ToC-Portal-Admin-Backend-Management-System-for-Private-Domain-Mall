@@ -474,6 +474,9 @@ tbody tr:hover td { background: #fbfcfb; }
 .negative-wallet-callout span { display: block; }
 .negative-wallet-callout strong { color: var(--ink); font-size: 10px; }
 .negative-wallet-callout span { margin-top: 4px; color: var(--ink-soft); font-size: 9px; line-height: 1.5; }
+.active-withdrawal-callout { align-items: center; border-color: #cddde8; color: var(--info); background: var(--blue-soft); }
+.active-withdrawal-callout > div { min-width: 0; flex: 1; }
+.active-withdrawal-callout .button { flex: 0 0 auto; }
 .feedback-state-panel { align-items: flex-start; }
 .account-quick-links { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .account-quick-links > button { display: grid; min-height: 68px; grid-template-columns: 34px minmax(0,1fr) 16px; align-items: center; gap: 9px; padding: 11px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: #fff; text-align: left; }

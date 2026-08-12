@@ -4,11 +4,11 @@
 
 | 项目 | 内容 |
 |---|---|
-| 文档版本 | v1.1 |
-| 对应产品基线 | MVP/PRD v2.3、CH-001 至 CH-004 |
+| 文档版本 | v2.4 |
+| 对应产品基线 | MVP/PRD v2.4、CH-001 至 CH-005 |
 | 接口阶段 | 设计冻结稿，不代表后端已实现 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
-| 更新时间 | 2026-08-11 |
+| 更新时间 | 2026-08-12 |
 
 ## 1. 设计目标
 
@@ -26,12 +26,15 @@
 
 ### 2.1 基础路径与终端
 
-| 终端 | 基础路径 | 身份范围 |
+OpenAPI 与所有客户端只配置一个 server：`/api/v1`。下表及全文路径都从 `/store`、`/agent`、`/admin`、`/callbacks` 或 `/files` 开始，禁止再次拼接终端前缀或写入第二个 `/api/v1`。
+
+| 终端 | 路径前缀 | 身份范围 |
 |---|---|---|
-| 消费者小程序 | `/api/v1/store` | 游客或当前 `CUSTOMER` |
-| 一级代理工作台 | `/api/v1/agent` | 当前 `AGENT_ADMIN` |
-| 总部管理后台 | `/api/v1/admin` | 当前 `SUPER_ADMIN` |
-| 第三方回调 | `/api/v1/callbacks` | Provider 签名校验，不使用用户会话 |
+| 消费者小程序 | `/store` | 游客或当前 `CUSTOMER` |
+| 一级代理工作台 | `/agent` | 当前 `AGENT_ADMIN` |
+| 总部管理后台 | `/admin` | 当前 `SUPER_ADMIN` |
+| 第三方回调 | `/callbacks` | Provider 签名校验，不使用用户会话 |
+| 受控文件 | `/files` | 按当前角色与资源归属鉴权 |
 
 客户端不得通过传入 `customer_id`、`agent_id` 或角色参数扩大数据范围。服务端必须从访问令牌确定当前主体和数据作用域。
 
@@ -48,10 +51,11 @@
 
 | 请求头 | 使用场景 | 说明 |
 |---|---|---|
-| `Authorization: Bearer <token>` | 登录接口之外 | 访问令牌 |
+| `Authorization: Bearer <token>` | 普通受保护接口 | 业务 access token；三端 refresh 不要求 access bearer |
+| `Authorization: Bearer <pre-auth>` | 后台首次 TOTP enroll、LOGIN verify/recovery | 只允许服务端声明的下一步，不是业务 session |
 | `Idempotency-Key` | 订单、支付、售后、退款、提现、规则变更等写操作 | UUID，主体 + 路径范围内 24 小时唯一；退款每次新尝试必须使用未用于该退款单的新键 |
 | `X-Request-Id` | 可选 | 客户端追踪 ID；缺失时由服务端生成 |
-| `X-Anonymous-Id` | 游客购物车、推广候选 | 小程序安装级随机标识，不使用设备硬件标识 |
+| `X-Candidate-Token` | 游客读取推广候选 | 首次创建候选后由服务端签发的短时不透明 token；不使用设备 ID |
 | `If-Match` | 配置及高风险写操作 | 必填，携带预览时的资源 ETag，例如 `"12"`；版本变化返回 `RESOURCE_VERSION_CONFLICT` |
 
 ### 2.4 数据格式
@@ -59,9 +63,30 @@
 - 时间统一使用 UTC ISO 8601，例如 `2026-08-11T02:30:00Z`；报表按 `Asia/Shanghai` 计算自然日/月。
 - ID 统一作为字符串返回，客户端不得假设为可安全运算的 JavaScript Number。
 - 金额使用两位小数字符串，禁止使用浮点数。OpenAPI 分为 `PositiveMoney`（业务输入和必须为正的事实）、`NonNegativeMoney`（余额、累计金额和普通响应）与 `SignedMoney`（佣金/钱包账本变动）；不得用同一个可负 schema 接收退款、售后或提现金额。
-- 佣金比例使用百分比字符串，例如 `"12.5000"` 表示 12.5%；`null` 表示继承，`"0.0000"` 表示明确无佣金。
+- 佣金比例使用百分比字符串，例如 `"12.5000"` 表示 12.5%；合法范围严格为 `0.0000` 至 `100.0000`。计算固定为 `HALF_UP(commission_base * effective_rate / 100, 2)`；`null` 表示继承，`"0.0000"` 表示明确无佣金。
 - 分页默认 `page=1&page_size=20`，`page_size` 最大 100。
 - 删除业务实体默认是软删除或归档；历史订单、账本、规则版本和审计记录不可物理删除。
+
+列表查询使用端点专用参数，不向单资源 GET 注入分页。所有日期筛选均按 `Asia/Shanghai` 自然日包含 `date_to`，服务端转换为 UTC 半开区间 `[date_from 00:00, date_to+1day 00:00)`；金额上下限是两位 decimal string。未显式传 `sort` 时普通列表固定 `created_at DESC,id DESC`，商品列表固定 `published_at DESC,id DESC`，流水固定 `occurred_at DESC,id DESC`，排行固定净值 DESC、资源 ID ASC，保证翻页稳定。
+
+| 列表 | 专用 query（除 `page/page_size`） |
+|---|---|
+| `/store/products` | `keyword`、`brand_id`、`category_id`、`sort=HOT\|NEWEST\|PRICE_ASC\|PRICE_DESC` |
+| `/store/orders` | `display_group=ALL\|PENDING_PAYMENT\|PENDING_SHIPMENT\|SHIPPING\|COMPLETED\|REFUND_AFTERSALE`，以及 `order_no`、四轴状态、`date_from/date_to`、`min_amount/max_amount`；Tab 由服务端映射，不由客户端拼状态 |
+| `/agent/orders` | 仅返回 `payment_status=PAID` 且支付快照 `final_agent_id` 为当前代理的订单；支持 `customer_id`、订单/退款/履约状态、`has_aftersale`、日期、金额和排序，不接受 `payment_status` 筛选 |
+| `/admin/orders` | `order_no`、订单/支付/退款/履约状态、`customer_id/agent_id`、`date_from/date_to`、`min_amount/max_amount` |
+| 三端 `/aftersales` | `aftersale_no`、`order_id`、`status`、`type`、`date_from/date_to`；总部可按 `customer_id` |
+| `/agent/customers` | `keyword`、`date_from/date_to`；结果强制为当前代理名下 `account_status=ACTIVE` 且 `binding_status=BOUND`，不提供 `UNBOUND/ENDED` 查询 |
+| `/admin/customers` | `keyword`、`binding_status`、`date_from/date_to`、`agent_id`、`min_consumption/max_consumption` |
+| `/admin/agents` | `keyword`、`status`、`authorization_mode`、`date_from/date_to` |
+| 三端商品管理列表 | `keyword`、`brand_id`、`category_id`、`status`、`recommended`；代理列表仅返回授权且在售记录 |
+| 三端 `/withdrawals` | `withdrawal_no`、`status`、`date_from/date_to`、`min_amount/max_amount` |
+| `/agent/commissions` | `state`、`ledger_type`、`order_no`、`date_from/date_to` |
+| `/admin/inventory` 与流水 | `keyword`、`category_id`、`low_stock`；流水另有 `ledger_type`、`date_from/date_to` |
+| `/admin/audit-logs` | `actor_id`、`module`、`action`、`result_code`、`target_type/target_id`、`date_from/date_to` |
+| `/admin/agents/{agent_id}/commissions`、`/wallet-ledger` | 只读分页；前者支持 position/流水类型与日期，后者支持钱包流水类型与日期 |
+| 支付对账、佣金 SKU/版本 | 分别支持 `status/last_error_code/due_before` 与 `keyword/category_id/source/status/date_from/date_to` |
+| 四类报表 | `timezone`、日期/月边界与 `scope=GLOBAL\|DIRECT\|AGENT`、可选 `agent_id`；排行另分页 |
 
 ### 2.5 响应封装
 
@@ -115,7 +140,8 @@ type OrderStatus =
   | "CLOSED";
 
 type PaymentStatus = "UNPAID" | "PROCESSING" | "PAID";
-type RefundStatus = "NONE" | "REFUNDING" | "PARTIAL" | "FULL" | "FAILED";
+type RefundProgressStatus = "NONE" | "PARTIAL" | "FULL";
+type RefundProcessingStatus = "IDLE" | "REFUNDING" | "FAILED";
 type FulfillmentStatus =
   | "NOT_STARTED"
   | "READY_TO_SHIP"
@@ -130,6 +156,22 @@ type CloseReason =
   | "PAYMENT_TIMEOUT"
   | "FULL_REFUND_BEFORE_SHIPMENT";
 
+type CompletionReason =
+  | null
+  | "CUSTOMER_CONFIRMED"
+  | "ADMIN_FORCED"
+  | "FULL_REFUND_AFTER_SHIPMENT";
+
+type PaymentIntentStatus =
+  | "CREATING"
+  | "OPEN"
+  | "CLOSE_PENDING"
+  | "CLOSED"
+  | "FAILED"
+  | "CANCELLED"
+  | "EXPIRED"
+  | "SUCCEEDED";
+
 type DisplayStatus =
   | "待付款"
   | "待发货"
@@ -143,28 +185,28 @@ type DisplayStatus =
   | "支付异常处理中";
 ```
 
-订单详情接口必须同时返回六个字段，不允许客户端仅依据一个枚举自行推断退款或履约结果。
+订单详情接口必须同时返回 `order_status`、`payment_status`、`refund_progress_status`、`refund_processing_status`、`fulfillment_status`、`close_reason`、`completion_reason`、`payment_resolution` 和 `display_status`，不允许客户端自行合并状态轴。
 
 `display_status` 使用下表从上到下首个命中规则，服务端是唯一计算方：
 
 | 优先级 | 条件 | `display_status` |
 |---:|---|---|
 | 1 | `payment_resolution=MANUAL_REQUIRED` | 支付异常处理中 |
-| 2 | `payment_resolution=LATE_SUCCESS_REFUND_PENDING` 或 `refund_status=REFUNDING` | 退款处理中 |
-| 3 | `payment_resolution=LATE_SUCCESS_REFUNDED` 或 `refund_status=FULL` | 退款完成 |
-| 4 | `refund_status=FAILED` | 退款异常待处理 |
-| 5 | `refund_status=PARTIAL` | 部分退款 |
+| 2 | `refund_processing_status=FAILED` | 退款异常待处理 |
+| 3 | `payment_resolution=LATE_SUCCESS_REFUND_PENDING` 或 `refund_processing_status=REFUNDING` | 退款处理中 |
+| 4 | `payment_resolution=LATE_SUCCESS_REFUNDED` 或 `refund_progress_status=FULL` | 退款完成 |
+| 5 | `refund_progress_status=PARTIAL` | 部分退款 |
 | 6 | `order_status=CLOSED` | 已关闭 |
 | 7 | `order_status=PENDING_PAYMENT` | 待付款 |
 | 8 | `order_status=PENDING_SHIPMENT` 且 `fulfillment_status=READY_TO_SHIP` | 待发货 |
 | 9 | `order_status=SHIPPING` 或 `fulfillment_status` 为 `SHIPPED/IN_TRANSIT` | 运输中 |
 | 10 | `order_status=COMPLETED` 或 `fulfillment_status=DELIVERED` | 已完成 |
 
-`close_reason` 始终出现在响应中；非关闭订单为 `null`，关闭订单必须返回非空原因。
+`refund_progress_status` 只按成功退款累计计算，`refund_processing_status` 只反映当前处理/失败事实；`PARTIAL + FAILED` 是合法组合。`close_reason` 与 `completion_reason` 始终出现在响应中：CLOSED 只能有前者，COMPLETED 只能有后者。发货后全额退款展示“退款完成”，订单事实为 `COMPLETED/FULL_REFUND_AFTER_SHIPMENT`。
 
 ### 3.2 售后状态
 
-`PENDING_REVIEW`、`REJECTED`、`REFUNDING`、`WAITING_RETURN`、`WAITING_RECEIPT`、`REFUNDING_AFTER_RETURN`、`REFUND_FAILED`、`COMPLETED`、`CANCELLED`。
+`PENDING_REVIEW`、`REJECTED`、`REFUNDING`、`WAITING_RETURN`、`WAITING_RECEIPT`、`RETURN_EXCEPTION`、`REFUNDING_AFTER_RETURN`、`REJECTED_AFTER_RETURN`、`REFUND_FAILED`、`COMPLETED`、`CANCELLED`。
 
 消费者仅可在 `PENDING_REVIEW`，或未提交退货物流的 `WAITING_RETURN` 取消。`REFUND_FAILED` 保留订单项可退额度占用，等待总部重试或财务人工处理。
 
@@ -180,16 +222,30 @@ type DisplayStatus =
 
 | 方法 | 路径 | 身份 | 说明 |
 |---|---|---|---|
-| `POST` | `/auth/wechat/login` | 游客 | 使用微信 code 登录；设计阶段可由 Mock Provider 替代 |
-| `POST` | `/auth/refresh` | 已登录 | 刷新会话并轮换 refresh token |
-| `POST` | `/auth/logout` | 已登录 | 注销当前会话 |
-| `GET` | `/profile` | CUSTOMER | 当前消费者资料，账户手机号默认掩码 |
-| `PATCH` | `/profile` | CUSTOMER | 更新昵称、头像等非敏感资料 |
-| `POST` | `/profile/phone-authorizations` | CUSTOMER | 使用微信手机号凭证完成自愿授权；要求 `Idempotency-Key` |
-| `DELETE` | `/profile/phone` | CUSTOMER | 撤回账户手机号使用授权；不修改历史订单快照 |
-| `POST` | `/consents` | 游客/CUSTOMER | 保存用户协议、隐私政策或手机号授权协议版本 |
-| `POST` | `/privacy/deletion-requests` | CUSTOMER | 申请账号删除和去标识化 |
-| `GET` | `/privacy/deletion-requests/current` | CUSTOMER | 查询当前删除申请状态 |
+| `POST` | `/store/auth/wechat/login` | 游客 | 使用微信 code 登录；设计阶段可由 Mock Provider 替代 |
+| `POST` | `/store/auth/refresh` | 已登录 | 刷新会话并轮换 refresh token |
+| `POST` | `/store/auth/logout` | 已登录 | 注销当前会话 |
+| `GET` | `/store/profile` | CUSTOMER | 当前消费者资料，账户手机号默认掩码 |
+| `PATCH` | `/store/profile` | CUSTOMER | 更新昵称、头像等非敏感资料 |
+| `POST` | `/store/profile/phone-authorizations` | CUSTOMER | 使用微信手机号凭证完成自愿授权；要求 `Idempotency-Key` |
+| `DELETE` | `/store/profile/phone` | CUSTOMER | 撤回账户手机号使用授权；不修改历史订单快照 |
+| `POST` | `/store/privacy/deletion-requests` | CUSTOMER | 申请账号删除和去标识化 |
+| `GET` | `/store/privacy/deletion-requests/current` | CUSTOMER | 查询当前删除申请状态 |
+
+微信登录请求必须同时提交已展示且明确接受的协议版本：
+
+```json
+{
+  "code": "wechat-login-code",
+  "candidate_token": "optional-high-entropy-token-from-link-open",
+  "consents": [
+    { "type": "USER_AGREEMENT", "document_version": "user-v3", "accepted": true },
+    { "type": "PRIVACY_POLICY", "document_version": "privacy-v5", "accepted": true }
+  ]
+}
+```
+
+服务端先向 Provider 换取微信主体，再在同一数据库事务中创建或锁定 `account/customer_profile`、写两条不可覆盖的 `consent_record` 并签发会话。缺失、非当前版本或 `accepted=false` 返回 `CONSENT_REQUIRED`，不会产生半成品账户。游客不再单独调用 `/consents`，因此 `consent_record.account_id` 始终非空。
 
 手机号授权请求：
 
@@ -216,17 +272,17 @@ type DisplayStatus =
 
 手机号授权在一个事务中撤回旧当前记录并写入新记录；相同幂等键与相同请求返回同一验证结果，同一客户数据库层最多一条 `revoked_at IS NULL` 的当前记录。订单提交只记录归因候选，不复制昵称、手机号尾号或城市；这些脱敏客户快照仅在支付成功并冻结最终归因时写入。
 
-删除申请若存在非终态订单或售后，返回 `ACCOUNT_DELETION_BLOCKED` 和阻断对象摘要；受理后撤销全部会话、结束当前代理绑定并清除购物车、收藏、地址及可删除资料，历史交易和审计仅保留去标识化快照。
+删除申请若存在非终态订单/售后、未结清支付/退款或财务异常，返回 `ACCOUNT_DELETION_BLOCKED` 和不含敏感明文的阻断对象摘要。受理事务将账户置为 `ANONYMIZED` 并清空微信 openid/unionid、登录名和密码摘要，撤销全部会话及 refresh hash，结束当前代理绑定并使候选失效；客户资料清空昵称、头像、城市并记录去标识化时间。事务硬删除 `customer_phone_verification`、`customer_address`、`favorite`、`cart_item`，确保手机号/地址密文、HMAC、last4 和 key id 不再存在；不含敏感字段的空 `cart` 聚合根可保留。不可变交易归因只保留财务事实；代理端隐私投影清空昵称、手机号尾号和城市并替换为新生成的稳定不可逆 alias。交易、退款、佣金、提现、协议版本和审计仅按上线前批准的外部合规策略保留，且不能再通过当前客户资料接口检索原主体。
 
 ### 4.2 推广候选与服务代理
 
 | 方法 | 路径 | 身份 | 说明 |
 |---|---|---|---|
-| `POST` | `/attribution/candidates` | 游客/CUSTOMER | 打开代理推广链接时校验并保存 30 分钟候选 |
-| `GET` | `/attribution/candidate` | 游客/CUSTOMER | 查询当前有效候选和剩余秒数 |
-| `POST` | `/attribution/candidate/confirm` | CUSTOMER | 明确确认并建立长期绑定 |
-| `POST` | `/attribution/candidate/reject` | CUSTOMER | 拒绝并清空候选 |
-| `GET` | `/service-agent` | CUSTOMER | 只读查看当前服务代理 |
+| `POST` | `/store/attribution/candidates` | 游客/CUSTOMER | 打开代理推广链接时校验并保存 30 分钟候选 |
+| `GET` | `/store/attribution/candidate` | 游客/CUSTOMER | 查询当前有效候选和剩余秒数 |
+| `POST` | `/store/attribution/candidate/confirm` | CUSTOMER | 明确确认并建立长期绑定 |
+| `POST` | `/store/attribution/candidate/reject` | CUSTOMER | 拒绝并清空候选 |
+| `GET` | `/store/service-agent` | CUSTOMER | 只读查看当前服务代理 |
 
 候选创建请求：
 
@@ -242,27 +298,32 @@ type DisplayStatus =
 规则：
 
 - 已登录且未绑定用户立即得到 `confirmation_required: true`，无需退出登录再进入流程。
+- 游客首次创建候选时响应一次 `candidate_token`，数据库只保存 SHA-256/HMAC 哈希；游客后续 GET 使用 `X-Candidate-Token`，不采集或复用设备标识。登录后的 confirm/reject 仅接受 CUSTOMER bearer，并在确认时重新校验候选。
+- 候选创建、查询和拒绝分别使用 `AttributionCandidateCreateResponse`、`AttributionCandidateQueryResponse`、`AttributionCandidateRejectResponse`。只有首次创建响应可包含 `candidate_token`，并必须返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；查询和拒绝 DTO 不得出现 token 字段。
 - 自定义白名单商品被撤权后，旧商品推广素材返回 `attribution_eligible: false`，但可携带 `public_target_url` 正常打开公开商品页。
 - 白名单不参与已绑定客户后续订单的佣金判断；支付接口不保存商品授权快照。
 - 已绑定用户访问其他代理链接返回当前绑定且不创建新候选。
 - 邀请码轮换或停用后，未确认候选在确认时必须再次校验并失效；已有绑定不受影响。
+- 绑定确认、总部转移和创建订单都以永远存在的 `customer_profile/version` 为共同串行根：先锁客户并递增 version，再读取/结束当前 binding。两个确认并发时首个提交胜出，后到返回胜出绑定；部分唯一索引只作兜底。登录请求可携带本地安全保存的可选 `candidate_token`：登录事务锁 token 候选与 customer_profile，原子迁移为 customer 候选并清除 token hash；过期、撤权、已绑定或已有 customer 候选按当前事实裁决。token 重放不得重复建候选，双 token 并发最多保留首个有效 customer 候选。
 
 ### 4.3 商品、收藏和购物车
 
 | 方法 | 路径 | 身份 | 说明 |
 |---|---|---|---|
-| `GET` | `/home` | 公开 | Banner、分类、热销、新品聚合 |
-| `GET` | `/categories` | 公开 | 已启用一级分类 |
-| `GET` | `/brands` | 公开 | 已启用品牌 |
-| `GET` | `/products` | 公开 | 关键词、品牌、分类、排序和分页 |
-| `GET` | `/products/{product_id}` | 公开 | 商品详情及全部可售 SKU |
-| `GET` | `/favorites` | CUSTOMER | 收藏列表 |
-| `PUT` | `/favorites/{product_id}` | CUSTOMER | 幂等收藏 |
-| `DELETE` | `/favorites/{product_id}` | CUSTOMER | 幂等取消收藏 |
-| `GET` | `/cart` | 游客/CUSTOMER | 购物车及服务端最新校验结果 |
-| `PUT` | `/cart/items/{sku_id}` | 游客/CUSTOMER | 按 SKU 新增或设置数量 |
-| `DELETE` | `/cart/items/{sku_id}` | 游客/CUSTOMER | 删除单个 SKU |
-| `POST` | `/cart/merge` | CUSTOMER | 登录后合并匿名购物车 |
+| `GET` | `/store/home` | 公开 | Banner、分类、热销、新品聚合 |
+| `GET` | `/store/categories` | 公开 | 已启用一级分类 |
+| `GET` | `/store/brands` | 公开 | 已启用品牌 |
+| `GET` | `/store/products` | 公开 | 关键词、品牌、分类、排序和分页 |
+| `GET` | `/store/products/{product_id}` | 公开 | 商品详情及全部可售 SKU |
+| `GET` | `/store/favorites` | CUSTOMER | 收藏列表 |
+| `PUT` | `/store/favorites/{product_id}` | CUSTOMER | 幂等收藏 |
+| `DELETE` | `/store/favorites/{product_id}` | CUSTOMER | 幂等取消收藏 |
+| `GET` | `/store/cart` | CUSTOMER | 当前客户唯一服务端购物车及最新校验结果 |
+| `PUT` | `/store/cart/items/{sku_id}` | CUSTOMER | 按 SKU 新增或设置数量 |
+| `DELETE` | `/store/cart/items/{sku_id}` | CUSTOMER | 删除单个 SKU |
+| `POST` | `/store/cart/merge` | CUSTOMER | 登录后把小程序本地项合入服务端购物车 |
+
+取消收藏和删除购物车项均为无请求体的幂等 DELETE，不要求 `If-Match`；服务端按当前 CUSTOMER 和路径资源定位记录，不接受客户端提交客户、购物车或版本字段。数据库运行角色全局禁删，仅对账号删除事务需要的 `favorite`、`cart_item`、`customer_phone_verification` 与 `customer_address` 四张非交易 PII/偏好表开放窄 DELETE 权限；普通地址 CRUD 仍使用软删除，跨客户范围由服务层守卫和审计阻止。
 
 购物车项只接受：
 
@@ -272,24 +333,34 @@ type DisplayStatus =
 }
 ```
 
-响应由服务端补全 `product_id`、`sku_id`、规格、当前零售价、可售库存、上下架状态和价格/库存变化提示。同一商品不同 SKU 是不同购物车项。
+游客购物车只存在小程序本地，不创建服务端匿名 Cart 或 ownership token。登录合并请求为 `items[{sku_id,quantity}]`，每行 quantity 为 1..99、SKU 不重复；服务端重新校验商品/SKU 状态、当前零售价和库存后，按 SKU 幂等合入 CUSTOMER cart。响应由服务端补全 `product_id`、`sku_id`、规格、当前零售价、可售库存、上下架状态和价格/库存变化提示。同一商品不同 SKU 是不同购物车项。
+
+商品 `PRICE_ASC/PRICE_DESC` 使用当前可见 ACTIVE SKU 的最低 `retail_price` 作为 SPU 排序价，同价以 `product_id ASC` 打破平局；没有可见 ACTIVE SKU 的商品不进入公开列表。HOT 使用全生命周期净销量，即支付成功 SKU 数量减成功退款数量。`product.sales_count` 只是可由支付/退款事实重建的缓存，支付和退款结转事务更新投影，每日对账发现差异后重建，不作为不可变交易事实。
+
+公开目录使用 `StoreCategoryView`、`StoreBrandView`、`StoreProductListItem`、`StoreProductDetailView` 与 `StoreSkuView`；首页和收藏也只能复用这些公开投影。只返回 ACTIVE 分类/品牌、ACTIVE 且至少有一个可售 SKU 的商品及可售 SKU，图片只给公开 URL；不得返回 `file_id`、管理 `status`、`version`、DRAFT/INACTIVE/ARCHIVED 记录、实物/锁定库存或其他后台字段。后台管理端继续使用独立管理 DTO。
 
 ### 4.4 地址、试算、订单与支付
 
 | 方法 | 路径 | 身份 | 说明 |
 |---|---|---|---|
-| `GET/POST` | `/addresses` | CUSTOMER | 地址列表、新增地址 |
-| `GET/PATCH/DELETE` | `/addresses/{address_id}` | CUSTOMER | 地址详情、修改、软删除 |
-| `POST` | `/checkout/quotes` | CUSTOMER | 服务端计价和库存预检，不锁库存 |
-| `POST` | `/orders` | CUSTOMER | 创建待付款订单并锁库存 30 分钟 |
-| `GET` | `/orders` | CUSTOMER | 本人订单列表和状态筛选 |
-| `GET` | `/orders/{order_id}` | CUSTOMER | 订单、支付、退款、履约和售后聚合详情 |
-| `POST` | `/orders/{order_id}/cancel` | CUSTOMER | 取消未支付订单并释放库存 |
-| `POST` | `/orders/{order_id}/payment-intents` | CUSTOMER | 为未过期订单创建或复用唯一 OPEN 支付意图并调用 Provider |
-| `POST` | `/orders/{order_id}/confirm-receipt` | CUSTOMER | 确认收货，幂等完成订单 |
-| `GET` | `/orders/{order_id}/logistics` | CUSTOMER | 包裹与人工物流节点 |
+| `GET` | `/store/addresses` | CUSTOMER | 本人地址列表，仅返回收件人、电话和门牌地址掩码 |
+| `POST` | `/store/addresses` | CUSTOMER | 新增地址，成功仅向当前本人返回完整详情 |
+| `GET/PATCH` | `/store/addresses/{address_id}` | CUSTOMER | 本人完整地址详情与修改；响应禁止缓存 |
+| `DELETE` | `/store/addresses/{address_id}` | CUSTOMER | 软删除，仅返回无 PII 的 `CommandResponse` |
+| `POST` | `/store/checkout/quotes` | CUSTOMER | 服务端计价和库存预检，不锁库存 |
+| `POST` | `/store/orders` | CUSTOMER | 创建待付款订单并锁库存 30 分钟 |
+| `GET` | `/store/orders` | CUSTOMER | 本人订单列表和状态筛选 |
+| `GET` | `/store/orders/{order_id}` | CUSTOMER | 订单、支付、退款、履约和售后聚合详情 |
+| `POST` | `/store/orders/{order_id}/cancel` | CUSTOMER | claim 活动意图后按 intent_no query/close；明确不可支付才关单并释放库存 |
+| `POST` | `/store/orders/{order_id}/payment-intents` | CUSTOMER | 创建或复用唯一非终态意图，按稳定 intent_no 调用/对账 Provider |
+| `POST` | `/store/orders/{order_id}/confirm-receipt` | CUSTOMER | 确认收货，幂等完成订单 |
+| `GET` | `/store/orders/{order_id}/logistics` | CUSTOMER | 包裹与人工物流节点 |
 
 新增、修改或删除默认地址必须在事务中锁定该客户当前地址，并先取消旧默认再设置新默认；PostgreSQL 条件唯一索引保证每位客户最多一个未删除默认地址，并发冲突返回 `RESOURCE_VERSION_CONFLICT` 后允许刷新重试。
+
+地址列表使用 `StoreAddressSummaryResponse/StoreAddressSummaryView`，只返回 `recipient_name_masked/phone_masked/detail_masked`；地址 GET 详情、POST 和 PATCH 使用 `StoreAddressDetailResponse/StoreAddressDetailView`，完整 `recipient_name/phone/detail` 仅在 bearer 所属 CUSTOMER 读取本人地址时返回，跨客户对象统一按 404 处理。四类地址读取/写入响应均返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；DELETE 只返回 `CommandResponse`。完整收件人、电话和门牌地址不得进入访问日志、追踪、埋点、审计前后摘要或 `idempotency_record.response_body`；POST/PATCH 的幂等记录只保存结果资源 ID、版本和响应摘要哈希，重放时重新鉴权并实时生成响应，不持久化 PII 明文。
+
+订单创建、取消和确认收货可返回摘要 `StoreOrderResponse`；列表使用 `StoreOrderListResponse`，每单含紧凑 SKU 项、`pay_expires_at`、服务端 `available_actions` 与售后摘要，并按 `display_group` 映射订单 Tab。只有详情 GET 返回端点专用 `StoreOrderDetailResponse`。详情必须一次返回服务端计算的订单/支付/退款/履约状态、支付截止与服务端时间、冻结收货地址、可执行动作、四条主状态轴合并时间线、包裹与物流节点、关联售后、支付尝试、稳定退款及历次尝试、角色安全错误和资源版本。消费者只能读取本人订单；Provider 原文、内部堆栈、库存内部流水和佣金均不得出现在小程序响应。
 
 订单创建请求：
 
@@ -312,16 +383,21 @@ type DisplayStatus =
   "order_no": "20260811000126",
   "order_status": "PENDING_PAYMENT",
   "payment_status": "UNPAID",
-  "refund_status": "NONE",
+  "refund_progress_status": "NONE",
+  "refund_processing_status": "IDLE",
   "fulfillment_status": "NOT_STARTED",
   "close_reason": null,
+  "completion_reason": null,
+  "payment_resolution": "NORMAL",
   "display_status": "待付款",
   "pay_expires_at": "2026-08-11T03:30:00Z",
   "server_time": "2026-08-11T03:00:00Z",
   "amounts": {
     "goods": "197.00",
     "shipping": "0.00",
-    "payable": "197.00"
+    "payable": "197.00",
+    "paid": "0.00",
+    "refunded": "0.00"
   },
   "items": [
     {
@@ -340,7 +416,9 @@ type DisplayStatus =
 
 创建订单必须在一个事务中完成服务端计价、订单/订单项快照、归因候选和库存预占。该接口不创建支付意图、不调用 Provider；订单创建后即进入订单列表，用户关闭支付弹层不删除订单。
 
-首次或重试支付时，服务端锁定订单并先查询该订单唯一 OPEN 意图：存在且仍有效则幂等复用，不存在则创建新的本地意图和稳定商户支付号，再以该商户号调用 Provider。数据库部分唯一索引保证同一订单不能并存两笔 OPEN 意图；`provider + provider_intent_id` 的非空组合唯一。响应包含 Provider 参数，但不返回佣金比例或归因结果。超过 `pay_expires_at` 后返回 `ORDER_PAYMENT_EXPIRED`。
+首次或重试支付先在短事务中创建或复用该订单唯一活动意图，稳定商户号为 `intent_no`，初始状态 `CREATING`；提交后才调用 Provider `create(intent_no)`。若网络不确定或进程在外部成功后、本地回写前崩溃，服务端用 `query(intent_no)` 恢复，不创建第二商户号。部分唯一索引禁止同一订单并存两笔 `CREATING/OPEN/CLOSE_PENDING` 意图；响应包含当前 `intent_status` 和闭合的 `PaymentProviderCapabilityView`，不返回 Provider 任意对象、佣金比例或归因结果。只要成功响应可能包含 `provider_payload`，就必须返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；明确创建失败/用户取消分别落 `FAILED/CANCELLED`，超过 `pay_expires_at` 返回 `ORDER_PAYMENT_EXPIRED`。
+
+用户主动取消与超时任务必须复用同一 `claim -> query/close -> finalize` 服务：第一段按全局锁序锁订单、全部订单项及活动意图，把 `CREATING/OPEN` claim 为 `CLOSE_PENDING`；事务外按稳定 `intent_no` query，必要时 close；只有 Provider 明确 `CLOSED/NOT_FOUND/EXPIRED/CANCELLED/FAILED`，第三段才重锁订单、全部订单项、意图和库存，写 `USER_CANCELLED` 或 `PAYMENT_TIMEOUT` 并释放预占。关闭失败或未知时保持 `CLOSE_PENDING`、写 `last_error_code/next_reconcile_at` 并返回“取消处理中”，不得直接关单或释放库存。
 
 ### 4.5 支付回调与迟到支付
 
@@ -350,16 +428,18 @@ type DisplayStatus =
 | `POST` | `/callbacks/wechat-refund` | Provider | 微信退款通知收件箱 |
 | `POST` | `/store/mock-payments/{payment_intent_id}/result` | 开发/测试 | Mock Provider 成功、失败、取消、迟到成功 |
 
+微信正式回调必须以原始字节 body 验签，读取 `Wechatpay-Timestamp`、`Wechatpay-Nonce`、`Wechatpay-Serial`、`Wechatpay-Signature`，校验平台证书有效性、时间窗口和 nonce/event 重放后，才将 raw body、签名头、解析 payload 与验签结果写入 Inbox。签名失败返回 401 且不处理领域事实；合法重复事件返回微信要求的成功 ACK。证书轮换、ACK 内容、超时重试、乱序/重复事件和 raw-body 中间件集成测试是正式微信上线门禁，设计期 Mock 接口不得存在于生产路由。
+
 支付回调以 Provider 交易号和回调事件 ID 双重幂等。正常成功流程：
 
-1. 保存并确认支付成功事实；
-2. 锁定订单、库存预占、当前佣金规则集版本和提交时代理候选；
-3. 将预占库存结转为实物扣减；
-4. 复核候选代理 `ACTIVE`，逐订单项保存最终渠道、代理和佣金快照；
-5. 写入 `EXPECTED_CREATED` 和 Outbox 事件；
+1. 保存并确认支付成功事实，事务外预读 `candidate_agent_id` 只能用于定位锁；
+2. 事务内先锁候选 `agent_profile/version`，再锁订单、全部订单项、支付意图，并重读候选；代理停用也锁同一代理，先提交者裁决归因；
+3. 依全局序锁库存预占和当前佣金规则集版本，将预占库存结转为实物扣减；
+4. 在锁内复核候选代理 `ACTIVE`，逐订单项保存最终渠道、代理和佣金快照；失效则降级 DIRECT；
+5. DIRECT 或佣金基数/有效比例/原佣金为 0 时，保留规则快照但把 position 置为 `NONE`，跳过佣金/钱包流水与佣金 Outbox；其余项置 `EXPECTED` 并写 `EXPECTED_CREATED`；
 6. 订单进入待发货。
 
-超时任务对存在的 OPEN 意图必须先关闭 Provider 支付意图；从未发起支付、无意图时跳过该步骤，再关闭订单并释放库存。释放后收到支付成功时：
+超时任务按上述统一流程把活动意图置为 `CLOSE_PENDING` 并提交，再在事务外按 `intent_no` query/close。只有 Provider 明确 CLOSED/NOT_FOUND/EXPIRED/CANCELLED/FAILED 才在新事务关闭订单和释放库存；失败或未知保持 `CLOSE_PENDING` 并由对账任务重试，库存继续锁定。从未发起支付、无意图时也通过最终关单事务按全局锁序释放。释放后收到支付成功时：
 
 - 不复活订单、不重新占库存、不建立代理佣金；
 - 支付尝试记录为 `SUCCEEDED_LATE`，原支付意图保持 `CLOSED/EXPIRED`，订单保持 `CLOSED/PAYMENT_TIMEOUT`；
@@ -370,11 +450,13 @@ type DisplayStatus =
 
 | 方法 | 路径 | 身份 | 说明 |
 |---|---|---|---|
-| `POST` | `/aftersales` | CUSTOMER | 创建仅退款或退货退款，并占用可退额度 |
-| `GET` | `/aftersales` | CUSTOMER | 本人售后列表 |
-| `GET` | `/aftersales/{aftersale_id}` | CUSTOMER | 售后详情与时间线 |
-| `POST` | `/aftersales/{aftersale_id}/cancel` | CUSTOMER | 在允许阶段取消并释放占用 |
-| `POST` | `/aftersales/{aftersale_id}/return-shipment` | CUSTOMER | 填写退货承运商和运单号 |
+| `POST` | `/store/aftersales` | CUSTOMER | 创建仅退款或退货退款，并占用可退额度 |
+| `GET` | `/store/aftersales` | CUSTOMER | 本人售后列表 |
+| `GET` | `/store/aftersales/{aftersale_id}` | CUSTOMER | 售后详情与时间线 |
+| `POST` | `/store/aftersales/{aftersale_id}/cancel` | CUSTOMER | 在允许阶段取消并释放占用 |
+| `POST` | `/store/aftersales/{aftersale_id}/return-shipment` | CUSTOMER | 填写退货承运商和运单号 |
+
+售后创建、取消和填写退货物流返回摘要 `StoreAftersaleResponse`；详情 GET 返回端点专用 `StoreAftersaleDetailResponse`，包含订单摘要、逐项申请/占用/批准/退款数量、冻结退货地址、退货物流、验货结论、稳定退款尝试、可执行动作、时间线、安全错误和版本。消费者仅可见本人售后事实，不返回总部内部操作者、库存成本或佣金影响。
 
 创建请求：
 
@@ -387,40 +469,49 @@ type DisplayStatus =
   "items": [
     {
       "order_item_id": "oi_01J5...",
-      "quantity": 1,
-      "requested_amount": "69.00"
+      "quantity": 1
     }
   ],
   "evidence_file_ids": []
 }
 ```
 
-创建时事务性计算：`剩余可退 = 原成交 - 已成功退款 - 其他有效售后占用`。超出时返回 `AFTERSALE_QUOTA_EXCEEDED`。有效占用数量不得进入新发货单；驳回或允许阶段取消后释放，退款失败继续保留。
+消费者只提交 `quantity`，不得提交金额。创建时服务端按订单项成交快照计算 `allocated_amount = HALF_UP(unit_price * quantity, 2)`，再事务性校验 `剩余可退 = 原成交 - 已成功退款 - 其他有效售后占用`；响应返回服务端分配金额。超出返回 `AFTERSALE_QUOTA_EXCEEDED`。首期单包裹下，只要订单存在活动售后，整单禁止发货；驳回或允许阶段取消后释放占用，退款失败继续保留。与商品数量无关的善意赔付只能由总部创建独立 `manual_compensation`：不占数量、不回库但占可退金额，成功后增加 `refunded_amount` 并按原订单项佣金快照冲正佣金。
 
 ## 5. 一级代理工作台接口
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `POST` | `/auth/login` | 账号密码登录；临时密码只签发改密会话 |
-| `POST` | `/auth/change-temporary-password` | 首次或重置后强制改密 |
-| `POST` | `/auth/logout-all` | 退出全部代理会话 |
-| `GET` | `/dashboard` | 本代理销售、客户、订单、预计佣金、余额与待办 |
-| `GET` | `/products` | 当前授权且已上架商品与各 SKU 当前预计比例 |
-| `GET` | `/products/{product_id}` | 授权商品详情和规则来源 |
-| `POST` | `/promotion-assets` | 为商城主页或当前授权商品生成推广素材 |
-| `GET` | `/customers` | 当前归属客户，手机号仅尾号或 `null` |
-| `GET` | `/customers/{customer_id}` | 当前归属期间详情；转出后不可访问 |
-| `GET` | `/orders` | 支付时最终冻结为本代理的订单 |
-| `GET` | `/orders/{order_id}` | 脱敏地址、支付时客户/佣金快照，只读 |
-| `GET` | `/commissions` | EXPECTED、CANCELLED、AVAILABLE、REFUND_DEBIT 明细 |
-| `GET` | `/commissions/{commission_snapshot_id}` | 原正向快照及相关减少/冲正流水 |
-| `GET` | `/wallet` | 有符号可用余额、非负冻结余额及负余额提示 |
-| `GET/POST` | `/bank-accounts` | 查询掩码银行卡、新增或更换完整卡号 |
-| `POST` | `/withdrawals` | 提交提现并冻结余额 |
-| `GET` | `/withdrawals` | 本人提现历史 |
-| `GET` | `/withdrawals/{withdrawal_id}` | 本人申请详情和付款凭证摘要 |
+| `POST` | `/agent/auth/login` | 正常密码签完整 session；临时密码只签无 refresh 的改密受限 token |
+| `POST` | `/agent/auth/refresh` | 轮换 refresh token |
+| `POST` | `/agent/auth/logout` | 注销当前会话 |
+| `POST` | `/agent/auth/change-temporary-password` | 首次或重置后强制改密 |
+| `POST` | `/agent/auth/change-password` | 使用当前密码修改密码并撤销其他会话 |
+| `POST` | `/agent/auth/logout-all` | 退出全部代理会话 |
+| `GET` | `/agent/auth/current` | 当前代理账号、会话与权限摘要 |
+| `GET` | `/agent/dashboard` | 本代理销售、客户、订单、预计佣金、余额与待办 |
+| `GET` | `/agent/products` | 当前授权且已上架商品与各 SKU 当前预计比例 |
+| `GET` | `/agent/products/{product_id}` | 授权商品详情和规则来源 |
+| `POST` | `/agent/promotion-assets` | 为商城主页或当前授权商品生成推广素材 |
+| `GET` | `/agent/customers` | 当前归属客户，手机号仅尾号或 `null` |
+| `GET` | `/agent/customers/{customer_id}` | 当前归属期间详情；转出后不可访问 |
+| `GET` | `/agent/orders` | 支付时最终冻结为本代理的 PAID 订单；可按当前归属客户及是否存在售后筛选 |
+| `GET` | `/agent/orders/{order_id}` | 脱敏地址、支付时客户/佣金快照，只读 |
+| `GET` | `/agent/commissions` | EXPECTED、CANCELLED、AVAILABLE、REFUND_DEBIT 明细 |
+| `GET` | `/agent/commissions/{commission_snapshot_id}` | 原正向快照及相关减少/冲正流水 |
+| `GET` | `/agent/wallet` | 有符号可用余额、非负冻结余额及负余额提示 |
+| `GET/POST` | `/agent/bank-accounts` | 查询掩码银行卡、新增或更换完整卡号 |
+| `POST` | `/agent/withdrawals` | 提交提现并冻结余额 |
+| `GET` | `/agent/withdrawals` | 本人提现历史 |
+| `GET` | `/agent/withdrawals/{withdrawal_id}` | 本人申请详情和付款凭证摘要 |
 
-代理商品接口返回的是当前预计佣金，订单佣金接口只读支付时快照。代理请求中即使包含其他 `agent_id` 也必须忽略或拒绝。
+代理看板使用独立 `AgentDashboardResponse`，只返回当前代理本人的净销售、订单、归属客户、预计佣金、可用/冻结/负余额、待办和趋势；不得复用含全店销售、全店客户、活跃代理总数或商品全店排行的总部看板。客户列表使用 `AgentCustomerListResponse`，只含当前 `ACTIVE/BOUND` 客户的 alias、手机号尾号或 null、城市和本归属期消费摘要，不返回 `UNBOUND/ENDED`；客户详情使用 `AgentCustomerDetailResponse`，订单和最近商品只从当前归属期内且支付时冻结为本代理的订单聚合，转出后不可访问。`GET /agent/orders` 的 `customer_id` 也必须先验证当前归属，越权对象统一返回 404。
+
+代理商品列表/详情使用独立 `AgentProductProjection`，逐 SKU 返回当前预计比例、命中来源、规则版本和单件预计佣金；订单列表使用 `AgentOrderListResponse`，只返回 `PAID` 且 `final_agent_id=当前代理` 的订单，逐单包含商品/SKU 摘要、客户 alias 与城市、售后摘要、创建/支付时间，禁止暴露客户电话和详细地址。`customer_id` 与 `has_aftersale` 等条件必须和 PAID/最终归因作用域一起在服务端查询层先过滤，再计算 `total` 和分页，禁止分页后剔除。列表和详情均返回服务端只读 `available_actions`，闭合为 `VIEW_DETAIL/VIEW_COMMISSION`，不得出现退款、发货、改状态或读取履约 PII 动作。订单详情使用脱敏 `AgentOrderResponse`，必须补齐 `close_reason`、`completion_reason`、`payment_resolution`、创建/支付时间、售后摘要和 `timeline`；时间线只含 PAYMENT/REFUND/FULFILLMENT/AFTERSALE 轴的闭合事件码、状态变化和时间，不含总部备注、原因正文、操作者或客户联系方式。佣金列表逐行返回 `AgentCommissionLedgerItem`，使 `REFUND_DEBIT` 与原正向流水并列并关联稳定 `refund_id`。佣金详情使用 `AgentCommissionDetailResponse`：逐 SKU 返回商品、分类、支付时规则版本、规则来源、命中路径、比例、基数、原佣金、剩余预计、累计冲正、`HALF_UP/2` 舍入事实和带 `refund_id` 的流水。这些投影都不复用消费者商品或总部订单 DTO。代理商品接口返回当前预计佣金，订单佣金接口只读支付时快照。代理请求中即使包含其他 `agent_id` 也必须忽略或拒绝。
+
+临时密码登录响应为互斥联合：正常账户返回 access/refresh session；`must_change_password=true` 时只返回 `{access_token,next_action:"CHANGE_PASSWORD",allowed_actions:["CHANGE_TEMPORARY_PASSWORD","LOGOUT"],expires_at}`，不返回 refresh token，服务端只允许两个列出的动作。改密成功事务撤销该受限 session、清除 `must_change_password` 并签发新的正常 access/refresh；受限 token 调业务接口或普通 refresh 均返回 `PASSWORD_CHANGE_REQUIRED`。
+
+所有签发 access/refresh、临时改密受限 token、管理员 pre-auth/reauth grant 的成功响应，以及新建代理的临时密码与初始邀请码、重置密码临时值，都必须返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；一次性值不写入幂等响应体、日志、审计前后值或追踪系统。
 
 创建推广素材时保存目标与授权事实。商品被移出白名单后禁止创建新素材，并使既有商品素材失去新归因资格；商城主页素材仍按代理和邀请码状态判断。
 
@@ -430,74 +521,190 @@ type DisplayStatus =
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `POST` | `/auth/login` | 超级管理员登录 |
-| `POST` | `/auth/reauth` | 当前密码 + 一次性验证码，签发 60 秒敏感操作授权 |
-| `GET` | `/dashboard` | 经营指标与待办 |
-| `GET` | `/reports/daily-sales` | 日销售报表 |
-| `GET` | `/reports/monthly-sales` | 月销售报表 |
-| `GET` | `/reports/product-ranking` | 商品净销量排行 |
-| `GET` | `/reports/customer-ranking` | 客户净消费排行 |
-| `GET/PATCH` | `/settings/business-rules` | 最低提现、售后申请天数、法定记录保留配置 |
-| `GET` | `/audit-logs` | 关键业务和安全审计 |
+| `POST` | `/admin/auth/login` | 校验密码后仅返回 pre-auth + LOGIN challenge；MFA 通过前不签发 session |
+| `POST` | `/admin/auth/refresh` | 轮换 refresh token |
+| `POST` | `/admin/auth/logout` | 注销当前后台会话 |
+| `POST` | `/admin/auth/logout-all` | 注销当前管理员全部会话 |
+| `GET` | `/admin/auth/current` | 当前管理员、会话、RBAC 和 MFA 状态 |
+| `POST` | `/admin/auth/change-password` | 使用当前密码修改并撤销其他会话 |
+| `POST` | `/admin/auth/mfa/totp/enroll` | 创建 5 分钟 PENDING TOTP 因子和 enroll challenge |
+| `POST` | `/admin/auth/mfa/totp/enroll/verify` | 验证首个 TOTP 后激活，恢复码仅本次返回 |
+| `POST` | `/admin/auth/mfa/challenges` | 为 login/reauth 创建短时挑战 |
+| `POST` | `/admin/auth/mfa/challenges/{challenge_id}/verify` | 使用 TOTP 验证挑战；LOGIN 成功才签发 access/refresh session |
+| `POST` | `/admin/auth/mfa/recovery` | 消费单次恢复码完成 LOGIN challenge 并签发 session |
+| `POST` | `/admin/auth/mfa/recovery-codes/rotate` | TOTP 验证后轮换全部恢复码 |
+| `POST` | `/admin/auth/reauth` | 为 HR-13 提交本人 TOTP，签发绑定当前会话与提现单的 60 秒单次 grant |
+| `POST` | `/admin/admin-accounts/{account_id}/security-reset-preview` | HR-15 预览已登录管理员密码/TOTP 重置及会话撤销 |
+| `POST` | `/admin/admin-accounts/{account_id}/security-resets` | HR-15 使用当前 TOTP 或恢复码确认重置；全丢失不开放 HTTP 接口 |
+| `GET` | `/admin/dashboard` | 经营指标与待办 |
+| `GET` | `/admin/reports/daily-sales` | 日销售报表 |
+| `GET` | `/admin/reports/monthly-sales` | 月销售报表 |
+| `GET` | `/admin/reports/product-ranking` | 商品净销量排行 |
+| `GET` | `/admin/reports/customer-ranking` | 客户净消费排行 |
+| `GET` | `/admin/settings/business-rules` | 最低提现、售后申请天数，以及固定支付超时/外部合规保留期的只读快照 |
+| `POST` | `/admin/settings/business-rules/preview` | 仅预览最低提现或售后申请天数变更及受影响流程 |
+| `PATCH` | `/admin/settings/business-rules` | 仅确认发布最低提现或售后申请天数的新版本 |
+| `GET` | `/admin/settings/return-address` | 当前总部退货地址版本，敏感字段掩码 |
+| `POST` | `/admin/settings/return-address/preview` | HR-14 预览新地址生效边界，历史售后快照不变 |
+| `PATCH` | `/admin/settings/return-address` | HR-14 确认发布新的退货地址版本 |
+| `GET` | `/admin/audit-logs` | 关键业务和安全审计，支持 `target_type/target_id` 精确定位对象 |
 
-二次验证连续失败 5 次后锁定 15 分钟。短时授权必须绑定管理员、会话、操作类型和目标提现单，不得作为普通登录令牌使用。
+后台密码登录只返回 `{pre_auth_token,mfa_required:true,assurance:"PASSWORD_ONLY",next_action,challenge_id,expires_at}`。已有 ACTIVE TOTP 时 `next_action=VERIFY_TOTP` 并带 LOGIN challenge；首次 bootstrap 或重置后无 ACTIVE TOTP 时 `next_action=ENROLL_TOTP`、`challenge_id=null`，该 pre-auth 只允许 ADM-16 enroll/verify。enroll verify 或 LOGIN verify/recovery 成功后才返回严格 `AdminAuthSessionData`：除 access/refresh、account/session 和过期时间外，固定 `role=SUPER_ADMIN`、`mfa_required=false`、`assurance=MFA`、`restriction=NONE`；普通 `AuthSessionData` 不得作为后台成功回退。后台 refresh、LOGIN TOTP verify、recovery 均使用专用后台响应，`/admin/auth/current` 使用固定上述保证的 `AdminAccountCurrentResponse`。pre-auth 不能访问其他后台资源；refresh 只通过请求体 refresh token 哈希认证、轮换与重放检测，不要求可能已过期的 access bearer。所有签发 pre-auth、access、refresh 或恢复码的响应均须 `no-store, private`。
+
+MFA 固定采用 RFC 6238 TOTP。密钥信封加密，恢复码只存哈希且单次消费，已接受时间步不得重放；失败计数由 PostgreSQL `(account_id,purpose)` 守卫跨 challenge 累计，challenge 创建与验证均检查，连续失败 5 次锁 15 分钟，新建 challenge 不得绕过。HR-13 reauth 只接受当前管理员本人 TOTP，不要求当前密码或恢复码；grant 强外键绑定当前 `auth_session`、`PAYOUT_ACCOUNT_REVEAL` 和目标提现单，离页、logout、会话撤销、60 秒过期或成功消费后立即失效，不得作为普通登录令牌。
+
+TOTP enroll 中的 `otpauth_uri`、enroll verify/恢复码轮换中的一次性 recovery codes 均必须返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`，且不进入服务端响应缓存、幂等响应体或观测链路。
+
+业务规则写请求 `changes` 只允许 `minimum_withdrawal_amount` 与 `aftersale_window_days`。MVP 订单支付超时固定为 30 分钟，响应中的 `order_payment_timeout_minutes=30` 为只读常量；`legal_record_retention_years` 是外部合规审批配置的只读快照。普通管理员不得通过该接口修改两者，提交相应字段返回 `VALIDATION_ERROR`。
+
+HR-15 预览只提交 `reason/reset_password/reset_totp`，不得提交 TOTP、恢复码或其他 credential；确认请求才在相同业务字段和预览确认字段之外携带 `credential_type=TOTP|RECOVERY_CODE` 与 `credential`，并原子验证/消费。凭据不进入 preview request hash、影响摘要、幂等响应体或日志。密码和 TOTP 均丢失时不开放 HTTP 接口：首个管理员 bootstrap CLI 仅创建密码主体，不预生成或预验证 TOTP；首次登录使用 enrollment-required pre-auth 现场绑定。双人审批恢复由受控 CLI 执行，至少两名不同且非目标的在职 SUPER_ADMIN 批准，执行记录凭据指纹、撤销目标全部会话并写审计。
+
+总部看板使用 `AdminDashboardResponse`，明确返回全店 `today/month/total` 金额与订单、`customer_total_snapshot/new_registration_count/new_binding_count/active_agent_count`、待办和商品排行，并携带 `timezone/as_of`；它与代理 `AgentDashboardResponse` 互不复用。四类报表统一接受 `timezone`（首期仅 `Asia/Shanghai`）、`date_from/date_to` 和 `scope`；`scope=AGENT` 时 `agent_id` 必填，月报另接受 `month_from/month_to`，排行接受 `page/page_size`。四类响应不共用通配行：
+
+```json
+{
+  "timezone": "Asia/Shanghai",
+  "as_of": "2026-08-11T05:00:00Z",
+  "data_freshness": "REBUILT",
+  "rows": [
+    {
+      "business_date": "2026-08-11",
+      "created_order_count": 18,
+      "paid_order_count": 15,
+      "paid_amount": "1280.00",
+      "refunded_amount": "1600.00",
+      "net_sales_amount": "-320.00",
+      "paid_units": 22,
+      "refunded_units": 28,
+      "net_units": -6,
+      "new_registration_count": 3,
+      "new_binding_count": 2,
+      "active_agent_count": 8,
+      "customer_total_snapshot": 421
+    }
+  ]
+}
+```
+
+`DailySalesRow` 使用 `business_date`，`MonthlySalesRow` 使用 `business_month`，两者包含 created/paid/refunded/net、注册/绑定/活跃代理/客户总量快照；`ProductRankingRow` 包含 product/SKU 标识、名称、paid/refunded/net units 与金额；`CustomerRankingRow` 包含不可用于反推手机号的客户标识/掩码、paid/refunded/net amount 与订单数。`GLOBAL` 的注册和客户总量只统计一次，不复制到代理范围；`DIRECT/AGENT` 的新增绑定按归属统计。created 按创建日、paid 按支付成功日、refunded 按退款成功日。`paid_*`、`refunded_*`、注册和绑定是可加指标；月报或任意区间的 `active_agent_count` 必须从区间事实按代理 ID 去重重算，`customer_total_snapshot` 取区间结束时最新快照，两者禁止对日报求和。`net_sales_amount = paid_amount - refunded_amount`、`net_units = paid_units - refunded_units`，所以退款集中日允许为负。排行按净值 DESC、资源 ID ASC 稳定排序；所有报表携带分页元数据或明确 `page_size` 上限。
 
 ### 6.2 商品、内容和库存
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET/POST` | `/brands` | 品牌列表、新建品牌 |
-| `GET/PATCH/DELETE` | `/brands/{brand_id}` | 修改、归档品牌 |
-| `GET/POST` | `/categories` | 一级分类列表、新建分类 |
-| `GET/PATCH/DELETE` | `/categories/{category_id}` | 修改、启停、归档分类 |
-| `GET/POST` | `/products` | 商品列表、新建商品 |
-| `GET/PATCH/DELETE` | `/products/{product_id}` | 商品详情、修改、归档 |
-| `POST` | `/products/{product_id}/skus` | 新建 SKU |
-| `PATCH/DELETE` | `/skus/{sku_id}` | 修改或归档 SKU |
-| `GET/POST` | `/banners` | Banner 列表、新建 |
-| `PATCH/DELETE` | `/banners/{banner_id}` | 修改、启停、归档 |
-| `GET` | `/inventory` | 实物、锁定、可售和预占明细 |
-| `POST` | `/inventory/{sku_id}/adjustments` | 填写原因后调整实物库存 |
-| `GET` | `/inventory/{sku_id}/ledger` | SKU 库存流水 |
+| `GET/POST` | `/admin/brands` | 品牌列表、新建品牌 |
+| `GET/PATCH` | `/admin/brands/{brand_id}` | 详情与非生命周期资料修改 |
+| `POST` | `/admin/brands/{brand_id}/lifecycle-preview` | HR-06 预览停用或软删除的在售引用影响 |
+| `POST` | `/admin/brands/{brand_id}/lifecycle-changes` | HR-06 确认停用或软删除 |
+| `POST` | `/admin/brands/{brand_id}/restore` | 原因 + If-Match 恢复原记录 |
+| `GET/POST` | `/admin/categories` | 一级分类列表、新建分类 |
+| `GET/PATCH` | `/admin/categories/{category_id}` | 详情与非生命周期资料修改 |
+| `POST` | `/admin/categories/{category_id}/lifecycle-preview` | HR-06 预览停用或软删除的商品引用影响 |
+| `POST` | `/admin/categories/{category_id}/lifecycle-changes` | HR-06 确认停用或软删除 |
+| `POST` | `/admin/categories/{category_id}/restore` | 校验在售依赖后恢复原记录 |
+| `GET/POST` | `/admin/products` | 商品列表、新建商品 |
+| `GET/PATCH` | `/admin/products/{product_id}` | 商品详情与非生命周期资料修改 |
+| `POST` | `/admin/products/{product_id}/lifecycle-preview` | HR-06 预览停用或软删除的预占/历史影响 |
+| `POST` | `/admin/products/{product_id}/lifecycle-changes` | HR-06 确认停用或软删除 |
+| `POST` | `/admin/products/{product_id}/restore` | 恢复原 SPU，不创建重复业务键 |
+| `POST` | `/admin/products/{product_id}/skus` | 新建 SKU |
+| `PATCH` | `/admin/skus/{sku_id}` | 修改非生命周期字段 |
+| `POST` | `/admin/skus/{sku_id}/lifecycle-preview` | HR-06 预览停用或软删除的预占/历史影响 |
+| `POST` | `/admin/skus/{sku_id}/lifecycle-changes` | HR-06 确认停用或软删除 |
+| `POST` | `/admin/skus/{sku_id}/restore` | 恢复原 SKU，历史 code 永不复用 |
+| `GET/POST` | `/admin/banners` | Banner 列表、新建 |
+| `PATCH/DELETE` | `/admin/banners/{banner_id}` | 修改、启停、归档 |
+| `POST` | `/admin/banners/{banner_id}/restore` | 恢复原 Banner |
+| `GET` | `/admin/inventory` | 实物、锁定、可售和预占明细 |
+| `POST` | `/admin/inventory/{sku_id}/adjustment-preview` | 预览库存调整和负库存风险 |
+| `POST` | `/admin/inventory/{sku_id}/adjustments` | 填写原因后调整实物库存 |
+| `GET` | `/admin/inventory/{sku_id}/ledger` | SKU 库存流水 |
 
-品牌、分类、商品和 SKU 使用软删除。存在在售商品时分类不得停用或归档，返回 `CATEGORY_HAS_ACTIVE_PRODUCTS`；必须先迁移或下架商品。已产生订单或库存流水的 SKU 编码不可修改、不可复用。
+品牌、分类、商品、SKU 和 Banner 使用软删除。HR-06 四类商品生命周期动作必须提交 `action=DEACTIVATE|SOFT_DELETE + reason`，经过影响预览/二次确认后写入；名称/业务 code 在软删除后仍全局保留，只能恢复原记录，再次创建返回 `SOFT_DELETED_KEY_RESERVED`。恢复要求原因、`If-Match`、依赖校验和审计，冲突返回 409，不自动改名。存在在售商品时分类/品牌不得停用或归档；商品/SKU 存在活动预占时不得软删除。已产生订单或库存流水的 SKU 编码不可修改、不可复用。
+
+商品写契约与存储字段一致：Product create 接收 `spu_code/name/brand_id/category_id/subtitle/introduction/ingredients/usage_method/is_hot/is_new/initial_status/images`，update 接收上述可变字段与完整 `images`，不接收任何价格；SKU create/update 接收 `code/name/spec_json/retail_price/is_recommended/status` 中适用字段，`spec_json` 必须是闭合键值对象，当前唯一成交价为 `retail_price`，全局不存在 `member_price` 或代理价。`GET /admin/products` 使用 `AdminProductListResponse`：每个 SPU 同时返回 SKU 数、活动 SKU 数、实物/锁定/可售库存合计，以及每个 SKU 的同口径库存摘要；三个库存值必须来自同一快照，`available=physical-locked`。Product 详情响应返回按 `sort_order,id` 排序的活动图集和全部可见 SKU。
+
+`images[{file_id,sort_order}]` 是活动图集原子替换而非增量追加：服务端校验文件 `READY`、用途和操作者归属，排序与文件不重复；被移除关系软删除。`initial_status=ACTIVE` 或生命周期启用时至少一张活动图，最小 sort_order 为主图，否则返回 `PRODUCT_PRIMARY_IMAGE_REQUIRED`。品牌 `logo_file_id/description`、分类 `icon_file_id` 与 Banner 的 `file_id/target_type/target_id/target_url` 都有对应持久字段；Banner target 使用闭合互斥联合 `NONE/PRODUCT/CATEGORY/URL`，PRODUCT/CATEGORY 只允许一个有效 `target_id`，URL 只允许 HTTPS `target_url` 且须通过域名/内部路由白名单，不能携带多余目标字段；`ends_at` 必须晚于 `starts_at`。所有素材写入都要求 READY 且 purpose 匹配，幂等重放不得生成重复关系。
 
 ### 6.3 订单、发货、售后和退款
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET` | `/orders` | 按订单号、状态、客户、代理、日期、金额筛选 |
-| `GET` | `/orders/{order_id}` | 动态返回选中订单全部快照和时间线 |
-| `POST` | `/orders/{order_id}/shipments` | 只对未取消且未被售后占用的数量创建包裹项 |
-| `POST` | `/orders/{order_id}/complete` | 填写原因后总部兜底完成 |
-| `GET` | `/aftersales` | 售后列表 |
-| `GET` | `/aftersales/{aftersale_id}` | 售后、占用、退款与佣金影响详情 |
-| `POST` | `/aftersales/{aftersale_id}/approve` | 审核同意 |
-| `POST` | `/aftersales/{aftersale_id}/reject` | 拒绝原因必填并释放占用 |
-| `POST` | `/aftersales/{aftersale_id}/confirm-return-receipt` | 确认收到退货 |
-| `POST` | `/aftersales/{aftersale_id}/refund-preview` | 返回退款影响、资源版本、短时 `preview_token` 和 `confirmation_hash` |
-| `POST` | `/aftersales/{aftersale_id}/refunds` | 使用预览确认创建退款和首次退款尝试；商户退款号在退款生命周期内稳定 |
-| `POST` | `/refunds/{refund_id}/retry-preview` | 预览失败退款重试并签发新的短时确认 token |
-| `POST` | `/refunds/{refund_id}/retry` | `REFUND_FAILED` 重试；必须使用不同于历次尝试的新 `Idempotency-Key` |
+| `GET` | `/admin/orders` | 按订单号、状态、客户、代理、日期、金额筛选 |
+| `GET` | `/admin/orders/{order_id}` | 动态返回选中订单全部快照和时间线 |
+| `GET` | `/admin/orders/{order_id}/fulfillment-address` | 受控读取订单冻结完整履约地址；仅 SUPER_ADMIN + `ORDER_FULFILLMENT_PII_READ` |
+| `POST` | `/admin/orders/{order_id}/shipments` | 幂等原子创建并置 SHIPPED，覆盖全部剩余可发数量的单一包裹 |
+| `POST` | `/admin/shipments/{shipment_id}/events` | 幂等追加物流节点或带原因的承运商/运单更正事实 |
+| `POST` | `/admin/orders/{order_id}/complete` | 总部兜底以 ADMIN_FORCED 完成；版本、幂等和审计必需，不使用高风险预览 |
+| `GET` | `/admin/aftersales` | 售后列表 |
+| `GET` | `/admin/aftersales/{aftersale_id}` | 售后、占用、退款与佣金影响详情 |
+| `POST` | `/admin/aftersales/{aftersale_id}/approve` | 同意售后；退货退款由服务端锁唯一当前 PUBLISHED 地址并冻结快照，客户端不可选版本 |
+| `POST` | `/admin/aftersales/{aftersale_id}/reject-preview` | 预览拒绝及释放占用影响 |
+| `POST` | `/admin/aftersales/{aftersale_id}/reject` | HR-08 确认初审拒绝，原因必填 |
+| `POST` | `/admin/aftersales/{aftersale_id}/return-inspections` | 写实收、批准退款数量、PASS/ABNORMAL、逐项处置与 evidence_file_ids；异常进入 RETURN_EXCEPTION |
+| `POST` | `/admin/aftersales/{aftersale_id}/return-resolution/continue-refund` | 携带 `If-Match` 与 `{resolution:"CONTINUE_REFUND",reason}`，按已冻结的逐项批准退款数量继续 |
+| `POST` | `/admin/aftersales/{aftersale_id}/return-resolution/reject-preview` | HR-08 使用闭合 preview DTO，仅接受 `{resolution:"REJECT_AFTER_RETURN",reason}` |
+| `POST` | `/admin/aftersales/{aftersale_id}/return-resolution/reject` | HR-08 使用闭合 confirm DTO，另必填 `preview_token/confirmation_hash`；沿用封存证据 |
+| `POST` | `/admin/aftersales/{aftersale_id}/refund-preview` | 返回退款影响、资源版本、短时 `preview_token` 和 `confirmation_hash` |
+| `POST` | `/admin/aftersales/{aftersale_id}/refunds` | 使用预览确认创建退款和首次退款尝试；商户退款号在退款生命周期内稳定 |
+| `POST` | `/admin/refunds/{refund_id}/retry-preview` | 预览失败退款重试并签发新的短时确认 token |
+| `POST` | `/admin/refunds/{refund_id}/retry` | `REFUND_FAILED` 重试；必须使用不同于历次尝试的新 `Idempotency-Key` |
+| `GET` | `/admin/payment-intents/reconciliation-tasks` | 查询 CREATING/OPEN/CLOSE_PENDING 对账待办及 last_error_code |
+| `POST` | `/admin/payment-intents/{payment_intent_id}/reconcile` | 幂等触发按 intent_no 查询恢复，不直接篡改状态 |
+| `POST` | `/admin/orders/{order_id}/manual-compensations/preview` | HR-09 预览独立金额补偿的金额额度和佣金影响 |
+| `POST` | `/admin/orders/{order_id}/manual-compensations` | HR-09 确认 AMOUNT_COMPENSATION；只占金额、不占数量、不回库 |
 
-退款请求必须逐订单项携带可核验数量和正金额，并使用 `preview_token`、`confirmation_hash`、`If-Match` 和幂等键。服务端使用原支付/佣金快照计算库存和佣金影响。首次提交创建一条 `refund` 和第 1 条 `refund_attempt`；失败重试只追加新尝试，复用原 `refund_id`、稳定 `refund_no` 与订单项明细，不得生成新的商户退款号。未发货退款成功自动写入 `REFUND_RESTOCK` 库存流水；部分退款只发剩余数量；未发货全额退款将订单关闭并禁止发货。已发货退货不自动回库，验货后通过库存调整接口处理。
+总部订单列表使用 `AdminOrderListItem`，只返回客户 alias、掩码联系电话和代理归因摘要；普通订单详情使用端点专用 `AdminOrderDetailResponse`，包含完整状态快照、可执行动作、四条主轴时间线、物流包裹、关联售后、支付/退款尝试、安全错误、库存与佣金影响，但冻结收件人、手机号和门牌地址仍只返回掩码。完整履约地址只能调用 `/fulfillment-address`：必须具备 `SUPER_ADMIN` 与 `ORDER_FULFILLMENT_PII_READ`，订单处于仍需发货/运输纠错的允许状态，并提交 `X-Access-Purpose: ORDER_FULFILLMENT` 与必填 `X-Access-Reason`；成功、失败、拒绝每次均审计，响应 `no-store, private`，禁止进入日志、截图和导出。
 
-创建发货单时锁定订单及可发订单项，并由条件唯一索引保证同一订单最多一条非 `CANCELLED` 包裹。已有活动包裹时返回 `STATE_CONFLICT`；包裹取消后保留历史记录，允许重新创建一条替代包裹，仍不构成多包裹同时履约。
+总部售后列表使用 `AdminAftersaleListItem`；详情使用端点专用 `AdminAftersaleDetailResponse`，返回订单与脱敏客户、占用、退货物流、验货、稳定退款尝试、可执行动作、时间线、安全错误以及库存/佣金影响。所有后台验货投影都必须返回只读 `inspected_by={account_id,display_name}`；消费者 `StoreAftersaleDetailResponse` 不得出现验货操作者。摘要写操作可继续返回 `AdminAftersaleResponse`，不得用摘要 DTO 冒充详情。
+
+每笔退款显式返回 `origin_type=AFTERSALE|LATE_PAYMENT|MANUAL_COMPENSATION`，且只绑定对应一种来源。商品退款请求逐售后项只携带 `aftersale_item_id + quantity`，金额由服务端按冻结分配计算，并使用 `preview_token`、`confirmation_hash`、`If-Match` 和幂等键。同一售后只有一条稳定 refund 生命周期：首次提交创建一条 `refund` 和第 1 条 `refund_attempt`；`PENDING/PROCESSING/FAILED` 时重复提交不得创建第二条退款，失败重试只追加新尝试，复用原 `refund_id`、稳定 `refund_no` 与订单项明细。未发货退款成功自动写 `REFUND_RESTOCK`；未发货全额退款关闭订单。已发货退货先写退货地址快照，再由总部一次提交精确覆盖本售后全部售后项的 `items`，每个 `order_item_id` 恰好一次，逐项包含 `received_qty/approved_refund_qty/restock_qty/damaged_qty/scrap_qty/return_to_customer_qty`。必须满足 `approved_refund_qty + return_to_customer_qty = received_qty` 且 `approved_refund_qty = restock_qty + damaged_qty + scrap_qty`。PASS 必须全量实收、全量批准退款且退回客户为 0；少件、0 件或其他不符必须 ABNORMAL。`evidence_file_ids` 由服务端按稳定规则排序、去重并形成 canonical 封存集合；验货结论、处理人、异常原因、验货时间、逐项处置和证据集合提交后不可追加、删除、换序、替换或改写。详情只返回封存后的 `evidence_file_ids`，不暴露内部 manifest/hash。异常解决只允许一次带 `If-Match` 的推进；资源版本变化返回 `RESOURCE_VERSION_CONFLICT`，客户端必须刷新详情，不得在旧验货结论上继续。继续退款请求必须固定 `resolution=CONTINUE_REFUND` 并提交非空 `reason`。验货后拒绝的 preview 使用 `RejectAfterReturnPreviewRequest`，只接受 `resolution=REJECT_AFTER_RETURN + reason`；confirm 使用 `RejectAfterReturnConfirmRequest`，在相同业务字段外仅接受必填 `preview_token/confirmation_hash`。两个 DTO 都闭合，preview 携带确认字段、confirm 缺确认字段，或任一请求携带 `evidence_file_ids/disposition/其他字段` 都必须校验失败；服务端沿用已封存证据。成功响应的验货投影返回同一 typed `resolution`、`resolution_reason` 与 `resolved_at`；异常继续退款只能使用验货时冻结的批准数量。未实收及退回客户数量在继续退款或验货后拒绝的终态事务释放占用。后续商品退款 quantity 不得超过该批准数量减已成功退款数量；发货后全额退款以 `COMPLETED/FULL_REFUND_AFTER_SHIPMENT` 收口。
+
+同意退货退款的请求只允许可选 `note`，不得接收 `return_address_version_id`。事务内服务端锁唯一当前 PUBLISHED `return_address_version`，复制地址密文并保存 `source_version_id`；未配置返回 `RETURN_ADDRESS_NOT_CONFIGURED`，不能退回旧版/DRAFT。响应只返回地址掩码、来源版本号和快照 ID。
+
+金额补偿预览/确认只接收以下业务字段，确认请求再附统一的 `preview_token` 与 `confirmation_hash`，不接收 `reauth_grant`：
+
+```json
+{
+  "order_item_id": "oi_01J5...",
+  "amount": "20.00",
+  "reason": "服务体验补偿"
+}
+```
+
+服务端校验 `amount <= line_paid_amount - refunded_amount - aftersale_reserved_amount` 并只增加金额占用；成功退款才增加订单项/订单成功退款金额，并依原订单项佣金快照追加预计佣金减少/取消或 `REFUND_DEBIT`。失败保留金额占用，复用稳定退款号重试。
+
+分次退款的佣金冲正逐订单项计算：`candidate=HALF_UP(refund_amount*effective_rate/100,2)`；若该订单项累计成功退款金额达到 `commission_base`，尾笔 `reversal=original_commission-reversed_total`，否则 `reversal=min(candidate,original_commission-reversed_total)`。事务锁 commission position，原子更新 `reversed_total/expected_remaining` 并追加唯一幂等流水，累计永不超过原佣金且全退时清零尾差。
+
+创建发货请求必须包含 `carrier_code`、`carrier_name`、`tracking_no` 和全部剩余可发 `items[{order_item_id,quantity}]`。服务端锁定整单及全部订单项；任一活动售后即返回 `ACTIVE_AFTERSALE_BLOCKS_SHIPMENT`，不得仅发其他行。确认事务原子写入非空承运商/运单、`shipped_at`、items 并直接置 `SHIPPED`，不存在持久化 CREATED 空壳。`shipment.order_id` 普通唯一保证一个订单整个生命周期最多一个包裹；确认弹窗取消不落记录，创建后不提供取消/替换，纠错只追加带原因的物流更正与审计。物流事件包含客户端稳定 `event_key`、描述、地点和发生时间；`STATUS` 必须且只能携带 `status_code`，`TRACKING_CORRECTION` 必须携带完整新 `carrier_code/carrier_name/tracking_no` 与必填原因，两类 DTO 互斥。`(shipment_id,event_key)` 保证重放只产生一个事实。
 
 ### 6.4 客户、代理和邀请码
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET` | `/customers` | 客户、账户手机号掩码、消费和当前归属 |
-| `GET` | `/customers/{customer_id}` | 客户资料、订单和绑定历史 |
-| `POST` | `/customers/{customer_id}/attribution-transfers` | 原因、影响预览和二次确认后转移或转直营 |
-| `GET/POST` | `/agents` | 代理列表、新建代理和临时密码 |
-| `GET/PATCH` | `/agents/{agent_id}` | 代理详情与资料修改 |
-| `POST` | `/agents/{agent_id}/status-changes` | 启停代理，原因与影响摘要必填 |
-| `POST` | `/agents/{agent_id}/password-resets` | 重置为临时密码并失效会话 |
-| `GET/PATCH` | `/agents/{agent_id}/product-authorization` | 全部在售或自定义白名单 |
-| `POST` | `/agents/{agent_id}/invite-code/rotate` | 轮换邀请码，旧码立即失效 |
-| `PATCH` | `/agents/{agent_id}/invite-code` | 独立启停或设置有效期 |
+| `GET` | `/admin/customers` | 客户、账户手机号掩码、消费和当前归属 |
+| `GET` | `/admin/customers/{customer_id}` | 客户资料、订单和绑定历史 |
+| `POST` | `/admin/customers/{customer_id}/attribution-transfer-preview` | 预览转移/转直营的绑定、候选和订单影响 |
+| `POST` | `/admin/customers/{customer_id}/attribution-transfers` | 使用预览确认完成转移或转直营 |
+| `GET/POST` | `/admin/agents` | 代理列表；新建时一次返回临时密码与初始邀请码 |
+| `GET/PATCH` | `/admin/agents/{agent_id}` | 代理详情（经营/钱包/提现摘要与邀请码状态）与资料修改 |
+| `GET` | `/admin/agents/{agent_id}/commissions` | 只读分页查看不可变佣金快照及 `REFUND_DEBIT` 追加历史 |
+| `GET` | `/admin/agents/{agent_id}/wallet-ledger` | 只读分页查看预计/可用/冻结余额逐笔流水 |
+| `POST` | `/admin/agents/{agent_id}/status-change-preview` | HR-01 预览停用对会话、邀请码、候选和待付款订单影响 |
+| `POST` | `/admin/agents/{agent_id}/status-changes` | HR-01 确认停用代理 |
+| `POST` | `/admin/agents/{agent_id}/reactivate` | 重新启用代理；版本、幂等和审计必需，不使用高风险预览 |
+| `POST` | `/admin/agents/{agent_id}/password-reset-preview` | 预览会话撤销与临时密码影响 |
+| `POST` | `/admin/agents/{agent_id}/password-resets` | 重置为临时密码并失效会话 |
+| `GET` | `/admin/agents/{agent_id}/product-authorization` | 全部在售或自定义白名单 |
+| `PATCH` | `/admin/agents/{agent_id}/product-authorization` | 更新推广白名单；版本、幂等和审计必需，不改变已有绑定或计佣 |
+| `POST` | `/admin/agents/{agent_id}/invite-code/rotate-preview` | 预览轮换造成的旧码/候选失效 |
+| `POST` | `/admin/agents/{agent_id}/invite-code/rotate` | 轮换邀请码，旧码立即失效并一次返回新完整 code |
+| `POST` | `/admin/agents/{agent_id}/invite-code/status-preview` | 预览启停或有效期变更影响 |
+| `PATCH` | `/admin/agents/{agent_id}/invite-code` | 使用预览确认启停或设置有效期 |
+
+总部客户列表使用 `AdminCustomerListResponse/AdminCustomerView`，除脱敏资料与当前归属外返回账户状态、最近商品/购买时间/订单和管理状态标记；不得与代理客户列表 DTO 共用。客户详情使用 `AdminCustomerDetailResponse`，包含订单摘要和按时间倒序的不可变 `binding_history`，历史绑定不得被当前归属覆盖。代理列表使用 `AdminAgentListResponse`，包含登录名、账号 alias、当前有效客户数、净销售、可用余额和创建时间；代理详情使用 `AdminAgentDetailResponse`，在基础资料外返回经营、钱包、提现摘要和 `InviteCodeView`，常规详情的邀请码只能显示掩码。新建代理的 `AgentCreateResponse` 一次返回初始邀请码；轮换使用专用 `InviteCodeRotateResponse`，返回新 code/status/expires/version 与旧码立即失效摘要。两个完整邀请码响应都必须 `no-store, private`，不得进入日志、审计前后值或幂等响应缓存。
+
+管理员代理佣金历史每行同时携带支付时商品/SKU/分类/规则版本快照和追加流水，退款冲正通过 `ledger_type=REFUND_DEBIT + refund_id` 表达，禁止修改原快照。钱包历史逐笔返回 expected/available/frozen 变动及变动后余额，只读接口不得接受写入字段或通过请求中的代理 ID 扩大到路径代理之外。
 
 启停代理必须返回受影响的有效绑定数、待确认候选数和待付款候选订单数供前端二次确认。停用使新登录、新绑定和支付时新归因失效，但不修改已支付佣金快照。
 
@@ -505,13 +712,13 @@ type DisplayStatus =
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET` | `/commission-rules/current` | 当前平台默认、分类和 SKU 有效结果 |
-| `GET` | `/commission-rules/skus` | 查询全部 SKU，包括继承与 0% 状态 |
-| `POST` | `/commission-rule-versions/preview` | 预览受影响 SKU 和新有效比例，返回确认哈希和短时 token |
-| `POST` | `/commission-rule-versions` | 携带 `If-Match`、预览 token 和确认哈希保存不可变规则集版本 |
-| `GET` | `/commission-rule-versions` | 版本历史 |
-| `GET` | `/commission-rule-versions/{version_id}` | 版本差异和审计 |
-| `GET` | `/orders/{order_id}/commission-explanation` | 解释支付时逐订单项命中路径 |
+| `GET` | `/admin/commission-rules/current` | 当前平台默认、分类和 SKU 有效结果 |
+| `GET` | `/admin/commission-rules/skus` | 查询全部 SKU，包括继承与 0% 状态 |
+| `POST` | `/admin/commission-rule-versions/preview` | 预览受影响 SKU 和新有效比例，返回确认哈希和短时 token |
+| `POST` | `/admin/commission-rule-versions` | 携带 `If-Match`、预览 token 和确认哈希保存不可变规则集版本 |
+| `GET` | `/admin/commission-rule-versions` | 版本历史 |
+| `GET` | `/admin/commission-rule-versions/{version_id}` | 版本差异和审计 |
+| `GET` | `/admin/orders/{order_id}/commission-explanation` | 逐 SKU 解释支付时规则命中与退款冲正 |
 
 保存请求：
 
@@ -538,17 +745,22 @@ type DisplayStatus =
 
 平台规则变更不携带 `target_id` 且比例不得为 `null`；分类/SKU 变更必须携带 `target_id`，其比例可为 `null`。`null` 是恢复继承，`"0.0000"` 是无佣金，两者都必须走原因、预览、确认、`If-Match`、幂等和版本审计。请求不得包含代理 ID。支付时整单只读取一个已发布规则集版本。
 
+佣金解释响应使用 `OrderCommissionExplanationResponse.items[]`，每个订单项/SKU 都必须返回商品、分类、支付时规则版本、来源、命中路径、有效比例、佣金基数、原佣金、剩余预计、累计冲正、`HALF_UP` 两位舍入事实、当前 position，以及逐笔带稳定 `refund_id` 的减少/冲正流水；禁止只返回整单汇总或用当前规则覆盖历史快照。
+
 ### 6.6 提现与受控银行卡查看
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET` | `/withdrawals` | 提现列表和状态筛选 |
-| `GET` | `/withdrawals/{withdrawal_id}` | 常规详情，仅返回银行卡掩码 |
-| `POST` | `/withdrawals/{withdrawal_id}/approve` | 仅 `PENDING` 可通过 |
-| `POST` | `/withdrawals/{withdrawal_id}/reject` | 仅 `PENDING`，拒绝原因必填并解冻 |
-| `POST` | `/withdrawals/{withdrawal_id}/payout-account-reveal` | 仅 `APPROVED`，消费短时授权并返回一次完整账号 |
-| `POST` | `/withdrawals/{withdrawal_id}/proofs` | 上传付款凭证 |
-| `POST` | `/withdrawals/{withdrawal_id}/mark-paid` | 凭证必填，幂等扣减冻结余额 |
+| `GET` | `/admin/withdrawals` | 提现列表，支持状态和 `agent_id` 筛选 |
+| `GET` | `/admin/withdrawals/{withdrawal_id}` | 常规详情，仅返回银行卡掩码 |
+| `POST` | `/admin/withdrawals/{withdrawal_id}/approve-preview` | 预览通过时余额、银行卡和风险影响 |
+| `POST` | `/admin/withdrawals/{withdrawal_id}/approve` | 仅 `PENDING`，使用预览确认通过 |
+| `POST` | `/admin/withdrawals/{withdrawal_id}/reject-preview` | 预览拒绝和解冻影响 |
+| `POST` | `/admin/withdrawals/{withdrawal_id}/reject` | 仅 `PENDING`，使用预览确认且原因必填 |
+| `POST` | `/admin/withdrawals/{withdrawal_id}/payout-account-reveal` | 仅 `APPROVED`，消费短时授权并返回一次完整账号 |
+| `POST` | `/admin/withdrawals/{withdrawal_id}/proofs` | 上传付款凭证 |
+| `POST` | `/admin/withdrawals/{withdrawal_id}/mark-paid-preview` | 预览打款、凭证和冻结余额影响 |
+| `POST` | `/admin/withdrawals/{withdrawal_id}/mark-paid` | 使用预览确认，凭证必填，幂等扣减冻结余额 |
 
 受控查看请求：
 
@@ -564,12 +776,14 @@ type DisplayStatus =
 {
   "account_holder": "安然",
   "bank_name": "招商银行",
-  "account_number": "6225888888883916",
+  "account_number": "<one-time full account number>",
   "expires_at": "2026-08-11T03:01:00Z"
 }
 ```
 
 服务端在成功返回后立即消费 grant；响应必须包含 `Cache-Control: no-store, private`、`Pragma: no-cache`，前端只可在内存中保留至 60 秒、复制或离页中的最早时间，并恢复掩码。该接口不得把完整账号或整个响应写入 `idempotency_record.response_body`、日志、审计前后值或追踪系统；只记录状态码、响应摘要哈希和安全审计事件。`PENDING`、`REJECTED`、`PAID` 状态一律返回 `PAYOUT_ACCOUNT_REVEAL_NOT_ALLOWED`。
+
+总部提现列表和常规详情使用 `AdminWithdrawalView`：明确返回申请代理、申请时可用/冻结余额前后快照，以及申请时冻结的持卡人/银行/卡号掩码与尾号；不得回读代理后来更换的银行卡。完整卡号仍只能由上述一次性 reveal 接口返回。
 
 ## 7. 文件接口
 
@@ -577,37 +791,39 @@ type DisplayStatus =
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `POST` | `/api/v1/files/upload-intents` | 获取对象存储上传参数和 `file_id` |
-| `POST` | `/api/v1/files/{file_id}/complete` | 校验类型、大小和哈希后确认上传 |
-| `GET` | `/api/v1/files/{file_id}/download-url` | 按角色和业务对象返回短时签名 URL |
+| `POST` | `/files/upload-intents` | 获取对象存储上传参数和 `file_id` |
+| `POST` | `/files/{file_id}/complete` | 校验类型、大小和哈希后确认上传 |
+| `GET` | `/files/{file_id}/download-url` | 按角色和业务对象返回短时签名 URL |
 
-售后与财务凭证默认私有；商品和 Banner 经审核后可标记为公开。文件接口不得接受任意本地路径或由客户端指定存储桶权限。
+上传意图的 `purpose` 固定为 `PRODUCT_IMAGE/BRAND_LOGO/CATEGORY_ICON/BANNER/AFTERSALE_EVIDENCE/WITHDRAWAL_PROOF/PROMOTION_QR`。上传意图、完成确认和下载分别返回 `FileUploadIntentResponse`、`FileUploadCompleteResponse`、`FileDownloadUrlResponse`，不再使用同时带上传/下载字段的通用 DTO。任何包含签名 `upload_url`、签名 `download_url` 或短时请求头的成功响应都必须带 `Cache-Control: no-store, private` 与 `Pragma: no-cache`。挂接业务实体时必须复核文件 READY、purpose 与当前创建人/资源归属；只有前四类公开素材可转 PUBLIC，售后、提现与推广 QR 始终 PRIVATE 并通过短时签名 URL 使用。文件接口不得接受任意本地路径或由客户端指定存储桶权限。
 
 ## 8. 幂等、事务与异步事件
 
 | 场景 | 一致性边界 |
 |---|---|
 | 创建订单 | 订单、订单项、归因候选记录、库存预占、幂等记录同事务；不创建支付意图、不调用 Provider |
-| 创建/复用支付意图 | 锁订单并创建或读取唯一 OPEN 本地意图；提交后以稳定商户支付号幂等调用 Provider，订单创建事务不包含 Provider 调用 |
-| 正常支付 | 支付事实、库存结转、最终归因、佣金快照、预计流水、Outbox 同事务 |
-| 超时关闭 | 存在 OPEN 意图时先关闭 Provider 意图；无意图则跳过；订单关闭、库存释放、Outbox 同事务 |
-| 售后创建 | 售后、售后项、可退额度占用同事务 |
-| 退款提交/重试 | 同一退款单复用稳定商户退款号；每次新幂等键追加独立 `refund_attempt`，重复同键只返回同一尝试 |
-| 退款成功 | 回调事实、退款尝试、可退额度结转、自动回库、订单聚合、佣金冲正、Outbox 同事务 |
-| 订单完成 | 订单完成、佣金可用入账、钱包流水、Outbox 同事务 |
+| 创建/复用支付意图 | 短事务创建/复用唯一活动意图并提交；事务外按稳定 intent_no create/query；新事务回写，异常由对账恢复 |
+| 正常支付 | 先锁候选代理/version，再锁订单/items/payment 并重读候选；支付事实、库存结转、最终归因、隐私投影与佣金快照同事务；仅非 DIRECT 且佣金大于 0 的项写预计流水/佣金 Outbox，0% 项 position=NONE |
+| 主动取消/超时关闭 | 同一服务先按 order→all items→intent claim CLOSE_PENDING；事务外 query/close(intent_no)；明确不可支付后再按 order→all items→intent→inventory finalize，未知保持占用 |
+| 售后创建 | 只接收 quantity；售后、服务端金额分配、售后项和可退额度占用同事务 |
+| 退款提交/重试 | 每个售后至多一条稳定退款主单；同一退款复用稳定商户退款号，每次新幂等键追加独立 `refund_attempt`，重复同键只返回同一尝试 |
+| 退款成功 | order→items→refund/aftersale→inventory（需要时）→commission position→wallet；回调事实、额度结转、回库、聚合和唯一幂等冲正流水同事务 |
+| 订单完成 | order→items→活动 refund/aftersale→commission position→wallet；只结转 expected_remaining，并冻结业务规则版本/售后截止、钱包流水和 Outbox 同事务 |
 | 提现提交 | 余额版本校验、冻结流水、提现申请同事务 |
 | 提现拒绝/支付 | 状态变更、解冻或扣冻结流水、审计、Outbox 同事务 |
+| 人工金额补偿 | HR-09 预览确认、订单项金额占用、补偿事实和退款主单同事务；不占数量/不回库，成功后按实际金额冲正佣金 |
 
 Provider 回调先写入回调收件箱，再由幂等处理器消费；领域事件使用事务 Outbox 发布。定时任务和消费者均必须可重入，失败进入重试队列并在超过阈值后生成后台待办。
 
 ### 8.1 高风险预览确认协议
 
-代理停用、客户转移、售后拒绝/退款、提现拒绝/付款、邀请码轮换和佣金规则修改采用统一协议：
+只有 PRD `HR-01` 至 `HR-15` 标记“预览 + 二次确认”的动作采用本协议：停用代理；轮换/停用邀请码；重置代理密码；客户转移；佣金规则；品牌/分类/商品/SKU 停用或软删除；库存调整；售后初审/验货后拒绝；退款、金额补偿和重试；提现拒绝/通过/付款；业务规则/退货地址；管理员安全重置。商品白名单、售后同意、验货记录、订单兜底完成、代理重新启用和物流更正不冒充高风险动作。OpenAPI 为每对动作提供具体请求 DTO，不允许使用无字段通配对象绕过字段校验：
 
-1. 预览接口对规范化请求体计算 `request_hash`，返回影响摘要、当前 `resource_version`、60 秒短时 `preview_token` 和 `confirmation_hash`；
+1. 预览接口对规范化请求体计算 `request_hash`，返回影响摘要、当前 `resource_version`、60 秒短时 `preview_token` 和 `confirmation_hash`；所有该类成功响应必须带 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；
 2. 确认接口必须提交完全一致的业务字段、`preview_token`、`confirmation_hash`、`If-Match` 与新的 `Idempotency-Key`；
 3. 服务端校验 token 绑定的管理员、会话、动作、目标、请求哈希和版本，成功写入时单次消费；
-4. token 过期/已消费、确认哈希不匹配或资源版本变化分别返回 `PREVIEW_EXPIRED`、`CONFIRMATION_MISMATCH`、`RESOURCE_VERSION_CONFLICT`，不得静默重新预览或继续写入。
+4. token 过期/已消费、确认哈希不匹配或资源版本变化分别返回 `PREVIEW_EXPIRED`、`CONFIRMATION_MISMATCH`、`RESOURCE_VERSION_CONFLICT`，不得静默重新预览或继续写入；
+5. 原因与额外凭证严格按矩阵：HR-09 不要求 TOTP，HR-11/12 不要求原因，HR-12 要求付款凭证，HR-13 不走业务影响预览且只接受本人 TOTP，HR-15 已登录重置接受当前 TOTP/恢复码、全丢失只走双人离线流程。
 
 ## 9. 安全与审计
 
@@ -615,20 +831,27 @@ Provider 回调先写入回调收件箱，再由幂等处理器消费；领域�
 - 代理数据接口强制注入当前代理作用域；无权对象统一返回 404 或 403，不泄露存在性。
 - 常规客户接口默认手机号掩码；代理永远只能获得尾号或 `null`，不得获得收货地址联系电话。
 - 银行卡卡号使用字段级信封加密，密钥不进入数据库和日志。
-- 审计至少记录主体、角色、对象、动作、原因、前后版本、结果、请求 ID、IP 摘要和时间；敏感值仅记录是否发生，不记录内容。
-- 所有高风险写操作要求状态校验、原因、影响预览、短时 `preview_token`、`confirmation_hash`、`If-Match` 和幂等键；敏感查看额外要求短时 reauth grant，并禁止缓存明文响应。
+- 审计至少记录主体、角色、对象、动作、原因、`before_version/after_version`、结果、结果码、请求 ID、`idempotency_key`、不可逆 `ip_hash` 和时间。`AuditLogView.before_summary/after_summary` 由数据库不可变 `before_json/after_json` 生成字段级脱敏摘要；密码、令牌、银行卡、手机号、地址等敏感字段只显示“发生变化”，不返回原值，列表和日志也不得成为履约 PII 绕行入口。
+- 所有写操作均要求权限、状态/版本、幂等和审计；原因、影响预览、TOTP 或凭证只在 HR 矩阵对应行要求，不得用不适用字段阻断。完整银行卡查看只在 APPROVED 提现上以本人 TOTP 换取一次性 grant，响应禁止缓存或记录明文。
+- access/refresh、受限改密 token、pre-auth、reauth grant、候选首次 token、`preview_token`、支付调用参数和签名上传/下载 URL 的成功响应统一返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；这些值不得进入服务端响应缓存、日志、追踪或截图。
 
 ## 10. 接口验收清单
 
 - 同一商品不同 SKU 可同时存在购物车，订单项规格、价格、库存和快照正确。
 - 关闭支付弹层后订单仍为待付款；重复创建订单使用同一幂等键返回同一订单。
-- 创建订单不产生 Provider 调用；并发首次/重试支付最多生成一笔 OPEN 意图。
+- 创建订单不产生 Provider 调用；并发首次/重试支付最多生成一笔活动意图，外部成功本地未回写可按 intent_no 恢复。
 - 超时与支付回调并发时只能产生“正常支付”或“关闭后自动退款”之一，不得负库存或重复佣金。
 - 并发售后申请的已退款金额与有效占用总和不超过订单项可退上限。
+- 客户与普通商品退款只提交数量，服务端分配金额；人工金额补偿只占金额、不改变数量或库存，成功后按实际金额和原快照冲正佣金。
 - 未发货部分退款自动回库并只发剩余数量；全额退款不可再发货。
+- 单包裹模式下任一活动售后阻断整单发货；退货地址、验货异常和逐项处置可追溯；发货后全退以 completion_reason 收口。
 - 已绑定客户购买代理白名单外 SKU 仍按统一商品规则计佣。
 - 佣金规则恢复继承、0% 和自定义比例都生成新版本；历史订单解释结果不变。
 - 退款只追加佣金减少/冲正流水，不修改原支付佣金快照。
 - 退款失败重试追加新 `refund_attempt`，使用新幂等键但复用稳定商户退款号；重复回调只结转一次。
+- 商城公开目录不出现 file ID、管理状态/版本或草稿归档记录；后台商品列表的 SPU/SKU 实物、锁定、可售库存同一快照守恒。
+- 代理客户列表只出现当前 `ACTIVE/BOUND` 客户；代理订单列表/详情只出现 `PAID` 且最终归因为当前代理的订单，不泄露客户电话或详细地址。
+- 候选查询/拒绝、文件完成确认等非首次响应不能重新返回 candidate token 或无关签名能力；所有短时能力响应均可机器校验禁止缓存头。
 - 非 `APPROVED` 提现无法请求完整银行卡号；短时授权不可跨提现单、跨会话或重复使用。
 - 所有关键回调和写操作在重复请求下只产生一次业务结果。
+- OpenAPI 中的所有文本目录 operation 可被唯一 operationId 覆盖，路径只拼接一次 `/api/v1`；三端 auth refresh/logout/current/change-password 和 TOTP/recovery 均有契约。

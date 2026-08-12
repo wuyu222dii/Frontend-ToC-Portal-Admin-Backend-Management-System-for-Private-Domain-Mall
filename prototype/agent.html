@@ -87,22 +87,22 @@
         <label class="field-label" for="username">代理账号</label>
         <div class="input-with-icon">
           <svg class="icon"><use href="#i-user"></use></svg>
-          <input id="username" name="username" value="qingyuan.agent" autocomplete="username" placeholder="请输入代理账号">
+          <input id="username" name="username" autocomplete="username" placeholder="请输入代理账号">
         </div>
         <label class="field-label" for="password">登录密码</label>
         <div class="input-with-icon">
           <svg class="icon"><use href="#i-lock"></use></svg>
-          <input id="password" name="password" type="password" value="Agent@2026" autocomplete="current-password" placeholder="请输入登录密码">
+          <input id="password" name="password" type="password" autocomplete="current-password" placeholder="请输入登录密码">
           <button class="icon-button input-action" type="button" id="togglePassword" title="显示或隐藏密码" aria-label="显示或隐藏密码"><svg class="icon"><use href="#i-eye"></use></svg></button>
         </div>
-        <div id="loginError" class="form-error" hidden>请输入代理账号和密码</div>
+        <div id="loginError" class="form-error" role="alert" hidden>账号或密码错误，请重试</div>
         <div class="first-login-note"><svg class="icon"><use href="#i-shield"></use></svg><span><strong>首次登录安全校验</strong>使用临时密码登录后，需要立即设置新密码。</span></div>
         <div class="login-options">
           <label class="check"><input type="checkbox" checked><span>记住账号</span></label>
           <button class="link-button" type="button" data-toast="请联系平台超级管理员重置密码">忘记密码</button>
         </div>
         <button class="button primary login-submit" type="submit">登录工作台</button>
-        <div class="security-note">演示账号 qingyuan.agent · 密码 Agent@2026</div>
+          <div class="security-note">原型模拟服务端校验，不提供固定密码；可输入任意合规格式。停用态占位账号：paused.agent</div>
       </form>
     </div>
   </section>
@@ -209,7 +209,7 @@
         <section class="page-view" data-view="orders">
           <div class="page-heading"><div><p class="page-kicker">交易查询</p><h2>归属订单</h2><p>查看绑定客户产生的归属订单、物流与售后进度，平台统一处理履约。</p></div></div>
           <div class="order-tabs" role="tablist"><button class="active" type="button" data-order-tab="">全部 <span>168</span></button><button type="button" data-order-tab="待发货">待发货 <span>12</span></button><button type="button" data-order-tab="运输中">运输中 <span>36</span></button><button type="button" data-order-tab="已完成">已完成 <span>112</span></button><button type="button" data-order-tab="退款售后">退款售后 <span>8</span></button></div>
-          <div class="filter-bar"><div class="filter-search"><svg class="icon"><use href="#i-search"></use></svg><input id="orderSearch" placeholder="搜索订单号、客户或商品"></div><select id="orderStatus" aria-label="订单状态"><option value="">全部状态</option><option>待发货</option><option>运输中</option><option>已完成</option><option>退款售后</option></select><button class="button secondary date-button" type="button"><svg class="icon"><use href="#i-calendar"></use></svg>2026-08-01 至 2026-08-10</button></div>
+          <div class="filter-bar"><div class="filter-search"><svg class="icon"><use href="#i-search"></use></svg><input id="orderSearch" placeholder="搜索订单号、客户或商品"></div><select id="orderStatus" aria-label="订单状态"><option value="">全部状态</option><option>待发货</option><option>运输中</option><option>已完成</option><option>退款售后</option></select><button id="orderDateFilter" class="button secondary date-button" type="button"><svg class="icon"><use href="#i-calendar"></use></svg><span>本月</span></button></div>
           <article class="panel table-panel"><div class="table-toolbar"><div><strong id="orderCount">共 8 笔归属订单</strong><span>订单归属以支付时快照为准</span></div></div><div class="table-scroll"><table><thead><tr><th>订单号</th><th>客户</th><th>商品</th><th>实付金额</th><th>状态</th><th>佣金</th><th>下单时间</th><th></th></tr></thead><tbody id="orderRows"></tbody></table></div><div id="orderCards" class="mobile-card-list"></div></article>
         </section>
 
@@ -217,7 +217,7 @@
           <div class="page-heading"><div><p class="page-kicker">结算中心</p><h2>佣金明细</h2><p>每笔归属订单的预计、可提现与退款冲减记录均独立留痕。</p></div><div class="heading-actions"><button class="button primary" type="button" data-go="wallet"><svg class="icon"><use href="#i-wallet"></use></svg>查看钱包</button></div></div>
           <div class="metric-grid compact"><article class="metric-card"><span>本月预计佣金</span><strong>¥ 6,286.20</strong><div class="metric-foot">待订单完成</div></article><article class="metric-card"><span>本月已入账</span><strong>¥ 4,820.60</strong><div class="metric-foot positive">+ 12.4% <small>较上月</small></div></article><article class="metric-card"><span>本月退款冲减</span><strong class="danger-text">- ¥ 159.20</strong><div class="metric-foot">3 笔退款</div></article><article class="metric-card"><span>累计已结算</span><strong>¥ 28,640.80</strong><div class="metric-foot">自 2026-01-18</div></article></div>
           <div class="rule-callout"><svg class="icon"><use href="#i-info"></use></svg><span>佣金按订单项 SKU 的支付时规则计算；SKU 覆盖优先于分类默认。原始预计/入账流水不修改，退款冲正与取消记录独立追加。</span></div>
-          <div class="filter-bar"><div class="filter-search"><svg class="icon"><use href="#i-search"></use></svg><input id="commissionSearch" placeholder="搜索订单号或商品"></div><select id="commissionType" aria-label="佣金类型"><option value="">全部类型</option><option value="预计">预计佣金</option><option value="入账">可提现入账</option><option value="冲减">退款冲减</option><option value="取消">预计佣金取消</option></select><button class="button secondary date-button" type="button"><svg class="icon"><use href="#i-calendar"></use></svg>本月</button></div>
+          <div class="filter-bar"><div class="filter-search"><svg class="icon"><use href="#i-search"></use></svg><input id="commissionSearch" placeholder="搜索订单号或商品"></div><select id="commissionType" aria-label="佣金类型"><option value="">全部类型</option><option value="预计">预计佣金</option><option value="入账">可提现入账</option><option value="冲减">退款冲减</option><option value="取消">预计佣金取消</option></select><button id="commissionDateFilter" class="button secondary date-button" type="button"><svg class="icon"><use href="#i-calendar"></use></svg><span>本月</span></button></div>
           <article class="panel table-panel"><div class="table-toolbar"><div><strong id="commissionCount">共 8 笔佣金记录</strong><span>每笔均保留 SKU、比例与规则来源快照</span></div></div><div class="table-scroll"><table><thead><tr><th>发生时间</th><th>类型</th><th>关联订单 / SKU</th><th>商品净实付</th><th>比例</th><th>规则来源</th><th>佣金变动</th><th>余额影响</th><th></th></tr></thead><tbody id="commissionRows"></tbody></table></div><div id="commissionCards" class="mobile-card-list"></div></article>
         </section>
 
@@ -228,8 +228,9 @@
             <div class="wallet-amount-grid"><div><span>预计佣金</span><strong>¥ 386.20</strong><small>订单完成后优先抵扣负余额</small></div><div><span>提现处理中</span><strong>¥ 0.00</strong><small>当前无处理中申请</small></div><div><span>累计已提现</span><strong>¥ 24,860.00</strong><small>共 19 笔</small></div><div><span>负余额</span><strong id="walletNegative" class="danger-text">¥ 0.00</strong><small id="walletNegativeHint">无待抵扣欠款</small></div></div>
           </section>
           <div id="negativeWalletCallout" class="negative-wallet-callout" hidden><svg class="icon"><use href="#i-alert"></use></svg><div><strong>退款冲减形成负余额 ¥328.50</strong><span>账户暂停提现；后续可入账佣金将先抵扣负余额，抵扣至 0 后恢复提现。</span></div></div>
+          <div id="activeWithdrawalCallout" class="negative-wallet-callout active-withdrawal-callout" hidden><svg class="icon"><use href="#i-clock"></use></svg><div><strong id="activeWithdrawalTitle">已有进行中提现</strong><span id="activeWithdrawalCopy">同一代理同时只能有一笔待审核或已审核未打款申请。</span></div><button id="simulateWithdrawalPaid" class="button secondary small" type="button">演示完成打款</button></div>
           <div class="wallet-layout">
-            <article class="panel bank-card-panel"><div class="panel-heading"><div><h3>收款银行卡</h3><p>提现款将线下转账至该账户</p></div><button class="button text" type="button" data-bank>管理</button></div><div class="bank-card"><span class="bank-icon"><svg class="icon"><use href="#i-bank"></use></svg></span><div><strong>招商银行 · 储蓄卡</strong><span>周清源　**** **** **** 6088</span></div><span class="tag success">已验证</span></div><p class="privacy-hint"><svg class="icon"><use href="#i-shield"></use></svg>银行卡信息加密保存，页面仅展示脱敏号码</p></article>
+            <article class="panel bank-card-panel"><div class="panel-heading"><div><h3>收款银行卡</h3><p>提现款将线下转账至该账户</p></div><button class="button text" type="button" data-bank>管理</button></div><div class="bank-card"><span class="bank-icon"><svg class="icon"><use href="#i-bank"></use></svg></span><div><strong id="walletBankName">招商银行 · 储蓄卡</strong><span id="walletBankMasked">周清源　**** **** **** 6088</span></div><span class="tag success">已验证</span></div><p class="privacy-hint"><svg class="icon"><use href="#i-shield"></use></svg>完整卡号仅随本次提交发送到模拟服务端，页面和状态只保留后四位</p></article>
             <article class="panel withdrawal-rules"><div class="panel-heading"><div><h3>提现规则</h3><p>当前账户适用规则</p></div></div><dl><div><dt>最低提现金额</dt><dd>¥ 100.00</dd></div><div><dt>提现手续费</dt><dd>¥ 0.00</dd></div><div><dt>打款方式</dt><dd>平台线下转账</dd></div><div><dt>申请限制</dt><dd>同时仅 1 笔处理中</dd></div></dl></article>
           </div>
           <article class="panel table-panel"><div class="panel-heading"><div><h3>提现记录</h3><p>审核、打款及凭证状态</p></div></div><div class="table-scroll"><table><thead><tr><th>提现单号</th><th>申请时间</th><th>提现金额</th><th>收款银行卡</th><th>状态</th><th>完成时间</th><th></th></tr></thead><tbody id="withdrawalRows"></tbody></table></div><div id="withdrawalCards" class="mobile-card-list"></div></article>
@@ -244,7 +245,7 @@
               <div class="account-quick-links"><button type="button" data-go="customers"><svg class="icon"><use href="#i-users"></use></svg><span><strong>我的客户</strong><small>查看长期绑定客户</small></span><svg class="icon"><use href="#i-chevron-right"></use></svg></button><button type="button" data-go="wallet"><svg class="icon"><use href="#i-wallet"></use></svg><span><strong>我的钱包</strong><small>余额、负余额与提现</small></span><svg class="icon"><use href="#i-chevron-right"></use></svg></button></div>
               <article class="panel setting-panel"><div class="setting-icon soft-green"><svg class="icon"><use href="#i-user"></use></svg></div><div><h3>基本资料</h3><p>姓名、门店名称、联系手机与所在城市</p><dl class="inline-details"><div><dt>姓名</dt><dd>周清源</dd></div><div><dt>门店名称</dt><dd>清源生活馆</dd></div><div><dt>联系手机</dt><dd>138 **** 6088</dd></div><div><dt>所在城市</dt><dd>浙江省杭州市</dd></div></dl></div><button class="button secondary" type="button" data-toast="资料修改申请已提交给平台审核">申请修改</button></article>
               <article class="panel setting-panel"><div class="setting-icon soft-blue"><svg class="icon"><use href="#i-lock"></use></svg></div><div><h3>登录安全</h3><p>登录密码已于 2026-06-28 更新</p></div><button class="button secondary" type="button" data-password>修改密码</button></article>
-              <article class="panel setting-panel"><div class="setting-icon soft-amber"><svg class="icon"><use href="#i-bank"></use></svg></div><div><h3>收款银行卡</h3><p>招商银行 · **** 6088 · 周清源</p></div><button class="button secondary" type="button" data-bank>管理银行卡</button></article>
+              <article class="panel setting-panel"><div class="setting-icon soft-amber"><svg class="icon"><use href="#i-bank"></use></svg></div><div><h3>收款银行卡</h3><p id="accountBankMasked">招商银行 · **** 6088 · 周清源</p></div><button class="button secondary" type="button" data-bank>管理银行卡</button></article>
               <article class="panel setting-panel"><div class="setting-icon soft-coral"><svg class="icon"><use href="#i-shield"></use></svg></div><div><h3>权限与服务</h3><p>当前为一级代理，仅可推广和查看本人归属数据</p><div class="permission-tags"><span>推广商品</span><span>查看客户</span><span>查看订单</span><span>佣金提现</span></div></div></article>
               <article class="panel setting-panel feedback-state-panel"><div class="setting-icon soft-blue"><svg class="icon"><use href="#i-info"></use></svg></div><div><h3>界面状态示例</h3><p id="agentStatePreview" class="state-preview success-state">操作成功：资料已同步，审计编号 AUD-AG-0811-26</p><div class="state-demo-actions"><button type="button" data-agent-state="loading">加载中</button><button type="button" data-agent-state="error">网络错误</button><button type="button" data-agent-state="forbidden">403</button><button type="button" data-agent-state="conflict">409</button><button type="button" data-agent-state="success">成功</button></div></div></article>
               <article class="panel danger-setting"><div><h3>退出当前账号</h3><p>退出后需要重新输入代理账号和密码。</p></div><button class="button danger-outline" type="button" id="accountLogout">退出登录</button></article>
@@ -284,7 +285,7 @@
       <button class="bank-choice" type="button" data-bank><span class="bank-icon"><svg class="icon"><use href="#i-bank"></use></svg></span><span><strong>招商银行 · 储蓄卡</strong><small>周清源　**** 6088</small></span><svg class="icon"><use href="#i-chevron-right"></use></svg></button>
       <div id="withdrawError" class="form-error" hidden>请输入 100.00 至 1,826.40 之间的金额</div>
       <label class="check agreement"><input id="withdrawAgree" type="checkbox"><span>我已核对收款账户，并确认提现信息无误</span></label>
-      <div class="modal-actions"><button class="button secondary close-overlay" type="button">取消</button><button class="button primary" type="submit">提交提现申请</button></div>
+      <div class="modal-actions"><button class="button secondary close-overlay" type="button">取消</button><button id="submitWithdrawalButton" class="button primary" type="submit">提交提现申请</button></div>
     </form>
   </section>
 
@@ -292,7 +293,7 @@
     <div class="modal-heading"><div><span class="modal-kicker">账户安全</span><h3 id="passwordTitle">修改登录密码</h3></div><button class="icon-button close-overlay password-close" type="button" title="关闭"><svg class="icon"><use href="#i-x"></use></svg></button></div>
     <div id="forcedPasswordNotice" class="security-banner" hidden><svg class="icon"><use href="#i-shield"></use></svg><div><strong>首次登录必须修改临时密码</strong><span>新密码设置成功后即可进入工作台。</span></div></div>
     <form id="passwordForm" class="modal-form" novalidate>
-      <label class="field-label" for="currentPassword">当前密码</label><input id="currentPassword" class="text-input" type="password" value="Agent@2026" placeholder="请输入当前密码">
+      <label class="field-label" for="currentPassword">当前密码</label><input id="currentPassword" class="text-input" type="password" autocomplete="current-password" placeholder="请输入当前密码">
       <label class="field-label" for="newPassword">新密码</label><input id="newPassword" class="text-input" type="password" placeholder="8-20 位，包含字母和数字">
       <label class="field-label" for="confirmPassword">确认新密码</label><input id="confirmPassword" class="text-input" type="password" placeholder="请再次输入新密码">
       <div id="passwordError" class="form-error" hidden>请输入符合要求且两次一致的新密码</div>
@@ -306,7 +307,8 @@
       <div class="privacy-banner"><svg class="icon"><use href="#i-shield"></use></svg><span>银行卡信息将加密保存，仅用于佣金提现线下转账。</span></div>
       <label class="field-label" for="accountName">账户姓名</label><input id="accountName" class="text-input" value="周清源" placeholder="需与银行卡开户名一致">
       <label class="field-label" for="bankName">开户银行</label><select id="bankName" class="text-input"><option>招商银行</option><option>中国工商银行</option><option>中国建设银行</option><option>中国农业银行</option></select>
-      <label class="field-label" for="bankNumber">银行卡号</label><input id="bankNumber" class="text-input" inputmode="numeric" value="6225 **** **** 6088" placeholder="请输入储蓄卡号">
+      <label class="field-label" for="bankNumber">银行卡号</label><input id="bankNumber" class="text-input" inputmode="numeric" autocomplete="off" placeholder="请输入 12-19 位储蓄卡号">
+      <div id="bankFormError" class="form-error" role="alert" hidden>请完整填写开户人、银行和有效卡号</div>
       <div class="modal-actions"><button class="button secondary close-overlay" type="button">取消</button><button class="button primary" type="submit">保存银行卡</button></div>
     </form>
   </section>

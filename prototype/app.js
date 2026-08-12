@@ -98,7 +98,75 @@
     }
   ];
 
-  products.forEach(product => { product.sku = product.skus[0].name; });
+  const productDetails = {
+    serum: {
+      highlightTitle: "温和修护，透亮有光",
+      highlight: "精选山茶花籽油与泛醇复配，帮助改善干燥粗糙。清透水感质地，快速吸收不黏腻。",
+      ingredients: [["山茶花籽油", "柔润修护"], ["5% 泛醇", "舒缓保湿"], ["角鲨烷", "强化屏障"]],
+      ingredientText: "水、甘油、丁二醇、泛醇、角鲨烷、山茶籽油、透明质酸钠、1,2-己二醇、精氨酸等。",
+      ingredientNote: "不添加酒精、矿物油与人工色素。敏感肌建议先在耳后进行局部测试。",
+      usageTitle: "每日两次，轻柔按压",
+      usage: "洁面并使用化妆水后，取 2-3 滴精华均匀涂抹于面部与颈部，用掌心轻压至吸收。",
+      usageNote: "白天使用时，请在护肤最后一步叠加防晒产品。"
+    },
+    shampoo: {
+      highlightTitle: "净澈头皮，发根轻盈",
+      highlight: "氨基酸表活搭配迷迭香叶提取物，温和清洁头皮油脂，减少洗后干涩与扁塌。",
+      ingredients: [["氨基酸表活", "温和清洁"], ["迷迭香叶", "清新头皮"], ["水解角蛋白", "柔顺发丝"]],
+      ingredientText: "水、椰油酰谷氨酸钠、椰油酰胺丙基甜菜碱、甘油、迷迭香叶提取物、水解角蛋白等。",
+      ingredientNote: "不添加硅油与人工色素。头皮敏感时建议降低使用频率。",
+      usageTitle: "充分起泡，重点清洁头皮",
+      usage: "湿发后取适量于掌心起泡，以指腹按摩头皮 1-2 分钟，再以清水彻底冲净。",
+      usageNote: "油性头皮可清洗两遍，第二遍减少用量。"
+    },
+    cleanser: {
+      highlightTitle: "绵密泡沫，清透不紧绷",
+      highlight: "双重氨基酸表活带走日常油脂与污垢，积雪草和甘油帮助维持洁面后的柔润感。",
+      ingredients: [["甘氨酸钾", "柔和洁净"], ["积雪草", "舒缓肌肤"], ["甘油", "保湿锁水"]],
+      ingredientText: "水、椰油酰甘氨酸钾、甘油、椰油酰胺丙基甜菜碱、积雪草提取物、泛醇等。",
+      ingredientNote: "眼周请避开直接揉搓；如不慎入眼，请立即用清水冲洗。",
+      usageTitle: "早晚洁面，充分起泡",
+      usage: "取黄豆大小于湿润掌心，加水揉搓出泡沫后轻柔按摩面部，再以清水洗净。",
+      usageNote: "卸除防水彩妆前请先使用专用卸妆产品。"
+    },
+    bodywash: {
+      highlightTitle: "清雅白茶香，柔润沐浴",
+      highlight: "细腻泡沫温和清洁身体肌肤，白茶香调清新克制，洗后肌肤柔润不拔干。",
+      ingredients: [["甜菜碱", "温和清洁"], ["白茶提取物", "清新舒缓"], ["甘油", "柔润保湿"]],
+      ingredientText: "水、月桂酰肌氨酸钠、椰油酰胺丙基甜菜碱、甘油、茶叶提取物、香精等。",
+      ingredientNote: "香味敏感人群建议先局部试用；仅供身体肌肤使用。",
+      usageTitle: "打出泡沫后轻柔清洁",
+      usage: "取适量于沐浴球或掌心，加水起泡后清洁全身，再用温水冲净。",
+      usageNote: "使用后置于阴凉干燥处，避免儿童误触。"
+    },
+    sunscreen: {
+      highlightTitle: "轻薄成膜，通勤高倍防护",
+      highlight: "清爽乳液质地易推开，成膜后不易泛白，为日常通勤提供 SPF50+ 防晒保护。",
+      ingredients: [["UVA 滤剂", "长波防护"], ["UVB 滤剂", "晒伤防护"], ["维生素 E", "抗氧保湿"]],
+      ingredientText: "水、甲氧基肉桂酸乙基己酯、双-乙基己氧苯酚甲氧苯基三嗪、甘油、生育酚等。",
+      ingredientNote: "防晒效果会受涂抹量、出汗和擦拭影响。",
+      usageTitle: "出门前足量涂抹",
+      usage: "护肤最后一步取足量均匀涂抹面部、颈部及暴露部位，出门前约 15 分钟完成。",
+      usageNote: "户外活动或大量出汗后建议每 2 小时补涂。"
+    },
+    laundry: {
+      highlightTitle: "一颗定量，去渍护色",
+      highlight: "三腔浓缩配方遇水快速溶解，兼顾日常去渍、护色与清新留香，减少手动量取。",
+      ingredients: [["非离子表活", "日常去渍"], ["植萃酶", "分解污垢"], ["护色因子", "减少串色"]],
+      ingredientText: "表面活性剂、稳定剂、酶制剂、香氛微胶囊、水溶膜等。",
+      ingredientNote: "不可食用；请置于儿童和宠物无法触及的位置，避免湿手拿取。",
+      usageTitle: "先放凝珠，再放衣物",
+      usage: "将一颗凝珠直接放入洗衣机内筒底部，再放入衣物并启动常规洗涤程序。",
+      usageNote: "大容量或重污衣物可使用两颗，不适用于手洗。"
+    }
+  };
+
+  products.forEach(product => {
+    product.status = product.id === "sunscreen" ? "INACTIVE" : "ACTIVE";
+    product.skus.forEach(sku => { sku.status = product.id === "sunscreen" ? "INACTIVE" : "ACTIVE"; });
+    product.sku = product.skus[0].name;
+    product.details = productDetails[product.id];
+  });
 
   const categories = [
     ["护肤品", "✦"],
@@ -151,7 +219,7 @@
       canvasTitle: "确认订单 · 支付前复核",
       title: "确认订单",
       description: "地址、配送、商品与金额按风险优先级排列，提交后进入模拟微信支付。",
-      interactions: ["核对地址和配送方式", "填写订单备注", "提交订单并模拟支付"]
+      interactions: ["核对地址和配送方式", "核对 SKU 与成交价", "提交订单并模拟支付"]
     },
     orders: {
       canvasTitle: "订单 · 全状态管理",
@@ -193,6 +261,10 @@
 
   const productById = id => products.find(product => product.id === id) || products[0];
   const skuById = id => products.flatMap(product => product.skus).find(sku => sku.id === id) || products[0].skus[0];
+  const publicSkusFor = product => product.skus.filter(sku => sku.status === "ACTIVE" && sku.stock > 0);
+  const isPublicProduct = product => product?.status === "ACTIVE" && publicSkusFor(product).length > 0;
+  const publicProducts = () => products.filter(isPublicProduct);
+  const publicProductById = id => products.find(product => product.id === id && isPublicProduct(product));
   const lineProduct = line => productById(line.productId);
   const lineSku = line => skuById(line.skuId);
   const clone = value => JSON.parse(JSON.stringify(value));
@@ -294,6 +366,7 @@
     history: [],
     device: 375,
     selectedCategory: "护肤品",
+    categoryBrand: "全部",
     filter: "全部",
     searchQuery: "",
     searchPerformed: false,
@@ -312,9 +385,11 @@
     inviteCandidate: null,
     agentBindingStatus: "bound",
     serviceAgent: { ...inviteAgents["QX-A1038"] },
+    cartManaging: false,
     cart: [
       { productId: "serum", skuId: "SKU-SER-30", quantity: 1, selected: true },
-      { productId: "bodywash", skuId: "SKU-BOD-480", quantity: 2, selected: true }
+      { productId: "bodywash", skuId: "SKU-BOD-480", quantity: 2, selected: true },
+      { productId: "sunscreen", skuId: "SKU-SUN-50", quantity: 1, selected: false, invalidReason: "商品已下架" }
     ],
     checkoutMode: "cart",
     buyNowLine: null,
@@ -331,6 +406,11 @@
     afterSaleOrderId: "QX202607280076",
     afterSaleItemId: "OI-003",
     afterSaleQty: 1,
+    afterSaleType: "仅退款",
+    afterSaleReason: "商品不符合预期",
+    afterSaleDescription: "",
+    afterSaleEvidenceCount: 0,
+    submittingAftersale: false,
     currentAfterSaleId: null,
     aftersales: [{ id: "AS202608030006", orderId: "QX202608030118", orderItemId: "OI-002", type: "退货退款", reason: "商品破损", quantity: 1, reservedAmount: 89, status: "REFUND_FAILED", trackingNo: "SFRET20260805", createdAt: "2026-08-05 11:20", updatedAt: "2026-08-06 14:08", failureReason: "支付渠道暂时不可用" }],
     deletionEligible: false,
@@ -406,6 +486,7 @@
   }
 
   function renderHome() {
+    const catalog = publicProducts();
     return `
       <section class="app-screen with-tabbar home-page">
         <div class="screen-scroll">
@@ -440,12 +521,12 @@
 
           <section class="section-block">
             <div class="section-heading"><div><h3>本周热销</h3><p>大家正在回购的安心好物</p></div><button data-category="护肤品">查看更多 ›</button></div>
-            <div class="product-grid">${products.slice(0, 4).map(productCard).join("")}</div>
+            <div class="product-grid">${catalog.slice(0, 4).map(productCard).join("")}</div>
           </section>
 
           <section class="section-block" style="padding-bottom:22px">
             <div class="section-heading"><div><h3>新品上架</h3><p>为日常带来一点新鲜感</p></div></div>
-            <div class="product-grid">${products.slice(4).map(productCard).join("")}</div>
+            <div class="product-grid">${catalog.slice(4).map(productCard).join("")}</div>
           </section>
         </div>
         ${tabbar("home")}
@@ -453,8 +534,12 @@
   }
 
   function renderCategory() {
-    const categoryProducts = products.filter(product => product.category === state.selectedCategory);
-    const displayProducts = categoryProducts.length ? categoryProducts : products.slice(0, 4);
+    const categoryProducts = publicProducts().filter(product => product.category === state.selectedCategory);
+    const brands = ["全部", ...new Set(categoryProducts.map(product => product.brand))];
+    let displayProducts = categoryProducts.filter(product => state.categoryBrand === "全部" || product.brand === state.categoryBrand);
+    if (state.filter === "热销") displayProducts = [...displayProducts].sort((a, b) => b.sales - a.sales);
+    if (state.filter === "新品") displayProducts = displayProducts.filter(product => product.badge.includes("新品"));
+    if (state.filter === "价格") displayProducts = [...displayProducts].sort((a, b) => a.price - b.price);
     const posterCopy = {
       "护肤品": "以温和配方回应肌肤每日所需",
       "洗发水": "从头皮开始，找回轻盈发感",
@@ -479,7 +564,8 @@
             <div class="filter-row">
               ${["全部", "热销", "新品", "价格"].map(item => `<button class="filter-chip ${state.filter === item ? "is-active" : ""}" data-filter="${item}">${item}</button>`).join("")}
             </div>
-            <div class="product-grid compact-grid">${displayProducts.map(productCard).join("")}</div>
+            ${brands.length > 1 ? `<div class="filter-row brand-filter-row">${brands.map(brand => `<button class="filter-chip ${state.categoryBrand === brand ? "is-active" : ""}" data-category-brand="${brand}">${brand}</button>`).join("")}</div>` : ""}
+            ${displayProducts.length ? `<div class="product-grid compact-grid">${displayProducts.map(productCard).join("")}</div>` : `<div class="empty-state category-empty"><i>⌕</i><strong>该分类暂无匹配商品</strong><p>商品上架后会显示在这里，可切换筛选或浏览其他分类。</p><button class="secondary-button" data-action="reset-category-filter" style="padding:0 18px">清除筛选</button></div>`}
           </div>
         </div>
         ${tabbar("category")}
@@ -488,8 +574,9 @@
 
   function searchMatches() {
     const query = state.searchQuery.trim().toLowerCase();
-    if (!query) return products;
-    return products.filter(product => [product.name, product.brand, product.category, product.subtitle].join(" ").toLowerCase().includes(query));
+    const catalog = publicProducts();
+    if (!query) return catalog;
+    return catalog.filter(product => [product.name, product.brand, product.category, product.subtitle].join(" ").toLowerCase().includes(query));
   }
 
   function renderSearch() {
@@ -532,18 +619,30 @@
     return phone ? `${phone.slice(0, 3)} **** ${phone.slice(-4)}` : "";
   }
 
+  function maskRecipient(recipient) {
+    return recipient ? `${recipient.slice(0, 1)}${"*".repeat(Math.max(1, recipient.length - 1))}` : "";
+  }
+
+  function maskAddressDetail(detail) {
+    if (!detail) return "";
+    const street = detail.trim().split(/\s+/)[0];
+    return `${street.slice(0, 4)} ****`;
+  }
+
   function currentProductSku() {
-    return state.product.skus.find(sku => sku.id === state.selectedSkuId) || state.product.skus[0];
+    const activeSkus = publicSkusFor(state.product);
+    return activeSkus.find(sku => sku.id === state.selectedSkuId) || activeSkus[0];
   }
 
   function renderProduct() {
     const product = state.product;
     const selectedSku = currentProductSku();
     const isFavorite = state.favoriteProductIds.includes(product.id);
+    const detail = product.details;
     const detailCopy = {
-      "亮点": `<h3>温和修护，透亮有光</h3><p>精选山茶花籽油与泛醇复配，帮助改善干燥粗糙。清透水感质地，快速吸收，不黏腻。</p><div class="ingredient-list"><div><strong>山茶花籽油</strong><span>柔润修护</span></div><div><strong>5% 泛醇</strong><span>舒缓保湿</span></div><div><strong>角鲨烷</strong><span>强化屏障</span></div></div>`,
-      "成分": `<h3>配方公开透明</h3><p>水、甘油、丁二醇、泛醇、角鲨烷、山茶籽油、透明质酸钠、1,2-己二醇、精氨酸等。</p><p>不添加酒精、矿物油与人工色素。敏感肌建议先在耳后进行局部测试。</p>`,
-      "使用方法": `<h3>每日两次，轻柔按压</h3><p>洁面并使用化妆水后，取 2–3 滴精华均匀涂抹于面部与颈部，用掌心轻压至吸收，再叠加乳霜。</p><p>白天使用时，请在护肤最后一步叠加防晒产品。</p>`
+      "亮点": `<h3>${detail.highlightTitle}</h3><p>${detail.highlight}</p><div class="ingredient-list">${detail.ingredients.map(([name, effect]) => `<div><strong>${name}</strong><span>${effect}</span></div>`).join("")}</div>`,
+      "成分": `<h3>配方公开透明</h3><p>${detail.ingredientText}</p><p>${detail.ingredientNote}</p>`,
+      "使用方法": `<h3>${detail.usageTitle}</h3><p>${detail.usage}</p><p>${detail.usageNote}</p>`
     };
     return `
       <section class="app-screen with-buybar product-page">
@@ -579,31 +678,32 @@
   }
 
   function cartTotal() {
-    return state.cart.filter(item => item.selected).reduce((sum, item) => sum + lineSku(item).price * item.quantity, 0);
+    return state.cart.filter(item => item.selected && !item.invalidReason).reduce((sum, item) => sum + lineSku(item).price * item.quantity, 0);
   }
 
   function renderCart() {
-    const selectedCount = state.cart.filter(item => item.selected).length;
-    const allSelected = Boolean(state.cart.length) && selectedCount === state.cart.length;
+    const validItems = state.cart.filter(item => !item.invalidReason);
+    const selectedCount = validItems.filter(item => item.selected).length;
+    const allSelected = Boolean(validItems.length) && selectedCount === validItems.length;
     return `
       <section class="app-screen with-tabbar cart-page">
         <div class="screen-scroll">
           ${statusBar()}
-          ${header("购物车", { back: false, action: '<button class="text-button" data-action="manage-cart">管理</button>' })}
+          ${header("购物车", { back: false, action: `<button class="text-button" data-action="manage-cart">${state.cartManaging ? "完成" : "管理"}</button>` })}
           ${state.cart.length ? `
             <div class="cart-list">
               <div class="cart-group-label"><span>青序自营</span><span>·</span><span>全场包邮</span></div>
               ${state.cart.map((item, index) => {
                 const product = lineProduct(item);
                 const sku = lineSku(item);
-                return `<article class="cart-card" data-cart-sku="${item.skuId}">
-                  <button class="check-control ${item.selected ? "is-checked" : ""}" data-cart-select="${index}" aria-label="选择商品">✓</button>
+                return `<article class="cart-card ${item.invalidReason ? "is-invalid" : ""}" data-cart-sku="${item.skuId}">
+                  <button class="check-control ${item.selected ? "is-checked" : ""}" data-cart-select="${index}" aria-label="选择商品" ${item.invalidReason ? "disabled" : ""}>✓</button>
                   ${imageMedia(product, "cart-thumb")}
-                  <div class="cart-info"><h3>${product.name}</h3><span class="sku-label">${sku.name}</span><div class="cart-card__footer"><span class="price"><small>¥</small>${sku.price}</span><div class="quantity-stepper"><button data-cart-qty="${index}" data-delta="-1">−</button><span>${item.quantity}</span><button data-cart-qty="${index}" data-delta="1">＋</button></div></div></div>
+                  <div class="cart-info"><h3>${product.name}</h3><span class="sku-label">${sku.name}</span>${item.invalidReason ? `<small class="invalid-reason">${item.invalidReason} · 不计入结算</small>` : ""}<div class="cart-card__footer"><span class="price"><small>¥</small>${sku.price}</span>${state.cartManaging || item.invalidReason ? `<button class="cart-delete" data-cart-delete="${index}">删除</button>` : `<div class="quantity-stepper"><button data-cart-qty="${index}" data-delta="-1">−</button><span>${item.quantity}</span><button data-cart-qty="${index}" data-delta="1">＋</button></div>`}</div></div>
                 </article>`;
               }).join("")}
             </div>
-            <section class="cart-recommend"><div class="section-heading"><div><h3>你可能还喜欢</h3></div></div><div class="product-grid">${products.slice(2, 4).map(productCard).join("")}</div></section>
+            <section class="cart-recommend"><div class="section-heading"><div><h3>你可能还喜欢</h3></div></div><div class="product-grid">${publicProducts().slice(2, 4).map(productCard).join("")}</div></section>
           ` : `<div class="empty-state"><i>□</i><strong>购物车还是空的</strong><p>去挑选一些日常好物吧</p><button class="primary-button" data-screen="home" style="padding:0 22px">去逛逛</button></div>`}
         </div>
         ${state.cart.length ? `<div class="cart-summary"><button class="select-all" data-action="select-all"><span class="check-control ${allSelected ? "is-checked" : ""}">✓</span><span>全选</span></button><div class="summary-price"><span>合计：<strong>${money(cartTotal())}</strong></span><small>提交时重新校验价格和库存</small></div><button class="primary-button is-coral" data-action="checkout" ${selectedCount ? "" : "disabled"}>去结算 (${selectedCount})</button></div>` : ""}
@@ -613,7 +713,7 @@
 
   function checkoutLines() {
     if (state.checkoutMode === "buy" && state.buyNowLine) return [state.buyNowLine];
-    return state.cart.filter(item => item.selected);
+    return state.cart.filter(item => item.selected && !item.invalidReason);
   }
 
   function renderCheckout() {
@@ -633,7 +733,7 @@
                 const sku = lineSku(item);
                 return `<div class="checkout-product" data-checkout-sku="${item.skuId}">${imageMedia(product, "checkout-thumb")}<div class="checkout-info"><h3>${product.name}</h3><p>${sku.name}</p></div><div class="checkout-price"><strong>${money(sku.price)}</strong><span>×${item.quantity}</span></div></div>`;
               }).join("") || `<div class="inline-alert is-warning">结算商品已失效，请返回购物车重新选择。</div>`}
-              <div class="checkout-options"><div class="checkout-row"><span>配送方式</span><span>快递配送 · 包邮</span></div><label class="checkout-row"><span>订单备注</span><input placeholder="选填，请先与商家协商" /></label></div>
+              <div class="checkout-options"><div class="checkout-row"><span>配送方式</span><span>快递配送 · 包邮</span></div></div>
             </section>
             <section class="amount-card"><div class="amount-row"><span>商品金额</span><span>${money(total)}</span></div><div class="amount-row"><span>运费</span><span>¥0</span></div><div class="amount-row total"><span>应付合计</span><strong>${money(total)}</strong></div></section>
             <div class="inline-alert"><strong>库存预占 30 分钟</strong><span>提交即创建待付款订单；支付取消或稍后支付不会丢失订单。</span></div>
@@ -685,7 +785,7 @@
   }
 
   function renderOrders() {
-    const tabs = ["全部", "待付款", "待发货", "待收货", "退款/售后"];
+    const tabs = ["全部", "待付款", "待发货", "待收货", "已完成", "退款/售后"];
     const visibleOrders = state.orders.filter(order => {
       if (state.orderTab === "全部") return true;
       if (state.orderTab === "待收货") return order.displayStatus === "运输中";
@@ -735,7 +835,9 @@
             <section class="detail-card order-detail-products"><div class="card-title"><strong>商品快照</strong><span>下单后规格与成交价不回写</span></div>${renderOrderItems(order)}</section>
             <section class="detail-card fact-list"><div><span>订单状态</span><strong>${order.displayStatus}</strong></div><div><span>支付状态</span><strong>${paymentLabel(order.paymentStatus)}</strong></div><div><span>退款状态</span><strong>${refundLabel(order.refundStatus)}</strong></div><div><span>履约状态</span><strong>${fulfillmentLabel(order.fulfillmentStatus)}</strong></div>${order.closeReason ? `<div><span>关闭原因</span><strong>${order.closeReason === "FULL_REFUND_BEFORE_SHIPMENT" ? "未发货全额退款" : order.closeReason === "PAYMENT_TIMEOUT" ? "支付超时" : "用户取消"}</strong></div>` : ""}${order.inventoryRestock ? `<div><span>库存处理</span><strong>已自动回补 ${order.inventoryRestock.quantity} 件</strong></div>` : ""}</section>
             <section class="detail-card amount-card"><div class="amount-row"><span>商品金额</span><span>${money(order.total)}</span></div><div class="amount-row"><span>运费</span><span>¥0</span></div><div class="amount-row total"><span>${order.paymentStatus === "PAID" ? "实付金额" : "待付金额"}</span><strong>${money(order.total)}</strong></div></section>
-            <section class="detail-card timeline-card"><div class="card-title"><strong>订单时间线</strong></div><ol><li class="is-done"><strong>订单已创建</strong><span>${order.createdAt}</span></li><li class="${order.paymentStatus === "PAID" ? "is-done" : ""}"><strong>${order.paymentStatus === "PAID" ? "支付成功" : "等待支付"}</strong><span>${order.paidAt || order.payExpiresAt || "库存保留 30 分钟"}</span></li><li class="${["SHIPPED", "IN_TRANSIT", "DELIVERED"].includes(order.fulfillmentStatus) ? "is-done" : ""}"><strong>商品发出</strong><span>${order.shipment?.shippedAt || "等待总部发货"}</span></li></ol></section>
+            <section class="detail-card timeline-card"><div class="card-title"><strong>订单时间线</strong></div><ol><li class="is-done"><strong>订单已创建</strong><span>${order.createdAt}</span></li><li class="${order.paymentStatus === "PAID" ? "is-done" : ""}"><strong>${order.paymentStatus === "PAID" ? "支付成功" : "等待支付"}</strong><span>${order.paidAt || order.payExpiresAt || "库存保留 30 分钟"}</span></li><li class="${["SHIPPED", "IN_TRANSIT", "DELIVERED"].includes(order.fulfillmentStatus) ? "is-done" : ""}"><strong>商品发出</strong><span>${order.shipment?.shippedAt || (order.fulfillmentStatus === "CANCELLED" ? "履约已终止" : "等待总部发货")}</span></li></ol></section>
+            ${order.displayStatus === "待付款" ? `<div class="inline-alert is-warning actionable-alert"><div><strong>支付有效期演示</strong><span>触发 30 分钟超时后，支付意图关闭并释放库存预占。</span></div><button data-action="simulate-payment-timeout" data-order-id="${order.id}">演示超时</button></div>` : ""}
+            ${order.latePaymentRefund ? `<div class="inline-alert ${order.latePaymentRefund.status === "MANUAL_REVIEW" ? "is-error" : order.latePaymentRefund.status === "COMPLETED" ? "is-success" : "is-warning"}"><strong>迟到支付退款</strong><span>${order.latePaymentRefund.status === "MANUAL_REVIEW" ? "自动退款失败，已转人工财务异常。" : order.latePaymentRefund.status === "COMPLETED" ? "已原路退款，订单未恢复履约。" : "自动退款处理中，订单保持关闭。"}</span></div>` : ""}
           </div>
         </div>
         <div class="detail-actionbar">${order.displayStatus === "待付款" ? `<button class="secondary-button" data-action="cancel-order" data-order-id="${order.id}">取消订单</button><button class="primary-button is-coral" data-action="retry-payment" data-order-id="${order.id}">继续支付</button>` : order.displayStatus === "运输中" ? `<button class="secondary-button" data-action="open-logistics" data-order-id="${order.id}">查看物流</button><button class="primary-button" data-confirm-order="${order.id}">确认收货</button>` : order.displayStatus === "已完成" ? `<button class="secondary-button" data-action="apply-aftersale" data-order-id="${order.id}" data-item-id="${order.items[0].id}">申请售后</button><button class="primary-button" data-open-product="${order.items[0].productId}">再次购买</button>` : `<button class="primary-button" data-screen="orders">返回订单列表</button>`}</div>
@@ -750,7 +852,10 @@
       failed: { icon: "!", title: "支付失败", copy: "本次支付没有完成，待付款订单和库存预占仍保留。", tone: "is-error" },
       cancelled: { icon: "×", title: "支付已取消", copy: "订单已保留，可在有效期内重新发起支付。", tone: "is-warning" },
       later: { icon: "◴", title: "订单待付款", copy: "您选择了稍后支付，订单已保存到待付款列表。", tone: "is-warning" },
-      late_refund: { icon: "↺", title: "迟到支付退款中", copy: "订单超时后收到支付成功回调，系统不会恢复履约并已自动原路退款。", tone: "is-warning" }
+      timeout: { icon: "◴", title: "订单支付超时", copy: "支付意图已关闭，库存预占已释放；本单不能恢复支付。", tone: "is-warning" },
+      late_refund: { icon: "↺", title: "迟到支付退款中", copy: "订单超时后收到支付成功回调，系统不会恢复履约并已自动原路退款。", tone: "is-warning" },
+      late_refund_success: { icon: "✓", title: "迟到支付已退款", copy: "款项已原路退回，订单保持关闭且不会恢复库存预占、履约或佣金。", tone: "is-success" },
+      late_refund_failed: { icon: "!", title: "自动退款失败", copy: "退款额度与支付事实已保留，当前已转入人工财务异常队列。", tone: "is-error" }
     }[result.outcome];
     const retryable = ["failed", "cancelled", "later"].includes(result.outcome) && order.displayStatus === "待付款";
     return `
@@ -759,7 +864,7 @@
           ${statusBar()}
           ${header("支付结果")}
           <div class="result-panel ${config.tone}"><span class="result-icon">${config.icon}</span><h2>${config.title}</h2><p>${config.copy}</p><strong>${money(order.total)}</strong><small>订单 ${order.id}</small></div>
-          <div class="result-actions">${retryable ? `<button class="primary-button is-coral" data-action="retry-payment" data-order-id="${order.id}">重新支付</button>` : ""}<button class="secondary-button" data-open-order="${order.id}">查看订单详情</button><button class="text-command" data-screen="home">返回首页</button></div>
+          <div class="result-actions">${retryable ? `<button class="primary-button is-coral" data-action="retry-payment" data-order-id="${order.id}">重新支付</button>` : ""}${result.outcome === "timeout" ? `<button class="primary-button" data-action="simulate-late-payment" data-order-id="${order.id}">演示迟到支付成功</button>` : ""}${result.outcome === "late_refund" ? `<button class="primary-button" data-action="complete-late-refund" data-order-id="${order.id}">演示退款成功</button><button class="secondary-button" data-action="fail-late-refund" data-order-id="${order.id}">演示退款失败</button>` : ""}<button class="secondary-button" data-open-order="${order.id}">查看订单详情</button><button class="text-command" data-screen="home">返回首页</button></div>
         </div>
       </section>`;
   }
@@ -785,8 +890,14 @@
     return { order, item, product: productById(item.productId), availableQty: Math.max(0, item.quantity - item.refundedQty - item.reservedQty) };
   }
 
+  function availableAfterSaleTypes(order) {
+    return ["SHIPPED", "IN_TRANSIT", "DELIVERED"].includes(order.fulfillmentStatus) ? ["仅退款", "退货退款"] : ["仅退款"];
+  }
+
   function renderAfterSale() {
     const { order, item, product, availableQty } = aftersaleContext();
+    const allowedTypes = availableAfterSaleTypes(order);
+    if (!allowedTypes.includes(state.afterSaleType)) state.afterSaleType = allowedTypes[0];
     const amount = item.unitPrice * state.afterSaleQty;
     return `
       <section class="app-screen sale-page">
@@ -796,11 +907,11 @@
           <div class="form-content">
             <article class="sale-product">${imageMedia(product, "sale-thumb")}<div><h3>${product.name}</h3><p>${item.skuName} × ${item.quantity}</p><small>订单 ${order.id}</small></div></article>
             <div class="inline-alert"><strong>提交即占用可退额度</strong><span>当前可申请 ${availableQty} 件；待处理数量不会重复退款或进入待发货商品。</span></div>
-            <section class="form-card"><button class="form-row" data-action="sale-type"><span>售后类型</span><strong>仅退款</strong><span>›</span></button><button class="form-row" data-action="sale-reason"><span>退款原因</span><strong>商品不符合预期</strong><span>›</span></button><div class="form-row"><span>退款数量</span><div class="quantity-stepper"><button data-aftersale-delta="-1">−</button><span>${state.afterSaleQty}</span><button data-aftersale-delta="1">＋</button></div><span></span></div><div class="form-row"><span>退款金额</span><strong class="price">${money(amount)}</strong><span></span></div></section>
-            <section class="form-card"><div class="textarea-wrap"><label>问题描述</label><textarea placeholder="请描述遇到的问题，便于商家更快处理"></textarea></div><div class="textarea-wrap" style="border-top:1px solid var(--line)"><label>上传凭证（选填，最多 3 张）</label><button class="upload-box" data-action="upload"><i>＋</i><span>添加图片</span></button></div></section>
+            <section class="form-card"><button class="form-row" data-action="sale-type"><span>售后类型</span><strong>${state.afterSaleType}</strong><span>›</span></button><button class="form-row" data-action="sale-reason"><span>退款原因</span><strong>${state.afterSaleReason}</strong><span>›</span></button><div class="form-row"><span>退款数量</span><div class="quantity-stepper"><button data-aftersale-delta="-1">−</button><span>${state.afterSaleQty}</span><button data-aftersale-delta="1">＋</button></div><span></span></div><div class="form-row"><span>退款金额</span><strong class="price">${money(amount)}</strong><span></span></div></section>
+            <section class="form-card"><div class="textarea-wrap"><label for="aftersaleDescription">问题描述</label><textarea id="aftersaleDescription" placeholder="请描述遇到的问题，便于商家更快处理">${state.afterSaleDescription}</textarea></div><div class="textarea-wrap" style="border-top:1px solid var(--line)"><label>上传凭证（选填，最多 3 张）</label><button class="upload-box" data-action="upload" ${state.afterSaleEvidenceCount >= 3 ? "disabled" : ""}><i>＋</i><span>${state.afterSaleEvidenceCount ? `已添加 ${state.afterSaleEvidenceCount} 张` : "添加图片"}</span></button></div></section>
           </div>
         </div>
-        <div class="form-submit"><button class="primary-button is-coral" data-action="submit-aftersale" ${availableQty < 1 ? "disabled" : ""}>提交申请 · 占用 ${state.afterSaleQty} 件</button></div>
+        <div class="form-submit"><button class="primary-button is-coral" data-action="submit-aftersale" ${availableQty < 1 || state.submittingAftersale ? "disabled" : ""}>${state.submittingAftersale ? "提交中，请勿重复操作" : `提交申请 · 占用 ${state.afterSaleQty} 件`}</button></div>
       </section>`;
   }
 
@@ -826,7 +937,8 @@
             <article class="sale-product detail-card">${imageMedia(product, "sale-thumb")}<div><h3>${product.name}</h3><p>${orderItem.skuName} × ${aftersale.quantity}</p><small>售后单 ${aftersale.id}</small></div></article>
             <section class="detail-card reservation-card"><div><span>已占用可退数量</span><strong>${aftersale.status === "CANCELLED" ? 0 : aftersale.quantity} 件</strong></div><div><span>已占用可退金额</span><strong>${aftersale.status === "CANCELLED" ? money(0) : money(aftersale.reservedAmount)}</strong></div><small>${aftersale.status === "REFUND_FAILED" ? "退款失败仍保留占用，避免重复申请；重试成功或取消后再释放。" : "驳回或允许阶段取消后，将自动释放对应数量和金额。"}</small></section>
             ${aftersale.failureReason ? `<div class="inline-alert is-error"><strong>失败原因</strong><span>${aftersale.failureReason}</span></div>` : ""}
-            ${aftersale.status === "WAITING_RETURN" && !aftersale.trackingNo ? `<section class="detail-card return-form"><strong>填写退货物流</strong><label>承运商<input value="顺丰速运" /></label><label>退货单号<input value="SFRET20260811" /></label><button class="primary-button" data-action="submit-return-tracking">提交物流</button></section>` : ""}
+            ${aftersale.status === "WAITING_RETURN" ? `<section class="detail-card return-address-card"><div class="card-title"><strong>总部退货地址</strong><span>审核通过后生成</span></div><p>青序售后仓 · 0755-****-8261</p><small>广东省深圳市龙岗区平湖街道供应链园 3 号仓<br />请勿到付，寄出前核对售后单号。</small></section>` : ""}
+            ${aftersale.status === "WAITING_RETURN" && !aftersale.trackingNo ? `<section class="detail-card return-form"><strong>填写退货物流</strong><label>承运商<input id="returnCarrier" value="顺丰速运" /></label><label>退货单号<input id="returnTracking" value="SFRET20260811" /></label><button class="primary-button" data-action="submit-return-tracking">提交物流</button></section>` : ""}
             <section class="detail-card timeline-card"><div class="card-title"><strong>处理时间线</strong></div><ol><li class="is-done"><strong>售后申请已提交</strong><span>${aftersale.createdAt}</span></li><li class="${aftersale.status !== "PENDING_REVIEW" ? "is-done" : ""}"><strong>商家审核</strong><span>${aftersale.status === "PENDING_REVIEW" ? "等待处理" : "审核通过"}</span></li><li class="${["REFUNDING", "REFUND_FAILED", "COMPLETED"].includes(aftersale.status) ? "is-done" : ""}"><strong>退款处理</strong><span>${aftersale.status === "REFUND_FAILED" ? "渠道返回失败，可重试" : aftersale.status === "COMPLETED" ? "退款成功" : "等待发起"}</span></li></ol></section>
           </div>
         </div>
@@ -884,7 +996,7 @@
 
   function renderAddresses() {
     return `
-      <section class="app-screen list-page"><div class="screen-scroll">${statusBar()}${header(state.addressReturnScreen ? "选择收货地址" : "收货地址")}<div class="address-list">${state.addresses.map(address => `<article class="saved-address ${address.id === state.currentAddressId ? "is-selected" : ""}"><button class="saved-address__main" data-address-select="${address.id}"><strong>${address.recipient} <span>${maskPhone(address.phone)}</span></strong><p>${address.region} ${address.detail}</p><small>${address.isDefault ? "默认地址" : ""}</small></button><div class="saved-address__actions"><button data-address-default="${address.id}" ${address.isDefault ? "disabled" : ""}>设为默认</button><button data-address-edit="${address.id}">编辑</button><button data-address-delete="${address.id}">删除</button></div></article>`).join("") || `<div class="empty-state"><i>⌖</i><strong>暂无收货地址</strong><p>新增地址后即可提交订单。</p></div>`}</div></div><div class="form-submit"><button class="primary-button" data-action="new-address">＋ 新增收货地址</button></div></section>`;
+      <section class="app-screen list-page"><div class="screen-scroll">${statusBar()}${header(state.addressReturnScreen ? "选择收货地址" : "收货地址")}<div class="address-list">${state.addresses.map(address => `<article class="saved-address ${address.id === state.currentAddressId ? "is-selected" : ""}"><button class="saved-address__main" data-address-select="${address.id}"><strong>${maskRecipient(address.recipient)} <span>${maskPhone(address.phone)}</span></strong><p>${address.region} ${maskAddressDetail(address.detail)}</p><small>${address.isDefault ? "默认地址" : ""}</small></button><div class="saved-address__actions"><button data-address-default="${address.id}" ${address.isDefault ? "disabled" : ""}>设为默认</button><button data-address-edit="${address.id}">编辑</button><button data-address-delete="${address.id}">删除</button></div></article>`).join("") || `<div class="empty-state"><i>⌖</i><strong>暂无收货地址</strong><p>新增地址后即可提交订单。</p></div>`}</div></div><div class="form-submit"><button class="primary-button" data-action="new-address">＋ 新增收货地址</button></div></section>`;
   }
 
   function renderAddressEdit() {
@@ -1014,7 +1126,7 @@
     const selectedSku = currentProductSku();
     return `
       <div class="sheet-handle"></div><div class="sheet-head">${imageMedia(product, "sheet-thumb product-card__media")}<div><span class="product-brand">${product.brand}</span><h3>${product.name}</h3><span class="price"><small>¥</small>${selectedSku.price}</span></div><button class="sheet-close" data-action="close-sheet" aria-label="关闭">×</button></div>
-      <div class="sheet-section"><div class="sheet-section__head"><span>选择规格</span><span>库存 ${selectedSku.stock} 件</span></div><div class="option-row">${product.skus.map(sku => `<button class="option-button ${state.selectedSkuId === sku.id ? "is-active" : ""}" data-sku-id="${sku.id}">${sku.name}<small>${money(sku.price)}</small></button>`).join("")}</div></div>
+      <div class="sheet-section"><div class="sheet-section__head"><span>选择规格</span><span>库存 ${selectedSku.stock} 件</span></div><div class="option-row">${publicSkusFor(product).map(sku => `<button class="option-button ${state.selectedSkuId === sku.id ? "is-active" : ""}" data-sku-id="${sku.id}">${sku.name}<small>${money(sku.price)}</small></button>`).join("")}</div></div>
       <div class="sheet-section"><div class="sheet-section__head"><span>购买数量</span><div class="quantity-stepper"><button data-sku-delta="-1">−</button><span>${state.quantity}</span><button data-sku-delta="1">＋</button></div></div></div>
       <div class="sheet-footer"><button class="secondary-button" data-action="close-sheet">取消</button><button class="primary-button ${state.skuIntent === "buy" ? "is-coral" : ""}" data-action="confirm-sku">${state.skuIntent === "buy" ? "确认并结算" : "确认加入购物车"}</button></div>`;
   }
@@ -1022,6 +1134,17 @@
   function paymentSheet(order) {
     return `
       <div class="sheet-handle"></div><div class="payment-sheet"><div class="pay-icon">¥</div><h3>微信支付</h3><p>订单 ${order.id} 已创建，支付前库存保留至 ${order.payExpiresAt}</p><div class="payment-amount"><small>¥</small>${Number(order.total).toFixed(2)}</div><div class="payment-note">Mock 环境可演示成功、失败、取消和稍后支付。无论选择哪一项，待付款订单都已保存。</div><div class="payment-outcomes"><button class="secondary-button" data-payment-outcome="later">稍后支付</button><button class="secondary-button" data-payment-outcome="cancelled">模拟取消</button><button class="secondary-button" data-payment-outcome="failed">模拟失败</button><button class="primary-button" data-payment-outcome="success">模拟成功</button></div></div>`;
+  }
+
+  function aftersaleTypeSheet() {
+    const { order } = aftersaleContext();
+    const allowed = availableAfterSaleTypes(order);
+    return `<div class="sheet-handle"></div><div class="confirm-sheet option-sheet"><h3>选择售后类型</h3><p>${allowed.length === 1 ? "订单尚未发货，当前仅支持仅退款。" : "已发货订单可选择仅退款或退货退款。"}</p><div class="option-row">${["仅退款", "退货退款"].map(type => `<button class="option-button ${state.afterSaleType === type ? "is-active" : ""}" data-aftersale-type-option="${type}" ${allowed.includes(type) ? "" : "disabled"}>${type}<small>${type === "仅退款" ? "无需寄回商品" : "审核后寄回总部"}</small></button>`).join("")}</div><div class="sheet-footer"><button class="secondary-button" data-action="close-sheet">取消</button></div></div>`;
+  }
+
+  function aftersaleReasonSheet() {
+    const reasons = ["商品不符合预期", "拍错规格或重复下单", "包装破损", "商品质量问题", "物流长期未更新"];
+    return `<div class="sheet-handle"></div><div class="confirm-sheet option-sheet"><h3>选择退款原因</h3><div class="option-row">${reasons.map(reason => `<button class="option-button ${state.afterSaleReason === reason ? "is-active" : ""}" data-aftersale-reason-option="${reason}">${reason}</button>`).join("")}</div><div class="sheet-footer"><button class="secondary-button" data-action="close-sheet">取消</button></div></div>`;
   }
 
   function agentBindingSheet() {
@@ -1127,6 +1250,47 @@
     setTimeout(() => navigate(outcome === "later" ? "order-detail" : "payment-result"), 190);
   }
 
+  function simulatePaymentTimeout(orderId) {
+    const order = state.orders.find(item => item.id === orderId);
+    if (!order || order.orderStatus !== "PENDING_PAYMENT") return showToast("当前订单已不能触发支付超时");
+    order.orderStatus = "CLOSED";
+    order.paymentStatus = "UNPAID";
+    order.latestPaymentAttemptStatus = "EXPIRED";
+    order.fulfillmentStatus = "CANCELLED";
+    order.displayStatus = "已关闭";
+    order.closeReason = "PAYMENT_TIMEOUT";
+    order.inventoryReservation.status = "RELEASED";
+    order.closedAt = "2026-08-11 15:30";
+    state.currentOrderId = order.id;
+    state.paymentResult = { outcome: "timeout", orderId: order.id, message: "支付超时，库存预占已释放" };
+    navigate("payment-result");
+  }
+
+  function simulateLatePayment(orderId) {
+    const order = state.orders.find(item => item.id === orderId);
+    if (!order || order.closeReason !== "PAYMENT_TIMEOUT") return showToast("仅支付超时订单可演示迟到回调");
+    order.paymentStatus = "PAID";
+    order.latestPaymentAttemptStatus = "SUCCEEDED_LATE";
+    order.refundStatus = "REFUNDING";
+    order.fulfillmentStatus = "CANCELLED";
+    order.displayStatus = "退款售后";
+    order.latePaymentRefund = { status: "PROCESSING", merchantRefundNo: `LATE-${order.id}`, createdAt: "2026-08-11 15:31" };
+    state.currentOrderId = order.id;
+    state.paymentResult = { outcome: "late_refund", orderId: order.id, message: "迟到支付已进入自动退款" };
+    render();
+  }
+
+  function finishLateRefund(orderId, succeeded) {
+    const order = state.orders.find(item => item.id === orderId);
+    if (!order?.latePaymentRefund || order.latePaymentRefund.status !== "PROCESSING") return showToast("当前没有可处理的迟到退款");
+    order.refundStatus = succeeded ? "FULL" : "FAILED";
+    order.displayStatus = succeeded ? "退款完成" : "退款异常";
+    order.latePaymentRefund.status = succeeded ? "COMPLETED" : "MANUAL_REVIEW";
+    order.latePaymentRefund.updatedAt = "2026-08-11 15:32";
+    state.paymentResult = { outcome: succeeded ? "late_refund_success" : "late_refund_failed", orderId: order.id, message: succeeded ? "迟到支付已原路退款" : "自动退款失败，已转人工" };
+    render();
+  }
+
   function openPayment(orderId) {
     const order = state.orders.find(item => item.id === orderId);
     if (!order || order.displayStatus !== "待付款") return showToast("当前订单不可支付");
@@ -1138,16 +1302,29 @@
   }
 
   function submitAftersale() {
+    if (state.submittingAftersale) return showToast("售后申请提交中，请勿重复操作");
     const { order, item, availableQty } = aftersaleContext();
     if (availableQty < state.afterSaleQty || state.afterSaleQty < 1) return showToast("可退数量已变化，请刷新后重试");
-    const id = `AS20260811${String(20 + state.aftersales.length).padStart(4, "0")}`;
-    item.reservedQty += state.afterSaleQty;
-    const record = { id, orderId: order.id, orderItemId: item.id, type: "仅退款", reason: "商品不符合预期", quantity: state.afterSaleQty, reservedAmount: item.unitPrice * state.afterSaleQty, status: "PENDING_REVIEW", trackingNo: "", createdAt: "2026-08-11 15:08", updatedAt: "2026-08-11 15:08" };
-    state.aftersales.unshift(record);
-    state.currentAfterSaleId = id;
-    order.refundStatus = "NONE";
-    order.displayStatus = "退款售后";
-    navigate("aftersale-detail");
+    state.afterSaleDescription = document.querySelector("#aftersaleDescription")?.value.trim() || state.afterSaleDescription;
+    state.submittingAftersale = true;
+    render();
+    setTimeout(() => {
+      const latest = aftersaleContext();
+      if (latest.availableQty < state.afterSaleQty) {
+        state.submittingAftersale = false;
+        render();
+        return showToast("可退数量已变化，请刷新后重试");
+      }
+      const id = `AS20260811${String(20 + state.aftersales.length).padStart(4, "0")}`;
+      latest.item.reservedQty += state.afterSaleQty;
+      const record = { id, orderId: latest.order.id, orderItemId: latest.item.id, type: state.afterSaleType, reason: state.afterSaleReason, description: state.afterSaleDescription, evidenceCount: state.afterSaleEvidenceCount, quantity: state.afterSaleQty, reservedAmount: latest.item.unitPrice * state.afterSaleQty, status: "PENDING_REVIEW", trackingNo: "", createdAt: "2026-08-11 15:08", updatedAt: "2026-08-11 15:08" };
+      state.aftersales.unshift(record);
+      state.currentAfterSaleId = id;
+      latest.order.refundStatus = "NONE";
+      latest.order.displayStatus = "退款售后";
+      state.submittingAftersale = false;
+      navigate("aftersale-detail");
+    }, 220);
   }
 
   function cancelAftersale() {
@@ -1200,12 +1377,15 @@
       document.querySelector("#deviceLabel").textContent = `${state.device} × 812`;
       return;
     }
-    if (target.dataset.category) { state.selectedCategory = target.dataset.category; return navigate("category"); }
-    if (target.dataset.categorySwitch) { state.selectedCategory = target.dataset.categorySwitch; state.filter = "全部"; return render(); }
+    if (target.dataset.category) { state.selectedCategory = target.dataset.category; state.categoryBrand = "全部"; state.filter = "全部"; return navigate("category"); }
+    if (target.dataset.categorySwitch) { state.selectedCategory = target.dataset.categorySwitch; state.categoryBrand = "全部"; state.filter = "全部"; return render(); }
+    if (target.dataset.categoryBrand) { state.categoryBrand = target.dataset.categoryBrand; return render(); }
     if (target.dataset.filter) { state.filter = target.dataset.filter; render(); return showToast(`已按“${state.filter}”筛选`); }
     if (target.dataset.openProduct) {
-      state.product = productById(target.dataset.openProduct);
-      state.selectedSkuId = state.product.skus[0].id;
+      const product = publicProductById(target.dataset.openProduct);
+      if (!product) return showToast("商品已下架或暂无可售规格");
+      state.product = product;
+      state.selectedSkuId = publicSkusFor(product)[0].id;
       state.quantity = 1;
       return navigate("product");
     }
@@ -1216,7 +1396,8 @@
     if (target.dataset.skuIntent) { state.skuIntent = target.dataset.skuIntent; state.quantity = 1; return openSheet(skuSheet()); }
     if (target.dataset.skuId) { state.selectedSkuId = target.dataset.skuId; state.quantity = Math.min(state.quantity, currentProductSku().stock); bottomSheet.innerHTML = skuSheet(); return; }
     if (target.dataset.skuDelta) { state.quantity = Math.max(1, Math.min(currentProductSku().stock, state.quantity + Number(target.dataset.skuDelta))); bottomSheet.innerHTML = skuSheet(); return; }
-    if (target.dataset.cartSelect !== undefined) { const item = state.cart[Number(target.dataset.cartSelect)]; if (item) item.selected = !item.selected; return render(); }
+    if (target.dataset.cartSelect !== undefined) { const item = state.cart[Number(target.dataset.cartSelect)]; if (item && !item.invalidReason) item.selected = !item.selected; return render(); }
+    if (target.dataset.cartDelete !== undefined) { state.cart.splice(Number(target.dataset.cartDelete), 1); render(); return showToast("商品已从购物车删除"); }
     if (target.dataset.cartQty !== undefined) {
       const index = Number(target.dataset.cartQty);
       const item = state.cart[index];
@@ -1226,7 +1407,7 @@
       return render();
     }
     if (target.dataset.orderTab) { state.orderTab = target.dataset.orderTab; return render(); }
-    if (target.dataset.orderShortcut) { state.orderTab = target.dataset.orderShortcut === "已完成" ? "全部" : target.dataset.orderShortcut; return navigate("orders"); }
+    if (target.dataset.orderShortcut) { state.orderTab = target.dataset.orderShortcut; return navigate("orders"); }
     if (target.dataset.confirmOrder) {
       const order = state.orders.find(item => item.id === target.dataset.confirmOrder);
       if (order) { order.orderStatus = "COMPLETED"; order.fulfillmentStatus = "DELIVERED"; order.displayStatus = "已完成"; order.completedAt = "2026-08-11 15:18"; }
@@ -1234,6 +1415,8 @@
       return showToast("已确认收货");
     }
     if (target.dataset.paymentOutcome) return handlePaymentOutcome(target.dataset.paymentOutcome);
+    if (target.dataset.aftersaleTypeOption) { state.afterSaleType = target.dataset.aftersaleTypeOption; closeSheet(); setTimeout(render, 190); return; }
+    if (target.dataset.aftersaleReasonOption) { state.afterSaleReason = target.dataset.aftersaleReasonOption; closeSheet(); setTimeout(render, 190); return; }
     if (target.dataset.aftersaleDelta) { const context = aftersaleContext(); state.afterSaleQty = Math.max(1, Math.min(context.availableQty, state.afterSaleQty + Number(target.dataset.aftersaleDelta))); return render(); }
     if (target.dataset.addressSelect) { state.currentAddressId = target.dataset.addressSelect; const returnScreen = state.addressReturnScreen; state.addressReturnScreen = null; if (returnScreen) { navigate(returnScreen); showToast("已切换收货地址"); } else render(); return; }
     if (target.dataset.addressEdit) { state.editingAddressId = target.dataset.addressEdit; return navigate("address-edit"); }
@@ -1254,7 +1437,7 @@
       render();
       return showToast(exists ? "已取消收藏" : "已收藏商品");
     }
-    if (action === "select-all") { const shouldSelect = !state.cart.every(item => item.selected); state.cart.forEach(item => { item.selected = shouldSelect; }); return render(); }
+    if (action === "select-all") { const validItems = state.cart.filter(item => !item.invalidReason); const shouldSelect = !validItems.every(item => item.selected); validItems.forEach(item => { item.selected = shouldSelect; }); return render(); }
     if (action === "checkout") { if (!state.cart.some(item => item.selected)) return showToast("请先选择要结算的商品"); state.checkoutMode = "cart"; return navigate("checkout"); }
     if (action === "submit-order") {
       if (!state.loggedIn) return requireLogin("checkout", null);
@@ -1262,6 +1445,10 @@
       return order ? openSheet(paymentSheet(order)) : showToast("订单提交中，请勿重复操作");
     }
     if (action === "retry-payment") return openPayment(target.dataset.orderId);
+    if (action === "simulate-payment-timeout") return simulatePaymentTimeout(target.dataset.orderId);
+    if (action === "simulate-late-payment") return simulateLatePayment(target.dataset.orderId);
+    if (action === "complete-late-refund") return finishLateRefund(target.dataset.orderId, true);
+    if (action === "fail-late-refund") return finishLateRefund(target.dataset.orderId, false);
     if (action === "cancel-order") { state.currentOrderId = target.dataset.orderId; return openSheet(confirmSheet("取消待付款订单", "取消后关闭支付意图并释放库存预占；已关闭订单不可继续支付。", "confirm-cancel-order", "确认取消")); }
     if (action === "confirm-cancel-order") {
       const order = currentOrder();
@@ -1269,14 +1456,14 @@
       closeSheet(); render(); return showToast("订单已取消，库存预占已释放");
     }
     if (action === "open-logistics") { state.currentOrderId = target.dataset.orderId; return navigate("logistics"); }
-    if (action === "apply-aftersale") { state.afterSaleOrderId = target.dataset.orderId; state.afterSaleItemId = target.dataset.itemId; state.afterSaleQty = 1; return navigate("aftersale"); }
+    if (action === "apply-aftersale") { state.afterSaleOrderId = target.dataset.orderId; state.afterSaleItemId = target.dataset.itemId; state.afterSaleQty = 1; state.afterSaleType = "仅退款"; state.afterSaleReason = "商品不符合预期"; state.afterSaleDescription = ""; state.afterSaleEvidenceCount = 0; return navigate("aftersale"); }
     if (action === "open-order-aftersale") { const record = state.aftersales.find(item => item.orderId === target.dataset.orderId && item.status !== "CANCELLED"); if (!record) return showToast("未找到售后记录"); state.currentAfterSaleId = record.id; return navigate("aftersale-detail"); }
     if (action === "open-latest-aftersale") { if (!state.aftersales.length) return navigate("orders"); state.currentAfterSaleId = state.aftersales[0].id; return navigate("aftersale-detail"); }
     if (action === "submit-aftersale") return submitAftersale();
     if (action === "cancel-aftersale") return openSheet(confirmSheet("取消售后申请", "当前阶段允许取消。确认后立即释放已占用的可退数量和金额。", "confirm-cancel-aftersale", "确认取消"));
     if (action === "confirm-cancel-aftersale") return cancelAftersale();
-    if (action === "simulate-aftersale-review") { const record = state.aftersales.find(item => item.id === state.currentAfterSaleId); record.status = "WAITING_RETURN"; record.type = "退货退款"; record.updatedAt = "2026-08-11 15:20"; render(); return showToast("已演示审核通过，等待退货"); }
-    if (action === "submit-return-tracking") { const record = state.aftersales.find(item => item.id === state.currentAfterSaleId); const order = state.orders.find(item => item.id === record.orderId); record.trackingNo = "SFRET20260811"; record.status = "REFUNDING"; record.updatedAt = "2026-08-11 15:24"; if (order) order.refundStatus = "REFUNDING"; render(); return showToast("退货物流已提交，取消入口已关闭"); }
+    if (action === "simulate-aftersale-review") { const record = state.aftersales.find(item => item.id === state.currentAfterSaleId); record.status = record.type === "退货退款" ? "WAITING_RETURN" : "REFUNDING"; record.updatedAt = "2026-08-11 15:20"; const order = state.orders.find(item => item.id === record.orderId); if (record.status === "REFUNDING" && order) order.refundStatus = "REFUNDING"; render(); return showToast(record.status === "WAITING_RETURN" ? "审核通过，请按退货地址寄回" : "审核通过，退款处理中"); }
+    if (action === "submit-return-tracking") { const carrier = document.querySelector("#returnCarrier")?.value.trim(); const trackingNo = document.querySelector("#returnTracking")?.value.trim(); if (!carrier || !trackingNo) return showToast("请完整填写承运商和退货单号"); const record = state.aftersales.find(item => item.id === state.currentAfterSaleId); const order = state.orders.find(item => item.id === record.orderId); record.returnCarrier = carrier; record.trackingNo = trackingNo; record.status = "REFUNDING"; record.updatedAt = "2026-08-11 15:24"; if (order) order.refundStatus = "REFUNDING"; render(); return showToast("退货物流已提交，取消入口已关闭"); }
     if (action === "retry-refund") { const record = state.aftersales.find(item => item.id === state.currentAfterSaleId); const order = state.orders.find(item => item.id === record.orderId); record.status = "REFUNDING"; record.failureReason = ""; record.updatedAt = "2026-08-11 15:28"; if (order) order.refundStatus = "REFUNDING"; render(); return showToast("已重新发起退款，占用额度继续保留"); }
     if (action === "toggle-consent") { state.consentAccepted = !state.consentAccepted; return render(); }
     if (action === "mock-login") return completeLogin();
@@ -1307,14 +1494,15 @@
     if (action === "refresh-conflict") return showToast("已刷新最新价格和库存，请重新确认");
     if (action === "clear-search") { state.searchQuery = ""; state.searchPerformed = false; return render(); }
     if (action === "clear-search-history") return showToast("搜索记录已清空");
-    if (action === "manage-cart") return showToast("管理模式：可按 SKU 删除商品");
+    if (action === "manage-cart") { state.cartManaging = !state.cartManaging; render(); return showToast(state.cartManaging ? "已进入管理模式，可按 SKU 删除" : "已退出管理模式"); }
+    if (action === "reset-category-filter") { state.categoryBrand = "全部"; state.filter = "全部"; render(); return; }
     if (action === "share") return showToast("已生成小程序分享卡片");
     if (action === "service") return showToast("正在连接商家客服…");
     if (action === "remind") return showToast("已提醒商家尽快发货");
     if (action === "copy-tracking") return showToast("运单号已复制");
-    if (action === "upload") return showToast("原型演示：已打开图片选择器");
-    if (action === "sale-type") return showToast("支持“仅退款”和“退货退款”");
-    if (action === "sale-reason") return showToast("原型演示：打开退款原因选择");
+    if (action === "upload") { state.afterSaleEvidenceCount = Math.min(3, state.afterSaleEvidenceCount + 1); render(); return showToast(`已添加 ${state.afterSaleEvidenceCount} 张演示凭证`); }
+    if (action === "sale-type") return openSheet(aftersaleTypeSheet());
+    if (action === "sale-reason") return openSheet(aftersaleReasonSheet());
     if (action === "privacy-policy") return showToast("原型演示：打开隐私政策");
     return showToast("此入口已预留交互反馈");
   });
@@ -1341,6 +1529,10 @@
       navigate("addresses");
       return showToast("地址已保存");
     }
+  });
+
+  document.addEventListener("input", event => {
+    if (event.target.id === "aftersaleDescription") state.afterSaleDescription = event.target.value;
   });
 
   sheetBackdrop.addEventListener("click", closeSheet);

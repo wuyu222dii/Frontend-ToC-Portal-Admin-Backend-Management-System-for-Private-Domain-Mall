@@ -114,7 +114,14 @@
     forcePassword: false,
     balanceVisible: true,
     activeProductId: 1,
-    walletScenario: "normal"
+    walletScenario: "normal",
+    loginFailures: 0,
+    loginLockedUntil: 0,
+    withdrawSubmitting: false,
+    withdrawalSequence: 23,
+    orderDateRange: "month",
+    commissionDateRange: "month",
+    bankAccount: { holder: "周清源", bank: "招商银行", last4: "6088" }
   };
 
   const $ = (selector, root = document) => root.querySelector(selector);
@@ -240,7 +247,7 @@
   function renderOrders() {
     const keyword = $("#orderSearch").value.trim().toLowerCase();
     const status = $("#orderStatus").value;
-    const filtered = orders.filter((order) => (!keyword || `${order.id}${order.customer}${order.product}`.toLowerCase().includes(keyword)) && (!status || order.status === status));
+    const filtered = orders.filter((order) => (!keyword || `${order.id}${order.customer}${order.product}`.toLowerCase().includes(keyword)) && (!status || order.status === status) && (state.orderDateRange === "month" || order.time.startsWith("08-10")));
     $("#orderCount").textContent = `共 ${filtered.length} 笔归属订单`;
     $("#orderRows").innerHTML = filtered.length ? filtered.map((order) => { const product = productById(order.productId); const net = order.netCommission === undefined ? order.commission : order.netCommission; return `<tr><td><button class="order-number" type="button" data-order-detail="${order.id}">${order.id}</button><span class="cell-sub">${order.time}</span></td><td><span class="cell-main">${order.customer}</span><span class="cell-sub">${phoneText(order.phone)} · ${order.city}</span></td><td><div class="table-product"><img src="${product.image}" alt=""><div><strong>${order.product}</strong><span>共 ${order.count} 件</span></div></div></td><td><span class="cell-main">${money(order.amount)}</span></td><td><span class="tag ${statusClass(order.status)}">${order.status}</span></td><td><span class="cell-main ${net < 0 ? "danger-text" : ""}">${money(net)}</span><span class="cell-sub">${order.commissionStatus} · ${orderRuleSummary(order)}</span></td><td>${order.time}</td><td><button class="icon-button" type="button" data-order-detail="${order.id}" title="查看订单详情">${icon("eye")}</button></td></tr>`; }).join("") : `<tr><td colspan="8"><div class="empty-state">${icon("orders")}<strong>没有找到匹配订单</strong><span>请调整订单状态或搜索内容</span></div></td></tr>`;
     $("#orderCards").innerHTML = filtered.length ? filtered.map(orderCard).join("") : `<div class="empty-state">${icon("orders")}<strong>没有找到匹配订单</strong></div>`;
@@ -259,7 +266,7 @@
   function renderCommissions() {
     const keyword = $("#commissionSearch").value.trim().toLowerCase();
     const type = $("#commissionType").value;
-    const filtered = commissions.filter((record) => (!keyword || `${record.order}${record.product}${record.sku}${record.source}`.toLowerCase().includes(keyword)) && (!type || record.type === type));
+    const filtered = commissions.filter((record) => (!keyword || `${record.order}${record.product}${record.sku}${record.source}`.toLowerCase().includes(keyword)) && (!type || record.type === type) && (state.commissionDateRange === "month" || record.time.startsWith("08-10")));
     $("#commissionCount").textContent = `共 ${filtered.length} 笔佣金记录`;
     $("#commissionRows").innerHTML = filtered.length ? filtered.map((record) => `<tr><td>${record.time}</td><td><span class="tag ${statusClass(record.type)}">${ledgerLabel(record)}</span><span class="cell-sub">${record.ledgerType}</span></td><td><button class="order-number" type="button" data-order-detail="${record.order}">${record.order}</button><span class="cell-sub">${record.product}</span><span class="cell-sub">${record.sku}</span></td><td>${money(record.base)}</td><td>${percent(record.rate)}</td><td>${sourceTag(record.source)}</td><td><span class="cell-main ${record.amount < 0 ? "danger-text" : "positive"}">${money(record.amount)}</span></td><td>${record.impact}</td><td><button class="icon-button" type="button" data-commission-detail="${record.id}" title="查看佣金详情">${icon("eye")}</button></td></tr>`).join("") : `<tr><td colspan="9"><div class="empty-state">${icon("coins")}<strong>没有找到匹配记录</strong></div></td></tr>`;
     $("#commissionCards").innerHTML = filtered.length ? filtered.map(commissionCard).join("") : `<div class="empty-state">${icon("coins")}<strong>没有找到匹配记录</strong></div>`;
@@ -272,6 +279,35 @@
   function renderWithdrawals() {
     $("#withdrawalRows").innerHTML = withdrawals.map((record) => `<tr><td><span class="cell-main">${record.id}</span></td><td>${record.time}</td><td><span class="cell-main">${money(record.amount)}</span></td><td>${record.bank}</td><td><span class="tag ${statusClass(record.status)}">${record.status}</span></td><td>${record.completed}</td><td><button class="icon-button" type="button" data-withdrawal-detail="${record.id}" title="查看提现详情">${icon("eye")}</button></td></tr>`).join("");
     $("#withdrawalCards").innerHTML = withdrawals.map(withdrawalCard).join("");
+    renderWithdrawalAvailability();
+  }
+
+  function activeWithdrawal() {
+    return withdrawals.find((record) => ["PENDING", "APPROVED"].includes(record.statusCode));
+  }
+
+  function renderBankAccount() {
+    const bank = state.bankAccount;
+    $("#walletBankName").textContent = `${bank.bank} · 储蓄卡`;
+    $("#walletBankMasked").textContent = `${bank.holder}　**** **** **** ${bank.last4}`;
+    $("#accountBankMasked").textContent = `${bank.bank} · **** ${bank.last4} · ${bank.holder}`;
+    const choice = $("#withdrawModal .bank-choice");
+    choice.querySelector("strong").textContent = `${bank.bank} · 储蓄卡`;
+    choice.querySelector("small").textContent = `${bank.holder}　**** ${bank.last4}`;
+  }
+
+  function renderWithdrawalAvailability() {
+    const current = activeWithdrawal();
+    const negative = state.walletScenario === "negative";
+    const blocked = negative || Boolean(current) || state.withdrawSubmitting;
+    $("#walletWithdrawButton").disabled = blocked;
+    $("#dashboardWithdrawButton").disabled = blocked;
+    $("#activeWithdrawalCallout").hidden = negative || !current;
+    if (current) {
+      $("#activeWithdrawalTitle").textContent = `已有进行中提现 ${current.id}`;
+      $("#activeWithdrawalCopy").textContent = `${current.status} · ${money(current.amount)}。完成或拒绝后才可再次申请。`;
+    }
+    if (!negative) $("#walletBalanceHint").textContent = current ? "已有进行中申请，暂不能再次提现" : state.withdrawSubmitting ? "提现申请提交中，请勿重复操作" : "当前账户可正常申请提现";
   }
 
   function renderWalletScenario() {
@@ -282,13 +318,12 @@
     $("#walletNegativeHint").textContent = negative ? "后续佣金优先抵扣" : "无待抵扣欠款";
     $("#walletBalanceHint").textContent = negative ? "负余额未清零，提现功能已暂停" : "当前账户可正常申请提现";
     $("#negativeWalletCallout").hidden = !negative;
-    $("#walletWithdrawButton").disabled = negative;
-    $("#dashboardWithdrawButton").disabled = negative;
     $("#dashboardWalletAvailable").textContent = money(available);
     $("#dashboardWalletSecondaryLabel").textContent = negative ? "负余额" : "提现处理中";
     $("#dashboardWalletSecondary").textContent = negative ? "- ¥ 328.50" : "¥ 0.00";
     $("#withdrawAvailable").textContent = money(available);
     $$('[data-wallet-scenario]').forEach((button) => button.classList.toggle("active", button.dataset.walletScenario === state.walletScenario));
+    renderWithdrawalAvailability();
   }
 
   function showPage(page) {
@@ -407,7 +442,7 @@
       <section class="drawer-section"><h4>归属信息</h4><dl class="detail-list"><div><dt>归属代理</dt><dd>清源生活馆</dd></div><div><dt>绑定时间</dt><dd>${customer.bound}</dd></div><div><dt>绑定状态</dt><dd><span class="tag success">长期有效</span></dd></div><div><dt>信息范围</dt><dd>仅展示脱敏运营信息</dd></div></dl></section>
       <section class="drawer-section"><h4>消费概览</h4><div class="drawer-stat-grid"><div><span>归属消费</span><strong>${money(customer.spend)}</strong></div><div><span>消费次数</span><strong>${customer.orders} 次</strong></div><div><span>最近购买</span><strong>${customer.recent}</strong></div><div><span>最近时间</span><strong>${customer.recentTime}</strong></div></div></section>
       <section class="drawer-section"><div class="rule-callout">${icon("shield")}<span>${customer.phone ? "手机号来自客户自愿授权，仅显示后四位；代理端不展示姓名或详细收货地址。" : "客户尚未自愿授权手机号；系统不会从收货地址提取或补写账户手机号。"}</span></div></section>
-      <button class="button secondary full-width" type="button" data-go="orders">${icon("orders")}查看该客户归属订单</button>`;
+      <button class="button secondary full-width" type="button" data-customer-orders="${customer.id}">${icon("orders")}查看该客户归属订单</button>`;
     openOverlay($("#detailDrawer"));
   }
 
@@ -476,8 +511,35 @@
       event.preventDefault();
       const username = $("#username").value.trim();
       const password = $("#password").value.trim();
-      if (!username || !password) { $("#loginError").hidden = false; return; }
-      $("#loginError").hidden = true;
+      const loginError = $("#loginError");
+      if (Date.now() < state.loginLockedUntil) {
+        loginError.textContent = "登录尝试过于频繁，演示账号已锁定 15 分钟";
+        loginError.hidden = false;
+        return;
+      }
+      if (!username || password.length < 8) {
+        state.loginFailures += 1;
+        if (state.loginFailures >= 5) state.loginLockedUntil = Date.now() + 15 * 60 * 1000;
+        loginError.textContent = `模拟服务端校验失败（${state.loginFailures}/5）：账号必填且密码至少 8 位`;
+        loginError.hidden = false;
+        return;
+      }
+      if (username === "paused.agent") {
+        loginError.textContent = "该代理账号已停用，请联系平台超级管理员";
+        loginError.hidden = false;
+        return;
+      }
+      if (username === "rejected.agent") {
+        state.loginFailures += 1;
+        if (state.loginFailures >= 5) {
+          state.loginLockedUntil = Date.now() + 15 * 60 * 1000;
+          loginError.textContent = "连续失败 5 次，演示账号已锁定 15 分钟";
+        } else loginError.textContent = `账号或密码错误，请重试（${state.loginFailures}/5）`;
+        loginError.hidden = false;
+        return;
+      }
+      state.loginFailures = 0;
+      loginError.hidden = true;
       const hasChangedPassword = sessionStorage.getItem("qingxuAgentPasswordSet") === "1";
       if (!hasChangedPassword) {
         state.forcePassword = true;
@@ -518,16 +580,51 @@
       event.preventDefault();
       const amount = Number($("#withdrawAmount").value);
       const available = state.walletScenario === "negative" ? 0 : 1826.4;
-      if (!amount || amount < 100 || amount > available || !$("#withdrawAgree").checked) { $("#withdrawError").hidden = false; return; }
+      const current = activeWithdrawal();
+      if (current) {
+        $("#withdrawError").textContent = `已有进行中提现 ${current.id}，完成后方可再次申请`;
+        $("#withdrawError").hidden = false;
+        return;
+      }
+      if (state.withdrawSubmitting) {
+        $("#withdrawError").textContent = "申请提交中，请勿重复操作";
+        $("#withdrawError").hidden = false;
+        return;
+      }
+      if (!amount || amount < 100 || amount > available || !$("#withdrawAgree").checked) { $("#withdrawError").textContent = "请输入 100.00 至 1,826.40 之间的金额并确认收款账户"; $("#withdrawError").hidden = false; return; }
       $("#withdrawError").hidden = true;
-      withdrawals.unshift({ id: "WD202608100022", time: "2026-08-10 10:42", amount, bank: "招商银行 · 6088", status: "审核中", statusCode: "PENDING", completed: "-", note: "等待平台超级管理员审核", proof: "-" });
-      renderWithdrawals();
-      closeOverlays(true);
-      $("#withdrawForm").reset();
-      showToast("提现申请已提交，等待平台审核");
+      state.withdrawSubmitting = true;
+      $("#submitWithdrawalButton").disabled = true;
+      $("#submitWithdrawalButton").textContent = "提交中，请勿重复操作";
+      renderWithdrawalAvailability();
+      setTimeout(() => {
+        const id = `WD20260811${String(state.withdrawalSequence).padStart(4, "0")}`;
+        state.withdrawalSequence += 1;
+        withdrawals.unshift({ id, time: "2026-08-11 15:42", amount, bank: `${state.bankAccount.bank} · ${state.bankAccount.last4}`, status: "审核中", statusCode: "PENDING", completed: "-", note: "等待平台超级管理员审核", proof: "-" });
+        state.withdrawSubmitting = false;
+        $("#submitWithdrawalButton").disabled = false;
+        $("#submitWithdrawalButton").textContent = "提交提现申请";
+        renderWithdrawals();
+        closeOverlays(true);
+        $("#withdrawForm").reset();
+        showToast(`提现申请 ${id} 已提交，重复请求已阻止`);
+      }, 240);
     });
 
-    $("#bankForm").addEventListener("submit", (event) => { event.preventDefault(); closeOverlays(true); showToast("银行卡信息已保存并加密存储"); });
+    $("#bankForm").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const holder = $("#accountName").value.trim();
+      const bank = $("#bankName").value;
+      const number = $("#bankNumber").value.replace(/\s+/g, "");
+      const valid = holder.length >= 2 && bank && /^\d{12,19}$/.test(number);
+      $("#bankFormError").hidden = valid;
+      if (!valid) return;
+      state.bankAccount = { holder, bank, last4: number.slice(-4) };
+      $("#bankNumber").value = "";
+      renderBankAccount();
+      closeOverlays(true);
+      showToast("银行卡已由模拟服务端校验并保存；前端仅保留后四位");
+    });
     $("#withdrawAll").addEventListener("click", () => { $("#withdrawAmount").value = "1826.40"; });
     $$("[data-amount]").forEach((button) => button.addEventListener("click", () => { $("#withdrawAmount").value = button.dataset.amount; }));
 
@@ -545,6 +642,18 @@
     });
 
     document.addEventListener("click", (event) => {
+      const customerOrders = event.target.closest("[data-customer-orders]");
+      if (customerOrders) {
+        const customer = customers.find((item) => item.id === Number(customerOrders.dataset.customerOrders));
+        if (customer) {
+          $("#orderSearch").value = customer.name;
+          $("#orderStatus").value = "";
+          showPage("orders");
+          renderOrders();
+          showToast(`已筛选 ${customer.name} 的归属订单`);
+        }
+        return;
+      }
       const pageButton = event.target.closest("[data-page], [data-go]");
       if (pageButton) showPage(pageButton.dataset.page || pageButton.dataset.go);
 
@@ -574,6 +683,7 @@
 
       if (event.target.closest("[data-withdraw]")) {
         if (state.walletScenario === "negative") showToast("负余额未清零，暂不能申请提现");
+        else if (activeWithdrawal()) { showPage("wallet"); showToast("已有进行中提现，完成后方可再次申请"); }
         else openOverlay($("#withdrawModal"));
       }
       if (event.target.closest("[data-bank]")) { closeOverlays(true); openOverlay($("#bankModal")); }
@@ -628,6 +738,29 @@
       $("#toggleBalance use").setAttribute("href", state.balanceVisible ? "#i-eye" : "#i-eye-off");
     });
 
+    $("#simulateWithdrawalPaid").addEventListener("click", () => {
+      const current = activeWithdrawal();
+      if (!current) return showToast("当前没有进行中提现");
+      current.status = "已到账";
+      current.statusCode = "PAID";
+      current.completed = "2026-08-11 15:46";
+      current.proof = "PAY-DEMO-RUNTIME";
+      renderWithdrawals();
+      showToast(`${current.id} 已演示完成打款，现在可提交新申请`);
+    });
+
+    $("#orderDateFilter").addEventListener("click", () => {
+      state.orderDateRange = state.orderDateRange === "month" ? "recent" : "month";
+      $("#orderDateFilter span").textContent = state.orderDateRange === "month" ? "本月" : "仅 08-10";
+      renderOrders();
+    });
+
+    $("#commissionDateFilter").addEventListener("click", () => {
+      state.commissionDateRange = state.commissionDateRange === "month" ? "recent" : "month";
+      $("#commissionDateFilter span").textContent = state.commissionDateRange === "month" ? "本月" : "仅 08-10";
+      renderCommissions();
+    });
+
     function logout() {
       sessionStorage.removeItem("qingxuAgentLoggedIn");
       showLogin();
@@ -658,6 +791,7 @@
     renderDashboardOrders();
     renderCommissions();
     renderWithdrawals();
+    renderBankAccount();
     renderSalesBars();
     renderWalletScenario();
     setupEvents();

@@ -30,6 +30,14 @@ enum AccountStatus {
   @@schema("public")
 }
 
+enum SessionAssurance {
+  WECHAT
+  PASSWORD
+  MFA
+
+  @@schema("public")
+}
+
 enum AgentStatus {
   ACTIVE
   DISABLED
@@ -119,9 +127,23 @@ enum FileStatus {
   @@schema("public")
 }
 
-enum CartOwnerType {
-  ANONYMOUS
-  CUSTOMER
+enum FilePurpose {
+  PRODUCT_IMAGE
+  BRAND_LOGO
+  CATEGORY_ICON
+  BANNER
+  AFTERSALE_EVIDENCE
+  WITHDRAWAL_PROOF
+  PROMOTION_QR
+
+  @@schema("public")
+}
+
+enum BannerTargetType {
+  NONE
+  PRODUCT
+  CATEGORY
+  URL
 
   @@schema("public")
 }
@@ -175,11 +197,17 @@ enum PaymentStatus {
   @@schema("public")
 }
 
-enum RefundAggregateStatus {
+enum RefundProgressStatus {
   NONE
-  REFUNDING
   PARTIAL
   FULL
+
+  @@schema("public")
+}
+
+enum RefundProcessingStatus {
+  IDLE
+  REFUNDING
   FAILED
 
   @@schema("public")
@@ -200,6 +228,14 @@ enum OrderCloseReason {
   USER_CANCELLED
   PAYMENT_TIMEOUT
   FULL_REFUND_BEFORE_SHIPMENT
+
+  @@schema("public")
+}
+
+enum OrderCompletionReason {
+  CUSTOMER_CONFIRMED
+  ADMIN_FORCED
+  FULL_REFUND_AFTER_SHIPMENT
 
   @@schema("public")
 }
@@ -228,9 +264,13 @@ enum PaymentProvider {
 }
 
 enum PaymentIntentStatus {
+  CREATING
   OPEN
+  CLOSE_PENDING
   CLOSED
   SUCCEEDED
+  FAILED
+  CANCELLED
   EXPIRED
 
   @@schema("public")
@@ -256,11 +296,17 @@ enum CallbackStatus {
 }
 
 enum ShipmentStatus {
-  CREATED
   SHIPPED
   IN_TRANSIT
   DELIVERED
-  CANCELLED
+
+  @@schema("public")
+}
+
+enum RefundOriginType {
+  AFTERSALE
+  LATE_PAYMENT
+  MANUAL_COMPENSATION
 
   @@schema("public")
 }
@@ -268,6 +314,7 @@ enum ShipmentStatus {
 enum AftersaleType {
   REFUND_ONLY
   RETURN_REFUND
+  AMOUNT_COMPENSATION
 
   @@schema("public")
 }
@@ -278,10 +325,26 @@ enum AftersaleStatus {
   REFUNDING
   WAITING_RETURN
   WAITING_RECEIPT
+  RETURN_EXCEPTION
   REFUNDING_AFTER_RETURN
+  REJECTED_AFTER_RETURN
   REFUND_FAILED
   COMPLETED
   CANCELLED
+
+  @@schema("public")
+}
+
+enum ReturnInspectionStatus {
+  PASS
+  ABNORMAL
+
+  @@schema("public")
+}
+
+enum ReturnInspectionResolution {
+  CONTINUE_REFUND
+  REJECT_AFTER_RETURN
 
   @@schema("public")
 }
@@ -347,7 +410,6 @@ enum CommissionLedgerType {
   WITHDRAWAL_FREEZE
   WITHDRAWAL_RELEASE
   WITHDRAWAL_PAID
-  MANUAL_COMPENSATION
 
   @@schema("public")
 }
@@ -361,8 +423,45 @@ enum WithdrawalStatus {
   @@schema("public")
 }
 
+enum ManualCompensationStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+
+  @@schema("public")
+}
+
 enum ReauthAction {
   PAYOUT_ACCOUNT_REVEAL
+
+  @@schema("public")
+}
+
+enum MfaFactorStatus {
+  PENDING
+  ACTIVE
+  REVOKED
+
+  @@schema("public")
+}
+
+enum MfaChallengePurpose {
+  ENROLL
+  LOGIN
+  REAUTH
+  RECOVERY
+
+  @@schema("public")
+}
+
+enum MfaChallengeStatus {
+  PENDING
+  VERIFIED
+  CONSUMED
+  EXPIRED
+  LOCKED
 
   @@schema("public")
 }
@@ -409,30 +508,74 @@ enum AuditResult {
   @@schema("public")
 }
 
-model Account {
-  id                    String                  @id @db.Char(26)
-  role                  AccountRole
-  status                AccountStatus          @default(ACTIVE)
-  login_name            String?                 @unique @db.VarChar(80)
-  password_hash         String?                 @db.VarChar(255)
-  wechat_open_id        String?                 @unique @db.VarChar(128)
-  wechat_union_id       String?                 @db.VarChar(128)
-  must_change_password  Boolean                 @default(false)
-  last_login_at         DateTime?               @db.Timestamptz(3)
-  version               Int                     @default(1)
-  created_at            DateTime                @default(now()) @db.Timestamptz(3)
-  updated_at            DateTime                @updatedAt @db.Timestamptz(3)
-  deleted_at            DateTime?               @db.Timestamptz(3)
+enum ConfigVersionStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
 
-  customer_profile      CustomerProfile?
-  agent_profile         AgentProfile?
-  sessions              AuthSession[]
-  consents              ConsentRecord[]
-  deletion_requests     AccountDeletionRequest[]
-  reauth_attempts       AdminReauthAttempt[]
-  reauth_grants         AdminReauthGrant[]
-  high_risk_previews    HighRiskOperationPreview[]
-  created_rule_versions CommissionRuleVersion[] @relation("RuleVersionCreator")
+  @@schema("public")
+}
+
+enum OfflineRecoveryStatus {
+  PENDING_APPROVAL
+  APPROVED
+  EXECUTED
+  REJECTED
+  EXPIRED
+
+  @@schema("public")
+}
+
+enum OfflineRecoveryDecision {
+  APPROVED
+  REJECTED
+
+  @@schema("public")
+}
+
+model Account {
+  id                   String        @id @db.Char(26)
+  role                 AccountRole
+  status               AccountStatus @default(ACTIVE)
+  login_name           String?       @unique @db.VarChar(80)
+  password_hash        String?       @db.VarChar(255)
+  wechat_open_id       String?       @unique @db.VarChar(128)
+  wechat_union_id      String?       @db.VarChar(128)
+  must_change_password Boolean       @default(false)
+  last_login_at        DateTime?     @db.Timestamptz(3)
+  version              Int           @default(1)
+  created_at           DateTime      @default(now()) @db.Timestamptz(3)
+  updated_at           DateTime      @updatedAt @db.Timestamptz(3)
+  deleted_at           DateTime?     @db.Timestamptz(3)
+
+  customer_profile                CustomerProfile?
+  agent_profile                   AgentProfile?
+  sessions                        AuthSession[]
+  consents                        ConsentRecord[]
+  deletion_requests               AccountDeletionRequest[]
+  totp_factors                    TotpFactor[]
+  mfa_challenges                  MfaChallenge[]
+  mfa_rate_limits                 MfaRateLimit[]
+  reauth_attempts                 AdminReauthAttempt[]
+  reauth_grants                   AdminReauthGrant[]
+  high_risk_previews              HighRiskOperationPreview[]
+  created_rule_versions           CommissionRuleVersion[]        @relation("RuleVersionCreator")
+  created_business_rule_versions  BusinessRuleVersion[]          @relation("BusinessRuleVersionCreator")
+  created_return_address_versions ReturnAddressVersion[]         @relation("ReturnAddressVersionCreator")
+  approved_manual_compensations   ManualCompensation[]           @relation("ManualCompensationApprover")
+  return_inspections              ReturnInspection[]             @relation("ReturnInspector")
+  recovery_targets                AdminOfflineRecovery[]         @relation("OfflineRecoveryTarget")
+  recovery_requests               AdminOfflineRecovery[]         @relation("OfflineRecoveryRequester")
+  recovery_executions             AdminOfflineRecovery[]         @relation("OfflineRecoveryExecutor")
+  recovery_approvals              AdminOfflineRecoveryApproval[]
+  created_files                   FileAsset[]
+  binding_change_actions          BindingChangeLog[]             @relation("BindingChangeActor")
+  inventory_ledger_actions        InventoryLedger[]              @relation("InventoryLedgerActor")
+  logistics_event_actions         LogisticsEvent[]               @relation("LogisticsEventActor")
+  aftersale_reviews               Aftersale[]                    @relation("AftersaleReviewer")
+  withdrawal_reviews              Withdrawal[]                   @relation("WithdrawalReviewer")
+  withdrawal_payouts              Withdrawal[]                   @relation("WithdrawalPayer")
+  audit_logs                      AuditLog[]                     @relation("AuditLogActor")
 
   @@index([role, status])
   @@map("account")
@@ -440,62 +583,159 @@ model Account {
 }
 
 model AuthSession {
-  id                 String    @id @db.Char(26)
-  account_id         String    @db.Char(26)
-  access_jti         String    @unique @db.VarChar(80)
-  refresh_token_hash String    @unique @db.VarChar(128)
-  expires_at         DateTime  @db.Timestamptz(3)
-  revoked_at         DateTime? @db.Timestamptz(3)
-  last_seen_at       DateTime? @db.Timestamptz(3)
-  created_at         DateTime  @default(now()) @db.Timestamptz(3)
+  id                 String           @id @db.Char(26)
+  account_id         String           @db.Char(26)
+  access_jti         String           @unique @db.VarChar(80)
+  refresh_token_hash String?          @unique @db.VarChar(128)
+  assurance          SessionAssurance
+  restriction        String           @default("NONE") @db.VarChar(40)
+  mfa_factor_id      String?          @db.Char(26)
+  mfa_verified_at    DateTime?        @db.Timestamptz(3)
+  session_family     String           @db.Char(26)
+  rotation_counter   Int              @default(0)
+  expires_at         DateTime         @db.Timestamptz(3)
+  revoked_at         DateTime?        @db.Timestamptz(3)
+  last_seen_at       DateTime?        @db.Timestamptz(3)
+  created_at         DateTime         @default(now()) @db.Timestamptz(3)
 
-  account Account @relation(fields: [account_id], references: [id])
+  account            Account                    @relation(fields: [account_id], references: [id])
+  mfa_factor         TotpFactor?                @relation(fields: [mfa_factor_id], references: [id])
+  mfa_challenges     MfaChallenge[]
+  reauth_grants      AdminReauthGrant[]
   high_risk_previews HighRiskOperationPreview[]
 
   @@index([account_id, revoked_at])
+  @@index([session_family, rotation_counter])
   @@map("auth_session")
   @@schema("public")
 }
 
-model CustomerProfile {
-  id           String    @id @db.Char(26)
-  account_id   String    @unique @db.Char(26)
-  nickname     String?   @db.VarChar(80)
-  avatar_url   String?   @db.VarChar(500)
-  city         String?   @db.VarChar(120)
-  registered_at DateTime @default(now()) @db.Timestamptz(3)
-  anonymized_at DateTime? @db.Timestamptz(3)
-  version      Int       @default(1)
-  created_at   DateTime  @default(now()) @db.Timestamptz(3)
-  updated_at   DateTime  @updatedAt @db.Timestamptz(3)
+model TotpFactor {
+  id                 String          @id @db.Char(26)
+  account_id         String          @db.Char(26)
+  label              String          @db.VarChar(80)
+  secret_ciphertext  Bytes
+  secret_fingerprint String          @db.Char(64)
+  encryption_key_id  String          @db.VarChar(80)
+  status             MfaFactorStatus @default(PENDING)
+  verified_at        DateTime?       @db.Timestamptz(3)
+  last_used_timestep BigInt?
+  revoked_at         DateTime?       @db.Timestamptz(3)
+  created_at         DateTime        @default(now()) @db.Timestamptz(3)
+  updated_at         DateTime        @updatedAt @db.Timestamptz(3)
 
-  account             Account                     @relation(fields: [account_id], references: [id])
-  phone_verifications CustomerPhoneVerification[]
-  attribution_candidates AttributionCandidate[]
-  bindings            CustomerAgentBinding[]
-  favorites           Favorite[]
-  carts               Cart[]
-  addresses           CustomerAddress[]
-  orders              SalesOrder[]
-  aftersales          Aftersale[]
+  account        Account            @relation(fields: [account_id], references: [id])
+  recovery_codes TotpRecoveryCode[]
+  challenges     MfaChallenge[]
+  sessions       AuthSession[]
+
+  // Migration creates a partial unique index on (account_id) WHERE status = 'ACTIVE'.
+  @@index([account_id, status])
+  @@index([secret_fingerprint])
+  @@map("totp_factor")
+  @@schema("public")
+}
+
+model TotpRecoveryCode {
+  id          String    @id @db.Char(26)
+  factor_id   String    @db.Char(26)
+  code_hash   String    @unique @db.Char(64)
+  consumed_at DateTime? @db.Timestamptz(3)
+  created_at  DateTime  @default(now()) @db.Timestamptz(3)
+
+  factor TotpFactor @relation(fields: [factor_id], references: [id])
+
+  @@index([factor_id, consumed_at])
+  @@map("totp_recovery_code")
+  @@schema("public")
+}
+
+model MfaChallenge {
+  id                   String              @id @db.Char(26)
+  account_id           String              @db.Char(26)
+  session_id           String?             @db.Char(26)
+  factor_id            String?             @db.Char(26)
+  purpose              MfaChallengePurpose
+  target_id            String?             @db.Char(26)
+  challenge_token_hash String              @unique @db.Char(64)
+  status               MfaChallengeStatus  @default(PENDING)
+  failed_attempts      Int                 @default(0)
+  expires_at           DateTime            @db.Timestamptz(3)
+  locked_until         DateTime?           @db.Timestamptz(3)
+  verified_at          DateTime?           @db.Timestamptz(3)
+  consumed_at          DateTime?           @db.Timestamptz(3)
+  created_at           DateTime            @default(now()) @db.Timestamptz(3)
+
+  account Account      @relation(fields: [account_id], references: [id])
+  session AuthSession? @relation(fields: [session_id], references: [id])
+  factor  TotpFactor?  @relation(fields: [factor_id], references: [id])
+
+  @@index([account_id, purpose, status, expires_at])
+  @@index([session_id, status])
+  @@map("mfa_challenge")
+  @@schema("public")
+}
+
+model MfaRateLimit {
+  id              String              @id @db.Char(26)
+  account_id      String              @db.Char(26)
+  purpose         MfaChallengePurpose
+  failed_attempts Int                 @default(0)
+  locked_until    DateTime?           @db.Timestamptz(3)
+  version         Int                 @default(1)
+  created_at      DateTime            @default(now()) @db.Timestamptz(3)
+  updated_at      DateTime            @updatedAt @db.Timestamptz(3)
+
+  account Account @relation(fields: [account_id], references: [id])
+
+  @@unique([account_id, purpose])
+  @@index([locked_until])
+  @@map("mfa_rate_limit")
+  @@schema("public")
+}
+
+model CustomerProfile {
+  id            String    @id @db.Char(26)
+  account_id    String    @unique @db.Char(26)
+  nickname      String?   @db.VarChar(80)
+  avatar_url    String?   @db.VarChar(500)
+  city          String?   @db.VarChar(120)
+  registered_at DateTime  @default(now()) @db.Timestamptz(3)
+  anonymized_at DateTime? @db.Timestamptz(3)
+  version       Int       @default(1)
+  created_at    DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at    DateTime  @updatedAt @db.Timestamptz(3)
+
+  account                   Account                          @relation(fields: [account_id], references: [id])
+  phone_verifications       CustomerPhoneVerification[]
+  attribution_candidates    AttributionCandidate[]
+  bindings                  CustomerAgentBinding[]
+  favorites                 Favorite[]
+  cart                      Cart?
+  addresses                 CustomerAddress[]
+  orders                    SalesOrder[]
+  aftersales                Aftersale[]
+  manual_compensations      ManualCompensation[]
+  agent_privacy_projections AgentCustomerPrivacyProjection[]
+  binding_change_logs       BindingChangeLog[]
 
   @@map("customer_profile")
   @@schema("public")
 }
 
 model CustomerPhoneVerification {
-  id                     String    @id @db.Char(26)
-  customer_id            String    @db.Char(26)
-  phone_ciphertext       Bytes
-  phone_hash             String    @db.Char(64)
-  phone_last4            String    @db.Char(4)
-  encryption_key_id      String    @db.VarChar(80)
-  source                 String    @db.VarChar(30)
-  consent_version        String    @db.VarChar(80)
-  verified_at            DateTime  @db.Timestamptz(3)
-  revoked_at             DateTime? @db.Timestamptz(3)
+  id                String    @id @db.Char(26)
+  customer_id       String    @db.Char(26)
+  phone_ciphertext  Bytes
+  phone_hash        String    @db.Char(64)
+  phone_last4       String    @db.Char(4)
+  encryption_key_id String    @db.VarChar(80)
+  source            String    @db.VarChar(30)
+  consent_version   String    @db.VarChar(80)
+  verified_at       DateTime  @db.Timestamptz(3)
+  revoked_at        DateTime? @db.Timestamptz(3)
   // Migration creates a partial unique index on (customer_id) WHERE revoked_at IS NULL.
-  created_at             DateTime  @default(now()) @db.Timestamptz(3)
+  created_at        DateTime  @default(now()) @db.Timestamptz(3)
 
   customer CustomerProfile @relation(fields: [customer_id], references: [id])
 
@@ -523,18 +763,18 @@ model ConsentRecord {
 }
 
 model AccountDeletionRequest {
-  id                   String                @id @db.Char(26)
-  account_id           String                @db.Char(26)
-  status               AccountDeletionStatus @default(SUBMITTED)
-  block_summary        Json?
-  rejection_reason     String?               @db.VarChar(500)
+  id               String                @id @db.Char(26)
+  account_id       String                @db.Char(26)
+  status           AccountDeletionStatus @default(SUBMITTED)
+  block_summary    Json?
+  rejection_reason String?               @db.VarChar(500)
   // Migration creates a partial unique index on (account_id)
   // WHERE status IN ('SUBMITTED', 'PROCESSING').
-  submitted_at         DateTime              @default(now()) @db.Timestamptz(3)
-  processing_at        DateTime?             @db.Timestamptz(3)
-  completed_at         DateTime?             @db.Timestamptz(3)
-  created_at           DateTime              @default(now()) @db.Timestamptz(3)
-  updated_at           DateTime              @updatedAt @db.Timestamptz(3)
+  submitted_at     DateTime              @default(now()) @db.Timestamptz(3)
+  processing_at    DateTime?             @db.Timestamptz(3)
+  completed_at     DateTime?             @db.Timestamptz(3)
+  created_at       DateTime              @default(now()) @db.Timestamptz(3)
+  updated_at       DateTime              @updatedAt @db.Timestamptz(3)
 
   account Account @relation(fields: [account_id], references: [id])
 
@@ -560,53 +800,104 @@ model AdminReauthAttempt {
 }
 
 model AdminReauthGrant {
-  id             String            @id @db.Char(26)
-  account_id     String            @db.Char(26)
-  session_id     String            @db.Char(26)
-  action         ReauthAction
-  target_id      String            @db.Char(26)
-  token_hash     String            @unique @db.Char(64)
-  status         ReauthGrantStatus @default(ACTIVE)
-  expires_at     DateTime          @db.Timestamptz(3)
-  consumed_at    DateTime?         @db.Timestamptz(3)
-  created_at     DateTime          @default(now()) @db.Timestamptz(3)
+  id          String            @id @db.Char(26)
+  account_id  String            @db.Char(26)
+  session_id  String            @db.Char(26)
+  action      ReauthAction
+  target_id   String            @db.Char(26)
+  token_hash  String            @unique @db.Char(64)
+  status      ReauthGrantStatus @default(ACTIVE)
+  expires_at  DateTime          @db.Timestamptz(3)
+  consumed_at DateTime?         @db.Timestamptz(3)
+  created_at  DateTime          @default(now()) @db.Timestamptz(3)
 
-  account Account @relation(fields: [account_id], references: [id])
+  account Account     @relation(fields: [account_id], references: [id])
+  session AuthSession @relation(fields: [session_id], references: [id])
 
   @@index([account_id, action, target_id, status])
   @@map("admin_reauth_grant")
   @@schema("public")
 }
 
-model AgentProfile {
-  id                         String                   @id @db.Char(26)
-  account_id                 String                   @unique @db.Char(26)
-  agent_no                   String                   @unique @db.VarChar(32)
-  name                       String                   @db.VarChar(120)
-  contact_name               String?                  @db.VarChar(80)
-  contact_phone_ciphertext   Bytes?
-  contact_phone_last4        String?                  @db.Char(4)
-  status                     AgentStatus              @default(ACTIVE)
-  product_authorization_mode ProductAuthorizationMode @default(ALL_ACTIVE_PRODUCTS)
-  version                    Int                      @default(1)
-  created_at                 DateTime                 @default(now()) @db.Timestamptz(3)
-  updated_at                 DateTime                 @updatedAt @db.Timestamptz(3)
-  deleted_at                 DateTime?                @db.Timestamptz(3)
+model AdminOfflineRecovery {
+  id                         String                @id @db.Char(26)
+  target_account_id          String                @db.Char(26)
+  requested_by_id            String                @db.Char(26)
+  target_account_version     Int
+  executed_by_id             String?               @db.Char(26)
+  status                     OfflineRecoveryStatus @default(PENDING_APPROVAL)
+  reason                     String                @db.VarChar(500)
+  new_credential_fingerprint String?               @db.Char(64)
+  expires_at                 DateTime              @db.Timestamptz(3)
+  approved_at                DateTime?             @db.Timestamptz(3)
+  executed_at                DateTime?             @db.Timestamptz(3)
+  sessions_revoked_at        DateTime?             @db.Timestamptz(3)
+  version                    Int                   @default(1)
+  created_at                 DateTime              @default(now()) @db.Timestamptz(3)
+  updated_at                 DateTime              @updatedAt @db.Timestamptz(3)
 
-  account                 Account                       @relation(fields: [account_id], references: [id])
-  invite_codes            AgentInviteCode[]
-  product_whitelist       AgentProductWhitelist[]
-  promotion_assets        PromotionAsset[]
-  attribution_candidates AttributionCandidate[]
-  customer_bindings      CustomerAgentBinding[]
-  final_orders           SalesOrder[]                  @relation("FinalAgentOrders")
-  order_candidates       OrderAttributionCandidate[]   @relation("OrderCandidateAgent")
-  commission_snapshots   OrderItemCommissionSnapshot[]
-  commission_ledger      CommissionLedger[]
-  wallet                 AgentWallet?
-  bank_accounts          AgentBankAccount[]
-  withdrawals           Withdrawal[]
-  daily_aggregates       SalesDailyAggregate[]
+  target_account Account                        @relation("OfflineRecoveryTarget", fields: [target_account_id], references: [id])
+  requested_by   Account                        @relation("OfflineRecoveryRequester", fields: [requested_by_id], references: [id])
+  executed_by    Account?                       @relation("OfflineRecoveryExecutor", fields: [executed_by_id], references: [id])
+  approvals      AdminOfflineRecoveryApproval[]
+
+  // Migration creates one active recovery per target for PENDING_APPROVAL/APPROVED.
+  @@index([target_account_id, status, created_at])
+  @@index([status, expires_at])
+  @@map("admin_offline_recovery")
+  @@schema("public")
+}
+
+model AdminOfflineRecoveryApproval {
+  id          String                  @id @db.Char(26)
+  recovery_id String                  @db.Char(26)
+  approver_id String                  @db.Char(26)
+  decision    OfflineRecoveryDecision
+  reason      String                  @db.VarChar(500)
+  created_at  DateTime                @default(now()) @db.Timestamptz(3)
+
+  recovery AdminOfflineRecovery @relation(fields: [recovery_id], references: [id])
+  approver Account              @relation(fields: [approver_id], references: [id])
+
+  @@unique([recovery_id, approver_id])
+  @@index([approver_id, created_at])
+  @@map("admin_offline_recovery_approval")
+  @@schema("public")
+}
+
+model AgentProfile {
+  id                              String                   @id @db.Char(26)
+  account_id                      String                   @unique @db.Char(26)
+  agent_no                        String                   @unique @db.VarChar(32)
+  name                            String                   @db.VarChar(120)
+  contact_name                    String?                  @db.VarChar(80)
+  contact_phone_ciphertext        Bytes?
+  contact_phone_last4             String?                  @db.Char(4)
+  contact_phone_encryption_key_id String?                  @db.VarChar(80)
+  status                          AgentStatus              @default(ACTIVE)
+  product_authorization_mode      ProductAuthorizationMode @default(ALL_ACTIVE_PRODUCTS)
+  version                         Int                      @default(1)
+  created_at                      DateTime                 @default(now()) @db.Timestamptz(3)
+  updated_at                      DateTime                 @updatedAt @db.Timestamptz(3)
+  deleted_at                      DateTime?                @db.Timestamptz(3)
+
+  account                      Account                          @relation(fields: [account_id], references: [id])
+  invite_codes                 AgentInviteCode[]
+  product_whitelist            AgentProductWhitelist[]
+  promotion_assets             PromotionAsset[]
+  attribution_candidates       AttributionCandidate[]
+  customer_bindings            CustomerAgentBinding[]
+  binding_change_logs_old      BindingChangeLog[]               @relation("BindingChangeOldAgent")
+  binding_change_logs_new      BindingChangeLog[]               @relation("BindingChangeNewAgent")
+  final_orders                 SalesOrder[]                     @relation("FinalAgentOrders")
+  order_candidates             OrderAttributionCandidate[]      @relation("OrderCandidateAgent")
+  commission_snapshots         OrderItemCommissionSnapshot[]
+  commission_ledger            CommissionLedger[]
+  wallet                       AgentWallet?
+  bank_accounts                AgentBankAccount[]
+  withdrawals                  Withdrawal[]
+  daily_aggregates             SalesDailyAggregate[]
+  customer_privacy_projections AgentCustomerPrivacyProjection[]
 
   @@index([status, created_at])
   @@map("agent_profile")
@@ -653,23 +944,23 @@ model AgentProductWhitelist {
 }
 
 model PromotionAsset {
-  id                     String               @id @db.Char(26)
-  agent_id               String               @db.Char(26)
-  invite_code_id         String               @db.Char(26)
-  target_type            PromotionTargetType
-  target_product_id      String?              @db.Char(26)
-  status                 PromotionAssetStatus @default(ACTIVE)
-  authorization_version  Int                  @default(1)
-  public_url             String               @db.VarChar(500)
-  qr_file_id             String?              @db.Char(26)
-  expires_at             DateTime?            @db.Timestamptz(3)
-  revoked_at             DateTime?            @db.Timestamptz(3)
-  created_at             DateTime             @default(now()) @db.Timestamptz(3)
+  id                    String               @id @db.Char(26)
+  agent_id              String               @db.Char(26)
+  invite_code_id        String               @db.Char(26)
+  target_type           PromotionTargetType
+  target_product_id     String?              @db.Char(26)
+  status                PromotionAssetStatus @default(ACTIVE)
+  authorization_version Int                  @default(1)
+  public_url            String               @db.VarChar(500)
+  qr_file_id            String?              @db.Char(26)
+  expires_at            DateTime?            @db.Timestamptz(3)
+  revoked_at            DateTime?            @db.Timestamptz(3)
+  created_at            DateTime             @default(now()) @db.Timestamptz(3)
 
-  agent          AgentProfile        @relation(fields: [agent_id], references: [id])
-  invite_code    AgentInviteCode     @relation(fields: [invite_code_id], references: [id])
-  target_product Product?            @relation(fields: [target_product_id], references: [id])
-  qr_file        FileAsset?          @relation("PromotionQrFile", fields: [qr_file_id], references: [id])
+  agent          AgentProfile           @relation(fields: [agent_id], references: [id])
+  invite_code    AgentInviteCode        @relation(fields: [invite_code_id], references: [id])
+  target_product Product?               @relation(fields: [target_product_id], references: [id])
+  qr_file        FileAsset?             @relation("PromotionQrFile", fields: [qr_file_id], references: [id])
   candidates     AttributionCandidate[]
 
   @@index([agent_id, status, target_type])
@@ -678,25 +969,25 @@ model PromotionAsset {
 }
 
 model AttributionCandidate {
-  id                 String                      @id @db.Char(26)
-  anonymous_id       String?                     @db.VarChar(80)
-  customer_id        String?                     @db.Char(26)
-  agent_id           String                      @db.Char(26)
-  invite_code_id     String                      @db.Char(26)
-  promotion_asset_id String                      @db.Char(26)
-  status             AttributionCandidateStatus @default(ACTIVE)
-  expires_at         DateTime                    @db.Timestamptz(3)
-  confirmed_at       DateTime?                   @db.Timestamptz(3)
-  invalid_reason     String?                     @db.VarChar(120)
-  created_at         DateTime                    @default(now()) @db.Timestamptz(3)
-  updated_at         DateTime                    @updatedAt @db.Timestamptz(3)
+  id                   String                     @id @db.Char(26)
+  candidate_token_hash String?                    @db.Char(64)
+  customer_id          String?                    @db.Char(26)
+  agent_id             String                     @db.Char(26)
+  invite_code_id       String                     @db.Char(26)
+  promotion_asset_id   String                     @db.Char(26)
+  status               AttributionCandidateStatus @default(ACTIVE)
+  expires_at           DateTime                   @db.Timestamptz(3)
+  confirmed_at         DateTime?                  @db.Timestamptz(3)
+  invalid_reason       String?                    @db.VarChar(120)
+  created_at           DateTime                   @default(now()) @db.Timestamptz(3)
+  updated_at           DateTime                   @updatedAt @db.Timestamptz(3)
 
-  customer       CustomerProfile? @relation(fields: [customer_id], references: [id])
-  agent          AgentProfile     @relation(fields: [agent_id], references: [id])
-  invite_code    AgentInviteCode  @relation(fields: [invite_code_id], references: [id])
-  promotion_asset PromotionAsset  @relation(fields: [promotion_asset_id], references: [id])
+  customer        CustomerProfile? @relation(fields: [customer_id], references: [id])
+  agent           AgentProfile     @relation(fields: [agent_id], references: [id])
+  invite_code     AgentInviteCode  @relation(fields: [invite_code_id], references: [id])
+  promotion_asset PromotionAsset   @relation(fields: [promotion_asset_id], references: [id])
 
-  @@index([anonymous_id, status, expires_at])
+  @@index([candidate_token_hash, status, expires_at])
   @@index([customer_id, status, expires_at])
   @@map("attribution_candidate")
   @@schema("public")
@@ -711,9 +1002,11 @@ model CustomerAgentBinding {
   end_reason  BindingEndReason?
   created_at  DateTime          @default(now()) @db.Timestamptz(3)
 
-  customer CustomerProfile @relation(fields: [customer_id], references: [id])
-  agent    AgentProfile     @relation(fields: [agent_id], references: [id])
-  orders   OrderAttributionCandidate[]
+  customer        CustomerProfile             @relation(fields: [customer_id], references: [id])
+  agent           AgentProfile                @relation(fields: [agent_id], references: [id])
+  orders          OrderAttributionCandidate[]
+  old_change_logs BindingChangeLog[]          @relation("BindingChangeOldBinding")
+  new_change_logs BindingChangeLog[]          @relation("BindingChangeNewBinding")
 
   @@index([customer_id, ended_at])
   @@index([agent_id, ended_at, started_at])
@@ -722,15 +1015,22 @@ model CustomerAgentBinding {
 }
 
 model BindingChangeLog {
-  id                 String    @id @db.Char(26)
-  customer_id        String    @db.Char(26)
-  old_binding_id     String?   @db.Char(26)
-  new_binding_id     String?   @db.Char(26)
-  old_agent_id       String?   @db.Char(26)
-  new_agent_id       String?   @db.Char(26)
-  actor_account_id   String    @db.Char(26)
-  reason             String    @db.VarChar(500)
-  created_at         DateTime  @default(now()) @db.Timestamptz(3)
+  id               String   @id @db.Char(26)
+  customer_id      String   @db.Char(26)
+  old_binding_id   String?  @db.Char(26)
+  new_binding_id   String?  @db.Char(26)
+  old_agent_id     String?  @db.Char(26)
+  new_agent_id     String?  @db.Char(26)
+  actor_account_id String   @db.Char(26)
+  reason           String   @db.VarChar(500)
+  created_at       DateTime @default(now()) @db.Timestamptz(3)
+
+  customer    CustomerProfile       @relation(fields: [customer_id], references: [id])
+  old_binding CustomerAgentBinding? @relation("BindingChangeOldBinding", fields: [old_binding_id], references: [id])
+  new_binding CustomerAgentBinding? @relation("BindingChangeNewBinding", fields: [new_binding_id], references: [id])
+  old_agent   AgentProfile?         @relation("BindingChangeOldAgent", fields: [old_agent_id], references: [id])
+  new_agent   AgentProfile?         @relation("BindingChangeNewAgent", fields: [new_agent_id], references: [id])
+  actor       Account               @relation("BindingChangeActor", fields: [actor_account_id], references: [id])
 
   @@index([customer_id, created_at])
   @@map("binding_change_log")
@@ -738,16 +1038,18 @@ model BindingChangeLog {
 }
 
 model Brand {
-  id         String       @id @db.Char(26)
-  name       String       @unique @db.VarChar(120)
-  logo_file_id String?    @db.Char(26)
-  status     EntityStatus @default(ACTIVE)
-  sort_order Int          @default(0)
-  version    Int          @default(1)
-  created_at DateTime     @default(now()) @db.Timestamptz(3)
-  updated_at DateTime     @updatedAt @db.Timestamptz(3)
-  deleted_at DateTime?    @db.Timestamptz(3)
+  id           String       @id @db.Char(26)
+  name         String       @unique @db.VarChar(120)
+  logo_file_id String?      @db.Char(26)
+  description  String?      @db.Text
+  status       EntityStatus @default(ACTIVE)
+  sort_order   Int          @default(0)
+  version      Int          @default(1)
+  created_at   DateTime     @default(now()) @db.Timestamptz(3)
+  updated_at   DateTime     @updatedAt @db.Timestamptz(3)
+  deleted_at   DateTime?    @db.Timestamptz(3)
 
+  logo     FileAsset? @relation("BrandLogo", fields: [logo_file_id], references: [id])
   products Product[]
 
   @@index([status, sort_order])
@@ -756,15 +1058,17 @@ model Brand {
 }
 
 model Category {
-  id         String       @id @db.Char(26)
-  name       String       @unique @db.VarChar(120)
-  status     EntityStatus @default(ACTIVE)
-  sort_order Int          @default(0)
-  version    Int          @default(1)
-  created_at DateTime     @default(now()) @db.Timestamptz(3)
-  updated_at DateTime     @updatedAt @db.Timestamptz(3)
-  deleted_at DateTime?    @db.Timestamptz(3)
+  id           String       @id @db.Char(26)
+  name         String       @unique @db.VarChar(120)
+  icon_file_id String?      @db.Char(26)
+  status       EntityStatus @default(ACTIVE)
+  sort_order   Int          @default(0)
+  version      Int          @default(1)
+  created_at   DateTime     @default(now()) @db.Timestamptz(3)
+  updated_at   DateTime     @updatedAt @db.Timestamptz(3)
+  deleted_at   DateTime?    @db.Timestamptz(3)
 
+  icon        FileAsset?  @relation("CategoryIcon", fields: [icon_file_id], references: [id])
   products    Product[]
   order_items OrderItem[]
 
@@ -774,23 +1078,24 @@ model Category {
 }
 
 model Product {
-  id                String       @id @db.Char(26)
-  brand_id          String       @db.Char(26)
-  category_id       String       @db.Char(26)
-  name              String       @db.VarChar(200)
-  subtitle          String?      @db.VarChar(300)
-  introduction      String?      @db.Text
-  ingredients       String?      @db.Text
-  usage_method      String?      @db.Text
-  status            EntityStatus @default(DRAFT)
-  is_hot            Boolean      @default(false)
-  is_new            Boolean      @default(false)
-  sales_count       Int          @default(0)
-  published_at      DateTime?    @db.Timestamptz(3)
-  version           Int          @default(1)
-  created_at        DateTime     @default(now()) @db.Timestamptz(3)
-  updated_at        DateTime     @updatedAt @db.Timestamptz(3)
-  deleted_at        DateTime?    @db.Timestamptz(3)
+  id           String       @id @db.Char(26)
+  spu_code     String       @unique @db.VarChar(80)
+  brand_id     String       @db.Char(26)
+  category_id  String       @db.Char(26)
+  name         String       @db.VarChar(200)
+  subtitle     String?      @db.VarChar(300)
+  introduction String?      @db.Text
+  ingredients  String?      @db.Text
+  usage_method String?      @db.Text
+  status       EntityStatus @default(DRAFT)
+  is_hot       Boolean      @default(false)
+  is_new       Boolean      @default(false)
+  sales_count  Int          @default(0)
+  published_at DateTime?    @db.Timestamptz(3)
+  version      Int          @default(1)
+  created_at   DateTime     @default(now()) @db.Timestamptz(3)
+  updated_at   DateTime     @updatedAt @db.Timestamptz(3)
+  deleted_at   DateTime?    @db.Timestamptz(3)
 
   brand             Brand                   @relation(fields: [brand_id], references: [id])
   category          Category                @relation(fields: [category_id], references: [id])
@@ -807,17 +1112,18 @@ model Product {
 }
 
 model Sku {
-  id          String    @id @db.Char(26)
-  product_id  String    @db.Char(26)
-  code        String    @unique @db.VarChar(80)
-  name        String    @db.VarChar(160)
-  spec_json   Json?
-  retail_price Decimal  @db.Decimal(18, 2)
-  status      SkuStatus @default(ACTIVE)
-  version     Int       @default(1)
-  created_at  DateTime  @default(now()) @db.Timestamptz(3)
-  updated_at  DateTime  @updatedAt @db.Timestamptz(3)
-  deleted_at  DateTime? @db.Timestamptz(3)
+  id             String    @id @db.Char(26)
+  product_id     String    @db.Char(26)
+  code           String    @unique @db.VarChar(80)
+  name           String    @db.VarChar(160)
+  spec_json      Json?
+  retail_price   Decimal   @db.Decimal(18, 2)
+  is_recommended Boolean   @default(false)
+  status         SkuStatus @default(ACTIVE)
+  version        Int       @default(1)
+  created_at     DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at     DateTime  @updatedAt @db.Timestamptz(3)
+  deleted_at     DateTime? @db.Timestamptz(3)
 
   product           Product                    @relation(fields: [product_id], references: [id])
   inventory_balance InventoryBalance?
@@ -832,58 +1138,68 @@ model Sku {
 }
 
 model FileAsset {
-  id                 String         @id @db.Char(26)
-  object_key         String         @unique @db.VarChar(500)
-  original_name      String         @db.VarChar(255)
-  mime_type          String         @db.VarChar(120)
-  byte_size          BigInt
-  sha256             String         @db.Char(64)
-  visibility         FileVisibility @default(PRIVATE)
-  status             FileStatus     @default(PENDING)
-  created_by_id      String?        @db.Char(26)
-  created_at         DateTime       @default(now()) @db.Timestamptz(3)
-  deleted_at         DateTime?      @db.Timestamptz(3)
+  id            String         @id @db.Char(26)
+  object_key    String         @unique @db.VarChar(500)
+  original_name String         @db.VarChar(255)
+  mime_type     String         @db.VarChar(120)
+  byte_size     BigInt
+  sha256        String         @db.Char(64)
+  visibility    FileVisibility @default(PRIVATE)
+  status        FileStatus     @default(PENDING)
+  purpose       FilePurpose
+  created_by_id String?        @db.Char(26)
+  created_at    DateTime       @default(now()) @db.Timestamptz(3)
+  deleted_at    DateTime?      @db.Timestamptz(3)
 
+  created_by         Account?            @relation(fields: [created_by_id], references: [id])
   product_images     ProductImage[]
+  brand_logos        Brand[]             @relation("BrandLogo")
+  category_icons     Category[]          @relation("CategoryIcon")
   banners            Banner[]
-  promotion_qr_files PromotionAsset[] @relation("PromotionQrFile")
+  promotion_qr_files PromotionAsset[]    @relation("PromotionQrFile")
   aftersale_evidence AftersaleEvidence[]
-  withdrawal_proofs WithdrawalProof[]
+  withdrawal_proofs  WithdrawalProof[]
 
-  @@index([status, visibility])
+  @@index([purpose, status, visibility])
+  @@index([created_by_id, created_at])
   @@map("file_asset")
   @@schema("public")
 }
 
 model ProductImage {
-  id         String   @id @db.Char(26)
-  product_id String   @db.Char(26)
-  file_id    String   @db.Char(26)
-  sort_order Int      @default(0)
-  created_at DateTime @default(now()) @db.Timestamptz(3)
+  id         String    @id @db.Char(26)
+  product_id String    @db.Char(26)
+  file_id    String    @db.Char(26)
+  sort_order Int       @default(0)
+  created_at DateTime  @default(now()) @db.Timestamptz(3)
+  deleted_at DateTime? @db.Timestamptz(3)
 
   product Product   @relation(fields: [product_id], references: [id])
   file    FileAsset @relation(fields: [file_id], references: [id])
 
-  @@unique([product_id, sort_order])
+  // Migration creates partial unique indexes for active (product_id, sort_order)
+  // and active (product_id, file_id), both WHERE deleted_at IS NULL.
+  @@index([product_id, sort_order, deleted_at])
+  @@index([product_id, file_id, deleted_at])
   @@map("product_image")
   @@schema("public")
 }
 
 model Banner {
-  id          String       @id @db.Char(26)
-  file_id     String       @db.Char(26)
-  title       String       @db.VarChar(160)
-  target_type String       @db.VarChar(30)
-  target_id   String?      @db.Char(26)
-  status      EntityStatus @default(ACTIVE)
-  sort_order  Int          @default(0)
-  starts_at   DateTime?    @db.Timestamptz(3)
-  ends_at     DateTime?    @db.Timestamptz(3)
-  version     Int          @default(1)
-  created_at  DateTime     @default(now()) @db.Timestamptz(3)
-  updated_at  DateTime     @updatedAt @db.Timestamptz(3)
-  deleted_at  DateTime?    @db.Timestamptz(3)
+  id          String           @id @db.Char(26)
+  file_id     String           @db.Char(26)
+  title       String           @db.VarChar(160)
+  target_type BannerTargetType
+  target_id   String?          @db.Char(26)
+  target_url  String?          @db.VarChar(500)
+  status      EntityStatus     @default(ACTIVE)
+  sort_order  Int              @default(0)
+  starts_at   DateTime?        @db.Timestamptz(3)
+  ends_at     DateTime?        @db.Timestamptz(3)
+  version     Int              @default(1)
+  created_at  DateTime         @default(now()) @db.Timestamptz(3)
+  updated_at  DateTime         @updatedAt @db.Timestamptz(3)
+  deleted_at  DateTime?        @db.Timestamptz(3)
 
   file FileAsset @relation(fields: [file_id], references: [id])
 
@@ -907,18 +1223,14 @@ model Favorite {
 }
 
 model Cart {
-  id           String        @id @db.Char(26)
-  owner_type   CartOwnerType
-  anonymous_id String?       @db.VarChar(80)
-  customer_id  String?       @db.Char(26)
-  created_at   DateTime      @default(now()) @db.Timestamptz(3)
-  updated_at   DateTime      @updatedAt @db.Timestamptz(3)
+  id          String   @id @db.Char(26)
+  customer_id String   @unique @db.Char(26)
+  created_at  DateTime @default(now()) @db.Timestamptz(3)
+  updated_at  DateTime @updatedAt @db.Timestamptz(3)
 
-  customer CustomerProfile? @relation(fields: [customer_id], references: [id])
+  customer CustomerProfile @relation(fields: [customer_id], references: [id])
   items    CartItem[]
 
-  @@index([anonymous_id])
-  @@index([customer_id])
   @@map("cart")
   @@schema("public")
 }
@@ -941,22 +1253,22 @@ model CartItem {
 }
 
 model CustomerAddress {
-  id                    String    @id @db.Char(26)
-  customer_id           String    @db.Char(26)
-  recipient_name        String    @db.VarChar(80)
-  phone_ciphertext      Bytes
-  phone_hash            String    @db.Char(64)
-  phone_last4           String    @db.Char(4)
-  encryption_key_id     String    @db.VarChar(80)
-  province              String    @db.VarChar(80)
-  city                  String    @db.VarChar(80)
-  district              String    @db.VarChar(80)
-  detail_ciphertext     Bytes
-  is_default            Boolean   @default(false)
-  version               Int       @default(1)
-  created_at            DateTime  @default(now()) @db.Timestamptz(3)
-  updated_at            DateTime  @updatedAt @db.Timestamptz(3)
-  deleted_at            DateTime? @db.Timestamptz(3)
+  id                String    @id @db.Char(26)
+  customer_id       String    @db.Char(26)
+  recipient_name    String    @db.VarChar(80)
+  phone_ciphertext  Bytes
+  phone_hash        String    @db.Char(64)
+  phone_last4       String    @db.Char(4)
+  encryption_key_id String    @db.VarChar(80)
+  province          String    @db.VarChar(80)
+  city              String    @db.VarChar(80)
+  district          String    @db.VarChar(80)
+  detail_ciphertext Bytes
+  is_default        Boolean   @default(false)
+  version           Int       @default(1)
+  created_at        DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at        DateTime  @updatedAt @db.Timestamptz(3)
+  deleted_at        DateTime? @db.Timestamptz(3)
 
   customer CustomerProfile @relation(fields: [customer_id], references: [id])
 
@@ -990,7 +1302,7 @@ model InventoryReservation {
   released_at DateTime?                  @db.Timestamptz(3)
   created_at  DateTime                   @default(now()) @db.Timestamptz(3)
 
-  order SalesOrder                  @relation(fields: [order_id], references: [id])
+  order SalesOrder                 @relation(fields: [order_id], references: [id])
   items InventoryReservationItem[]
 
   @@index([status, expires_at])
@@ -1014,19 +1326,20 @@ model InventoryReservationItem {
 }
 
 model InventoryLedger {
-  id              String              @id @db.Char(26)
-  sku_id          String              @db.Char(26)
-  ledger_type     InventoryLedgerType
-  business_id     String?             @db.Char(26)
-  physical_change Int                 @default(0)
-  locked_change   Int                 @default(0)
-  physical_after  Int
-  locked_after    Int
-  reason          String              @db.VarChar(500)
-  actor_account_id String?            @db.Char(26)
-  occurred_at     DateTime            @default(now()) @db.Timestamptz(3)
+  id               String              @id @db.Char(26)
+  sku_id           String              @db.Char(26)
+  ledger_type      InventoryLedgerType
+  business_id      String?             @db.Char(26)
+  physical_change  Int                 @default(0)
+  locked_change    Int                 @default(0)
+  physical_after   Int
+  locked_after     Int
+  reason           String              @db.VarChar(500)
+  actor_account_id String?             @db.Char(26)
+  occurred_at      DateTime            @default(now()) @db.Timestamptz(3)
 
-  sku Sku @relation(fields: [sku_id], references: [id])
+  sku   Sku      @relation(fields: [sku_id], references: [id])
+  actor Account? @relation("InventoryLedgerActor", fields: [actor_account_id], references: [id])
 
   @@index([sku_id, occurred_at])
   @@index([business_id])
@@ -1035,42 +1348,48 @@ model InventoryLedger {
 }
 
 model SalesOrder {
-  id                    String                @id @db.Char(26)
-  order_no              String                @unique @db.VarChar(32)
-  customer_id           String                @db.Char(26)
-  source                OrderSource
-  order_status          OrderStatus           @default(PENDING_PAYMENT)
-  payment_status        PaymentStatus         @default(UNPAID)
-  refund_status         RefundAggregateStatus @default(NONE)
-  fulfillment_status    FulfillmentStatus     @default(NOT_STARTED)
-  close_reason          OrderCloseReason?
-  payment_resolution    PaymentResolution     @default(NORMAL)
-  final_channel         AttributionChannel?
-  final_agent_id        String?               @db.Char(26)
-  goods_amount          Decimal               @db.Decimal(18, 2)
-  shipping_amount       Decimal               @default(0) @db.Decimal(18, 2)
-  payable_amount        Decimal               @db.Decimal(18, 2)
-  paid_amount           Decimal               @default(0) @db.Decimal(18, 2)
-  refunded_amount       Decimal               @default(0) @db.Decimal(18, 2)
-  pay_expires_at        DateTime               @db.Timestamptz(3)
-  paid_at               DateTime?              @db.Timestamptz(3)
-  completed_at          DateTime?              @db.Timestamptz(3)
-  closed_at             DateTime?              @db.Timestamptz(3)
-  version               Int                    @default(1)
-  created_at            DateTime               @default(now()) @db.Timestamptz(3)
-  updated_at            DateTime               @updatedAt @db.Timestamptz(3)
+  id                       String                 @id @db.Char(26)
+  order_no                 String                 @unique @db.VarChar(32)
+  customer_id              String                 @db.Char(26)
+  source                   OrderSource
+  order_status             OrderStatus            @default(PENDING_PAYMENT)
+  payment_status           PaymentStatus          @default(UNPAID)
+  refund_progress_status   RefundProgressStatus   @default(NONE)
+  refund_processing_status RefundProcessingStatus @default(IDLE)
+  fulfillment_status       FulfillmentStatus      @default(NOT_STARTED)
+  close_reason             OrderCloseReason?
+  completion_reason        OrderCompletionReason?
+  payment_resolution       PaymentResolution      @default(NORMAL)
+  final_channel            AttributionChannel?
+  final_agent_id           String?                @db.Char(26)
+  goods_amount             Decimal                @db.Decimal(18, 2)
+  shipping_amount          Decimal                @default(0) @db.Decimal(18, 2)
+  payable_amount           Decimal                @db.Decimal(18, 2)
+  paid_amount              Decimal                @default(0) @db.Decimal(18, 2)
+  refunded_amount          Decimal                @default(0) @db.Decimal(18, 2)
+  pay_expires_at           DateTime               @default(dbgenerated("(CURRENT_TIMESTAMP + '00:30:00'::interval)")) @db.Timestamptz(3)
+  paid_at                  DateTime?              @db.Timestamptz(3)
+  completed_at             DateTime?              @db.Timestamptz(3)
+  aftersale_expires_at     DateTime?              @db.Timestamptz(3)
+  business_rule_version_id String?                @db.Char(26)
+  closed_at                DateTime?              @db.Timestamptz(3)
+  version                  Int                    @default(1)
+  created_at               DateTime               @default(now()) @db.Timestamptz(3)
+  updated_at               DateTime               @updatedAt @db.Timestamptz(3)
 
-  customer              CustomerProfile          @relation(fields: [customer_id], references: [id])
-  final_agent           AgentProfile?             @relation("FinalAgentOrders", fields: [final_agent_id], references: [id])
+  customer              CustomerProfile            @relation(fields: [customer_id], references: [id])
+  final_agent           AgentProfile?              @relation("FinalAgentOrders", fields: [final_agent_id], references: [id])
   items                 OrderItem[]
   address_snapshot      OrderAddressSnapshot?
   attribution_candidate OrderAttributionCandidate?
   attribution_snapshot  OrderAttributionSnapshot?
   inventory_reservation InventoryReservation?
   payment_intents       PaymentIntent[]
-  shipments             Shipment[]
+  shipment              Shipment?
   aftersales            Aftersale[]
   refunds               Refund[]
+  manual_compensations  ManualCompensation[]
+  business_rule_version BusinessRuleVersion?       @relation(fields: [business_rule_version_id], references: [id])
 
   @@index([customer_id, created_at])
   @@index([order_status, created_at])
@@ -1080,35 +1399,38 @@ model SalesOrder {
 }
 
 model OrderItem {
-  id                         String   @id @db.Char(26)
-  order_id                   String   @db.Char(26)
-  product_id                 String   @db.Char(26)
-  category_id                String   @db.Char(26)
-  sku_id                     String   @db.Char(26)
-  product_name_snapshot      String   @db.VarChar(200)
-  brand_name_snapshot        String   @db.VarChar(120)
-  category_name_snapshot     String   @db.VarChar(120)
-  sku_name_snapshot          String   @db.VarChar(160)
-  sku_code_snapshot          String   @db.VarChar(80)
-  unit_price                 Decimal  @db.Decimal(18, 2)
-  quantity                   Int
-  line_paid_amount           Decimal  @db.Decimal(18, 2)
-  refunded_qty               Int      @default(0)
-  refunded_amount            Decimal  @default(0) @db.Decimal(18, 2)
-  aftersale_reserved_qty     Int      @default(0)
-  aftersale_reserved_amount  Decimal  @default(0) @db.Decimal(18, 2)
-  shipped_qty                Int      @default(0)
-  version                    Int      @default(1)
-  created_at                 DateTime @default(now()) @db.Timestamptz(3)
+  id                        String   @id @db.Char(26)
+  order_id                  String   @db.Char(26)
+  product_id                String   @db.Char(26)
+  category_id               String   @db.Char(26)
+  sku_id                    String   @db.Char(26)
+  product_name_snapshot     String   @db.VarChar(200)
+  brand_name_snapshot       String   @db.VarChar(120)
+  category_name_snapshot    String   @db.VarChar(120)
+  sku_name_snapshot         String   @db.VarChar(160)
+  sku_code_snapshot         String   @db.VarChar(80)
+  unit_price                Decimal  @db.Decimal(18, 2)
+  quantity                  Int
+  line_paid_amount          Decimal  @db.Decimal(18, 2)
+  refunded_qty              Int      @default(0)
+  pre_shipment_refunded_qty Int      @default(0)
+  refunded_amount           Decimal  @default(0) @db.Decimal(18, 2)
+  aftersale_reserved_qty    Int      @default(0)
+  aftersale_reserved_amount Decimal  @default(0) @db.Decimal(18, 2)
+  shipped_qty               Int      @default(0)
+  version                   Int      @default(1)
+  created_at                DateTime @default(now()) @db.Timestamptz(3)
 
-  order               SalesOrder                   @relation(fields: [order_id], references: [id])
-  product             Product                      @relation(fields: [product_id], references: [id])
-  category            Category                     @relation(fields: [category_id], references: [id])
-  sku                 Sku                          @relation(fields: [sku_id], references: [id])
-  shipment_items      ShipmentItem[]
-  aftersale_items     AftersaleItem[]
-  refund_items        RefundItem[]
-  commission_snapshot OrderItemCommissionSnapshot?
+  order                   SalesOrder                   @relation(fields: [order_id], references: [id])
+  product                 Product                      @relation(fields: [product_id], references: [id])
+  category                Category                     @relation(fields: [category_id], references: [id])
+  sku                     Sku                          @relation(fields: [sku_id], references: [id])
+  shipment_items          ShipmentItem[]
+  aftersale_items         AftersaleItem[]
+  refund_items            RefundItem[]
+  return_inspection_items ReturnInspectionItem[]
+  manual_compensations    ManualCompensation[]
+  commission_snapshot     OrderItemCommissionSnapshot?
 
   @@unique([order_id, sku_id])
   @@index([sku_id, created_at])
@@ -1117,17 +1439,17 @@ model OrderItem {
 }
 
 model OrderAddressSnapshot {
-  id                    String   @id @db.Char(26)
-  order_id              String   @unique @db.Char(26)
-  recipient_name        String   @db.VarChar(80)
-  phone_ciphertext      Bytes
-  phone_last4           String   @db.Char(4)
-  encryption_key_id     String   @db.VarChar(80)
-  province              String   @db.VarChar(80)
-  city                  String   @db.VarChar(80)
-  district              String   @db.VarChar(80)
-  detail_ciphertext     Bytes
-  created_at            DateTime @default(now()) @db.Timestamptz(3)
+  id                String   @id @db.Char(26)
+  order_id          String   @unique @db.Char(26)
+  recipient_name    String   @db.VarChar(80)
+  phone_ciphertext  Bytes
+  phone_last4       String   @db.Char(4)
+  encryption_key_id String   @db.VarChar(80)
+  province          String   @db.VarChar(80)
+  city              String   @db.VarChar(80)
+  district          String   @db.VarChar(80)
+  detail_ciphertext Bytes
+  created_at        DateTime @default(now()) @db.Timestamptz(3)
 
   order SalesOrder @relation(fields: [order_id], references: [id])
 
@@ -1155,42 +1477,75 @@ model OrderAttributionCandidate {
 }
 
 model OrderAttributionSnapshot {
-  id                           String             @id @db.Char(26)
-  order_id                     String             @unique @db.Char(26)
-  final_channel                AttributionChannel
-  agent_id_snapshot            String?            @db.Char(26)
-  binding_id_snapshot          String?            @db.Char(26)
-  customer_nickname_snapshot   String?            @db.VarChar(80)
-  customer_phone_tail_snapshot String?            @db.Char(4)
-  customer_city_snapshot       String?            @db.VarChar(120)
-  captured_at                  DateTime           @db.Timestamptz(3)
+  id                  String             @id @db.Char(26)
+  order_id            String             @unique @db.Char(26)
+  final_channel       AttributionChannel
+  agent_id_snapshot   String?            @db.Char(26)
+  binding_id_snapshot String?            @db.Char(26)
+  captured_at         DateTime           @db.Timestamptz(3)
 
-  order SalesOrder @relation(fields: [order_id], references: [id])
+  order              SalesOrder                      @relation(fields: [order_id], references: [id])
+  privacy_projection AgentCustomerPrivacyProjection?
 
   @@index([agent_id_snapshot, captured_at])
   @@map("order_attribution_snapshot")
   @@schema("public")
 }
 
+model AgentCustomerPrivacyProjection {
+  id                      String    @id @db.Char(26)
+  attribution_snapshot_id String    @unique @db.Char(26)
+  customer_id             String    @db.Char(26)
+  agent_id                String    @db.Char(26)
+  customer_alias          String    @db.VarChar(80)
+  nickname_masked         String?   @db.VarChar(80)
+  phone_tail              String?   @db.Char(4)
+  city                    String?   @db.VarChar(120)
+  anonymized_at           DateTime? @db.Timestamptz(3)
+  created_at              DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at              DateTime  @updatedAt @db.Timestamptz(3)
+
+  attribution_snapshot OrderAttributionSnapshot @relation(fields: [attribution_snapshot_id], references: [id])
+  customer             CustomerProfile          @relation(fields: [customer_id], references: [id])
+  agent                AgentProfile             @relation(fields: [agent_id], references: [id])
+
+  @@index([customer_id, anonymized_at])
+  @@index([agent_id, created_at])
+  @@map("agent_customer_privacy_projection")
+  @@schema("public")
+}
+
 model PaymentIntent {
-  id                 String              @id @db.Char(26)
-  intent_no          String              @unique @db.VarChar(32)
-  order_id           String              @db.Char(26)
-  provider           PaymentProvider
-  provider_intent_id String?             @db.VarChar(128)
-  status             PaymentIntentStatus @default(OPEN)
-  amount             Decimal             @db.Decimal(18, 2)
-  expires_at         DateTime            @db.Timestamptz(3)
-  closed_at          DateTime?           @db.Timestamptz(3)
-  succeeded_at       DateTime?           @db.Timestamptz(3)
-  // Migration creates a partial unique index on (order_id) WHERE status = 'OPEN'.
-  created_at         DateTime            @default(now()) @db.Timestamptz(3)
+  id                           String              @id @db.Char(26)
+  intent_no                    String              @unique @db.VarChar(32)
+  order_id                     String              @db.Char(26)
+  provider                     PaymentProvider
+  provider_intent_id           String?             @db.VarChar(128)
+  status                       PaymentIntentStatus @default(CREATING)
+  amount                       Decimal             @db.Decimal(18, 2)
+  expires_at                   DateTime            @db.Timestamptz(3)
+  create_requested_at          DateTime            @default(now()) @db.Timestamptz(3)
+  opened_at                    DateTime?           @db.Timestamptz(3)
+  close_requested_at           DateTime?           @db.Timestamptz(3)
+  close_attempt_count          Int                 @default(0)
+  reconciliation_attempt_count Int                 @default(0)
+  next_reconcile_at            DateTime?           @db.Timestamptz(3)
+  last_reconciled_at           DateTime?           @db.Timestamptz(3)
+  provider_state               String?             @db.VarChar(80)
+  last_error_code              String?             @db.VarChar(120)
+  closed_at                    DateTime?           @db.Timestamptz(3)
+  succeeded_at                 DateTime?           @db.Timestamptz(3)
+  version                      Int                 @default(1)
+  updated_at                   DateTime            @updatedAt @db.Timestamptz(3)
+  // Migration creates a partial unique index on (order_id) for all nonterminal statuses.
+  created_at                   DateTime            @default(now()) @db.Timestamptz(3)
 
   order    SalesOrder       @relation(fields: [order_id], references: [id])
   attempts PaymentAttempt[]
 
-  @@index([order_id, status])
   @@unique([provider, provider_intent_id])
+  @@index([order_id, status])
+  @@index([status, next_reconcile_at])
   @@map("payment_intent")
   @@schema("public")
 }
@@ -1209,24 +1564,30 @@ model PaymentAttempt {
 
   payment_intent PaymentIntent @relation(fields: [payment_intent_id], references: [id])
 
-  @@index([payment_intent_id, status])
   @@unique([provider, provider_transaction_id])
+  @@index([payment_intent_id, status])
   @@map("payment_attempt")
   @@schema("public")
 }
 
 model CallbackInbox {
-  id                String         @id @db.Char(26)
-  provider          PaymentProvider
-  event_type        String         @db.VarChar(80)
-  provider_event_id String         @db.VarChar(128)
-  payload           Json
-  signature_valid   Boolean
-  status            CallbackStatus @default(RECEIVED)
-  retry_count       Int            @default(0)
-  received_at       DateTime       @default(now()) @db.Timestamptz(3)
-  processed_at      DateTime?      @db.Timestamptz(3)
-  error_message     String?        @db.VarChar(500)
+  id                  String          @id @db.Char(26)
+  provider            PaymentProvider
+  event_type          String          @db.VarChar(80)
+  provider_event_id   String          @db.VarChar(128)
+  raw_body            Bytes
+  headers             Json
+  payload             Json?
+  signature_valid     Boolean
+  signature_timestamp String?         @db.VarChar(40)
+  signature_nonce     String?         @db.VarChar(80)
+  provider_serial_no  String?         @db.VarChar(128)
+  verified_at         DateTime?       @db.Timestamptz(3)
+  status              CallbackStatus  @default(RECEIVED)
+  retry_count         Int             @default(0)
+  received_at         DateTime        @default(now()) @db.Timestamptz(3)
+  processed_at        DateTime?       @db.Timestamptz(3)
+  error_message       String?         @db.VarChar(500)
 
   @@unique([provider, provider_event_id])
   @@index([status, received_at])
@@ -1235,24 +1596,22 @@ model CallbackInbox {
 }
 
 model Shipment {
-  id             String         @id @db.Char(26)
-  order_id       String         @db.Char(26)
-  status         ShipmentStatus @default(CREATED)
-  carrier_code   String?        @db.VarChar(40)
-  carrier_name   String?        @db.VarChar(80)
-  tracking_no    String?        @db.VarChar(120)
-  shipped_at     DateTime?      @db.Timestamptz(3)
-  delivered_at   DateTime?      @db.Timestamptz(3)
-  cancelled_at   DateTime?      @db.Timestamptz(3)
-  created_at     DateTime       @default(now()) @db.Timestamptz(3)
-  updated_at     DateTime       @updatedAt @db.Timestamptz(3)
+  id           String         @id @db.Char(26)
+  order_id     String         @unique @db.Char(26)
+  status       ShipmentStatus @default(SHIPPED)
+  carrier_code String         @db.VarChar(40)
+  carrier_name String         @db.VarChar(80)
+  tracking_no  String         @db.VarChar(120)
+  shipped_at   DateTime       @db.Timestamptz(3)
+  delivered_at DateTime?      @db.Timestamptz(3)
+  version      Int            @default(1)
+  created_at   DateTime       @default(now()) @db.Timestamptz(3)
+  updated_at   DateTime       @updatedAt @db.Timestamptz(3)
 
   order  SalesOrder       @relation(fields: [order_id], references: [id])
   items  ShipmentItem[]
   events LogisticsEvent[]
 
-  // Migration creates a partial unique index on (order_id) WHERE status <> 'CANCELLED'.
-  @@index([order_id])
   @@index([status, shipped_at])
   @@map("shipment")
   @@schema("public")
@@ -1265,7 +1624,7 @@ model ShipmentItem {
   quantity      Int
   created_at    DateTime @default(now()) @db.Timestamptz(3)
 
-  shipment  Shipment  @relation(fields: [shipment_id], references: [id])
+  shipment   Shipment  @relation(fields: [shipment_id], references: [id])
   order_item OrderItem @relation(fields: [order_item_id], references: [id])
 
   @@unique([shipment_id, order_item_id])
@@ -1274,45 +1633,58 @@ model ShipmentItem {
 }
 
 model LogisticsEvent {
-  id          String   @id @db.Char(26)
-  shipment_id String   @db.Char(26)
-  status_code String   @db.VarChar(40)
-  description String   @db.VarChar(300)
-  location    String?  @db.VarChar(160)
-  occurred_at DateTime @db.Timestamptz(3)
-  created_at  DateTime @default(now()) @db.Timestamptz(3)
+  id               String   @id @db.Char(26)
+  shipment_id      String   @db.Char(26)
+  event_type       String   @db.VarChar(40)
+  status_code      String?  @db.VarChar(40)
+  carrier_code     String?  @db.VarChar(40)
+  carrier_name     String?  @db.VarChar(80)
+  tracking_no      String?  @db.VarChar(120)
+  description      String   @db.VarChar(300)
+  reason           String?  @db.VarChar(500)
+  location         String?  @db.VarChar(160)
+  source           String   @default("MANUAL") @db.VarChar(30)
+  event_key        String   @db.VarChar(80)
+  actor_account_id String?  @db.Char(26)
+  occurred_at      DateTime @db.Timestamptz(3)
+  created_at       DateTime @default(now()) @db.Timestamptz(3)
 
   shipment Shipment @relation(fields: [shipment_id], references: [id])
+  actor    Account? @relation("LogisticsEventActor", fields: [actor_account_id], references: [id])
 
+  @@unique([shipment_id, event_key])
   @@index([shipment_id, occurred_at])
   @@map("logistics_event")
   @@schema("public")
 }
 
 model Aftersale {
-  id                String          @id @db.Char(26)
-  aftersale_no      String          @unique @db.VarChar(32)
-  order_id          String          @db.Char(26)
-  customer_id       String          @db.Char(26)
-  type              AftersaleType
-  status            AftersaleStatus @default(PENDING_REVIEW)
-  reason_code       String          @db.VarChar(80)
-  reason_text       String?         @db.VarChar(500)
-  review_reason     String?         @db.VarChar(500)
-  reviewed_by_id    String?         @db.Char(26)
-  reviewed_at       DateTime?       @db.Timestamptz(3)
-  completed_at      DateTime?       @db.Timestamptz(3)
-  cancelled_at      DateTime?       @db.Timestamptz(3)
-  version           Int             @default(1)
-  created_at        DateTime        @default(now()) @db.Timestamptz(3)
-  updated_at        DateTime        @updatedAt @db.Timestamptz(3)
+  id             String          @id @db.Char(26)
+  aftersale_no   String          @unique @db.VarChar(32)
+  order_id       String          @db.Char(26)
+  customer_id    String          @db.Char(26)
+  type           AftersaleType
+  status         AftersaleStatus @default(PENDING_REVIEW)
+  reason_code    String          @db.VarChar(80)
+  reason_text    String?         @db.VarChar(500)
+  review_reason  String?         @db.VarChar(500)
+  reviewed_by_id String?         @db.Char(26)
+  reviewed_at    DateTime?       @db.Timestamptz(3)
+  completed_at   DateTime?       @db.Timestamptz(3)
+  cancelled_at   DateTime?       @db.Timestamptz(3)
+  version        Int             @default(1)
+  created_at     DateTime        @default(now()) @db.Timestamptz(3)
+  updated_at     DateTime        @updatedAt @db.Timestamptz(3)
 
-  order           SalesOrder         @relation(fields: [order_id], references: [id])
-  customer        CustomerProfile    @relation(fields: [customer_id], references: [id])
-  items           AftersaleItem[]
-  evidence        AftersaleEvidence[]
-  return_shipment ReturnShipment?
-  refunds         Refund[]
+  order             SalesOrder             @relation(fields: [order_id], references: [id])
+  customer          CustomerProfile        @relation(fields: [customer_id], references: [id])
+  items             AftersaleItem[]
+  evidence          AftersaleEvidence[]
+  return_address    ReturnAddressSnapshot?
+  return_shipment   ReturnShipment?
+  return_inspection ReturnInspection?
+  refunds           Refund[]
+  reviewed_by       Account?               @relation("AftersaleReviewer", fields: [reviewed_by_id], references: [id])
 
   @@index([status, created_at])
   @@index([order_id])
@@ -1321,19 +1693,19 @@ model Aftersale {
 }
 
 model AftersaleItem {
-  id                       String   @id @db.Char(26)
-  aftersale_id             String   @db.Char(26)
-  order_item_id            String   @db.Char(26)
-  requested_qty            Int
-  requested_amount         Decimal  @db.Decimal(18, 2)
-  reserved_qty             Int
-  reserved_amount          Decimal  @db.Decimal(18, 2)
-  refunded_qty             Int      @default(0)
-  refunded_amount          Decimal  @default(0) @db.Decimal(18, 2)
-  created_at               DateTime @default(now()) @db.Timestamptz(3)
+  id               String   @id @db.Char(26)
+  aftersale_id     String   @db.Char(26)
+  order_item_id    String   @db.Char(26)
+  requested_qty    Int
+  requested_amount Decimal  @db.Decimal(18, 2)
+  reserved_qty     Int
+  reserved_amount  Decimal  @db.Decimal(18, 2)
+  refunded_qty     Int      @default(0)
+  refunded_amount  Decimal  @default(0) @db.Decimal(18, 2)
+  created_at       DateTime @default(now()) @db.Timestamptz(3)
 
-  aftersale   Aftersale   @relation(fields: [aftersale_id], references: [id])
-  order_item  OrderItem   @relation(fields: [order_item_id], references: [id])
+  aftersale    Aftersale    @relation(fields: [aftersale_id], references: [id])
+  order_item   OrderItem    @relation(fields: [order_item_id], references: [id])
   refund_items RefundItem[]
 
   @@unique([aftersale_id, order_item_id])
@@ -1343,28 +1715,32 @@ model AftersaleItem {
 }
 
 model AftersaleEvidence {
-  id           String   @id @db.Char(26)
-  aftersale_id String   @db.Char(26)
-  file_id      String   @db.Char(26)
-  created_at   DateTime @default(now()) @db.Timestamptz(3)
+  id                   String   @id @db.Char(26)
+  aftersale_id         String   @db.Char(26)
+  return_inspection_id String?  @db.Char(26)
+  file_id              String   @db.Char(26)
+  purpose              String   @db.VarChar(40)
+  created_at           DateTime @default(now()) @db.Timestamptz(3)
 
-  aftersale Aftersale @relation(fields: [aftersale_id], references: [id])
-  file      FileAsset @relation(fields: [file_id], references: [id])
+  aftersale         Aftersale         @relation(fields: [aftersale_id], references: [id])
+  return_inspection ReturnInspection? @relation(fields: [return_inspection_id], references: [id])
+  file              FileAsset         @relation(fields: [file_id], references: [id])
 
   @@unique([aftersale_id, file_id])
+  @@index([return_inspection_id])
   @@map("aftersale_evidence")
   @@schema("public")
 }
 
 model ReturnShipment {
-  id            String   @id @db.Char(26)
-  aftersale_id  String   @unique @db.Char(26)
-  carrier_code  String   @db.VarChar(40)
-  carrier_name  String   @db.VarChar(80)
-  tracking_no   String   @db.VarChar(120)
-  submitted_at  DateTime @db.Timestamptz(3)
-  received_at   DateTime? @db.Timestamptz(3)
-  created_at    DateTime @default(now()) @db.Timestamptz(3)
+  id           String    @id @db.Char(26)
+  aftersale_id String    @unique @db.Char(26)
+  carrier_code String    @db.VarChar(40)
+  carrier_name String    @db.VarChar(80)
+  tracking_no  String    @db.VarChar(120)
+  submitted_at DateTime  @db.Timestamptz(3)
+  received_at  DateTime? @db.Timestamptz(3)
+  created_at   DateTime  @default(now()) @db.Timestamptz(3)
 
   aftersale Aftersale @relation(fields: [aftersale_id], references: [id])
 
@@ -1372,33 +1748,131 @@ model ReturnShipment {
   @@schema("public")
 }
 
+model ReturnAddressVersion {
+  id                String              @id @db.Char(26)
+  version_no        Int                 @unique
+  status            ConfigVersionStatus @default(DRAFT)
+  recipient_name    String              @db.VarChar(80)
+  phone_ciphertext  Bytes
+  phone_last4       String              @db.Char(4)
+  encryption_key_id String              @db.VarChar(80)
+  province          String              @db.VarChar(80)
+  city              String              @db.VarChar(80)
+  district          String              @db.VarChar(80)
+  detail_ciphertext Bytes
+  reason            String              @db.VarChar(500)
+  created_by_id     String              @db.Char(26)
+  effective_at      DateTime?           @db.Timestamptz(3)
+  created_at        DateTime            @default(now()) @db.Timestamptz(3)
+
+  created_by Account                 @relation("ReturnAddressVersionCreator", fields: [created_by_id], references: [id])
+  snapshots  ReturnAddressSnapshot[]
+
+  // Migration creates a partial unique index on (status) WHERE status = 'PUBLISHED'.
+  @@index([status, effective_at])
+  @@map("return_address_version")
+  @@schema("public")
+}
+
+model ReturnAddressSnapshot {
+  id                String   @id @db.Char(26)
+  aftersale_id      String   @unique @db.Char(26)
+  source_version_id String   @db.Char(26)
+  recipient_name    String   @db.VarChar(80)
+  phone_ciphertext  Bytes
+  phone_last4       String   @db.Char(4)
+  encryption_key_id String   @db.VarChar(80)
+  province          String   @db.VarChar(80)
+  city              String   @db.VarChar(80)
+  district          String   @db.VarChar(80)
+  detail_ciphertext Bytes
+  captured_at       DateTime @default(now()) @db.Timestamptz(3)
+
+  aftersale      Aftersale            @relation(fields: [aftersale_id], references: [id])
+  source_version ReturnAddressVersion @relation(fields: [source_version_id], references: [id])
+
+  @@index([source_version_id])
+  @@map("return_address_snapshot")
+  @@schema("public")
+}
+
+model ReturnInspection {
+  id                String                      @id @db.Char(26)
+  aftersale_id      String                      @unique @db.Char(26)
+  status            ReturnInspectionStatus
+  inspected_by_id   String                      @db.Char(26)
+  abnormal_reason   String?                     @db.VarChar(500)
+  evidence_manifest Json
+  evidence_count    Int
+  resolution        ReturnInspectionResolution?
+  resolution_note   String?                     @db.VarChar(500)
+  inspected_at      DateTime                    @db.Timestamptz(3)
+  resolved_at       DateTime?                   @db.Timestamptz(3)
+  version           Int                         @default(1)
+  created_at        DateTime                    @default(now()) @db.Timestamptz(3)
+  updated_at        DateTime                    @updatedAt @db.Timestamptz(3)
+
+  aftersale    Aftersale              @relation(fields: [aftersale_id], references: [id])
+  inspected_by Account                @relation("ReturnInspector", fields: [inspected_by_id], references: [id])
+  items        ReturnInspectionItem[]
+  evidence     AftersaleEvidence[]
+
+  @@index([status, created_at])
+  @@map("return_inspection")
+  @@schema("public")
+}
+
+model ReturnInspectionItem {
+  id                     String   @id @db.Char(26)
+  inspection_id          String   @db.Char(26)
+  order_item_id          String   @db.Char(26)
+  received_qty           Int
+  approved_refund_qty    Int
+  restock_qty            Int      @default(0)
+  damaged_qty            Int      @default(0)
+  scrap_qty              Int      @default(0)
+  return_to_customer_qty Int      @default(0)
+  note                   String?  @db.VarChar(500)
+  created_at             DateTime @default(now()) @db.Timestamptz(3)
+
+  inspection ReturnInspection @relation(fields: [inspection_id], references: [id])
+  order_item OrderItem        @relation(fields: [order_item_id], references: [id])
+
+  @@unique([inspection_id, order_item_id])
+  @@index([order_item_id])
+  @@map("return_inspection_item")
+  @@schema("public")
+}
+
 model Refund {
-  id                     String         @id @db.Char(26)
-  refund_no              String         @unique @db.VarChar(32)
-  order_id               String         @db.Char(26)
-  aftersale_id           String?        @db.Char(26)
+  id                     String           @id @db.Char(26)
+  refund_no              String           @unique @db.VarChar(32)
+  order_id               String           @db.Char(26)
+  aftersale_id           String?          @unique @db.Char(26)
+  manual_compensation_id String?          @unique @db.Char(26)
+  origin_type            RefundOriginType
   provider               PaymentProvider
-  provider_refund_id     String?        @db.VarChar(128)
-  status                 RefundStatus   @default(PENDING)
-  amount                 Decimal        @db.Decimal(18, 2)
-  reason                 String         @db.VarChar(500)
-  is_late_payment_refund Boolean        @default(false)
-  failure_code           String?        @db.VarChar(80)
-  requested_at           DateTime       @default(now()) @db.Timestamptz(3)
-  succeeded_at           DateTime?      @db.Timestamptz(3)
-  failed_at              DateTime?      @db.Timestamptz(3)
-  version                Int            @default(1)
-  updated_at             DateTime       @updatedAt @db.Timestamptz(3)
+  provider_refund_id     String?          @db.VarChar(128)
+  status                 RefundStatus     @default(PENDING)
+  amount                 Decimal          @db.Decimal(18, 2)
+  reason                 String           @db.VarChar(500)
+  is_late_payment_refund Boolean          @default(false)
+  failure_code           String?          @db.VarChar(80)
+  requested_at           DateTime         @default(now()) @db.Timestamptz(3)
+  succeeded_at           DateTime?        @db.Timestamptz(3)
+  failed_at              DateTime?        @db.Timestamptz(3)
+  version                Int              @default(1)
+  updated_at             DateTime         @updatedAt @db.Timestamptz(3)
 
-  order             SalesOrder         @relation(fields: [order_id], references: [id])
-  aftersale         Aftersale?          @relation(fields: [aftersale_id], references: [id])
-  items             RefundItem[]
-  attempts          RefundAttempt[]
-  commission_ledger CommissionLedger[]
+  order               SalesOrder          @relation(fields: [order_id], references: [id])
+  aftersale           Aftersale?          @relation(fields: [aftersale_id], references: [id])
+  items               RefundItem[]
+  attempts            RefundAttempt[]
+  commission_ledger   CommissionLedger[]
+  manual_compensation ManualCompensation? @relation(fields: [manual_compensation_id], references: [id])
 
-  @@index([order_id, status])
-  @@index([aftersale_id])
   @@unique([provider, provider_refund_id])
+  @@index([order_id, status])
   @@map("refund")
   @@schema("public")
 }
@@ -1431,6 +1905,7 @@ model RefundItem {
   refund_id           String   @db.Char(26)
   order_item_id       String   @db.Char(26)
   aftersale_item_id   String?  @db.Char(26)
+  /// Migration trigger enforces the remaining aftersale reservation and, for returned goods, the frozen approved refund quantity.
   quantity            Int
   amount              Decimal  @db.Decimal(18, 2)
   auto_restock        Boolean  @default(false)
@@ -1447,19 +1922,52 @@ model RefundItem {
   @@schema("public")
 }
 
-model CommissionRuleVersion {
-  id               String                      @id @db.Char(26)
-  version_no       Int                         @unique
-  base_version_id  String?                     @db.Char(26)
-  status           CommissionRuleVersionStatus @default(DRAFT)
-  reason           String                      @db.VarChar(500)
-  created_by_id    String                      @db.Char(26)
-  effective_at     DateTime?                   @db.Timestamptz(3)
-  created_at       DateTime                    @default(now()) @db.Timestamptz(3)
+model ManualCompensation {
+  id                  String                   @id @db.Char(26)
+  compensation_no     String                   @unique @db.VarChar(32)
+  order_id            String                   @db.Char(26)
+  order_item_id       String                   @db.Char(26)
+  customer_id         String                   @db.Char(26)
+  approved_by_id      String                   @db.Char(26)
+  type                AftersaleType            @default(AMOUNT_COMPENSATION)
+  status              ManualCompensationStatus @default(PENDING)
+  amount              Decimal                  @db.Decimal(18, 2)
+  reserved_amount     Decimal                  @db.Decimal(18, 2)
+  refunded_amount     Decimal                  @default(0) @db.Decimal(18, 2)
+  commission_reversal Decimal                  @default(0) @db.Decimal(18, 2)
+  reason              String                   @db.VarChar(500)
+  failure_code        String?                  @db.VarChar(120)
+  version             Int                      @default(1)
+  created_at          DateTime                 @default(now()) @db.Timestamptz(3)
+  updated_at          DateTime                 @updatedAt @db.Timestamptz(3)
+  completed_at        DateTime?                @db.Timestamptz(3)
 
-  base_version     CommissionRuleVersion?       @relation("RuleVersionBase", fields: [base_version_id], references: [id])
-  derived_versions CommissionRuleVersion[]      @relation("RuleVersionBase")
-  created_by       Account                      @relation("RuleVersionCreator", fields: [created_by_id], references: [id])
+  order       SalesOrder      @relation(fields: [order_id], references: [id])
+  order_item  OrderItem       @relation(fields: [order_item_id], references: [id])
+  customer    CustomerProfile @relation(fields: [customer_id], references: [id])
+  refund      Refund?
+  approved_by Account         @relation("ManualCompensationApprover", fields: [approved_by_id], references: [id])
+
+  @@index([order_id, created_at])
+  @@index([order_item_id, created_at])
+  @@index([status, created_at])
+  @@map("manual_compensation")
+  @@schema("public")
+}
+
+model CommissionRuleVersion {
+  id              String                      @id @db.Char(26)
+  version_no      Int                         @unique
+  base_version_id String?                     @db.Char(26)
+  status          CommissionRuleVersionStatus @default(DRAFT)
+  reason          String                      @db.VarChar(500)
+  created_by_id   String                      @db.Char(26)
+  effective_at    DateTime?                   @db.Timestamptz(3)
+  created_at      DateTime                    @default(now()) @db.Timestamptz(3)
+
+  base_version     CommissionRuleVersion?        @relation("RuleVersionBase", fields: [base_version_id], references: [id])
+  derived_versions CommissionRuleVersion[]       @relation("RuleVersionBase")
+  created_by       Account                       @relation("RuleVersionCreator", fields: [created_by_id], references: [id])
   entries          CommissionRuleEntry[]
   snapshots        OrderItemCommissionSnapshot[]
 
@@ -1469,13 +1977,13 @@ model CommissionRuleVersion {
 }
 
 model CommissionRuleEntry {
-  id                 String               @id @db.Char(26)
-  rule_version_id    String               @db.Char(26)
-  target_type        CommissionTargetType
-  target_id          String?              @db.Char(26)
-  target_key         String               @db.VarChar(80)
-  configured_rate    Decimal              @db.Decimal(7, 4)
-  created_at         DateTime             @default(now()) @db.Timestamptz(3)
+  id              String               @id @db.Char(26)
+  rule_version_id String               @db.Char(26)
+  target_type     CommissionTargetType
+  target_id       String?              @db.Char(26)
+  target_key      String               @db.VarChar(80)
+  configured_rate Decimal              @db.Decimal(7, 4)
+  created_at      DateTime             @default(now()) @db.Timestamptz(3)
 
   rule_version CommissionRuleVersion @relation(fields: [rule_version_id], references: [id])
 
@@ -1486,23 +1994,23 @@ model CommissionRuleEntry {
 }
 
 model OrderItemCommissionSnapshot {
-  id                    String                  @id @db.Char(26)
-  order_item_id         String                  @unique @db.Char(26)
-  agent_id              String                  @db.Char(26)
-  rule_version_id       String                  @db.Char(26)
-  source_type           CommissionSourceType
-  category_id_snapshot  String                  @db.Char(26)
-  category_name_snapshot String                 @db.VarChar(120)
-  product_id_snapshot   String                  @db.Char(26)
-  sku_id_snapshot       String                  @db.Char(26)
-  effective_rate        Decimal                 @db.Decimal(7, 4)
-  commission_base       Decimal                 @db.Decimal(18, 2)
-  original_commission   Decimal                 @db.Decimal(18, 2)
-  created_at            DateTime                @default(now()) @db.Timestamptz(3)
+  id                     String               @id @db.Char(26)
+  order_item_id          String               @unique @db.Char(26)
+  agent_id               String               @db.Char(26)
+  rule_version_id        String               @db.Char(26)
+  source_type            CommissionSourceType
+  category_id_snapshot   String               @db.Char(26)
+  category_name_snapshot String               @db.VarChar(120)
+  product_id_snapshot    String               @db.Char(26)
+  sku_id_snapshot        String               @db.Char(26)
+  effective_rate         Decimal              @db.Decimal(7, 4)
+  commission_base        Decimal              @db.Decimal(18, 2)
+  original_commission    Decimal              @db.Decimal(18, 2)
+  created_at             DateTime             @default(now()) @db.Timestamptz(3)
 
-  order_item   OrderItem              @relation(fields: [order_item_id], references: [id])
-  agent        AgentProfile           @relation(fields: [agent_id], references: [id])
-  rule_version CommissionRuleVersion  @relation(fields: [rule_version_id], references: [id])
+  order_item   OrderItem                    @relation(fields: [order_item_id], references: [id])
+  agent        AgentProfile                 @relation(fields: [agent_id], references: [id])
+  rule_version CommissionRuleVersion        @relation(fields: [rule_version_id], references: [id])
   position     OrderItemCommissionPosition?
   ledger       CommissionLedger[]
 
@@ -1512,14 +2020,16 @@ model OrderItemCommissionSnapshot {
 }
 
 model OrderItemCommissionPosition {
-  id                 String                  @id @db.Char(26)
-  snapshot_id        String                  @unique @db.Char(26)
-  state              CommissionSnapshotState
-  expected_remaining Decimal                 @db.Decimal(18, 2)
-  reversed_total     Decimal                 @default(0) @db.Decimal(18, 2)
-  available_at       DateTime?               @db.Timestamptz(3)
-  version            Int                     @default(1)
-  updated_at         DateTime                @updatedAt @db.Timestamptz(3)
+  id                  String                  @id @db.Char(26)
+  snapshot_id         String                  @unique @db.Char(26)
+  state               CommissionSnapshotState
+  /// Migration trigger keeps this immutable and equal to the referenced snapshot.
+  original_commission Decimal                 @db.Decimal(18, 2)
+  expected_remaining  Decimal                 @db.Decimal(18, 2)
+  reversed_total      Decimal                 @default(0) @db.Decimal(18, 2)
+  available_at        DateTime?               @db.Timestamptz(3)
+  version             Int                     @default(1)
+  updated_at          DateTime                @updatedAt @db.Timestamptz(3)
 
   snapshot OrderItemCommissionSnapshot @relation(fields: [snapshot_id], references: [id])
 
@@ -1529,23 +2039,23 @@ model OrderItemCommissionPosition {
 }
 
 model CommissionLedger {
-  id                     String               @id @db.Char(26)
-  agent_id               String               @db.Char(26)
-  snapshot_id            String?              @db.Char(26)
-  refund_id              String?              @db.Char(26)
-  withdrawal_id          String?              @db.Char(26)
-  ledger_type            CommissionLedgerType
-  expected_change        Decimal              @default(0) @db.Decimal(18, 2)
-  available_change       Decimal              @default(0) @db.Decimal(18, 2)
-  frozen_change          Decimal              @default(0) @db.Decimal(18, 2)
-  reason                 String               @db.VarChar(500)
-  idempotency_key        String               @db.VarChar(80)
-  occurred_at            DateTime             @default(now()) @db.Timestamptz(3)
+  id               String               @id @db.Char(26)
+  agent_id         String               @db.Char(26)
+  snapshot_id      String?              @db.Char(26)
+  refund_id        String?              @db.Char(26)
+  withdrawal_id    String?              @db.Char(26)
+  ledger_type      CommissionLedgerType
+  expected_change  Decimal              @default(0) @db.Decimal(18, 2)
+  available_change Decimal              @default(0) @db.Decimal(18, 2)
+  frozen_change    Decimal              @default(0) @db.Decimal(18, 2)
+  reason           String               @db.VarChar(500)
+  idempotency_key  String               @db.VarChar(80)
+  occurred_at      DateTime             @default(now()) @db.Timestamptz(3)
 
   agent      AgentProfile                 @relation(fields: [agent_id], references: [id])
   snapshot   OrderItemCommissionSnapshot? @relation(fields: [snapshot_id], references: [id])
-  refund     Refund?                       @relation(fields: [refund_id], references: [id])
-  withdrawal Withdrawal?                   @relation(fields: [withdrawal_id], references: [id])
+  refund     Refund?                      @relation(fields: [refund_id], references: [id])
+  withdrawal Withdrawal?                  @relation(fields: [withdrawal_id], references: [id])
 
   @@unique([agent_id, idempotency_key])
   @@index([agent_id, occurred_at])
@@ -1592,26 +2102,28 @@ model AgentBankAccount {
 }
 
 model Withdrawal {
-  id                    String           @id @db.Char(26)
-  withdrawal_no         String           @unique @db.VarChar(32)
-  agent_id              String           @db.Char(26)
-  status                WithdrawalStatus @default(PENDING)
-  amount                Decimal          @db.Decimal(18, 2)
-  available_before      Decimal          @db.Decimal(18, 2)
-  frozen_after          Decimal          @db.Decimal(18, 2)
-  review_reason         String?          @db.VarChar(500)
-  reviewed_by_id        String?          @db.Char(26)
-  reviewed_at           DateTime?        @db.Timestamptz(3)
-  paid_by_id            String?          @db.Char(26)
-  paid_at               DateTime?        @db.Timestamptz(3)
-  version               Int              @default(1)
-  created_at            DateTime         @default(now()) @db.Timestamptz(3)
-  updated_at            DateTime         @updatedAt @db.Timestamptz(3)
+  id               String           @id @db.Char(26)
+  withdrawal_no    String           @unique @db.VarChar(32)
+  agent_id         String           @db.Char(26)
+  status           WithdrawalStatus @default(PENDING)
+  amount           Decimal          @db.Decimal(18, 2)
+  available_before Decimal          @db.Decimal(18, 2)
+  frozen_after     Decimal          @db.Decimal(18, 2)
+  review_reason    String?          @db.VarChar(500)
+  reviewed_by_id   String?          @db.Char(26)
+  reviewed_at      DateTime?        @db.Timestamptz(3)
+  paid_by_id       String?          @db.Char(26)
+  paid_at          DateTime?        @db.Timestamptz(3)
+  version          Int              @default(1)
+  created_at       DateTime         @default(now()) @db.Timestamptz(3)
+  updated_at       DateTime         @updatedAt @db.Timestamptz(3)
 
-  agent          AgentProfile            @relation(fields: [agent_id], references: [id])
-  bank_snapshot  WithdrawalBankSnapshot?
-  proofs         WithdrawalProof[]
-  ledger         CommissionLedger[]
+  agent         AgentProfile            @relation(fields: [agent_id], references: [id])
+  bank_snapshot WithdrawalBankSnapshot?
+  proofs        WithdrawalProof[]
+  ledger        CommissionLedger[]
+  reviewed_by   Account?                @relation("WithdrawalReviewer", fields: [reviewed_by_id], references: [id])
+  paid_by       Account?                @relation("WithdrawalPayer", fields: [paid_by_id], references: [id])
 
   @@index([agent_id, status, created_at])
   @@index([status, created_at])
@@ -1620,17 +2132,17 @@ model Withdrawal {
 }
 
 model WithdrawalBankSnapshot {
-  id                    String   @id @db.Char(26)
-  withdrawal_id         String   @unique @db.Char(26)
-  source_bank_account_id String? @db.Char(26)
-  account_holder        String   @db.VarChar(120)
-  bank_name             String   @db.VarChar(160)
-  account_no_ciphertext Bytes
-  account_no_last4      String   @db.Char(4)
-  encryption_key_id     String   @db.VarChar(80)
-  created_at            DateTime @default(now()) @db.Timestamptz(3)
+  id                     String   @id @db.Char(26)
+  withdrawal_id          String   @unique @db.Char(26)
+  source_bank_account_id String?  @db.Char(26)
+  account_holder         String   @db.VarChar(120)
+  bank_name              String   @db.VarChar(160)
+  account_no_ciphertext  Bytes
+  account_no_last4       String   @db.Char(4)
+  encryption_key_id      String   @db.VarChar(80)
+  created_at             DateTime @default(now()) @db.Timestamptz(3)
 
-  withdrawal        Withdrawal       @relation(fields: [withdrawal_id], references: [id])
+  withdrawal          Withdrawal        @relation(fields: [withdrawal_id], references: [id])
   source_bank_account AgentBankAccount? @relation(fields: [source_bank_account_id], references: [id])
 
   @@map("withdrawal_bank_snapshot")
@@ -1651,18 +2163,25 @@ model WithdrawalProof {
   @@schema("public")
 }
 
-model BusinessRule {
-  id                  String   @id @db.Char(26)
-  rule_key            String   @unique @db.VarChar(100)
-  value_json          Json
-  version             Int      @default(1)
-  updated_by_id       String   @db.Char(26)
-  reason              String   @db.VarChar(500)
-  effective_at        DateTime @db.Timestamptz(3)
-  created_at          DateTime @default(now()) @db.Timestamptz(3)
-  updated_at          DateTime @updatedAt @db.Timestamptz(3)
+model BusinessRuleVersion {
+  id                            String              @id @db.Char(26)
+  version_no                    Int                 @unique
+  status                        ConfigVersionStatus @default(DRAFT)
+  minimum_withdrawal_amount     Decimal             @db.Decimal(18, 2)
+  aftersale_window_days         Int
+  legal_record_retention_years  Int
+  order_payment_timeout_minutes Int                 @default(30)
+  reason                        String              @db.VarChar(500)
+  created_by_id                 String              @db.Char(26)
+  effective_at                  DateTime?           @db.Timestamptz(3)
+  created_at                    DateTime            @default(now()) @db.Timestamptz(3)
 
-  @@map("business_rule")
+  created_by Account      @relation("BusinessRuleVersionCreator", fields: [created_by_id], references: [id])
+  orders     SalesOrder[]
+
+  // Migration creates a partial unique index on (status) WHERE status = 'PUBLISHED'.
+  @@index([status, effective_at])
+  @@map("business_rule_version")
   @@schema("public")
 }
 
@@ -1728,20 +2247,24 @@ model OutboxEvent {
 }
 
 model AuditLog {
-  id                String      @id @db.Char(26)
-  actor_account_id  String?     @db.Char(26)
-  actor_role        AccountRole?
-  module            String      @db.VarChar(80)
-  object_type       String      @db.VarChar(80)
-  object_id         String      @db.VarChar(80)
-  action            String      @db.VarChar(120)
-  reason            String?     @db.VarChar(500)
-  before_json       Json?
-  after_json        Json?
-  result            AuditResult
-  request_id        String      @db.VarChar(80)
-  ip_hash           String?     @db.Char(64)
-  occurred_at       DateTime    @default(now()) @db.Timestamptz(3)
+  id               String       @id @db.Char(26)
+  actor_account_id String?      @db.Char(26)
+  actor_role       AccountRole?
+  module           String       @db.VarChar(80)
+  object_type      String       @db.VarChar(80)
+  object_id        String       @db.VarChar(80)
+  action           String       @db.VarChar(120)
+  reason           String?      @db.VarChar(500)
+  before_json      Json?
+  after_json       Json?
+  result           AuditResult
+  request_id       String       @db.VarChar(80)
+  idempotency_key  String?      @db.VarChar(80)
+  result_code      String?      @db.VarChar(120)
+  ip_hash          String?      @db.Char(64)
+  occurred_at      DateTime     @default(now()) @db.Timestamptz(3)
+
+  actor Account? @relation("AuditLogActor", fields: [actor_account_id], references: [id])
 
   @@index([object_type, object_id, occurred_at])
   @@index([actor_account_id, occurred_at])
@@ -1751,19 +2274,26 @@ model AuditLog {
 }
 
 model SalesDailyAggregate {
-  id                 String              @id @db.Char(26)
-  business_date      DateTime            @db.Date
-  channel            AttributionChannel
-  agent_id           String?             @db.Char(26)
-  /// DIRECT or AGENT:<agent_id>; paired with business_date for uniqueness.
-  scope_key          String              @db.VarChar(40)
-  paid_order_count   Int                 @default(0)
-  paid_amount        Decimal             @default(0) @db.Decimal(18, 2)
-  refunded_amount    Decimal             @default(0) @db.Decimal(18, 2)
-  net_sales_amount   Decimal             @default(0) @db.Decimal(18, 2)
-  product_units      Int                 @default(0)
-  new_customer_count Int                 @default(0)
-  rebuilt_at         DateTime            @db.Timestamptz(3)
+  id                      String              @id @db.Char(26)
+  business_date           DateTime            @db.Date
+  channel                 AttributionChannel?
+  agent_id                String?             @db.Char(26)
+  /// GLOBAL, DIRECT, or AGENT:<agent_id>; paired with business_date for uniqueness.
+  scope_key               String              @db.VarChar(40)
+  created_order_count     Int                 @default(0)
+  paid_order_count        Int                 @default(0)
+  paid_amount             Decimal             @default(0) @db.Decimal(18, 2)
+  refunded_amount         Decimal             @default(0) @db.Decimal(18, 2)
+  net_sales_amount        Decimal             @default(0) @db.Decimal(18, 2)
+  paid_units              Int                 @default(0)
+  refunded_units          Int                 @default(0)
+  net_units               Int                 @default(0)
+  new_registration_count  Int                 @default(0)
+  new_binding_count       Int                 @default(0)
+  active_agent_count      Int                 @default(0)
+  customer_total_snapshot Int                 @default(0)
+  timezone                String              @default("Asia/Shanghai") @db.VarChar(40)
+  rebuilt_at              DateTime            @db.Timestamptz(3)
 
   agent AgentProfile? @relation(fields: [agent_id], references: [id])
 

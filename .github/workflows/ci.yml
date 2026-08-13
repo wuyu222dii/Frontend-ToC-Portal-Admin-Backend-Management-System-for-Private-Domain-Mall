@@ -34,6 +34,7 @@ jobs:
           --health-retries 12
     env:
       CI: "true"
+      NODE_ENV: test
       ALLOW_CI_EPHEMERAL_POSTGRES: "1"
       DATABASE_URL: postgresql://mall_runtime:ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}-runtime@127.0.0.1:5432/mall_ci
       DIRECT_URL: postgresql://mall_migrator:ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}@127.0.0.1:5432/mall_ci
@@ -48,6 +49,10 @@ jobs:
       S3_ACCESS_KEY: ci-${{ github.run_id }}
       S3_SECRET_KEY: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
       S3_FORCE_PATH_STYLE: "true"
+      WORKER_POLL_INTERVAL_MS: "1000"
+      WORKER_BATCH_SIZE: "20"
+      WORKER_MAX_RETRIES: "8"
+      WORKER_BASE_RETRY_DELAY_MS: "1000"
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -85,6 +90,15 @@ jobs:
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
 
+      - name: Create CI-only application secrets
+        run: |
+          echo "FIELD_ENCRYPTION_KEY_BASE64=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
+          echo "AUDIT_IP_HASH_KEY_BASE64=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
+          echo "IDEMPOTENCY_HASH_KEY_BASE64=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
+          echo "IDEMPOTENCY_HASH_KEY_ID=ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+          echo 'IDEMPOTENCY_PREVIOUS_HASH_KEYS_JSON=[]' >> "$GITHUB_ENV"
+          echo "FIELD_ENCRYPTION_KEY_ID=ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+
       - name: Validate environment contract
         run: pnpm config:check
 
@@ -117,6 +131,11 @@ jobs:
 
       - name: Test permission gates with fault injection
         run: pnpm db:test-permissions
+
+      - name: Test B1 persistence and worker concurrency
+        env:
+          B1_DATABASE_TEST_MODE: full
+        run: pnpm db:test-b1
 
       - name: Verify Prisma migration drift
         run: pnpm db:diff

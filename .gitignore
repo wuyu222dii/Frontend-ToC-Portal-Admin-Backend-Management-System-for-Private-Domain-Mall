@@ -6,6 +6,7 @@ coverage/
 .turbo/
 .vite/
 /generated/
+packages/*/dist/
 
 # Runtime and framework output
 .cache/

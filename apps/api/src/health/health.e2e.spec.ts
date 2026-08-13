@@ -4,6 +4,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { AppModule } from '../app.module';
+import { configureApi } from '../platform/http/configure-api';
 
 describe('API health (e2e)', () => {
   let app: INestApplication;
@@ -11,6 +12,7 @@ describe('API health (e2e)', () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
+    configureApi(app);
     await app.init();
   });
 

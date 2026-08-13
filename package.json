@@ -10,6 +10,7 @@
   },
   "scripts": {
     "build": "pnpm -r --if-present build",
+    "build:packages": "pnpm --filter './packages/**' --if-present build",
     "build:miniapp": "pnpm --filter @qingxu/miniapp build:mp-weixin",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "config:check": "node scripts/ci/validate-env.mjs",
@@ -24,13 +25,15 @@
     "prisma:validate": "prisma validate --config prisma.config.ts",
     "db:migrate:baseline": "node scripts/db/replay-ci.mjs",
     "db:test-permissions": "node scripts/ci/test-permission-gates.mjs",
+    "db:test-b1": "node scripts/ci/test-b1-database.mjs",
     "db:check-frozen": "node scripts/db/check-frozen.mjs",
     "db:supabase:bootstrap": "node scripts/db/bootstrap.mjs",
     "db:diff": "scripts/ci/verify-migration-diff.sh",
     "e2e": "playwright test",
     "scan:sensitive": "node scripts/ci/scan-sensitive.mjs",
-    "test": "pnpm -r --if-present test",
-    "typecheck": "pnpm -r --if-present typecheck"
+    "pretest": "pnpm build:packages",
+    "test": "pnpm -r --workspace-concurrency=1 --if-present test",
+    "typecheck": "pnpm -r --workspace-concurrency=1 --if-present typecheck"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
@@ -49,6 +52,13 @@
     "vue-tsc": "^3.1.3"
   },
   "pnpm": {
+    "packageExtensions": {
+      "@dcloudio/uni-mp-vite@3.0.0-5020420260812001": {
+        "dependencies": {
+          "estree-walker": "2.0.2"
+        }
+      }
+    },
     "peerDependencyRules": {
       "ignoreMissing": [
         "react",

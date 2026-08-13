@@ -31,6 +31,8 @@ jobs:
     environment: supabase-development
     env:
       CI: "true"
+      NODE_ENV: test
+      DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
       DIRECT_URL: ${{ secrets.SUPABASE_DIRECT_URL }}
       PGSSLROOTCERT: /tmp/supabase-prod-ca.crt
       SUPABASE_PROJECT_REF: ${{ inputs.project_ref }}
@@ -67,3 +69,8 @@ jobs:
 
       - name: Run read-only Supabase checks
         run: scripts/ci/supabase-smoke.sh
+
+      - name: Run rollback-only B1 runtime smoke
+        env:
+          B1_DATABASE_TEST_MODE: rollback
+        run: pnpm db:test-b1

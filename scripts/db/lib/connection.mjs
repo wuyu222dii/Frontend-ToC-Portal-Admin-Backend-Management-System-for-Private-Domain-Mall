@@ -58,6 +58,9 @@ export function readConnection(envName, mode) {
     if (username !== "postgres" || isPooler || !["127.0.0.1", "localhost", "::1"].includes(url.hostname)) {
       fail("ci-replay must use the local postgres superuser on the disposable CI database");
     }
+    if (url.search !== "") {
+      fail(`${envName} must not contain query parameters for a disposable CI database`);
+    }
   } else {
     if (!projectRef || !/^[a-z]{20}$/.test(projectRef)) {
       fail("SUPABASE_PROJECT_REF must be the 20-letter development project ref");
@@ -71,8 +74,19 @@ export function readConnection(envName, mode) {
     if (isPooler && !username.endsWith(`.${projectRef}`)) {
       fail(`${envName} pooler role must be scoped to SUPABASE_PROJECT_REF`);
     }
+    for (const parameter of url.searchParams.keys()) {
+      if (parameter !== "sslmode" && parameter !== "sslrootcert") {
+        fail(`${envName} contains an unsupported query parameter`);
+      }
+    }
+    if (url.searchParams.getAll("sslmode").length !== 1) {
+      fail(`${envName} must contain exactly one sslmode parameter`);
+    }
     if (url.searchParams.get("sslmode") !== "verify-full") {
       fail(`${envName} must set sslmode=verify-full`);
+    }
+    if (url.searchParams.getAll("sslrootcert").length > 1) {
+      fail(`${envName} must not repeat sslrootcert`);
     }
     if (port !== "5432") {
       fail(`${envName} must use direct/session port 5432; transaction pooler 6543 is not allowed`);
@@ -91,7 +105,12 @@ export function readConnection(envName, mode) {
     }
   }
 
-  const sslRootCert = url.searchParams.get("sslrootcert") || process.env.PGSSLROOTCERT;
+  const queryRootCert = url.searchParams.get("sslrootcert") || undefined;
+  const environmentRootCert = process.env.PGSSLROOTCERT?.trim() || undefined;
+  if (queryRootCert && environmentRootCert && queryRootCert !== environmentRootCert) {
+    fail(`${envName} sslrootcert must match PGSSLROOTCERT`);
+  }
+  const sslRootCert = queryRootCert || environmentRootCert;
   if (sslRootCert && !existsSync(sslRootCert)) {
     fail(`${envName} references an sslrootcert file that does not exist`);
   }

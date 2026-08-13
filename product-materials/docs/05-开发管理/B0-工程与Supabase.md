@@ -45,9 +45,9 @@ Compose 不包含 PostgreSQL，也不向局域网公开 Redis、MinIO API 或控
 建立名为 `supabase-development` 的 GitHub Environment：
 
 - 设置 required reviewer，并限制为 `main` 分支；支持时禁止发起人自批。
-- 只配置 environment secret `SUPABASE_DIRECT_URL`，值为 `mall_migrator` 的 direct `5432` 连接并带 `sslmode=verify-full`。手动工作流传入的 project ref 必须与连接串中的项目一致。
+- 配置 environment secret `SUPABASE_DIRECT_URL` 与 `SUPABASE_RUNTIME_URL`：前者为 `mall_migrator` 的 direct `5432` 连接，后者为 `mall_runtime` 的 direct 或 session `5432` 连接；两者均带 `sslmode=verify-full`。手动工作流传入的 project ref 必须与连接串中的项目一致。
 - 不配置数据库 project-owner 密码、runtime URL、`anon` key 或 `service_role` key。
-- `Supabase development smoke` 只允许 `workflow_dispatch` 手动触发，且只做读检查和 Prisma diff，不创建、删除或修复对象。
+- `Supabase development smoke` 只允许 `workflow_dispatch` 手动触发；除只读结构/权限检查与 Prisma diff 外，B1 起允许以 runtime 角色在显式事务中运行最终 `ROLLBACK` 的公共内核烟测，不保留业务或测试数据，不创建、删除或修复数据库对象。
 
 普通 `CI` 工作流没有 Supabase secret，仅使用单次运行的 PostgreSQL 18.3、Redis 和 MinIO。
 

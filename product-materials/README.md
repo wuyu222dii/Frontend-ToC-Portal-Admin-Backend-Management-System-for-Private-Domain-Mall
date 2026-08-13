@@ -15,4 +15,5 @@
 - [技术设计索引](docs/03-技术设计/README.md)
 - [风险管控方案](docs/04-风控管理/风险管控方案.md)
 - [B0 工程与 Supabase](docs/05-开发管理/B0-工程与Supabase.md)
+- [B1 平台公共内核](docs/05-开发管理/B1-平台公共内核.md)
 - [三端可点击原型](prototype/README.md)

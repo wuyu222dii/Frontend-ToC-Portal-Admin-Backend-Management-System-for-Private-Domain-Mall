@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "declaration": true,
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "outDir": "dist",
+    "rootDir": ".",
+    "types": ["node", "vitest/globals"],
+    "useDefineForClassFields": false
+  },
+  "include": ["src/**/*.ts", ".generated/prisma/**/*.ts"],
+  "exclude": ["src/**/*.spec.ts"]
+}

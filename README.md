@@ -1,6 +1,6 @@
 # 青序生活三端私域商城
 
-本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。当前开发按 `B0` 至 `B19` 小批次推进；本阶段只完成 B0 工程底座，不代表业务功能或生产上线已完成。
+本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。当前开发按 `B0` 至 `B19` 小批次推进；B0、B1 已验收通过，B2 尚未开始。这不代表商城业务功能或生产上线已经完成。
 
 ## 工程结构
 
@@ -14,6 +14,8 @@ apps/
 packages/
   contracts/     OpenAPI 契约产物
   config/        共享配置与工程规则
+  database/      Prisma/PG runtime 与可靠消息持久化
+  platform-core/ 纯安全、错误、幂等哈希和 RBAC 原语
   ui-tokens/     三端设计令牌
   testing/       测试公共能力
 prisma/          PostgreSQL 模型与人工审定迁移
@@ -52,4 +54,4 @@ pnpm db:supabase:bootstrap # 受控的 Supabase 首次初始化
 pnpm db:diff
 ```
 
-Supabase 项目创建、连接分权和受保护烟测见 [B0 工程与 Supabase](product-materials/docs/05-开发管理/B0-工程与Supabase.md)。普通 PR 只使用 CI 的临时 PostgreSQL，不读取 Supabase 凭据。
+Supabase 项目创建、连接分权和受保护烟测见 [B0 工程与 Supabase](product-materials/docs/05-开发管理/B0-工程与Supabase.md)，公共内核边界与验收状态见 [B1 平台公共内核](product-materials/docs/05-开发管理/B1-平台公共内核.md)。普通 PR 只使用 CI 的临时 PostgreSQL，不读取 Supabase 凭据。

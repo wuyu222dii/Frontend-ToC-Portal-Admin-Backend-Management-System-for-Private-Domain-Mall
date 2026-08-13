@@ -6,7 +6,7 @@ import vueParser from 'vue-eslint-parser';
 
 export default [
   {
-    ignores: ['**/dist/**', '**/node_modules/**'],
+    ignores: ['**/.generated/**', '**/dist/**', '**/node_modules/**'],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,

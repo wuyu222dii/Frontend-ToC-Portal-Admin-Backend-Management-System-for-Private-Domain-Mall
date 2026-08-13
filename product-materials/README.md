@@ -17,4 +17,5 @@
 - [B0 工程与 Supabase](docs/05-开发管理/B0-工程与Supabase.md)
 - [B1 平台公共内核](docs/05-开发管理/B1-平台公共内核.md)
 - [B2 总部安全入口](docs/05-开发管理/B2-总部安全入口.md)
+- [B3 文件、品牌与分类](docs/05-开发管理/B3-文件品牌与分类.md)
 - [三端可点击原型](prototype/README.md)

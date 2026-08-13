@@ -1,6 +1,6 @@
 # 青序生活三端私域商城
 
-本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。当前开发按 `B0` 至 `B19` 小批次推进；B0、B1 已验收通过，B2 总部安全入口已完成实现与本地/临时环境门禁，待受保护的 Supabase development rollback-only 烟测后验收。B3 尚未开始，商城业务功能和生产上线仍未完成。
+本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。当前开发按 `B0` 至 `B19` 小批次推进；B0、B1 已验收通过，B2 总部安全入口已完成实现与本地/临时环境门禁，待受保护的 Supabase development rollback-only 烟测后验收。B3.0 CH-006 契约解阻已完成并暂停；B3.1 及后续业务和生产上线仍未开始。
 
 ## 工程结构
 
@@ -49,10 +49,11 @@ pnpm dev:api
 pnpm dev:worker
 pnpm admin:bootstrap # 受控创建首个 SUPER_ADMIN；读取 TTY 或 0600 密码文件
 pnpm contracts:lint
+pnpm contracts:check
 pnpm prisma:validate
 pnpm db:migrate:baseline # CI 临时空库专用
 pnpm db:supabase:bootstrap # 受控的 Supabase 首次初始化
 pnpm db:diff
 ```
 
-Supabase 项目创建、连接分权和受保护烟测见 [B0 工程与 Supabase](product-materials/docs/05-开发管理/B0-工程与Supabase.md)，公共内核边界见 [B1 平台公共内核](product-materials/docs/05-开发管理/B1-平台公共内核.md)，总部认证实现与安全操作见 [B2 总部安全入口](product-materials/docs/05-开发管理/B2-总部安全入口.md)。普通 PR 只使用 CI 的临时 PostgreSQL，不读取 Supabase 凭据。
+Supabase 项目创建、连接分权和受保护烟测见 [B0 工程与 Supabase](product-materials/docs/05-开发管理/B0-工程与Supabase.md)，公共内核边界见 [B1 平台公共内核](product-materials/docs/05-开发管理/B1-平台公共内核.md)，总部认证实现与安全操作见 [B2 总部安全入口](product-materials/docs/05-开发管理/B2-总部安全入口.md)，CH-006 与 B3 分段门禁见 [B3 文件、品牌与分类](product-materials/docs/05-开发管理/B3-文件品牌与分类.md)。普通 PR 只使用 CI 的临时 PostgreSQL，不读取 Supabase 凭据。

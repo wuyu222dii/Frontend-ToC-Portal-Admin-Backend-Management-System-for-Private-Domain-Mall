@@ -1,8 +1,8 @@
 openapi: "3.1.0"
 info:
   title: "洗化产品私域商城 API"
-  version: "2.4.0-ch005"
-  description: "CH-005 单一契约。所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
+  version: "2.4.1-ch006"
+  description: "CH-006 单一契约。所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
   license:
     name: "Proprietary"
     identifier: "LicenseRef-Proprietary"
@@ -4725,7 +4725,8 @@ paths:
     get:
       tags:
         - "Admin"
-      summary: "品牌列表、新建品牌"
+      summary: "品牌列表"
+      description: "默认排除软删除记录；仅显式 status=ARCHIVED 时返回 status=ARCHIVED 且 deleted_at 非空的记录。结果固定按 sort_order ASC、id ASC 排序。"
       operationId: "getAdminBrands"
       security:
         -
@@ -4754,7 +4755,7 @@ paths:
               - "ACTIVE"
               - "INACTIVE"
               - "ARCHIVED"
-          description: "实体状态"
+          description: "实体状态；省略时排除 ARCHIVED，显式 ARCHIVED 仅查询软删除记录。"
       responses:
         200:
           description: "成功"
@@ -4781,7 +4782,8 @@ paths:
     post:
       tags:
         - "Admin"
-      summary: "品牌列表、新建品牌"
+      summary: "新建草稿品牌"
+      description: "initial_status 固定为 DRAFT；软删除后名称继续全局保留，重复创建返回 409 SOFT_DELETED_KEY_RESERVED。"
       operationId: "postAdminBrands"
       security:
         -
@@ -4822,7 +4824,8 @@ paths:
     get:
       tags:
         - "Admin"
-      summary: "详情与非生命周期资料修改"
+      summary: "品牌详情"
+      description: "允许按 ID 读取 ARCHIVED 记录，以支持恢复流程。"
       operationId: "getAdminBrandsByBrandId"
       security:
         -
@@ -4861,7 +4864,8 @@ paths:
     patch:
       tags:
         - "Admin"
-      summary: "详情与非生命周期资料修改"
+      summary: "修改品牌非生命周期资料"
+      description: "可修改名称、Logo、描述和排序；不得通过本接口修改生命周期状态。"
       operationId: "patchAdminBrandsByBrandId"
       security:
         -
@@ -4911,7 +4915,8 @@ paths:
     post:
       tags:
         - "Admin"
-      summary: "HR-06 预览停用或软删除的在售引用影响"
+      summary: "HR-06 预览品牌启用、停用或软删除影响"
+      description: "ACTIVATE、DEACTIVATE、SOFT_DELETE 均必须先预览。存在活动商品依赖时仍返回 200，并在 impact 中说明影响；本响应和 preview token 不得持久化到幂等响应缓存，幂等仅使用 HASH_ONLY。"
       operationId: "postAdminBrandsByBrandIdLifecyclePreview"
       security:
         -
@@ -4933,7 +4938,7 @@ paths:
             schema:
               allOf:
                 -
-                  "$ref": "#/components/schemas/LifecycleAction"
+                  "$ref": "#/components/schemas/MasterDataLifecycleAction"
               unevaluatedProperties: false
       responses:
         200:
@@ -4967,7 +4972,8 @@ paths:
     post:
       tags:
         - "Admin"
-      summary: "HR-06 确认停用或软删除"
+      summary: "HR-06 确认品牌启用、停用或软删除"
+      description: "仅允许非删除 DRAFT/INACTIVE 经 ACTIVATE 进入 ACTIVE、非删除 ACTIVE 经 DEACTIVATE 进入 INACTIVE、非删除 DRAFT/INACTIVE 经 SOFT_DELETE 进入 ARCHIVED 并设置 deleted_at。ACTIVE 不得直接软删除；非法或同状态的新幂等请求返回 409。DEACTIVATE/SOFT_DELETE 存在活动商品依赖时返回 422 ACTIVE_PRODUCT_DEPENDENCY。"
       operationId: "postAdminBrandsByBrandIdLifecycleChanges"
       security:
         -
@@ -4991,7 +4997,7 @@ paths:
             schema:
               allOf:
                 -
-                  "$ref": "#/components/schemas/LifecycleAction"
+                  "$ref": "#/components/schemas/MasterDataLifecycleAction"
                 -
                   "$ref": "#/components/schemas/HighRiskConfirmationFields"
               unevaluatedProperties: false
@@ -5022,7 +5028,8 @@ paths:
     post:
       tags:
         - "Admin"
-      summary: "原因 + If-Match 恢复原记录"
+      summary: "恢复软删除品牌为草稿"
+      description: "仅允许 status=ARCHIVED 且 deleted_at 非空的原记录；要求原因、Idempotency-Key 和 If-Match。成功后清除 deleted_at、状态固定为 DRAFT、version 加一；恢复后若需启用，必须重新执行 ACTIVATE 预览与确认。"
       operationId: "postAdminBrandsByBrandIdRestore"
       security:
         -
@@ -5072,7 +5079,8 @@ paths:
     get:
       tags:
         - "Admin"
-      summary: "一级分类列表、新建分类"
+      summary: "一级分类列表"
+      description: "默认排除软删除记录；仅显式 status=ARCHIVED 时返回 status=ARCHIVED 且 deleted_at 非空的记录。结果固定按 sort_order ASC、id ASC 排序。"
       operationId: "getAdminCategories"
       security:
         -
@@ -5101,7 +5109,7 @@ paths:
               - "ACTIVE"
               - "INACTIVE"
               - "ARCHIVED"
-          description: "实体状态"
+          description: "实体状态；省略时排除 ARCHIVED，显式 ARCHIVED 仅查询软删除记录。"
       responses:
         200:
           description: "成功"
@@ -5128,7 +5136,8 @@ paths:
     post:
       tags:
         - "Admin"
-      summary: "一级分类列表、新建分类"
+      summary: "新建草稿一级分类"
+      description: "initial_status 固定为 DRAFT；软删除后名称继续全局保留，重复创建返回 409 SOFT_DELETED_KEY_RESERVED。"
       operationId: "postAdminCategories"
       security:
         -
@@ -5169,7 +5178,8 @@ paths:
     get:
       tags:
         - "Admin"
-      summary: "详情与非生命周期资料修改"
+      summary: "一级分类详情"
+      description: "允许按 ID 读取 ARCHIVED 记录，以支持恢复流程。"
       operationId: "getAdminCategoriesByCategoryId"
       security:
         -
@@ -5208,7 +5218,8 @@ paths:
     patch:
       tags:
         - "Admin"
-      summary: "详情与非生命周期资料修改"
+      summary: "修改一级分类非生命周期资料"
+      description: "可修改名称、图标和排序；不得通过本接口修改生命周期状态。"
       operationId: "patchAdminCategoriesByCategoryId"
       security:
         -
@@ -5258,7 +5269,8 @@ paths:
     post:
       tags:
         - "Admin"
-      summary: "HR-06 预览停用或软删除的商品引用影响"
+      summary: "HR-06 预览一级分类启用、停用或软删除影响"
+      description: "ACTIVATE、DEACTIVATE、SOFT_DELETE 均必须先预览。存在活动商品依赖时仍返回 200，并在 impact 中说明影响；本响应和 preview token 不得持久化到幂等响应缓存，幂等仅使用 HASH_ONLY。"
       operationId: "postAdminCategoriesByCategoryIdLifecyclePreview"
       security:
         -
@@ -5280,7 +5292,7 @@ paths:
             schema:
               allOf:
                 -
-                  "$ref": "#/components/schemas/LifecycleAction"
+                  "$ref": "#/components/schemas/MasterDataLifecycleAction"
               unevaluatedProperties: false
       responses:
         200:
@@ -5314,7 +5326,8 @@ paths:
     post:
       tags:
         - "Admin"
-      summary: "HR-06 确认停用或软删除"
+      summary: "HR-06 确认一级分类启用、停用或软删除"
+      description: "仅允许非删除 DRAFT/INACTIVE 经 ACTIVATE 进入 ACTIVE、非删除 ACTIVE 经 DEACTIVATE 进入 INACTIVE、非删除 DRAFT/INACTIVE 经 SOFT_DELETE 进入 ARCHIVED 并设置 deleted_at。ACTIVE 不得直接软删除；非法或同状态的新幂等请求返回 409。DEACTIVATE/SOFT_DELETE 存在活动商品依赖时返回 422 ACTIVE_PRODUCT_DEPENDENCY。"
       operationId: "postAdminCategoriesByCategoryIdLifecycleChanges"
       security:
         -
@@ -5338,7 +5351,7 @@ paths:
             schema:
               allOf:
                 -
-                  "$ref": "#/components/schemas/LifecycleAction"
+                  "$ref": "#/components/schemas/MasterDataLifecycleAction"
                 -
                   "$ref": "#/components/schemas/HighRiskConfirmationFields"
               unevaluatedProperties: false
@@ -5369,7 +5382,8 @@ paths:
     post:
       tags:
         - "Admin"
-      summary: "校验在售依赖后恢复原记录"
+      summary: "恢复软删除一级分类为草稿"
+      description: "仅允许 status=ARCHIVED 且 deleted_at 非空的原记录；要求原因、Idempotency-Key 和 If-Match。成功后清除 deleted_at、状态固定为 DRAFT、version 加一；恢复后若需启用，必须重新执行 ACTIVATE 预览与确认。"
       operationId: "postAdminCategoriesByCategoryIdRestore"
       security:
         -
@@ -10027,6 +10041,7 @@ paths:
       tags:
         - "Files"
       summary: "获取对象存储上传参数和 file_id"
+      description: "七类 purpose 均仅接受 image/jpeg 或 image/png，单文件最大 5 MiB（5242880 bytes），请求必须提交预期 SHA-256。上传签名有效 15 分钟；对象先写入不含原文件名的 staging/ 键。上传意图响应包含短时签名 URL，幂等仅使用 HASH_ONLY，不得缓存响应体。"
       operationId: "postFilesUploadIntents"
       security:
         -
@@ -10073,6 +10088,7 @@ paths:
       tags:
         - "Files"
       summary: "校验类型、大小和哈希后确认上传"
+      description: "请求 sha256/size 必须同时与上传意图及服务端读取对象后的实测 MIME、魔数、大小和 SHA-256 一致；不一致返回 422 FILE_CONTENT_MISMATCH。PRODUCT_IMAGE、BRAND_LOGO、CATEGORY_ICON、BANNER 移至 public/；AFTERSALE_EVIDENCE、WITHDRAWAL_PROOF、PROMOTION_QR 移至 private/；对象键均不含原文件名。FILE_UPLOAD_COMPLETE 使用闭合幂等策略：同 Idempotency-Key 精确重放，已完成文件使用新键重复提交返回 409；不得在数据库新增 completed_at 列。"
       operationId: "postFilesByFileIdComplete"
       security:
         -
@@ -10126,6 +10142,7 @@ paths:
       tags:
         - "Files"
       summary: "按角色和业务对象返回短时签名 URL"
+      description: "仅 READY 且通过角色和业务归属校验的文件可下载。private/ 对象返回有效期 5 分钟的签名 URL；公开素材的稳定地址由 FileUploadCompleteResponse.public_url 提供。响应使用 HASH_ONLY，不得持久化签名 URL。存储桶默认私有，仅 public/* 允许匿名 GET，private/* 始终禁止匿名访问。PENDING 或 staging/ 满 24 小时仅进入清理候选，删除前必须再次确认没有 READY 引用。"
       operationId: "getFilesByFileIdDownloadUrl"
       security:
         -
@@ -10287,13 +10304,13 @@ components:
           schema:
             "$ref": "#/components/schemas/ErrorResponse"
     StateConflict:
-      description: "状态、版本、幂等请求哈希或唯一约束冲突"
+      description: "状态、版本、幂等请求哈希或唯一约束冲突；CH-006 固定冲突码包括 SOFT_DELETED_KEY_RESERVED。"
       content:
         application/json:
           schema:
             "$ref": "#/components/schemas/ErrorResponse"
     BusinessError:
-      description: "库存、售后额度、金额分配或业务前置校验失败"
+      description: "库存、售后额度、金额分配或业务前置校验失败；CH-006 固定业务码包括 ACTIVE_PRODUCT_DEPENDENCY、FILE_CONTENT_MISMATCH。"
       content:
         application/json:
           schema:
@@ -11438,6 +11455,22 @@ components:
           type: "string"
           minLength: 2
           maxLength: 500
+    MasterDataLifecycleAction:
+      type: "object"
+      required:
+        - "action"
+        - "reason"
+      properties:
+        action:
+          type: "string"
+          enum:
+            - "ACTIVATE"
+            - "DEACTIVATE"
+            - "SOFT_DELETE"
+        reason:
+          type: "string"
+          minLength: 2
+          maxLength: 500
     OrderCompleteRequest:
       type: "object"
       additionalProperties: false
@@ -11856,6 +11889,7 @@ components:
       additionalProperties: false
       required:
         - "name"
+        - "sort_order"
         - "initial_status"
       properties:
         name:
@@ -11871,11 +11905,11 @@ components:
             - "string"
             - "null"
           maxLength: 500
+        sort_order:
+          type: "integer"
+          minimum: 0
         initial_status:
-          type: "string"
-          enum:
-            - "DRAFT"
-            - "ACTIVE"
+          const: "DRAFT"
     BrandUpdateRequest:
       type: "object"
       additionalProperties: false
@@ -11894,6 +11928,9 @@ components:
             - "string"
             - "null"
           maxLength: 500
+        sort_order:
+          type: "integer"
+          minimum: 0
     CategoryCreateRequest:
       type: "object"
       additionalProperties: false
@@ -11914,10 +11951,7 @@ components:
           type: "integer"
           minimum: 0
         initial_status:
-          type: "string"
-          enum:
-            - "DRAFT"
-            - "ACTIVE"
+          const: "DRAFT"
     CategoryUpdateRequest:
       type: "object"
       additionalProperties: false
@@ -12286,6 +12320,7 @@ components:
         - "filename"
         - "mime_type"
         - "size"
+        - "sha256"
       properties:
         purpose:
           type: "string"
@@ -12303,11 +12338,17 @@ components:
           maxLength: 255
         mime_type:
           type: "string"
-          minLength: 1
-          maxLength: 120
+          enum:
+            - "image/jpeg"
+            - "image/png"
         size:
           type: "integer"
           minimum: 1
+          maximum: 5242880
+        sha256:
+          type: "string"
+          pattern: "^[a-f0-9]{64}$"
+          description: "客户端在申请上传前计算的预期文件 SHA-256。"
     UploadCompleteRequest:
       type: "object"
       additionalProperties: false
@@ -12318,9 +12359,12 @@ components:
         sha256:
           type: "string"
           pattern: "^[a-f0-9]{64}$"
+          description: "必须与上传意图中的预期值以及服务端对已上传对象的实测值一致。"
         size:
           type: "integer"
           minimum: 1
+          maximum: 5242880
+          description: "必须与上传意图中的声明值以及服务端对已上传对象的实测值一致。"
     WechatCallbackBody:
       type: "object"
       additionalProperties: true

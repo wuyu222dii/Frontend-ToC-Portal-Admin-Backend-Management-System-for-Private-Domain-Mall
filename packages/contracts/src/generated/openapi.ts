@@ -1471,10 +1471,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 品牌列表、新建品牌 */
+        /**
+         * 品牌列表
+         * @description 默认排除软删除记录；仅显式 status=ARCHIVED 时返回 status=ARCHIVED 且 deleted_at 非空的记录。结果固定按 sort_order ASC、id ASC 排序。
+         */
         get: operations["getAdminBrands"];
         put?: never;
-        /** 品牌列表、新建品牌 */
+        /**
+         * 新建草稿品牌
+         * @description initial_status 固定为 DRAFT；软删除后名称继续全局保留，重复创建返回 409 SOFT_DELETED_KEY_RESERVED。
+         */
         post: operations["postAdminBrands"];
         delete?: never;
         options?: never;
@@ -1489,14 +1495,20 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 详情与非生命周期资料修改 */
+        /**
+         * 品牌详情
+         * @description 允许按 ID 读取 ARCHIVED 记录，以支持恢复流程。
+         */
         get: operations["getAdminBrandsByBrandId"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
-        /** 详情与非生命周期资料修改 */
+        /**
+         * 修改品牌非生命周期资料
+         * @description 可修改名称、Logo、描述和排序；不得通过本接口修改生命周期状态。
+         */
         patch: operations["patchAdminBrandsByBrandId"];
         trace?: never;
     };
@@ -1509,7 +1521,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** HR-06 预览停用或软删除的在售引用影响 */
+        /**
+         * HR-06 预览品牌启用、停用或软删除影响
+         * @description ACTIVATE、DEACTIVATE、SOFT_DELETE 均必须先预览。存在活动商品依赖时仍返回 200，并在 impact 中说明影响；本响应和 preview token 不得持久化到幂等响应缓存，幂等仅使用 HASH_ONLY。
+         */
         post: operations["postAdminBrandsByBrandIdLifecyclePreview"];
         delete?: never;
         options?: never;
@@ -1526,7 +1541,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** HR-06 确认停用或软删除 */
+        /**
+         * HR-06 确认品牌启用、停用或软删除
+         * @description 仅允许非删除 DRAFT/INACTIVE 经 ACTIVATE 进入 ACTIVE、非删除 ACTIVE 经 DEACTIVATE 进入 INACTIVE、非删除 DRAFT/INACTIVE 经 SOFT_DELETE 进入 ARCHIVED 并设置 deleted_at。ACTIVE 不得直接软删除；非法或同状态的新幂等请求返回 409。DEACTIVATE/SOFT_DELETE 存在活动商品依赖时返回 422 ACTIVE_PRODUCT_DEPENDENCY。
+         */
         post: operations["postAdminBrandsByBrandIdLifecycleChanges"];
         delete?: never;
         options?: never;
@@ -1543,7 +1561,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 原因 + If-Match 恢复原记录 */
+        /**
+         * 恢复软删除品牌为草稿
+         * @description 仅允许 status=ARCHIVED 且 deleted_at 非空的原记录；要求原因、Idempotency-Key 和 If-Match。成功后清除 deleted_at、状态固定为 DRAFT、version 加一；恢复后若需启用，必须重新执行 ACTIVATE 预览与确认。
+         */
         post: operations["postAdminBrandsByBrandIdRestore"];
         delete?: never;
         options?: never;
@@ -1558,10 +1579,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 一级分类列表、新建分类 */
+        /**
+         * 一级分类列表
+         * @description 默认排除软删除记录；仅显式 status=ARCHIVED 时返回 status=ARCHIVED 且 deleted_at 非空的记录。结果固定按 sort_order ASC、id ASC 排序。
+         */
         get: operations["getAdminCategories"];
         put?: never;
-        /** 一级分类列表、新建分类 */
+        /**
+         * 新建草稿一级分类
+         * @description initial_status 固定为 DRAFT；软删除后名称继续全局保留，重复创建返回 409 SOFT_DELETED_KEY_RESERVED。
+         */
         post: operations["postAdminCategories"];
         delete?: never;
         options?: never;
@@ -1576,14 +1603,20 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 详情与非生命周期资料修改 */
+        /**
+         * 一级分类详情
+         * @description 允许按 ID 读取 ARCHIVED 记录，以支持恢复流程。
+         */
         get: operations["getAdminCategoriesByCategoryId"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
-        /** 详情与非生命周期资料修改 */
+        /**
+         * 修改一级分类非生命周期资料
+         * @description 可修改名称、图标和排序；不得通过本接口修改生命周期状态。
+         */
         patch: operations["patchAdminCategoriesByCategoryId"];
         trace?: never;
     };
@@ -1596,7 +1629,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** HR-06 预览停用或软删除的商品引用影响 */
+        /**
+         * HR-06 预览一级分类启用、停用或软删除影响
+         * @description ACTIVATE、DEACTIVATE、SOFT_DELETE 均必须先预览。存在活动商品依赖时仍返回 200，并在 impact 中说明影响；本响应和 preview token 不得持久化到幂等响应缓存，幂等仅使用 HASH_ONLY。
+         */
         post: operations["postAdminCategoriesByCategoryIdLifecyclePreview"];
         delete?: never;
         options?: never;
@@ -1613,7 +1649,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** HR-06 确认停用或软删除 */
+        /**
+         * HR-06 确认一级分类启用、停用或软删除
+         * @description 仅允许非删除 DRAFT/INACTIVE 经 ACTIVATE 进入 ACTIVE、非删除 ACTIVE 经 DEACTIVATE 进入 INACTIVE、非删除 DRAFT/INACTIVE 经 SOFT_DELETE 进入 ARCHIVED 并设置 deleted_at。ACTIVE 不得直接软删除；非法或同状态的新幂等请求返回 409。DEACTIVATE/SOFT_DELETE 存在活动商品依赖时返回 422 ACTIVE_PRODUCT_DEPENDENCY。
+         */
         post: operations["postAdminCategoriesByCategoryIdLifecycleChanges"];
         delete?: never;
         options?: never;
@@ -1630,7 +1669,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 校验在售依赖后恢复原记录 */
+        /**
+         * 恢复软删除一级分类为草稿
+         * @description 仅允许 status=ARCHIVED 且 deleted_at 非空的原记录；要求原因、Idempotency-Key 和 If-Match。成功后清除 deleted_at、状态固定为 DRAFT、version 加一；恢复后若需启用，必须重新执行 ACTIVATE 预览与确认。
+         */
         post: operations["postAdminCategoriesByCategoryIdRestore"];
         delete?: never;
         options?: never;
@@ -2919,7 +2961,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 获取对象存储上传参数和 file_id */
+        /**
+         * 获取对象存储上传参数和 file_id
+         * @description 七类 purpose 均仅接受 image/jpeg 或 image/png，单文件最大 5 MiB（5242880 bytes），请求必须提交预期 SHA-256。上传签名有效 15 分钟；对象先写入不含原文件名的 staging/ 键。上传意图响应包含短时签名 URL，幂等仅使用 HASH_ONLY，不得缓存响应体。
+         */
         post: operations["postFilesUploadIntents"];
         delete?: never;
         options?: never;
@@ -2936,7 +2981,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 校验类型、大小和哈希后确认上传 */
+        /**
+         * 校验类型、大小和哈希后确认上传
+         * @description 请求 sha256/size 必须同时与上传意图及服务端读取对象后的实测 MIME、魔数、大小和 SHA-256 一致；不一致返回 422 FILE_CONTENT_MISMATCH。PRODUCT_IMAGE、BRAND_LOGO、CATEGORY_ICON、BANNER 移至 public/；AFTERSALE_EVIDENCE、WITHDRAWAL_PROOF、PROMOTION_QR 移至 private/；对象键均不含原文件名。FILE_UPLOAD_COMPLETE 使用闭合幂等策略：同 Idempotency-Key 精确重放，已完成文件使用新键重复提交返回 409；不得在数据库新增 completed_at 列。
+         */
         post: operations["postFilesByFileIdComplete"];
         delete?: never;
         options?: never;
@@ -2951,7 +2999,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 按角色和业务对象返回短时签名 URL */
+        /**
+         * 按角色和业务对象返回短时签名 URL
+         * @description 仅 READY 且通过角色和业务归属校验的文件可下载。private/ 对象返回有效期 5 分钟的签名 URL；公开素材的稳定地址由 FileUploadCompleteResponse.public_url 提供。响应使用 HASH_ONLY，不得持久化签名 URL。存储桶默认私有，仅 public/* 允许匿名 GET，private/* 始终禁止匿名访问。PENDING 或 staging/ 满 24 小时仅进入清理候选，删除前必须再次确认没有 READY 引用。
+         */
         get: operations["getFilesByFileIdDownloadUrl"];
         put?: never;
         post?: never;
@@ -3360,6 +3411,11 @@ export interface components {
             action: "DEACTIVATE" | "SOFT_DELETE";
             reason: string;
         };
+        MasterDataLifecycleAction: {
+            /** @enum {string} */
+            action: "ACTIVATE" | "DEACTIVATE" | "SOFT_DELETE";
+            reason: string;
+        };
         OrderCompleteRequest: {
             reason: string;
             /** @constant */
@@ -3490,20 +3546,22 @@ export interface components {
             name: string;
             logo_file_id?: string | null;
             description?: string | null;
-            /** @enum {string} */
-            initial_status: "DRAFT" | "ACTIVE";
+            sort_order: number;
+            /** @constant */
+            initial_status: "DRAFT";
         };
         BrandUpdateRequest: {
             name?: string;
             logo_file_id?: string | null;
             description?: string | null;
+            sort_order?: number;
         };
         CategoryCreateRequest: {
             name: string;
             icon_file_id?: string | null;
             sort_order: number;
-            /** @enum {string} */
-            initial_status: "DRAFT" | "ACTIVE";
+            /** @constant */
+            initial_status: "DRAFT";
         };
         CategoryUpdateRequest: {
             name?: string;
@@ -3609,11 +3667,16 @@ export interface components {
             /** @enum {string} */
             purpose: "PRODUCT_IMAGE" | "BRAND_LOGO" | "CATEGORY_ICON" | "BANNER" | "AFTERSALE_EVIDENCE" | "WITHDRAWAL_PROOF" | "PROMOTION_QR";
             filename: string;
-            mime_type: string;
+            /** @enum {string} */
+            mime_type: "image/jpeg" | "image/png";
             size: number;
+            /** @description 客户端在申请上传前计算的预期文件 SHA-256。 */
+            sha256: string;
         };
         UploadCompleteRequest: {
+            /** @description 必须与上传意图中的预期值以及服务端对已上传对象的实测值一致。 */
             sha256: string;
+            /** @description 必须与上传意图中的声明值以及服务端对已上传对象的实测值一致。 */
             size: number;
         };
         /** @description HTTP raw bytes must be preserved before JSON parsing and signature verification. */
@@ -6596,7 +6659,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
-        /** @description 状态、版本、幂等请求哈希或唯一约束冲突 */
+        /** @description 状态、版本、幂等请求哈希或唯一约束冲突；CH-006 固定冲突码包括 SOFT_DELETED_KEY_RESERVED。 */
         StateConflict: {
             headers: {
                 [name: string]: unknown;
@@ -6605,7 +6668,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
-        /** @description 库存、售后额度、金额分配或业务前置校验失败 */
+        /** @description 库存、售后额度、金额分配或业务前置校验失败；CH-006 固定业务码包括 ACTIVE_PRODUCT_DEPENDENCY、FILE_CONTENT_MISMATCH。 */
         BusinessError: {
             headers: {
                 [name: string]: unknown;
@@ -9976,7 +10039,7 @@ export interface operations {
                 page_size?: components["parameters"]["PageSize"];
                 /** @description 名称关键词 */
                 keyword?: string;
-                /** @description 实体状态 */
+                /** @description 实体状态；省略时排除 ARCHIVED，显式 ARCHIVED 仅查询软删除记录。 */
                 status?: "DRAFT" | "ACTIVE" | "INACTIVE" | "ARCHIVED";
             };
             header?: never;
@@ -10118,7 +10181,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["LifecycleAction"];
+                "application/json": components["schemas"]["MasterDataLifecycleAction"];
             };
         };
         responses: {
@@ -10157,7 +10220,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["LifecycleAction"] & components["schemas"]["HighRiskConfirmationFields"];
+                "application/json": components["schemas"]["MasterDataLifecycleAction"] & components["schemas"]["HighRiskConfirmationFields"];
             };
         };
         responses: {
@@ -10224,7 +10287,7 @@ export interface operations {
                 page_size?: components["parameters"]["PageSize"];
                 /** @description 名称关键词 */
                 keyword?: string;
-                /** @description 实体状态 */
+                /** @description 实体状态；省略时排除 ARCHIVED，显式 ARCHIVED 仅查询软删除记录。 */
                 status?: "DRAFT" | "ACTIVE" | "INACTIVE" | "ARCHIVED";
             };
             header?: never;
@@ -10366,7 +10429,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["LifecycleAction"];
+                "application/json": components["schemas"]["MasterDataLifecycleAction"];
             };
         };
         responses: {
@@ -10405,7 +10468,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["LifecycleAction"] & components["schemas"]["HighRiskConfirmationFields"];
+                "application/json": components["schemas"]["MasterDataLifecycleAction"] & components["schemas"]["HighRiskConfirmationFields"];
             };
         };
         responses: {

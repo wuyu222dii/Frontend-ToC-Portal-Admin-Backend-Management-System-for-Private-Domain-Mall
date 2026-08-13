@@ -19,10 +19,25 @@ describe('application errors', () => {
 
     expect(error.httpStatus).toBe(400);
     expect(getApplicationErrorHttpStatus('RESOURCE_VERSION_CONFLICT')).toBe(409);
+    expect(getApplicationErrorHttpStatus('SOFT_DELETED_KEY_RESERVED')).toBe(409);
+    expect(getApplicationErrorHttpStatus('ACTIVE_PRODUCT_DEPENDENCY')).toBe(422);
+    expect(getApplicationErrorHttpStatus('FILE_CONTENT_MISMATCH')).toBe(422);
     expect(error.toResponse('req_test')).toEqual({
       code: 'INVALID_ARGUMENT',
       message: 'The request is invalid',
       details: [{ field: 'quantity', reason: 'The value was rejected', rejected_value: null }],
+      request_id: 'req_test',
+    });
+  });
+
+  it.each([
+    ['SOFT_DELETED_KEY_RESERVED', 'The archived business key is reserved'],
+    ['ACTIVE_PRODUCT_DEPENDENCY', 'Active products must be deactivated or moved first'],
+    ['FILE_CONTENT_MISMATCH', 'The uploaded file does not match its declaration'],
+  ] as const)('uses a fixed public message for CH-006 error %s', (code, message) => {
+    expect(new ApplicationError(code, 'private implementation detail').toResponse('req_test')).toEqual({
+      code,
+      message,
       request_id: 'req_test',
     });
   });

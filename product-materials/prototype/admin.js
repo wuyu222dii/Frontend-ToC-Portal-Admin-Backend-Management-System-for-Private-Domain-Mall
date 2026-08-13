@@ -72,14 +72,14 @@
 
   const commissionRuleSet = { platformRate: 5 };
   const commissionCategories = [
-    { id: "CAT-SKIN", name: "护肤品", productCount: 36, skuCount: 52, rate: 10, overrideCount: 1, updated: "08-11 10:18" },
-    { id: "CAT-HAIR", name: "洗发水", productCount: 18, skuCount: 27, rate: 8, overrideCount: 1, updated: "08-11 09:42" },
-    { id: "CAT-BODY", name: "沐浴露", productCount: 16, skuCount: 25, rate: 7, overrideCount: 0, updated: "08-10 17:06" },
-    { id: "CAT-SUN", name: "防晒产品", productCount: 9, skuCount: 12, rate: 9, overrideCount: 0, updated: "08-10 16:28" },
-    { id: "CAT-FRAGRANCE", name: "香水", productCount: 12, skuCount: 19, rate: 8, overrideCount: 0, updated: "08-09 15:12" },
-    { id: "CAT-MAKEUP", name: "彩妆", productCount: 14, skuCount: 31, rate: 10, overrideCount: 1, updated: "08-11 08:56" },
-    { id: "CAT-MEN", name: "男士护理", productCount: 11, skuCount: 16, rate: 7, overrideCount: 0, updated: "08-08 13:20" },
-    { id: "CAT-HOME", name: "家庭清洁", productCount: 20, skuCount: 34, rate: 5, overrideCount: 1, updated: "08-11 08:16" }
+    { id: "CAT-SKIN", name: "护肤品", productCount: 36, activeProductCount: 36, skuCount: 52, rate: 10, overrideCount: 1, updated: "08-11 10:18", sort: 10, status: "ACTIVE", version: 7 },
+    { id: "CAT-HAIR", name: "洗发水", productCount: 18, activeProductCount: 18, skuCount: 27, rate: 8, overrideCount: 1, updated: "08-11 09:42", sort: 20, status: "ACTIVE", version: 4 },
+    { id: "CAT-BODY", name: "沐浴露", productCount: 16, activeProductCount: 16, skuCount: 25, rate: 7, overrideCount: 0, updated: "08-10 17:06", sort: 30, status: "ACTIVE", version: 3 },
+    { id: "CAT-SUN", name: "防晒产品", productCount: 9, activeProductCount: 0, skuCount: 12, rate: 9, overrideCount: 0, updated: "08-10 16:28", sort: 40, status: "INACTIVE", version: 5 },
+    { id: "CAT-FRAGRANCE", name: "香水", productCount: 12, activeProductCount: 0, skuCount: 19, rate: 8, overrideCount: 0, updated: "08-09 15:12", sort: 50, status: "DRAFT", version: 2 },
+    { id: "CAT-MAKEUP", name: "彩妆", productCount: 14, activeProductCount: 14, skuCount: 31, rate: 10, overrideCount: 1, updated: "08-11 08:56", sort: 60, status: "ACTIVE", version: 6 },
+    { id: "CAT-MEN", name: "男士护理", productCount: 11, activeProductCount: 0, skuCount: 16, rate: 7, overrideCount: 0, updated: "08-08 13:20", sort: 70, status: "ARCHIVED", version: 4, deletedAt: "2026-08-08 13:20" },
+    { id: "CAT-HOME", name: "家庭清洁", productCount: 20, activeProductCount: 20, skuCount: 34, rate: 5, overrideCount: 1, updated: "08-11 08:16", sort: 80, status: "ACTIVE", version: 8 }
   ];
 
   const commissionSkuRules = [
@@ -102,10 +102,11 @@
   ];
 
   const brands = [
-    { id: "BR-ZCY", name: "植萃研", products: 36, story: "完整", sort: 10, status: "已启用", avatar: "植" },
-    { id: "BR-MG", name: "沐光", products: 28, story: "完整", sort: 20, status: "已启用", avatar: "沐" },
-    { id: "BR-QMX", name: "青木序", products: 31, story: "完整", sort: 30, status: "已启用", avatar: "青" },
-    { id: "BR-JJ", name: "净简", products: 33, story: "待完善", sort: 40, status: "已停用", avatar: "净" }
+    { id: "BR-ZCY", name: "植萃研", description: "温和植萃清洁与肌肤护理", activeProductCount: 36, sort: 10, status: "ACTIVE", version: 6, avatar: "植" },
+    { id: "BR-MG", name: "沐光", description: "日常洗护与身体清洁", activeProductCount: 28, sort: 20, status: "ACTIVE", version: 4, avatar: "沐" },
+    { id: "BR-QMX", name: "青木序", description: "敏感肌修护与日常防晒", activeProductCount: 31, sort: 30, status: "ACTIVE", version: 5, avatar: "青" },
+    { id: "BR-JJ", name: "净简", description: null, activeProductCount: 0, sort: 40, status: "INACTIVE", version: 3, avatar: "净" },
+    { id: "BR-ARCHIVED", name: "旧日研", description: "已归档演示记录", activeProductCount: 0, sort: 50, status: "ARCHIVED", version: 2, deletedAt: "2026-08-07 10:20", avatar: "旧" }
   ];
 
   const inventorySkus = [
@@ -318,6 +319,10 @@
       "已下架": "neutral",
       "已归档": "neutral",
       "草稿": "neutral",
+      "DRAFT": "neutral",
+      "ACTIVE": "success",
+      "INACTIVE": "neutral",
+      "ARCHIVED": "neutral",
       "已启用": "success",
       "已停用": "neutral",
       "待打款": "purple",
@@ -408,18 +413,31 @@
   function renderBrands() {
     const keyword = $("#brandSearch").value.trim().toLowerCase();
     const status = $("#brandStatus").value;
-    const filtered = brands.filter((brand) => (!keyword || `${brand.name}${brand.id}`.toLowerCase().includes(keyword)) && (!status || brand.status === status));
+    const filtered = brands
+      .filter((brand) => (!keyword || brand.name.toLowerCase().includes(keyword)) && (status ? brand.status === status : brand.status !== "ARCHIVED"))
+      .sort((a, b) => a.sort - b.sort || a.id.localeCompare(b.id));
     $("#brandCount").textContent = `共 ${filtered.length} 个品牌`;
-    $("#brandRows").innerHTML = filtered.length ? filtered.map((brand) => `<tr data-brand-id="${brand.id}"><td><div class="customer-cell"><span class="avatar soft-green">${brand.avatar}</span><div><span class="cell-main">${brand.name}</span><span class="cell-sub">品牌主页已配置</span></div></div></td><td>${brand.id}</td><td>${brand.products} 件</td><td><span class="tag ${brand.story === "完整" ? "success" : "warning"}">${brand.story}</span></td><td>${brand.sort}</td><td><span class="tag ${statusClass(brand.status)}">${brand.status}</span></td><td><div class="row-actions"><button class="icon-button edit-brand" type="button" title="编辑品牌">${icon("edit")}</button><button class="button text brand-toggle" type="button">${brand.status === "已启用" ? "停用" : "启用"}</button></div></td></tr>`).join("") : `<tr><td colspan="7"><div class="empty-state">${icon("star")}<strong>没有匹配品牌</strong><span>请调整搜索或状态筛选</span></div></td></tr>`;
+    $("#brandRows").innerHTML = filtered.length ? filtered.map((brand) => `<tr data-brand-id="${brand.id}"><td><div class="customer-cell"><span class="avatar soft-green">${brand.avatar}</span><div><span class="cell-main">${brand.name}</span><span class="cell-sub">品牌 ID 由服务端生成</span></div></div></td><td>${brand.description || "-"}</td><td>${brand.sort}</td><td><span class="tag ${statusClass(brand.status)}">${brand.status}</span></td><td>v${brand.version}</td><td><div class="row-actions">${entityActions("brand", brand)}</div></td></tr>`).join("") : `<tr><td colspan="6"><div class="empty-state">${icon("star")}<strong>没有匹配品牌</strong><span>请调整搜索或状态筛选</span></div></td></tr>`;
   }
 
   function renderCategoryManagement() {
-    $("#categoryManageRows").innerHTML = commissionCategories.map((category, index) => {
-      const hasLiveProducts = category.productCount > 0;
-      category.status = category.status || "已启用";
-      category.sort = category.sort || index + 1;
-      return `<tr data-category-id="${category.id}"><td><span class="cell-main">${category.name}</span><span class="cell-sub">首页入口 ${category.sort}</span></td><td>${category.id}</td><td><span class="cell-main">${category.productCount} 件商品</span><span class="cell-sub">${category.skuCount} 个 SKU</span></td><td><span class="tag ${category.status === "已启用" ? "success" : "neutral"}">${category.status === "已启用" ? "显示" : "隐藏"}</span></td><td><span class="rule-source ${category.rate === null ? "platform" : "category"}">${category.rate === null ? "平台默认" : `${category.rate.toFixed(2)}%`}</span></td><td><span class="tag ${statusClass(category.status)}">${category.status}</span></td><td><div class="row-actions"><button class="icon-button edit-category" type="button" title="编辑分类">${icon("edit")}</button><button class="button text category-disable" type="button" ${hasLiveProducts && category.status === "已启用" ? "data-category-blocked='1'" : ""}>${category.status === "已启用" ? "停用" : "启用"}</button></div></td></tr>`;
-    }).join("");
+    const keyword = $("#categorySearch").value.trim().toLowerCase();
+    const status = $("#categoryStatus").value;
+    const filtered = commissionCategories
+      .filter((category) => (!keyword || category.name.toLowerCase().includes(keyword)) && (status ? category.status === status : category.status !== "ARCHIVED"))
+      .sort((a, b) => a.sort - b.sort || a.id.localeCompare(b.id));
+    $("#categoryCount").textContent = `共 ${filtered.length} 个一级分类`;
+    $("#categoryManageRows").innerHTML = filtered.length ? filtered.map((category) => `<tr data-category-id="${category.id}"><td><span class="cell-main">${category.name}</span><span class="cell-sub">分类 ID 由服务端生成</span></td><td>${category.sort}</td><td><span class="tag ${statusClass(category.status)}">${category.status}</span></td><td>v${category.version}</td><td><div class="row-actions">${entityActions("category", category)}</div></td></tr>`).join("") : `<tr><td colspan="5"><div class="empty-state">${icon("search")}<strong>没有匹配分类</strong><span>请调整搜索或状态筛选</span></div></td></tr>`;
+  }
+
+  function entityActions(type, item) {
+    if (item.status === "ARCHIVED") return `<button class="button text restore-entity" type="button" data-entity-type="${type}">恢复</button>`;
+    const editClass = type === "brand" ? "edit-brand" : "edit-category";
+    const lifecycle = [];
+    if (["DRAFT", "INACTIVE"].includes(item.status)) lifecycle.push(`<button class="button text entity-lifecycle" type="button" data-entity-type="${type}" data-lifecycle-action="ACTIVATE">启用</button>`);
+    if (item.status === "ACTIVE") lifecycle.push(`<button class="button text entity-lifecycle" type="button" data-entity-type="${type}" data-lifecycle-action="DEACTIVATE">停用</button>`);
+    if (["DRAFT", "INACTIVE"].includes(item.status)) lifecycle.push(`<button class="icon-button danger entity-lifecycle" type="button" data-entity-type="${type}" data-lifecycle-action="SOFT_DELETE" title="归档">${icon("trash")}</button>`);
+    return `<button class="icon-button ${editClass}" type="button" title="编辑${type === "brand" ? "品牌" : "分类"}">${icon("edit")}</button>${lifecycle.join("")}`;
   }
 
   function renderBanners() {
@@ -781,6 +799,8 @@
     clearBankReveal();
     state.bankRevealContext = null;
     state.pendingHighRiskAction = null;
+    $("#highRiskConfirm").disabled = false;
+    if (!state.highRiskSubmitting) $("#confirmHighRisk").disabled = false;
     if (credentialWasVisible) {
       state.oneTimeCredentials = null;
       $("#credentialAccount").textContent = "已隐藏";
@@ -873,14 +893,14 @@
     const product = products.find((item) => item.id === Number(productId));
     const details = product ? productDetails[product.id] : { sellingPoint: "", intro: "", ingredients: "", usage: "", isNew: true, favorites: 0 };
     state.activeProductId = product ? product.id : null;
-    $("#productBrandInput").innerHTML = brands.filter((item) => item.status === "已启用").map((item) => `<option>${item.name}</option>`).join("");
-    $("#productCategoryInput").innerHTML = commissionCategories.filter((item) => (item.status || "已启用") === "已启用").map((item) => `<option>${item.name}</option>`).join("");
+    $("#productBrandInput").innerHTML = brands.filter((item) => item.status === "ACTIVE").map((item) => `<option>${item.name}</option>`).join("");
+    $("#productCategoryInput").innerHTML = commissionCategories.filter((item) => item.status === "ACTIVE").map((item) => `<option>${item.name}</option>`).join("");
     $("#productEditTitle").textContent = product ? `编辑商品 · ${product.brand}` : "新增商品";
     $("#productEditMeta").textContent = product ? `${product.code} · 当前记录 ID ${product.id}` : "尚未生成 SPU · 保存后创建当前记录";
     $("#productEditStatus").textContent = product ? product.status : "草稿";
     $("#productEditStatus").className = `tag ${statusClass(product ? product.status : "草稿")}`;
     $("#productNameInput").value = product ? product.name : "";
-    $("#productBrandInput").value = product ? product.brand : brands.find((item) => item.status === "已启用")?.name || "";
+    $("#productBrandInput").value = product ? product.brand : brands.find((item) => item.status === "ACTIVE")?.name || "";
     $("#productCodeInput").value = product ? product.code : "";
     $("#productCategoryInput").value = product ? product.category : commissionCategories[0].name;
     $("#productSellingPointInput").value = details.sellingPoint;
@@ -916,22 +936,74 @@
     if (type === "banner") item = banners.find((entry) => entry.id === id);
     state.activeEntity = { type, id, item };
     const labels = { brand: "品牌", category: "一级分类", banner: "Banner" };
+    const isMasterData = type === "brand" || type === "category";
     $("#entityModalTitle").textContent = `${item ? "编辑" : "新增"}${labels[type]}`;
-    $("#entityModalSubtitle").textContent = item ? `${item.id} · 软删除保留历史引用` : "保存前校验编码、名称与关联范围";
+    $("#entityModalSubtitle").textContent = isMasterData
+      ? item ? `v${item.version} · 普通编辑不改变 ${item.status} 状态` : "initial_status 固定为 DRAFT"
+      : item ? `${item.id} · 软删除保留历史引用` : "保存前校验编码、名称与关联范围";
     $("#entityCode").value = item ? item.id : "";
     $("#entityCode").disabled = Boolean(item);
     $("#entityName").value = item ? item.name : "";
-    $("#entityDetail").value = item ? (type === "brand" ? item.storyDetail || `${item.name} 品牌故事` : type === "category" ? item.description || `${item.name} 商城入口` : item.detail) : "";
-    $("#entityDetailLabel").textContent = type === "brand" ? "品牌故事 *" : type === "category" ? "分类说明 *" : "跳转目标 *";
-    $("#entitySort").value = item ? item.sort || 1 : 1;
+    $("#entityDetail").value = item ? (type === "brand" ? item.description || "" : item.detail || "") : "";
+    $("#entityDetailLabel").textContent = type === "brand" ? "品牌描述" : "跳转目标 *";
+    $("#entitySort").value = item ? item.sort ?? 0 : 0;
     $("#entityStatus").value = item ? item.status : "已启用";
+    $("#entityDraftNotice").hidden = !isMasterData || Boolean(item);
+    $("#entityCodeField").hidden = isMasterData;
+    $("#entityDetailField").hidden = type === "category";
+    $("#entityStatusField").hidden = isMasterData;
     $("#entityStartField").hidden = type !== "banner";
     $("#entityEndField").hidden = type !== "banner";
     $("#entityStart").value = item && type === "banner" ? item.start : "2026-08-11";
     $("#entityEnd").value = item && type === "banner" ? item.end : "2026-09-11";
-    $("#archiveEntity").hidden = !item;
+    $("#archiveEntity").hidden = isMasterData || !item;
     $("#entityError").hidden = true;
     openModal("#entityModal");
+  }
+
+  function entityByType(type, id) {
+    return (type === "brand" ? brands : commissionCategories).find((item) => item.id === id);
+  }
+
+  function renderMasterData(type) {
+    if (type === "brand") renderBrands();
+    else {
+      renderCategoryManagement();
+      renderCommissionRules();
+    }
+  }
+
+  function lifecyclePreview(type, item, action) {
+    const labels = { ACTIVATE: "启用", DEACTIVATE: "停用", SOFT_DELETE: "归档" };
+    const dependencyCount = ["DEACTIVATE", "SOFT_DELETE"].includes(action) ? item.activeProductCount || 0 : 0;
+    const blocked = dependencyCount > 0;
+    const targetStatus = { ACTIVATE: "ACTIVE", DEACTIVATE: "INACTIVE", SOFT_DELETE: "ARCHIVED" }[action];
+    const dependencyText = blocked ? `发现 ${dependencyCount} 个 ACTIVE 商品依赖；确认提交将返回 ACTIVE_PRODUCT_DEPENDENCY 422，状态与版本不变。` : "未发现活动商品依赖，可以继续确认。";
+    requestHighRiskAction({
+      title: `影响预览 · ${labels[action]}${type === "brand" ? "品牌" : "分类"} · ${item.name}`,
+      subtitle: `preview_token 仅绑定当前目标、动作与 v${item.version}`,
+      impact: `${item.status} → ${targetStatus}。${dependencyText}`,
+      confirmLabel: `确认${labels[action]}`,
+      confirmError: blocked ? { code: "ACTIVE_PRODUCT_DEPENDENCY", status: 422, message: "请先迁移或下架关联的 ACTIVE 商品后重试" } : null,
+      action: (reason) => {
+        item.status = targetStatus;
+        item.version += 1;
+        if (action === "SOFT_DELETE") item.deletedAt = "2026-08-11 12:32";
+        auditLogs.unshift({ id: `AUD-${Date.now()}`, time: "08-11 12:32:00", type: "内容配置", actor: "林老板", target: item.id, reason, result: `${action} · ${targetStatus} · v${item.version}`, client: "Web · Prototype", status: "成功" });
+        renderMasterData(type);
+        renderAuditLogs();
+        showToast(`${item.name} 已${labels[action]}`);
+      }
+    });
+  }
+
+  function openRestoreEntity(type, item) {
+    state.activeEntity = { type, id: item.id, item };
+    $("#restoreEntityTitle").textContent = `恢复${type === "brand" ? "品牌" : "分类"} · ${item.name}`;
+    $("#restoreEntitySubtitle").textContent = `当前 ARCHIVED · If-Match v${item.version}`;
+    $("#restoreEntityReason").value = "";
+    $("#restoreEntityError").hidden = true;
+    openModal("#restoreEntityModal");
   }
 
   function openInventoryEditor(skuId, viewOnly = false, options = {}) {
@@ -1686,24 +1758,29 @@
         }
       }
 
-      const brandToggle = event.target.closest(".brand-toggle");
-      if (brandToggle) {
-        const brand = brands.find((item) => item.id === brandToggle.closest("tr").dataset.brandId);
-        if (brand) openEntityEditor("brand", brand.id);
-      }
-
       const editBrand = event.target.closest(".edit-brand");
       if (editBrand) openEntityEditor("brand", editBrand.closest("tr").dataset.brandId);
 
       const editCategory = event.target.closest(".edit-category");
       if (editCategory) openEntityEditor("category", editCategory.closest("tr").dataset.categoryId);
 
-      const categoryDisable = event.target.closest(".category-disable");
-      if (categoryDisable) {
-        const row = categoryDisable.closest("tr");
-        const category = commissionCategories.find((item) => item.id === row.dataset.categoryId);
-        if (categoryDisable.dataset.categoryBlocked === "1") showToast(`${category.name} 仍有关联在售商品，请先迁移或下架后再停用`);
-        else if (category) openEntityEditor("category", category.id);
+      const lifecycle = event.target.closest(".entity-lifecycle");
+      if (lifecycle) {
+        if (state.highRiskSubmitting) return showToast("上一项生命周期操作正在提交，请稍候");
+        const row = lifecycle.closest("tr");
+        const type = lifecycle.dataset.entityType;
+        const id = type === "brand" ? row.dataset.brandId : row.dataset.categoryId;
+        const item = entityByType(type, id);
+        if (item) lifecyclePreview(type, item, lifecycle.dataset.lifecycleAction);
+      }
+
+      const restoreEntity = event.target.closest(".restore-entity");
+      if (restoreEntity) {
+        const row = restoreEntity.closest("tr");
+        const type = restoreEntity.dataset.entityType;
+        const id = type === "brand" ? row.dataset.brandId : row.dataset.categoryId;
+        const item = entityByType(type, id);
+        if (item) openRestoreEntity(type, item);
       }
 
       const inventoryAdjust = event.target.closest(".inventory-adjust");
@@ -1841,6 +1918,15 @@
       if (state.highRiskSubmitting) return showToast("操作正在提交，请勿重复点击");
       if (!pending || (pending.reasonRequired !== false && !reason) || !$("#highRiskConfirm").checked) {
         $("#highRiskError").hidden = false;
+        return;
+      }
+      if (pending.confirmError) {
+        const error = pending.confirmError;
+        $("#highRiskSubtitle").textContent = `确认失败 · HTTP ${error.status}`;
+        $("#highRiskError").textContent = `${error.code}（${error.status}）：${error.message}`;
+        $("#highRiskError").hidden = false;
+        $("#highRiskConfirm").checked = false;
+        showToast(`${error.code}：记录未改变`);
         return;
       }
       const action = pending.action;
@@ -2376,6 +2462,7 @@
     $("#saveEntity").addEventListener("click", () => {
       const active = state.activeEntity;
       if (!active) return;
+      const isMasterData = active.type === "brand" || active.type === "category";
       const code = $("#entityCode").value.trim().toUpperCase();
       const name = $("#entityName").value.trim();
       const detail = $("#entityDetail").value.trim();
@@ -2384,21 +2471,22 @@
       const start = $("#entityStart").value;
       const end = $("#entityEnd").value;
       const list = active.type === "brand" ? brands : active.type === "category" ? commissionCategories : banners;
-      const duplicate = list.some((item) => item !== active.item && (item.id === code || item.name === name));
-      const categoryBlocked = active.type === "category" && active.item && status === "已停用" && active.item.productCount > 0;
-      if (!code || !name || !detail || !Number.isInteger(sort) || sort < 1 || duplicate || (active.type === "banner" && (!start || !end || start > end)) || categoryBlocked) {
+      const duplicate = list.some((item) => item !== active.item && ((code && item.id === code) || item.name === name));
+      if ((!isMasterData && !code) || !name || (!isMasterData && !detail) || !Number.isInteger(sort) || sort < 0 || duplicate || (active.type === "banner" && (!start || !end || start > end))) {
         $("#entityError").hidden = false;
-        $("#entityError").textContent = duplicate ? "编码或名称已存在" : categoryBlocked ? "该分类仍有在售商品，须先迁移或下架" : active.type === "banner" && start > end ? "结束日期不得早于开始日期" : "请完整填写必填项和有效排序";
+        $("#entityError").textContent = duplicate ? "名称已存在；软删除记录的名称仍被保留" : active.type === "banner" && start > end ? "结束日期不得早于开始日期" : "请完整填写必填项；排序必须是大于等于 0 的整数";
         return;
       }
       let item = active.item;
       if (active.type === "brand") {
-        if (!item) { item = { id: code, name, products: 0, avatar: name.slice(0, 1) }; brands.push(item); }
-        Object.assign(item, { name, story: "完整", storyDetail: detail, sort, status });
+        if (!item) { item = { id: `BR-${Date.now()}`, name, activeProductCount: 0, status: "DRAFT", version: 1, avatar: name.slice(0, 1) }; brands.push(item); }
+        else item.version += 1;
+        Object.assign(item, { name, description: detail || null, sort });
         renderBrands();
       } else if (active.type === "category") {
-        if (!item) { item = { id: code, name, productCount: 0, skuCount: 0, rate: null, overrideCount: 0, updated: "新建", status, sort }; commissionCategories.push(item); }
-        Object.assign(item, { name, description: detail, sort, status });
+        if (!item) { item = { id: `CAT-${Date.now()}`, name, productCount: 0, activeProductCount: 0, skuCount: 0, rate: null, overrideCount: 0, updated: "新建", status: "DRAFT", version: 1, sort }; commissionCategories.push(item); }
+        else item.version += 1;
+        Object.assign(item, { name, sort });
         renderCategoryManagement();
         renderCommissionRules();
       } else {
@@ -2406,10 +2494,28 @@
         Object.assign(item, { name, detail, sort, status, start, end });
         renderBanners();
       }
-      auditLogs.unshift({ id: `AUD-${Date.now()}`, time: "08-11 12:31:00", type: "内容配置", actor: "林老板", target: code, reason: "表单校验与关联检查通过", result: `${status} · 排序 ${sort}`, client: "Web · Prototype", status: "成功" });
+      const effectiveStatus = isMasterData ? item.status : status;
+      auditLogs.unshift({ id: `AUD-${Date.now()}`, time: "08-11 12:31:00", type: "内容配置", actor: "林老板", target: item.id, reason: "表单校验与 If-Match 通过", result: `${effectiveStatus} · 排序 ${sort} · ${isMasterData ? `v${item.version}` : "已保存"}`, client: "Web · Prototype", status: "成功" });
       renderAuditLogs();
       closeOverlays();
       showToast(`${name} 已保存`);
+    });
+
+    $("#confirmRestoreEntity").addEventListener("click", () => {
+      const active = state.activeEntity;
+      const reason = $("#restoreEntityReason").value.trim();
+      if (!active?.item || active.item.status !== "ARCHIVED" || reason.length < 2 || reason.length > 500) {
+        $("#restoreEntityError").hidden = false;
+        return;
+      }
+      active.item.status = "DRAFT";
+      active.item.deletedAt = null;
+      active.item.version += 1;
+      auditLogs.unshift({ id: `AUD-${Date.now()}`, time: "08-11 12:33:00", type: "内容配置", actor: "林老板", target: active.item.id, reason, result: `RESTORE · DRAFT · v${active.item.version}`, client: "Web · Prototype", status: "成功" });
+      renderMasterData(active.type);
+      renderAuditLogs();
+      closeOverlays();
+      showToast(`${active.item.name} 已恢复为草稿，请单独执行启用`);
     });
 
     $("#archiveEntity").addEventListener("click", () => {
@@ -2462,6 +2568,8 @@
     $("#commissionSkuCategory").addEventListener("change", renderCommissionRules);
     $("#brandSearch").addEventListener("input", renderBrands);
     $("#brandStatus").addEventListener("change", renderBrands);
+    $("#categorySearch").addEventListener("input", renderCategoryManagement);
+    $("#categoryStatus").addEventListener("change", renderCategoryManagement);
     $("#inventorySearch").addEventListener("input", renderInventory);
     $("#inventoryStatus").addEventListener("change", renderInventory);
     $("#auditSearch").addEventListener("input", renderAuditLogs);
@@ -2485,6 +2593,7 @@
     $("#withdrawalReset").addEventListener("click", () => { $("#withdrawalSearch").value = ""; $("#withdrawalStatus").value = ""; renderWithdrawals(); });
     $("#commissionSkuReset").addEventListener("click", () => { $("#commissionSkuSearch").value = ""; $("#commissionSkuCategory").value = ""; renderCommissionRules(); });
     $("#brandReset").addEventListener("click", () => { $("#brandSearch").value = ""; $("#brandStatus").value = ""; renderBrands(); });
+    $("#categoryReset").addEventListener("click", () => { $("#categorySearch").value = ""; $("#categoryStatus").value = ""; renderCategoryManagement(); });
     $("#inventoryReset").addEventListener("click", () => { $("#inventorySearch").value = ""; $("#inventoryStatus").value = ""; renderInventory(); });
     $("#auditReset").addEventListener("click", () => { $("#auditSearch").value = ""; $("#auditType").value = ""; renderAuditLogs(); });
 

@@ -15,6 +15,8 @@ const agentViews = ["dashboard", "products", "customers", "orders", "commission"
 
 function adminExpectedTerms(view) {
   if (view === "dashboard") return ["代理归属销售", "活跃代理", "新增绑定", "待审核提现"];
+  if (view === "brands") return ["ADM-05", "排序", "草稿", "已归档"];
+  if (view === "categories") return ["ADM-06", "活动商品依赖", "排序", "版本"];
   if (view === "commission-rules") return ["平台默认", "分类规则", "SKU", "全部一级代理"];
   if (view === "inventory") return ["实物库存", "支付预占", "售后占用", "可售"];
   if (view === "business-rules") return ["最低提现", "售后申请", "迟到支付"];
@@ -83,6 +85,14 @@ const cases = [
     kind: view === "dashboard" ? "admin-dashboard" : "admin",
     expectedTerms: adminExpectedTerms(view)
   })),
+  ...[375, 390, 414].flatMap((width) => ["brands", "categories"].map((view) => ({
+    name: `admin-${view}-${width}`,
+    file: "admin.html",
+    query: { autologin: "1", view },
+    viewport: { width, height: width === 375 ? 812 : width === 390 ? 844 : 896 },
+    kind: "admin",
+    expectedTerms: adminExpectedTerms(view)
+  }))),
   ...adminViews.map((view) => ({
     name: `admin-${view}-1024`,
     file: "admin.html",
@@ -261,6 +271,22 @@ async function runSurfaceContractChecks(browser) {
   await adminPage.goto(buildUrl({ file: "admin.html", query: { autologin: "1" } }), { waitUntil: "load" });
   const adminSurfaces = await adminPage.evaluate(() => document.querySelectorAll(".page-view").length + ["loginView", "shippingModal", "aftersaleModal", "agentDrawer", "customerDrawer", "bankVerifyModal"].filter((id) => document.getElementById(id)).length);
   if (adminSurfaces !== 22) failures.push(`总部端页面/关键视图契约应为 22，当前 ${adminSurfaces}`);
+  const masterDataProjection = await adminPage.evaluate(() => ({
+    brands: document.querySelector('[data-view="brands"]')?.innerText || "",
+    categories: document.querySelector('[data-view="categories"]')?.innerText || "",
+    brandStatuses: [...document.querySelectorAll("#brandStatus option")].map((option) => option.value),
+    categoryStatuses: [...document.querySelectorAll("#categoryStatus option")].map((option) => option.value),
+    sortMinimum: document.querySelector("#entitySort")?.min,
+    sortStep: document.querySelector("#entitySort")?.step
+  }));
+  const unsupportedBrandTerms = ["品牌编码", "关联商品", "品牌故事"];
+  const unsupportedCategoryTerms = ["分类编码", "商品 / SKU", "佣金来源", "分类说明"];
+  const exposedBrandTerms = unsupportedBrandTerms.filter((term) => masterDataProjection.brands.includes(term));
+  const exposedCategoryTerms = unsupportedCategoryTerms.filter((term) => masterDataProjection.categories.includes(term));
+  if (exposedBrandTerms.length) failures.push(`ADM-05 暴露未支持字段: ${exposedBrandTerms.join(", ")}`);
+  if (exposedCategoryTerms.length) failures.push(`ADM-06 暴露未支持字段: ${exposedCategoryTerms.join(", ")}`);
+  if ([masterDataProjection.brandStatuses, masterDataProjection.categoryStatuses].some((values) => values.join(",") !== ",DRAFT,ACTIVE,INACTIVE,ARCHIVED")) failures.push("ADM-05/06 状态筛选未锁定 DRAFT/ACTIVE/INACTIVE/ARCHIVED");
+  if (masterDataProjection.sortMinimum !== "0" || masterDataProjection.sortStep !== "1") failures.push("ADM-05/06 排序输入未锁定 integer >= 0");
   await adminContext.close();
 
   const agentContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
@@ -732,10 +758,69 @@ async function runOpsInteractionChecks(browser) {
 
     await page.click('[data-page="brands"]');
     await page.click("#openCreateBrand");
-    await page.fill("#entityCode", "BR-AUTO"); await page.fill("#entityName", "自动化品牌"); await page.fill("#entityDetail", "品牌故事与视觉档案");
+    expect(await page.locator("#entityCodeField").isHidden(), "品牌创建仍要求客户端填写编码");
+    expect(await page.locator("#entityStatusField").isHidden(), "品牌创建仍允许选择初始状态");
+    expect((await page.locator("#entityDraftNotice").innerText()).includes("固定为草稿"), "品牌创建未说明固定 DRAFT");
+    await page.fill("#entityName", "自动化品牌"); await page.fill("#entityDetail", "品牌描述"); await page.fill("#entitySort", "0");
     await page.click("#saveEntity");
-    await page.fill("#brandSearch", "BR-AUTO");
-    expect(await page.locator('tr[data-brand-id="BR-AUTO"]').count() === 1, "品牌新增未写回列表");
+    await page.fill("#brandSearch", "自动化品牌");
+    const brandRow = page.locator("#brandRows tr", { hasText: "自动化品牌" });
+    expect(await brandRow.count() === 1 && (await brandRow.innerText()).includes("DRAFT"), "品牌新增未以 DRAFT 写回列表");
+    expect((await brandRow.innerText()).includes("v1"), "品牌新增缺少初始版本");
+    await brandRow.locator(".edit-brand").click();
+    expect(await page.locator("#entityStatusField").isHidden(), "品牌普通编辑仍可改变状态");
+    await page.fill("#entitySort", "1.5"); await page.click("#saveEntity");
+    expect((await page.locator("#entityError").innerText()).includes("整数"), "品牌排序未拒绝非整数");
+    await page.fill("#entitySort", "2"); await page.click("#saveEntity");
+    expect((await brandRow.innerText()).includes("DRAFT") && (await brandRow.innerText()).includes("v2"), "品牌普通编辑错误改变状态或未递增版本");
+
+    await brandRow.locator('[data-lifecycle-action="ACTIVATE"]').click();
+    expect((await page.locator("#highRiskModal").innerText()).includes("DRAFT → ACTIVE"), "ACTIVATE 未先展示影响预览");
+    await page.fill("#highRiskReason", "品牌资料已完成"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    await page.waitForFunction(() => !window.__ADMIN_PROTOTYPE__.getState().state.highRiskSubmitting);
+    expect((await brandRow.innerText()).includes("ACTIVE"), "品牌 ACTIVATE 确认未生效");
+    expect(await brandRow.locator('[data-lifecycle-action="DEACTIVATE"]').count() === 1 && await brandRow.locator('[data-lifecycle-action="SOFT_DELETE"]').count() === 0, "ACTIVE 状态错误开放直接归档或缺少停用入口");
+    await brandRow.locator('[data-lifecycle-action="DEACTIVATE"]').click();
+    expect((await page.locator("#highRiskModal").innerText()).includes("ACTIVE → INACTIVE"), "DEACTIVATE 未先展示影响预览");
+    await page.fill("#highRiskReason", "暂停公开展示"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    await page.waitForFunction(() => !window.__ADMIN_PROTOTYPE__.getState().state.highRiskSubmitting);
+    expect(await brandRow.locator('[data-lifecycle-action="ACTIVATE"]').count() === 1 && await brandRow.locator('[data-lifecycle-action="SOFT_DELETE"]').count() === 1, "INACTIVE 状态缺少启用或归档入口");
+    await brandRow.locator('[data-lifecycle-action="SOFT_DELETE"]').click();
+    expect((await page.locator("#highRiskModal").innerText()).includes("INACTIVE → ARCHIVED"), "SOFT_DELETE 未先展示影响预览");
+    await page.fill("#highRiskReason", "停止维护测试品牌"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    await page.waitForFunction(() => !window.__ADMIN_PROTOTYPE__.getState().state.highRiskSubmitting);
+    expect(await brandRow.count() === 0, "ARCHIVED 品牌仍出现在默认列表");
+    await page.selectOption("#brandStatus", "ARCHIVED");
+    const archivedBrandRow = page.locator("#brandRows tr", { hasText: "自动化品牌" });
+    expect(await archivedBrandRow.count() === 1, "显式 ARCHIVED 筛选未返回软删除品牌");
+    await archivedBrandRow.locator(".restore-entity").click();
+    expect((await page.locator("#restoreEntityModal").innerText()).includes("恢复结果：草稿"), "恢复未明确固定返回 DRAFT");
+    await page.fill("#restoreEntityReason", "恢复测试品牌"); await page.click("#confirmRestoreEntity");
+    await page.selectOption("#brandStatus", "DRAFT");
+    const restoredBrandRow = page.locator("#brandRows tr", { hasText: "自动化品牌" });
+    expect((await restoredBrandRow.innerText()).includes("DRAFT") && await restoredBrandRow.locator('[data-lifecycle-action="ACTIVATE"]').count() === 1, "恢复后未回到 DRAFT 或缺少独立 ACTIVATE");
+
+    await page.click('[data-page="categories"]');
+    const protectedCategory = page.locator('#categoryManageRows tr[data-category-id="CAT-SKIN"]');
+    const protectedBefore = await protectedCategory.innerText();
+    await protectedCategory.locator('[data-lifecycle-action="DEACTIVATE"]').click();
+    expect((await page.locator("#highRiskImpact").innerText()).includes("ACTIVE_PRODUCT_DEPENDENCY"), "分类依赖预览未展示 typed blocker");
+    expect(await page.locator("#confirmHighRisk").isEnabled(), "依赖 preview 错误在客户端禁用 confirm，无法验收服务端 422");
+    await page.fill("#highRiskReason", "验证活动商品依赖阻断"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    expect((await page.locator("#highRiskError").innerText()).includes("ACTIVE_PRODUCT_DEPENDENCY（422）"), "confirm 未展示 ACTIVE_PRODUCT_DEPENDENCY 422");
+    expect(await page.locator("#highRiskModal").isVisible(), "422 后错误关闭确认弹窗，无法关闭或重试");
+    expect(await protectedCategory.innerText() === protectedBefore, "confirm 422 后错误改变分类状态或版本");
+    await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    expect((await page.locator("#highRiskError").innerText()).includes("ACTIVE_PRODUCT_DEPENDENCY（422）") && await protectedCategory.innerText() === protectedBefore, "422 重试未保持 typed 错误或记录不变");
+    await page.locator('#highRiskModal .modal-heading .modal-close').click();
+    await page.selectOption("#categoryStatus", "ARCHIVED");
+    const archivedCategory = page.locator('#categoryManageRows tr[data-category-id="CAT-MEN"]');
+    expect(await archivedCategory.count() === 1, "显式 ARCHIVED 筛选未返回软删除分类");
+    await archivedCategory.locator(".restore-entity").click();
+    await page.fill("#restoreEntityReason", "恢复测试分类"); await page.click("#confirmRestoreEntity");
+    await page.selectOption("#categoryStatus", "DRAFT");
+    const restoredCategory = page.locator('#categoryManageRows tr[data-category-id="CAT-MEN"]');
+    expect((await restoredCategory.innerText()).includes("DRAFT") && await restoredCategory.locator('[data-lifecycle-action="ACTIVATE"]').count() === 1, "分类恢复后未回到 DRAFT 或缺少独立 ACTIVATE");
 
     await page.click('[data-page="banners"]');
     await page.click("#openCreateBanner");
@@ -944,14 +1029,17 @@ async function runOpsInteractionChecks(browser) {
     expect((await page.locator("#highRiskImpact").innerText()).includes("已有绑定客户"), "白名单变更预览未说明全店计佣不受影响");
     await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
     await page.waitForSelector("#highRiskModal", { state: "hidden" });
+    await waitForHighRiskIdle(page, "白名单变更确认收尾");
     await page.click('tr[data-agent-id="A1026"] .view-agent');
     expect((await page.locator("#agentDrawerAuthCount").innerText()) === "2 件", "白名单选择未写回当前代理");
     await page.click("#rotateAgentInvite"); await page.fill("#highRiskReason", "旧邀请码疑似外泄"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
     await page.waitForFunction((previous) => document.querySelector("#agentDrawerInvite")?.innerText !== previous, oldInvite);
+    await waitForHighRiskIdle(page, "邀请码轮换确认收尾");
     const newInvite = await page.locator("#agentDrawerInvite").innerText();
     expect(newInvite !== oldInvite && (await page.locator("#agentDrawerInviteState").innerText()).includes("2026-12-31"), "邀请码轮换或有效期未更新");
     await page.click("#disableAgentInvite"); await page.fill("#highRiskReason", "暂停新客户候选"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
     await page.waitForFunction(() => document.querySelector("#agentDrawerInviteState")?.textContent.includes("已停用"));
+    await waitForHighRiskIdle(page, "邀请码停用确认收尾");
     await page.click("#resetAgentPassword"); await page.fill("#highRiskReason", "代理申请重置登录凭据"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
     const credential = await page.locator("#credentialPassword").innerText();
     expect(credential.length >= 8 && !["Agent@2026", "123456"].includes(credential), "密码重置未生成运行时一次性凭据");

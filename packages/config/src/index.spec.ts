@@ -6,6 +6,8 @@ const ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
 const IP_HASH_KEY = Buffer.alloc(32, 9).toString('base64');
 const IDEMPOTENCY_HASH_KEY = Buffer.alloc(32, 11).toString('base64');
 const PREVIOUS_IDEMPOTENCY_HASH_KEY = Buffer.alloc(32, 13).toString('base64');
+const AUTH_SIGNING_KEY = Buffer.alloc(32, 17).toString('base64');
+const AUTH_SECRET_HASH_KEY = Buffer.alloc(32, 19).toString('base64');
 
 function validEnvironment(): NodeJS.ProcessEnv {
   return {
@@ -13,12 +15,22 @@ function validEnvironment(): NodeJS.ProcessEnv {
     CI: 'true',
     ALLOW_CI_EPHEMERAL_POSTGRES: '1',
     DATABASE_URL: 'postgresql://mall_runtime:runtime-password@127.0.0.1:5432/mall',
+    REDIS_URL: 'redis://:local-redis-password@127.0.0.1:6379/0',
     FIELD_ENCRYPTION_KEY_BASE64: ENCRYPTION_KEY,
     FIELD_ENCRYPTION_KEY_ID: 'test-key-v1',
+    FIELD_PREVIOUS_ENCRYPTION_KEYS_JSON: '[]',
     AUDIT_IP_HASH_KEY_BASE64: IP_HASH_KEY,
     IDEMPOTENCY_HASH_KEY_BASE64: IDEMPOTENCY_HASH_KEY,
     IDEMPOTENCY_HASH_KEY_ID: 'test-idempotency-v1',
     IDEMPOTENCY_PREVIOUS_HASH_KEYS_JSON: '[]',
+    AUTH_SIGNING_KEY_BASE64: AUTH_SIGNING_KEY,
+    AUTH_SIGNING_KEY_ID: 'test-auth-sign-v1',
+    AUTH_PREVIOUS_SIGNING_KEYS_JSON: '[]',
+    AUTH_SECRET_HASH_KEY_BASE64: AUTH_SECRET_HASH_KEY,
+    AUTH_SECRET_HASH_KEY_ID: 'test-auth-secret-v1',
+    AUTH_PREVIOUS_SECRET_HASH_KEYS_JSON: '[]',
+    AUTH_TOKEN_ISSUER: 'qingxu-api-test',
+    AUTH_TOKEN_AUDIENCE: 'qingxu-admin-test',
   };
 }
 
@@ -31,9 +43,23 @@ describe('loadPlatformConfig', () => {
     expect(api.database.poolMax).toBe(10);
     expect(api.database.allowInsecureLocalhost).toBe(true);
     expect(api.database.sslRootCertPath).toBeUndefined();
+    expect(api.redis.url).toBe('redis://:local-redis-password@127.0.0.1:6379/0');
+    expect(api.encryption.fieldKeys).toEqual({
+      current: { id: 'test-key-v1', key: Buffer.alloc(32, 7) },
+      previous: [],
+    });
     expect(api.encryption.idempotencyHashKeys).toEqual({
       current: { id: 'test-idempotency-v1', key: Buffer.alloc(32, 11) },
       previous: [],
+    });
+    expect(api.authentication).toMatchObject({
+      accessTokenTtlSeconds: 900,
+      audience: 'qingxu-admin-test',
+      issuer: 'qingxu-api-test',
+      preAuthTokenTtlSeconds: 300,
+      sessionTtlSeconds: 604_800,
+      signingKeys: { current: { id: 'test-auth-sign-v1', key: Buffer.alloc(32, 17) }, previous: [] },
+      secretHashKeys: { current: { id: 'test-auth-secret-v1', key: Buffer.alloc(32, 19) }, previous: [] },
     });
     expect(worker.port).toBe(3001);
     expect(worker.database.poolMax).toBe(5);
@@ -165,6 +191,67 @@ describe('loadPlatformConfig', () => {
     );
   });
 
+  it('retains previous field-encryption keys for envelope decryption', () => {
+    const environment = validEnvironment();
+    environment.FIELD_ENCRYPTION_KEY_ID = 'test-key-v2';
+    environment.FIELD_PREVIOUS_ENCRYPTION_KEYS_JSON = JSON.stringify([{
+      id: 'test-key-v1',
+      key_base64: Buffer.alloc(32, 29).toString('base64'),
+    }]);
+
+    expect(loadPlatformConfig(environment, { service: 'api' }).encryption.fieldKeys).toEqual({
+      current: { id: 'test-key-v2', key: Buffer.alloc(32, 7) },
+      previous: [{ id: 'test-key-v1', key: Buffer.alloc(32, 29) }],
+    });
+  });
+
+  it.each([
+    undefined,
+    'not-json',
+    '{}',
+    JSON.stringify([{ id: 'test-key-v1' }]),
+    JSON.stringify([{ id: 'test-key-v1', key_base64: ENCRYPTION_KEY }]),
+  ])('rejects an unsafe field-encryption rotation ring: %s', (previousKeys) => {
+    const environment = validEnvironment();
+    if (previousKeys === undefined) delete environment.FIELD_PREVIOUS_ENCRYPTION_KEYS_JSON;
+    else environment.FIELD_PREVIOUS_ENCRYPTION_KEYS_JSON = previousKeys;
+
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow();
+  });
+
+  it('requires authenticated Redis and TLS for non-local endpoints', () => {
+    const environment = validEnvironment();
+    environment.REDIS_URL = 'redis://cache.example.test:6379/0';
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'REDIS_URL requires a host and a password of at least 12 characters',
+    );
+
+    environment.REDIS_URL = 'redis://:remote-redis-password@cache.example.test:6379/0';
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'Remote and production REDIS_URL values must use rediss',
+    );
+
+    environment.REDIS_URL = 'rediss://:remote-redis-password@cache.example.test:6380/0';
+    expect(loadPlatformConfig(environment, { service: 'api' }).redis.url).toBe(environment.REDIS_URL);
+  });
+
+  it('allows password-authenticated loopback IPv6 Redis in non-production CI', () => {
+    const environment = validEnvironment();
+    environment.REDIS_URL = 'redis://:local-redis-password@[::1]:6379/0';
+
+    expect(loadPlatformConfig(environment, { service: 'api' }).redis.url).toBe(environment.REDIS_URL);
+  });
+
+  it('rejects Redis query parameters and fragments', () => {
+    const environment = validEnvironment();
+    for (const suffix of ['?tls=false', '#credentials']) {
+      environment.REDIS_URL = `redis://:local-redis-password@127.0.0.1:6379/0${suffix}`;
+      expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+        'REDIS_URL must not contain query parameters or a fragment',
+      );
+    }
+  });
+
   it('rejects reusing the field encryption key for IP hashing', () => {
     const environment = validEnvironment();
     environment.AUDIT_IP_HASH_KEY_BASE64 = environment.FIELD_ENCRYPTION_KEY_BASE64;
@@ -180,6 +267,45 @@ describe('loadPlatformConfig', () => {
 
     expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
       'field encryption, audit IP hashing, and idempotency hashing require independent keys',
+    );
+  });
+
+  it('requires independent authentication signing and secret hashing keys', () => {
+    const environment = validEnvironment();
+    environment.AUTH_SECRET_HASH_KEY_BASE64 = environment.AUTH_SIGNING_KEY_BASE64;
+
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'all authentication, encryption, audit, and idempotency keys must be independent',
+    );
+  });
+
+  it('loads bounded authentication key rings and token lifetimes', () => {
+    const environment = validEnvironment();
+    environment.AUTH_SIGNING_KEY_ID = 'test-auth-sign-v2';
+    environment.AUTH_PREVIOUS_SIGNING_KEYS_JSON = JSON.stringify([{
+      id: 'test-auth-sign-v1',
+      key_base64: Buffer.alloc(32, 23).toString('base64'),
+    }]);
+    environment.AUTH_ACCESS_TOKEN_TTL_SECONDS = '1200';
+
+    const authentication = loadPlatformConfig(environment, { service: 'api' }).authentication;
+    expect(authentication.accessTokenTtlSeconds).toBe(1200);
+    expect(authentication.signingKeys.previous).toEqual([
+      { id: 'test-auth-sign-v1', key: Buffer.alloc(32, 23) },
+    ]);
+  });
+
+  it('rejects invalid authentication identifiers and token lifetimes', () => {
+    const environment = validEnvironment();
+    environment.AUTH_TOKEN_AUDIENCE = 'contains spaces';
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'AUTH_TOKEN_AUDIENCE has an invalid format',
+    );
+
+    environment.AUTH_TOKEN_AUDIENCE = 'qingxu-admin-test';
+    environment.AUTH_PREAUTH_TOKEN_TTL_SECONDS = '301';
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'AUTH_PREAUTH_TOKEN_TTL_SECONDS must be between 60 and 300',
     );
   });
 
@@ -220,7 +346,8 @@ describe('loadPlatformConfig', () => {
 
     expect(config.database.url).toBe('');
     expect(config.database.allowInsecureLocalhost).toBe(false);
-    expect(config.encryption.keyId).toBe('disabled');
+    expect(config.encryption.fieldKeys.current.id).toBe('disabled');
     expect(config.encryption.idempotencyHashKeys.current.id).toBe('disabled');
+    expect(config.redis.url).toBe('');
   });
 });

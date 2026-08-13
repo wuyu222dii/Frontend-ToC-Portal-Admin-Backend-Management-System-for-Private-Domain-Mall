@@ -26,13 +26,24 @@ export interface PlatformRuntimeConfig {
     allowInsecureLocalhost: boolean;
   };
   encryption: {
-    key: Buffer;
-    keyId: string;
+    fieldKeys: SecurityKeyRingConfig;
     ipHashKey: Buffer;
     idempotencyHashKeys: {
       current: IdempotencyHashKeyConfig;
       previous: readonly IdempotencyHashKeyConfig[];
     };
+  };
+  redis: {
+    url: string;
+  };
+  authentication: {
+    accessTokenTtlSeconds: number;
+    audience: string;
+    issuer: string;
+    preAuthTokenTtlSeconds: number;
+    secretHashKeys: SecurityKeyRingConfig;
+    sessionTtlSeconds: number;
+    signingKeys: SecurityKeyRingConfig;
   };
   worker: {
     pollIntervalMs: number;
@@ -45,6 +56,16 @@ export interface PlatformRuntimeConfig {
 export interface IdempotencyHashKeyConfig {
   id: string;
   key: Buffer;
+}
+
+export interface SecurityKeyConfig {
+  id: string;
+  key: Buffer;
+}
+
+export interface SecurityKeyRingConfig {
+  current: SecurityKeyConfig;
+  previous: readonly SecurityKeyConfig[];
 }
 
 export interface LoadPlatformConfigOptions {
@@ -100,6 +121,44 @@ interface RuntimeDatabaseConnection {
   projectRef: string | undefined;
   sslRootCertPath: string | undefined;
   allowInsecureLocalhost: boolean;
+}
+
+function readRuntimeRedisUrl(
+  source: NodeJS.ProcessEnv,
+  required: boolean,
+  environment: RuntimeEnvironment,
+): string {
+  const raw = source.REDIS_URL;
+  if (!raw) {
+    if (!required) return '';
+    throw new Error('REDIS_URL is required');
+  }
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error('REDIS_URL must be a valid Redis URL');
+  }
+  if (url.protocol !== 'redis:' && url.protocol !== 'rediss:') {
+    throw new Error('REDIS_URL must use redis or rediss');
+  }
+  let password: string;
+  try {
+    password = decodeURIComponent(url.password);
+  } catch {
+    throw new Error('REDIS_URL password contains invalid percent encoding');
+  }
+  if (!url.hostname || password.length < 12) {
+    throw new Error('REDIS_URL requires a host and a password of at least 12 characters');
+  }
+  if (url.search !== '' || url.hash !== '') {
+    throw new Error('REDIS_URL must not contain query parameters or a fragment');
+  }
+  const localHosts = new Set(['127.0.0.1', 'localhost', '[::1]']);
+  if ((environment === 'production' || !localHosts.has(url.hostname)) && url.protocol !== 'rediss:') {
+    throw new Error('Remote and production REDIS_URL values must use rediss');
+  }
+  return raw;
 }
 
 function readRuntimeDatabaseConnection(
@@ -211,18 +270,6 @@ function readRuntimeDatabaseConnection(
   };
 }
 
-function readKeyId(source: NodeJS.ProcessEnv, required: boolean): string {
-  const keyId = source.FIELD_ENCRYPTION_KEY_ID?.trim();
-  if (!keyId) {
-    if (!required) return 'disabled';
-    throw new Error('FIELD_ENCRYPTION_KEY_ID is required');
-  }
-  if (!/^[A-Za-z0-9._:-]{3,80}$/.test(keyId)) {
-    throw new Error('FIELD_ENCRYPTION_KEY_ID has an invalid format');
-  }
-  return keyId;
-}
-
 const HASH_KEY_ID_PATTERN = /^[A-Za-z0-9._:-]{3,80}$/;
 
 function readIdempotencyHashKeyRing(
@@ -280,6 +327,71 @@ function readIdempotencyHashKeyRing(
   return { current, previous };
 }
 
+function readSecurityKeyRing(
+  source: NodeJS.ProcessEnv,
+  options: {
+    currentIdName: string;
+    currentKeyName: string;
+    previousName: string;
+    required: boolean;
+  },
+): SecurityKeyRingConfig {
+  if (!options.required) {
+    return { current: { id: 'disabled', key: Buffer.alloc(32) }, previous: [] };
+  }
+  const id = source[options.currentIdName]?.trim();
+  if (!id || !HASH_KEY_ID_PATTERN.test(id)) {
+    throw new Error(`${options.currentIdName} has an invalid format`);
+  }
+  const current = { id, key: readBase64Key(source, options.currentKeyName, true) };
+  const rawPrevious = source[options.previousName]?.trim();
+  if (rawPrevious === undefined || rawPrevious === '') {
+    throw new Error(`${options.previousName} is required; use [] before the first rotation`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawPrevious);
+  } catch {
+    throw new Error(`${options.previousName} must be valid JSON`);
+  }
+  if (!Array.isArray(parsed) || parsed.length > 3) {
+    throw new Error(`${options.previousName} must contain at most 3 keys`);
+  }
+  const previous = parsed.map((entry, index): SecurityKeyConfig => {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry) ||
+      Object.keys(entry).sort().join(',') !== 'id,key_base64') {
+      throw new Error(`${options.previousName}[${index}] has an invalid shape`);
+    }
+    const record = entry as Record<string, unknown>;
+    if (typeof record.id !== 'string' || !HASH_KEY_ID_PATTERN.test(record.id) ||
+      typeof record.key_base64 !== 'string') {
+      throw new Error(`${options.previousName}[${index}] has an invalid value`);
+    }
+    return {
+      id: record.id,
+      key: readBase64Key({ [options.currentKeyName]: record.key_base64 }, options.currentKeyName, true),
+    };
+  });
+  const keys = [current, ...previous];
+  if (new Set(keys.map((entry) => entry.id)).size !== keys.length ||
+    keys.some((entry, index) => keys.some((candidate, candidateIndex) =>
+      index !== candidateIndex && entry.key.equals(candidate.key)))) {
+    throw new Error(`${options.currentIdName} key ring must contain unique IDs and keys`);
+  }
+  return { current, previous };
+}
+
+function readIdentifier(
+  source: NodeJS.ProcessEnv,
+  name: string,
+  fallback: string,
+  required: boolean,
+): string {
+  const value = source[name]?.trim() || (required ? '' : fallback);
+  if (!/^[A-Za-z0-9._:/-]{3,120}$/.test(value)) throw new Error(`${name} has an invalid format`);
+  return value;
+}
+
 export function loadPlatformConfig(
   source: NodeJS.ProcessEnv,
   options: LoadPlatformConfigOptions,
@@ -289,14 +401,48 @@ export function loadPlatformConfig(
   const requireEncryption = options.requireEncryption ?? true;
   const portName = options.service === 'api' ? 'API_PORT' : 'WORKER_PORT';
   const poolName = options.service === 'api' ? 'API_DATABASE_POOL_MAX' : 'WORKER_DATABASE_POOL_MAX';
-  const encryptionKey = readBase64Key(source, 'FIELD_ENCRYPTION_KEY_BASE64', requireEncryption);
+  const fieldKeys = readSecurityKeyRing(source, {
+    currentIdName: 'FIELD_ENCRYPTION_KEY_ID',
+    currentKeyName: 'FIELD_ENCRYPTION_KEY_BASE64',
+    previousName: 'FIELD_PREVIOUS_ENCRYPTION_KEYS_JSON',
+    required: requireEncryption,
+  });
   const ipHashKey = readBase64Key(source, 'AUDIT_IP_HASH_KEY_BASE64', requireEncryption);
   const idempotencyHashKeys = readIdempotencyHashKeyRing(source, requireEncryption);
+  const requireAuthentication = requireEncryption && options.service === 'api';
+  const signingKeys = readSecurityKeyRing(source, {
+    currentIdName: 'AUTH_SIGNING_KEY_ID',
+    currentKeyName: 'AUTH_SIGNING_KEY_BASE64',
+    previousName: 'AUTH_PREVIOUS_SIGNING_KEYS_JSON',
+    required: requireAuthentication,
+  });
+  const secretHashKeys = readSecurityKeyRing(source, {
+    currentIdName: 'AUTH_SECRET_HASH_KEY_ID',
+    currentKeyName: 'AUTH_SECRET_HASH_KEY_BASE64',
+    previousName: 'AUTH_PREVIOUS_SECRET_HASH_KEYS_JSON',
+    required: requireAuthentication,
+  });
   const databaseConnection = readRuntimeDatabaseConnection(source, requireDatabase, environment);
-  if (requireEncryption && (encryptionKey.equals(ipHashKey) ||
-    [idempotencyHashKeys.current, ...idempotencyHashKeys.previous]
-      .some(({ key }) => encryptionKey.equals(key) || ipHashKey.equals(key)))) {
+  const redisUrl = readRuntimeRedisUrl(source, requireDatabase, environment);
+  const infrastructureKeys = [
+    ...[fieldKeys.current, ...fieldKeys.previous].map(({ key }) => key),
+    ipHashKey,
+    ...[idempotencyHashKeys.current, ...idempotencyHashKeys.previous].map(({ key }) => key),
+  ];
+  if (requireEncryption && infrastructureKeys.some((key, index) =>
+    infrastructureKeys.some((candidate, candidateIndex) => index !== candidateIndex && key.equals(candidate)))) {
     throw new Error('field encryption, audit IP hashing, and idempotency hashing require independent keys');
+  }
+  if (requireAuthentication) {
+    const purposeKeys = [
+      ...infrastructureKeys,
+      ...[signingKeys.current, ...signingKeys.previous].map(({ key }) => key),
+      ...[secretHashKeys.current, ...secretHashKeys.previous].map(({ key }) => key),
+    ];
+    if (purposeKeys.some((key, index) => purposeKeys.some((candidate, candidateIndex) =>
+      index !== candidateIndex && key.equals(candidate)))) {
+      throw new Error('all authentication, encryption, audit, and idempotency keys must be independent');
+    }
   }
 
   return {
@@ -321,10 +467,19 @@ export function loadPlatformConfig(
       ),
     },
     encryption: {
-      key: encryptionKey,
-      keyId: readKeyId(source, requireEncryption),
+      fieldKeys,
       ipHashKey,
       idempotencyHashKeys,
+    },
+    redis: { url: redisUrl },
+    authentication: {
+      accessTokenTtlSeconds: readInteger(source, 'AUTH_ACCESS_TOKEN_TTL_SECONDS', 900, 300, 3_600),
+      audience: readIdentifier(source, 'AUTH_TOKEN_AUDIENCE', 'qingxu-admin-web', requireAuthentication),
+      issuer: readIdentifier(source, 'AUTH_TOKEN_ISSUER', 'qingxu-api', requireAuthentication),
+      preAuthTokenTtlSeconds: readInteger(source, 'AUTH_PREAUTH_TOKEN_TTL_SECONDS', 300, 60, 300),
+      secretHashKeys,
+      sessionTtlSeconds: readInteger(source, 'AUTH_SESSION_TTL_SECONDS', 604_800, 3_600, 2_592_000),
+      signingKeys,
     },
     worker: {
       pollIntervalMs: readInteger(source, 'WORKER_POLL_INTERVAL_MS', 1_000, 100, 60_000),

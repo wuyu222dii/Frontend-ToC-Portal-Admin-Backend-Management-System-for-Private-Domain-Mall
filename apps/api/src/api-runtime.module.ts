@@ -7,8 +7,14 @@ import {
   ApiDatabaseLifecycleService,
   createApiDatabaseRuntime,
 } from './platform/database/api-database-runtime';
+import { API_RUNTIME_CONFIG } from './platform/config/api-runtime-config';
+import {
+  API_REDIS_CLIENT,
+  ApiRedisLifecycleService,
+  createApiRedisClient,
+} from './platform/redis/api-redis-runtime';
 
-export const API_RUNTIME_CONFIG = Symbol('API_RUNTIME_CONFIG');
+export { API_RUNTIME_CONFIG } from './platform/config/api-runtime-config';
 
 @Module({})
 export class ApiRuntimeModule {
@@ -25,8 +31,14 @@ export class ApiRuntimeModule {
           useFactory: createApiDatabaseRuntime,
         },
         ApiDatabaseLifecycleService,
+        {
+          provide: API_REDIS_CLIENT,
+          inject: [API_RUNTIME_CONFIG],
+          useFactory: createApiRedisClient,
+        },
+        ApiRedisLifecycleService,
       ],
-      exports: [API_DATABASE_RUNTIME],
+      exports: [API_DATABASE_RUNTIME, API_REDIS_CLIENT, API_RUNTIME_CONFIG],
     };
   }
 }

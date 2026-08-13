@@ -1,9 +1,10 @@
 import { createApp } from 'vue';
-import { ElTag } from 'element-plus';
-import 'element-plus/es/components/tag/style/css';
+import ElementPlus from 'element-plus';
+import 'element-plus/dist/index.css';
 import '@qingxu/ui-tokens/styles.css';
 
 import App from './App.vue';
+import { router } from './router';
 import './styles.css';
 
-createApp(App).component('ElTag', ElTag).mount('#app');
+createApp(App).use(ElementPlus).use(router).mount('#app');

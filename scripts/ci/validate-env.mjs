@@ -10,10 +10,22 @@ const required = [
   "S3_SECRET_KEY",
   "FIELD_ENCRYPTION_KEY_BASE64",
   "FIELD_ENCRYPTION_KEY_ID",
+  "FIELD_PREVIOUS_ENCRYPTION_KEYS_JSON",
   "AUDIT_IP_HASH_KEY_BASE64",
   "IDEMPOTENCY_HASH_KEY_BASE64",
   "IDEMPOTENCY_HASH_KEY_ID",
   "IDEMPOTENCY_PREVIOUS_HASH_KEYS_JSON",
+  "AUTH_SIGNING_KEY_BASE64",
+  "AUTH_SIGNING_KEY_ID",
+  "AUTH_PREVIOUS_SIGNING_KEYS_JSON",
+  "AUTH_SECRET_HASH_KEY_BASE64",
+  "AUTH_SECRET_HASH_KEY_ID",
+  "AUTH_PREVIOUS_SECRET_HASH_KEYS_JSON",
+  "AUTH_TOKEN_ISSUER",
+  "AUTH_TOKEN_AUDIENCE",
+  "AUTH_ACCESS_TOKEN_TTL_SECONDS",
+  "AUTH_PREAUTH_TOKEN_TTL_SECONDS",
+  "AUTH_SESSION_TTL_SECONDS",
   "WORKER_POLL_INTERVAL_MS",
   "WORKER_BATCH_SIZE",
   "WORKER_MAX_RETRIES",
@@ -60,28 +72,44 @@ function decodeBase64Key(name) {
   return decodeBase64Value(process.env[name], name);
 }
 
-function readPreviousIdempotencyKeys() {
+const KEY_ID_PATTERN = /^[A-Za-z0-9._:-]{3,80}$/;
+
+function readPreviousKeys(name) {
   let entries;
   try {
-    entries = JSON.parse(process.env.IDEMPOTENCY_PREVIOUS_HASH_KEYS_JSON);
+    entries = JSON.parse(process.env[name]);
   } catch {
-    throw new Error("IDEMPOTENCY_PREVIOUS_HASH_KEYS_JSON must be valid JSON");
+    throw new Error(`${name} must be valid JSON`);
   }
   if (!Array.isArray(entries) || entries.length > 3) {
-    throw new Error("IDEMPOTENCY_PREVIOUS_HASH_KEYS_JSON must contain at most 3 keys");
+    throw new Error(`${name} must contain at most 3 keys`);
   }
   return entries.map((entry, index) => {
     if (!entry || Array.isArray(entry) || typeof entry !== "object" ||
         Object.keys(entry).sort().join(",") !== "id,key_base64" ||
-        typeof entry.id !== "string" || !/^[A-Za-z0-9._:-]{3,80}$/.test(entry.id) ||
+        typeof entry.id !== "string" || !KEY_ID_PATTERN.test(entry.id) ||
         typeof entry.key_base64 !== "string") {
-      throw new Error(`IDEMPOTENCY_PREVIOUS_HASH_KEYS_JSON[${index}] has an invalid shape`);
+      throw new Error(`${name}[${index}] has an invalid shape`);
     }
     return {
       id: entry.id,
-      key: decodeBase64Value(entry.key_base64, `IDEMPOTENCY_PREVIOUS_HASH_KEYS_JSON[${index}].key_base64`),
+      key: decodeBase64Value(entry.key_base64, `${name}[${index}].key_base64`),
     };
   });
+}
+
+function readKeyRing(idName, keyName, previousName) {
+  if (!KEY_ID_PATTERN.test(process.env[idName])) throw new Error(`${idName} has an invalid format`);
+  const entries = [
+    { id: process.env[idName], key: decodeBase64Key(keyName) },
+    ...readPreviousKeys(previousName),
+  ];
+  if (new Set(entries.map(({ id }) => id)).size !== entries.length ||
+      entries.some((entry, index) => entries.some((candidate, candidateIndex) =>
+        index !== candidateIndex && entry.key.equals(candidate.key)))) {
+    throw new Error(`${idName} key ring must contain unique IDs and keys`);
+  }
+  return entries;
 }
 
 function readBoundedInteger(name, minimum, maximum) {
@@ -103,6 +131,7 @@ try {
   const migratorUsername = decodeComponent(migrator.username, "DIRECT_URL username");
   const runtimePassword = decodeComponent(runtime.password, "DATABASE_URL password");
   const migratorPassword = decodeComponent(migrator.password, "DIRECT_URL password");
+  const redisPassword = decodeComponent(redis.password, "REDIS_URL password");
 
   if (runtimeUsername.split(".")[0] !== "mall_runtime") {
     throw new Error("DATABASE_URL must authenticate as mall_runtime");
@@ -134,32 +163,64 @@ try {
       throw new Error(`${name} must not contain a Supabase API key`);
     }
   }
-  if (!redis.password || redis.password.length < 12) throw new Error("REDIS_URL requires a strong password");
+  if (!redis.hostname || redisPassword.length < 12) {
+    throw new Error("REDIS_URL requires a host and a password of at least 12 characters");
+  }
+  if (redis.search !== "" || redis.hash !== "") {
+    throw new Error("REDIS_URL must not contain query parameters or a fragment");
+  }
+  const localRedisHosts = new Set(["127.0.0.1", "localhost", "[::1]"]);
+  if ((process.env.NODE_ENV === "production" || !localRedisHosts.has(redis.hostname)) && redis.protocol !== "rediss:") {
+    throw new Error("remote and production REDIS_URL values must use rediss");
+  }
   if (!storage.hostname) throw new Error("S3_ENDPOINT requires a host");
   if (process.env.S3_BUCKET.length < 3 || process.env.S3_ACCESS_KEY.length < 3 || process.env.S3_SECRET_KEY.length < 12) {
     throw new Error("S3 bucket and credentials do not meet the development minimum");
   }
-  const fieldEncryptionKey = decodeBase64Key("FIELD_ENCRYPTION_KEY_BASE64");
+  const fieldEncryptionKeys = readKeyRing(
+    "FIELD_ENCRYPTION_KEY_ID",
+    "FIELD_ENCRYPTION_KEY_BASE64",
+    "FIELD_PREVIOUS_ENCRYPTION_KEYS_JSON",
+  );
   const auditIpHashKey = decodeBase64Key("AUDIT_IP_HASH_KEY_BASE64");
-  const idempotencyHashKey = decodeBase64Key("IDEMPOTENCY_HASH_KEY_BASE64");
-  if (!/^[A-Za-z0-9._:-]{3,80}$/.test(process.env.IDEMPOTENCY_HASH_KEY_ID)) {
-    throw new Error("IDEMPOTENCY_HASH_KEY_ID has an invalid format");
+  const idempotencyKeys = readKeyRing(
+    "IDEMPOTENCY_HASH_KEY_ID",
+    "IDEMPOTENCY_HASH_KEY_BASE64",
+    "IDEMPOTENCY_PREVIOUS_HASH_KEYS_JSON",
+  );
+  const authSigningKeys = readKeyRing(
+    "AUTH_SIGNING_KEY_ID",
+    "AUTH_SIGNING_KEY_BASE64",
+    "AUTH_PREVIOUS_SIGNING_KEYS_JSON",
+  );
+  const authSecretHashKeys = readKeyRing(
+    "AUTH_SECRET_HASH_KEY_ID",
+    "AUTH_SECRET_HASH_KEY_BASE64",
+    "AUTH_PREVIOUS_SECRET_HASH_KEYS_JSON",
+  );
+  for (const [name, value] of [
+    ["AUTH_TOKEN_ISSUER", process.env.AUTH_TOKEN_ISSUER],
+    ["AUTH_TOKEN_AUDIENCE", process.env.AUTH_TOKEN_AUDIENCE],
+  ]) {
+    if (!/^[A-Za-z0-9._:/-]{3,120}$/.test(value)) throw new Error(`${name} has an invalid format`);
   }
-  const idempotencyKeys = [
-    { id: process.env.IDEMPOTENCY_HASH_KEY_ID, key: idempotencyHashKey },
-    ...readPreviousIdempotencyKeys(),
+  for (const [name, minimum, maximum] of [
+    ["AUTH_ACCESS_TOKEN_TTL_SECONDS", 300, 3_600],
+    ["AUTH_PREAUTH_TOKEN_TTL_SECONDS", 60, 300],
+    ["AUTH_SESSION_TTL_SECONDS", 3_600, 2_592_000],
+  ]) {
+    readBoundedInteger(name, minimum, maximum);
+  }
+  const purposeKeys = [
+    ...fieldEncryptionKeys.map(({ key }) => key),
+    auditIpHashKey,
+    ...idempotencyKeys.map(({ key }) => key),
+    ...authSigningKeys.map(({ key }) => key),
+    ...authSecretHashKeys.map(({ key }) => key),
   ];
-  if (new Set(idempotencyKeys.map(({ id }) => id)).size !== idempotencyKeys.length ||
-      idempotencyKeys.some((entry, index) => idempotencyKeys.some((candidate, candidateIndex) =>
-        index !== candidateIndex && entry.key.equals(candidate.key)))) {
-    throw new Error("idempotency HMAC key IDs and keys must be unique");
-  }
-  if (fieldEncryptionKey.equals(auditIpHashKey) ||
-      idempotencyKeys.some(({ key }) => fieldEncryptionKey.equals(key) || auditIpHashKey.equals(key))) {
-    throw new Error("field encryption, audit IP hashing, and idempotency hashing require independent keys");
-  }
-  if (!/^[A-Za-z0-9._:-]{3,80}$/.test(process.env.FIELD_ENCRYPTION_KEY_ID)) {
-    throw new Error("FIELD_ENCRYPTION_KEY_ID has an invalid format");
+  if (purposeKeys.some((key, index) => purposeKeys.some((candidate, candidateIndex) =>
+    index !== candidateIndex && key.equals(candidate)))) {
+    throw new Error("authentication, field encryption, audit, and idempotency keys must be independent");
   }
   readBoundedInteger("WORKER_POLL_INTERVAL_MS", 100, 60_000);
   readBoundedInteger("WORKER_BATCH_SIZE", 1, 100);

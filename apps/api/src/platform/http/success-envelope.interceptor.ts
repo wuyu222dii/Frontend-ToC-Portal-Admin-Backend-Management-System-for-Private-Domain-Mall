@@ -25,6 +25,22 @@ export interface SuccessEnvelope<T> {
   request_id: string;
 }
 
+const PRE_ENVELOPED_RESPONSE = Symbol('pre-enveloped-response');
+
+export interface PreEnvelopedResponse<T> {
+  readonly [PRE_ENVELOPED_RESPONSE]: true;
+  readonly envelope: SuccessEnvelope<T>;
+}
+
+export function preEnvelopedResponse<T>(envelope: SuccessEnvelope<T>): PreEnvelopedResponse<T> {
+  return { [PRE_ENVELOPED_RESPONSE]: true, envelope };
+}
+
+function isPreEnvelopedResponse<T>(value: unknown): value is PreEnvelopedResponse<T> {
+  return typeof value === 'object' && value !== null &&
+    (value as Partial<PreEnvelopedResponse<T>>)[PRE_ENVELOPED_RESPONSE] === true;
+}
+
 function isBusinessPath(request: EnvelopeRequest): boolean {
   const path = request.originalUrl ?? request.url ?? '';
   return path === '/api/v1' || path.startsWith('/api/v1/');
@@ -39,6 +55,7 @@ export class SuccessEnvelopeInterceptor<T> implements NestInterceptor<T, T | Suc
     return next.handle().pipe(
       map((data) => {
         request.resultCode = 'OK';
+        if (isPreEnvelopedResponse<T>(data)) return data.envelope;
         if (!isBusinessPath(request) || response.statusCode === 204) {
           return data;
         }

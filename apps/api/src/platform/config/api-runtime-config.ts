@@ -1,0 +1,1 @@
+export const API_RUNTIME_CONFIG = Symbol('API_RUNTIME_CONFIG');

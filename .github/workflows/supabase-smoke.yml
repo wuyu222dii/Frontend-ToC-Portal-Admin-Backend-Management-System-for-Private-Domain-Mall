@@ -25,7 +25,7 @@ concurrency:
 jobs:
   smoke:
     if: inputs.confirmation == 'DEVELOPMENT_SMOKE_APPROVED'
-    name: Protected read-only smoke
+    name: Protected rollback-only smoke
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: supabase-development
@@ -74,3 +74,8 @@ jobs:
         env:
           B1_DATABASE_TEST_MODE: rollback
         run: pnpm db:test-b1
+
+      - name: Run rollback-only B2 administrator-authentication smoke
+        env:
+          B2_DATABASE_TEST_MODE: rollback
+        run: pnpm db:test-b2

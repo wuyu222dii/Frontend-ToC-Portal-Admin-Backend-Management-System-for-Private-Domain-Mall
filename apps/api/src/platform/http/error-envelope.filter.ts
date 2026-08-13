@@ -22,6 +22,10 @@ interface ErrorRequest extends PrincipalRequest {
   headers?: Record<string, string | string[] | undefined>;
 }
 
+interface ErrorResponse {
+  setHeader(name: string, value: string): void;
+}
+
 interface ResolvedError {
   code: ApplicationErrorCode;
   details?: readonly ApplicationErrorDetail[];
@@ -112,7 +116,7 @@ export class ErrorEnvelopeFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
     const context = host.switchToHttp();
     const request = context.getRequest<ErrorRequest>();
-    const response = context.getResponse<unknown>();
+    const response = context.getResponse<ErrorResponse>();
     const requestId = request.requestId ?? createRequestId(request.headers?.['x-request-id']);
     const error = resolveError(exception);
 
@@ -129,6 +133,9 @@ export class ErrorEnvelopeFilter implements ExceptionFilter {
       );
     }
     this.adapterHost.httpAdapter.setHeader(response, 'X-Request-Id', requestId);
+    if (error.code === 'RATE_LIMITED' || error.code === 'REAUTH_LOCKED') {
+      response.setHeader('Retry-After', '900');
+    }
     this.adapterHost.httpAdapter.reply(response, toErrorResponse(error, requestId), error.status);
   }
 }

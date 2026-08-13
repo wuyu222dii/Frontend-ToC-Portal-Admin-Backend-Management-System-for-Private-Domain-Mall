@@ -12,6 +12,15 @@ import {
 } from './outbox-dispatcher.service';
 
 const config: PlatformRuntimeConfig = {
+  authentication: {
+    accessTokenTtlSeconds: 900,
+    audience: 'disabled',
+    issuer: 'disabled',
+    preAuthTokenTtlSeconds: 300,
+    secretHashKeys: { current: { id: 'disabled', key: Buffer.alloc(32) }, previous: [] },
+    sessionTtlSeconds: 604_800,
+    signingKeys: { current: { id: 'disabled', key: Buffer.alloc(32) }, previous: [] },
+  },
   environment: 'test',
   service: 'worker',
   port: 3001,
@@ -24,14 +33,14 @@ const config: PlatformRuntimeConfig = {
     allowInsecureLocalhost: false,
   },
   encryption: {
-    key: Buffer.alloc(32),
-    keyId: 'test',
+    fieldKeys: { current: { id: 'test', key: Buffer.alloc(32) }, previous: [] },
     ipHashKey: Buffer.alloc(32, 1),
     idempotencyHashKeys: {
       current: { id: 'test-current', key: Buffer.alloc(32, 2) },
       previous: [],
     },
   },
+  redis: { url: 'redis://:runtime-test-password@127.0.0.1:6379/0' },
   worker: { pollIntervalMs: 1_000, batchSize: 10, maxRetries: 3, baseRetryDelayMs: 100 },
 };
 

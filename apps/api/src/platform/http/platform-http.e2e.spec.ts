@@ -115,6 +115,12 @@ class PlatformProbeController {
       },
     ]);
   }
+
+  @Get('rate-limited')
+  @Public()
+  rateLimited(): never {
+    throw new ApplicationError('RATE_LIMITED', 'Internal rate-limit detail');
+  }
 }
 
 @Module({
@@ -246,7 +252,7 @@ describe('API platform HTTP pipeline (e2e)', () => {
     expect(JSON.stringify(response.body)).not.toMatch(/provider|credential|private/i);
   });
 
-  it('enforces role metadata without implementing authentication', async () => {
+  it('fails closed on protected routes when the authentication runtime is absent', async () => {
     const missing = await request(app.getHttpServer()).get('/api/v1/platform-probe/role').expect(401);
     expect(missing.body.code).toBe('AUTH_REQUIRED');
 
@@ -258,15 +264,15 @@ describe('API platform HTTP pipeline (e2e)', () => {
       role: 'CUSTOMER',
       sessionId: 'session_customer',
     };
-    const denied = await request(app.getHttpServer()).get('/api/v1/platform-probe/role').expect(403);
-    expect(denied.body.code).toBe('PERMISSION_DENIED');
+    const denied = await request(app.getHttpServer()).get('/api/v1/platform-probe/role').expect(401);
+    expect(denied.body.code).toBe('AUTH_REQUIRED');
 
     testPrincipal = { ...testPrincipal, role: 'SUPER_ADMIN' };
-    const allowed = await request(app.getHttpServer()).get('/api/v1/platform-probe/role').expect(200);
-    expect(allowed.body.data).toEqual({ allowed: true });
+    const stillDenied = await request(app.getHttpServer()).get('/api/v1/platform-probe/role').expect(401);
+    expect(stillDenied.body.code).toBe('AUTH_REQUIRED');
   });
 
-  it('enforces permission metadata independently of roles', async () => {
+  it('does not treat a middleware-injected permission as authentication', async () => {
     testPrincipal = {
       accountId: 'admin_1',
       assurance: 'MFA',
@@ -275,10 +281,10 @@ describe('API platform HTTP pipeline (e2e)', () => {
       role: 'SUPER_ADMIN',
       sessionId: 'session_admin',
     };
-    await request(app.getHttpServer()).get('/api/v1/platform-probe/permission').expect(403);
+    await request(app.getHttpServer()).get('/api/v1/platform-probe/permission').expect(401);
 
     testPrincipal = { ...testPrincipal, permissions: ['ORDER_FULFILLMENT_PII_READ'] };
-    await request(app.getHttpServer()).get('/api/v1/platform-probe/permission').expect(200);
+    await request(app.getHttpServer()).get('/api/v1/platform-probe/permission').expect(401);
   });
 
   it('parses only the frozen strong quoted If-Match form', async () => {
@@ -342,5 +348,14 @@ describe('API platform HTTP pipeline (e2e)', () => {
     });
     expect(JSON.stringify(response.body)).not.toContain(SENSITIVE_PHONE);
     expect(JSON.stringify(response.body)).not.toMatch(/server-secret|postgresql/i);
+  });
+
+  it('returns the frozen fifteen-minute retry interval for authentication locks', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/v1/platform-probe/rate-limited')
+      .expect(429);
+
+    expect(response.headers['retry-after']).toBe('900');
+    expect(response.body.code).toBe('RATE_LIMITED');
   });
 });

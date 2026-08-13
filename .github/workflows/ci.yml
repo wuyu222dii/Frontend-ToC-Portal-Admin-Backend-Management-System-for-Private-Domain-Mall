@@ -53,6 +53,9 @@ jobs:
       WORKER_BATCH_SIZE: "20"
       WORKER_MAX_RETRIES: "8"
       WORKER_BASE_RETRY_DELAY_MS: "1000"
+      AUTH_ACCESS_TOKEN_TTL_SECONDS: "900"
+      AUTH_PREAUTH_TOKEN_TTL_SECONDS: "300"
+      AUTH_SESSION_TTL_SECONDS: "604800"
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -87,17 +90,36 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify bootstrap CLI clean-checkout entry point
+        run: |
+          bootstrap_output="$(mktemp)"
+          trap 'rm -f "$bootstrap_output"' EXIT
+          if pnpm admin:bootstrap forbidden-non-secret-argument >"$bootstrap_output" 2>&1; then
+            echo 'bootstrap unexpectedly accepted a command-line argument' >&2
+            exit 1
+          fi
+          grep --quiet --line-regexp 'Super administrator bootstrap failed' "$bootstrap_output"
+
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Create CI-only application secrets
         run: |
           echo "FIELD_ENCRYPTION_KEY_BASE64=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
+          echo 'FIELD_PREVIOUS_ENCRYPTION_KEYS_JSON=[]' >> "$GITHUB_ENV"
           echo "AUDIT_IP_HASH_KEY_BASE64=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
           echo "IDEMPOTENCY_HASH_KEY_BASE64=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
           echo "IDEMPOTENCY_HASH_KEY_ID=ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
           echo 'IDEMPOTENCY_PREVIOUS_HASH_KEYS_JSON=[]' >> "$GITHUB_ENV"
           echo "FIELD_ENCRYPTION_KEY_ID=ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+          echo "AUTH_SIGNING_KEY_BASE64=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
+          echo "AUTH_SIGNING_KEY_ID=ci-auth-sign-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+          echo 'AUTH_PREVIOUS_SIGNING_KEYS_JSON=[]' >> "$GITHUB_ENV"
+          echo "AUTH_SECRET_HASH_KEY_BASE64=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
+          echo "AUTH_SECRET_HASH_KEY_ID=ci-auth-secret-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+          echo 'AUTH_PREVIOUS_SECRET_HASH_KEYS_JSON=[]' >> "$GITHUB_ENV"
+          echo 'AUTH_TOKEN_ISSUER=qingxu-api-ci' >> "$GITHUB_ENV"
+          echo 'AUTH_TOKEN_AUDIENCE=qingxu-admin-ci' >> "$GITHUB_ENV"
 
       - name: Validate environment contract
         run: pnpm config:check
@@ -136,6 +158,16 @@ jobs:
         env:
           B1_DATABASE_TEST_MODE: full
         run: pnpm db:test-b1
+
+      - name: Test B2 administrator authentication transactions
+        env:
+          B2_DATABASE_TEST_MODE: full
+        run: pnpm db:test-b2
+
+      - name: Test B2 administrator authentication API with PostgreSQL
+        env:
+          B2_DATABASE_TEST_MODE: full
+        run: pnpm db:test-b2-api
 
       - name: Verify Prisma migration drift
         run: pnpm db:diff

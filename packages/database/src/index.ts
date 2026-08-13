@@ -1,4 +1,5 @@
 export * from './advisory-lock';
+export * from './admin-auth.repository';
 export * from './audit.repository';
 export * from './callback-inbox.repository';
 export * from './idempotency.repository';

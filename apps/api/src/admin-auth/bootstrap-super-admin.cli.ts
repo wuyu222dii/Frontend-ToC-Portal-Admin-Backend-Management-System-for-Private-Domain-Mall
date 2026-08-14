@@ -101,7 +101,12 @@ async function bootstrapLoginName(): Promise<string> {
 
 export async function bootstrapSuperAdmin(): Promise<string> {
   assertSecureBootstrapInvocation(process.argv, process.env);
-  const config = loadPlatformConfig(process.env, { service: 'api', requireDatabase: true, requireEncryption: true });
+  const config = loadPlatformConfig(process.env, {
+    service: 'api',
+    requireDatabase: true,
+    requireEncryption: true,
+    requireStorage: false,
+  });
   const database = createDatabaseRuntime({
     applicationName: 'qingxu-admin-bootstrap',
     allowInsecureLocalhost: config.database.allowInsecureLocalhost,

@@ -1,0 +1,18 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::__S3_BUCKET__/staging/*",
+        "arn:aws:s3:::__S3_BUCKET__/public/*",
+        "arn:aws:s3:::__S3_BUCKET__/private/*"
+      ]
+    }
+  ]
+}

@@ -149,6 +149,20 @@ try {
   assert.equal(uploadComplete.properties.sha256.pattern, '^[a-f0-9]{64}$');
   assert.equal(uploadComplete.properties.size.maximum, 5_242_880);
 
+  const downloadOperation = document.paths['/files/{file_id}/download-url']?.get;
+  assert.ok(downloadOperation, 'file download URL GET operation is missing');
+  const downloadParameterReferences = (downloadOperation.parameters ?? [])
+    .map((parameter) => parameter.$ref)
+    .filter((reference) => typeof reference === 'string');
+  assert.ok(!downloadParameterReferences.includes('#/components/parameters/IdempotencyKey'),
+    'file download URL GET must not accept Idempotency-Key');
+  assert.match(downloadOperation.description, /不创建幂等记录/,
+    'file download URL description must state that no idempotency record is created');
+  assert.equal(downloadOperation.responses?.['200']?.headers?.['Cache-Control']?.$ref,
+    '#/components/headers/CacheControlNoStore');
+  assert.equal(downloadOperation.responses?.['200']?.headers?.Pragma?.$ref,
+    '#/components/headers/PragmaNoCache');
+
   const stateConflictDescription = document.components.responses.StateConflict.description;
   const businessErrorDescription = document.components.responses.BusinessError.description;
   assert.match(stateConflictDescription, /\bSOFT_DELETED_KEY_RESERVED\b/);

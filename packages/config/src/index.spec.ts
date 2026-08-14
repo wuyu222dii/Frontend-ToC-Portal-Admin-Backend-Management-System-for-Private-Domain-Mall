@@ -16,6 +16,13 @@ function validEnvironment(): NodeJS.ProcessEnv {
     ALLOW_CI_EPHEMERAL_POSTGRES: '1',
     DATABASE_URL: 'postgresql://mall_runtime:runtime-password@127.0.0.1:5432/mall',
     REDIS_URL: 'redis://:local-redis-password@127.0.0.1:6379/0',
+    S3_ACCESS_KEY: 'local-minio-access-key',
+    S3_BUCKET: 'mall-test',
+    S3_ENDPOINT: 'http://127.0.0.1:9000',
+    S3_FORCE_PATH_STYLE: 'true',
+    S3_PUBLIC_BASE_URL: 'http://127.0.0.1:9000/mall-test',
+    S3_REGION: 'us-east-1',
+    S3_SECRET_KEY: 'local-minio-secret-value',
     FIELD_ENCRYPTION_KEY_BASE64: ENCRYPTION_KEY,
     FIELD_ENCRYPTION_KEY_ID: 'test-key-v1',
     FIELD_PREVIOUS_ENCRYPTION_KEYS_JSON: '[]',
@@ -44,6 +51,19 @@ describe('loadPlatformConfig', () => {
     expect(api.database.allowInsecureLocalhost).toBe(true);
     expect(api.database.sslRootCertPath).toBeUndefined();
     expect(api.redis.url).toBe('redis://:local-redis-password@127.0.0.1:6379/0');
+    expect(api.storage).toEqual({
+      accessKey: 'local-minio-access-key',
+      bucket: 'mall-test',
+      endpoint: 'http://127.0.0.1:9000',
+      forcePathStyle: true,
+      maxUploadBytes: 5_242_880,
+      pendingCleanupAgeSeconds: 86_400,
+      privateDownloadTtlSeconds: 300,
+      publicBaseUrl: 'http://127.0.0.1:9000/mall-test',
+      region: 'us-east-1',
+      secretKey: 'local-minio-secret-value',
+      uploadTtlSeconds: 900,
+    });
     expect(api.encryption.fieldKeys).toEqual({
       current: { id: 'test-key-v1', key: Buffer.alloc(32, 7) },
       previous: [],
@@ -252,6 +272,44 @@ describe('loadPlatformConfig', () => {
     }
   });
 
+  it('rejects unsafe object storage endpoints and credentials', () => {
+    const environment = validEnvironment();
+    environment.S3_ENDPOINT = 'http://storage.example.test';
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'Remote and production S3_ENDPOINT values must use HTTPS',
+    );
+
+    environment.S3_ENDPOINT = 'http://127.0.0.1:9000/tenant';
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'S3_ENDPOINT must be an origin without a path',
+    );
+
+    environment.S3_ENDPOINT = 'http://127.0.0.1:9000';
+    environment.S3_ACCESS_KEY = 'short';
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'S3_ACCESS_KEY has an invalid format',
+    );
+
+    environment.S3_ACCESS_KEY = 'local-minio-access-key';
+    environment.S3_SECRET_KEY = 'short';
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'S3_SECRET_KEY must contain between 16 and 256 printable characters',
+    );
+  });
+
+  it('requires an explicit stable public object base URL', () => {
+    const environment = validEnvironment();
+    delete environment.S3_PUBLIC_BASE_URL;
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'S3_PUBLIC_BASE_URL is required',
+    );
+
+    environment.S3_PUBLIC_BASE_URL = 'http://127.0.0.1:9000/another-bucket';
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'S3_PUBLIC_BASE_URL path must identify S3_BUCKET',
+    );
+  });
+
   it('rejects reusing the field encryption key for IP hashing', () => {
     const environment = validEnvironment();
     environment.AUDIT_IP_HASH_KEY_BASE64 = environment.FIELD_ENCRYPTION_KEY_BASE64;
@@ -349,5 +407,6 @@ describe('loadPlatformConfig', () => {
     expect(config.encryption.fieldKeys.current.id).toBe('disabled');
     expect(config.encryption.idempotencyHashKeys.current.id).toBe('disabled');
     expect(config.redis.url).toBe('');
+    expect(config.storage).toMatchObject({ bucket: '', endpoint: '', publicBaseUrl: '' });
   });
 });

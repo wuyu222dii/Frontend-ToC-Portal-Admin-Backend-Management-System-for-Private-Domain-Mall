@@ -41,6 +41,19 @@ const config: PlatformRuntimeConfig = {
     },
   },
   redis: { url: 'redis://:runtime-test-password@127.0.0.1:6379/0' },
+  storage: {
+    accessKey: 'minio-access-key',
+    bucket: 'mall-test',
+    endpoint: 'http://127.0.0.1:9000',
+    forcePathStyle: true,
+    maxUploadBytes: 5_242_880,
+    pendingCleanupAgeSeconds: 86_400,
+    privateDownloadTtlSeconds: 300,
+    publicBaseUrl: 'http://127.0.0.1:9000/mall-test',
+    region: 'us-east-1',
+    secretKey: 'minio-secret-value',
+    uploadTtlSeconds: 900,
+  },
   worker: { pollIntervalMs: 1_000, batchSize: 10, maxRetries: 3, baseRetryDelayMs: 100 },
 };
 
@@ -95,6 +108,17 @@ afterEach(() => {
 });
 
 describe('OutboxDispatcherService', () => {
+  it('does not own the shared database lifecycle', async () => {
+    const mocks = createMocks();
+    const service = createService({ outbox: [], callbacks: [] }, mocks);
+
+    await service.onModuleInit();
+    await service.onApplicationShutdown();
+
+    expect(mocks.database.connect).not.toHaveBeenCalled();
+    expect(mocks.database.disconnect).not.toHaveBeenCalled();
+  });
+
   it('does not query or consume events when both registries are empty', async () => {
     const mocks = createMocks();
     const service = createService({ outbox: [], callbacks: [] }, mocks);

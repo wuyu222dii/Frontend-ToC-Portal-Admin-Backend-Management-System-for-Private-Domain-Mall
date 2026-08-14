@@ -8,6 +8,7 @@ export const API_REDIS_CLIENT = Symbol('API_REDIS_CLIENT');
 
 export interface ApiRedisClient {
   readonly isOpen: boolean;
+  readonly isReady: boolean;
   connect(): Promise<unknown>;
   destroy(): void;
   eval(script: string, options: { arguments: string[]; keys: string[] }): Promise<unknown>;
@@ -15,12 +16,16 @@ export interface ApiRedisClient {
   quit(): Promise<unknown>;
 }
 
+export function apiRedisReconnectDelay(retries: number): number {
+  return Math.min(100 * 2 ** Math.min(retries, 5), 5_000);
+}
+
 export function createApiRedisClient(config: PlatformRuntimeConfig): ApiRedisClient {
   return createClient({
     url: config.redis.url,
     socket: {
       connectTimeout: config.database.connectionTimeoutMs,
-      reconnectStrategy: false,
+      reconnectStrategy: apiRedisReconnectDelay,
     },
   }) as unknown as ApiRedisClient;
 }

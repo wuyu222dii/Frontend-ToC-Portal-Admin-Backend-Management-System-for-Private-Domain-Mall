@@ -6,8 +6,11 @@ const required = [
   "REDIS_URL",
   "S3_ENDPOINT",
   "S3_BUCKET",
+  "S3_PUBLIC_BASE_URL",
+  "S3_REGION",
   "S3_ACCESS_KEY",
   "S3_SECRET_KEY",
+  "S3_FORCE_PATH_STYLE",
   "FIELD_ENCRYPTION_KEY_BASE64",
   "FIELD_ENCRYPTION_KEY_ID",
   "FIELD_PREVIOUS_ENCRYPTION_KEYS_JSON",
@@ -127,6 +130,7 @@ try {
   const migrator = parseUrl("DIRECT_URL", ["postgres:", "postgresql:"]);
   const redis = parseUrl("REDIS_URL", ["redis:", "rediss:"]);
   const storage = parseUrl("S3_ENDPOINT", ["http:", "https:"]);
+  const publicStorage = parseUrl("S3_PUBLIC_BASE_URL", ["http:", "https:"]);
   const runtimeUsername = decodeComponent(runtime.username, "DATABASE_URL username");
   const migratorUsername = decodeComponent(migrator.username, "DIRECT_URL username");
   const runtimePassword = decodeComponent(runtime.password, "DATABASE_URL password");
@@ -173,9 +177,42 @@ try {
   if ((process.env.NODE_ENV === "production" || !localRedisHosts.has(redis.hostname)) && redis.protocol !== "rediss:") {
     throw new Error("remote and production REDIS_URL values must use rediss");
   }
-  if (!storage.hostname) throw new Error("S3_ENDPOINT requires a host");
-  if (process.env.S3_BUCKET.length < 3 || process.env.S3_ACCESS_KEY.length < 3 || process.env.S3_SECRET_KEY.length < 12) {
+  if (!storage.hostname || storage.username || storage.password || storage.pathname !== "/" ||
+      storage.search !== "" || storage.hash !== "") {
+    throw new Error("S3_ENDPOINT must be a credential-free origin");
+  }
+  if (!publicStorage.hostname || publicStorage.username || publicStorage.password ||
+      publicStorage.search !== "" || publicStorage.hash !== "") {
+    throw new Error("S3_PUBLIC_BASE_URL must be a credential-free URL");
+  }
+  if (publicStorage.pathname.replace(/\/$/, "") !== `/${process.env.S3_BUCKET}`) {
+    throw new Error("S3_PUBLIC_BASE_URL path must identify S3_BUCKET");
+  }
+  const localStorageHosts = new Set(["127.0.0.1", "localhost", "[::1]"]);
+  for (const [name, url] of [["S3_ENDPOINT", storage], ["S3_PUBLIC_BASE_URL", publicStorage]]) {
+    if ((process.env.NODE_ENV === "production" || !localStorageHosts.has(url.hostname)) &&
+        url.protocol !== "https:") {
+      throw new Error(`remote and production ${name} values must use https`);
+    }
+  }
+  if (!/^(?!\d{1,3}(?:\.\d{1,3}){3}$)[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(process.env.S3_BUCKET) ||
+      process.env.S3_BUCKET.includes("..")) {
+    throw new Error("S3_BUCKET must be a DNS-compatible bucket name");
+  }
+  if (!/^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/.test(process.env.S3_REGION)) {
+    throw new Error("S3_REGION has an invalid format");
+  }
+  const storageSecretContainsControl = Array.from(process.env.S3_SECRET_KEY).some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f);
+  });
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{15,127}$/.test(process.env.S3_ACCESS_KEY) ||
+      process.env.S3_SECRET_KEY.length < 16 || process.env.S3_SECRET_KEY.length > 256 ||
+      storageSecretContainsControl) {
     throw new Error("S3 bucket and credentials do not meet the development minimum");
+  }
+  if (process.env.S3_FORCE_PATH_STYLE !== "true" && process.env.S3_FORCE_PATH_STYLE !== "false") {
+    throw new Error("S3_FORCE_PATH_STYLE must be true or false");
   }
   const fieldEncryptionKeys = readKeyRing(
     "FIELD_ENCRYPTION_KEY_ID",

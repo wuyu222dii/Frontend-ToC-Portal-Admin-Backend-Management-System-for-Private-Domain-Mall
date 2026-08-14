@@ -7,6 +7,7 @@ import {
   Injectable,
   Module,
   Post,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { ApplicationError, type RbacPrincipal } from '@qingxu/platform-core';
@@ -121,6 +122,12 @@ class PlatformProbeController {
   rateLimited(): never {
     throw new ApplicationError('RATE_LIMITED', 'Internal rate-limit detail');
   }
+
+  @Get('not-ready')
+  @Public()
+  notReady(): never {
+    throw new ServiceUnavailableException('redis-private-detail');
+  }
 }
 
 @Module({
@@ -195,6 +202,19 @@ describe('API platform HTTP pipeline (e2e)', () => {
       request_id: response.headers['x-request-id'],
     });
     expect(JSON.stringify(response.body)).not.toContain('controller exception');
+  });
+
+  it('preserves readiness failures as a sanitized HTTP 503', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/v1/platform-probe/not-ready')
+      .expect(503);
+
+    expect(response.body).toEqual({
+      code: 'INTERNAL_ERROR',
+      message: 'Service is temporarily unavailable',
+      request_id: response.headers['x-request-id'],
+    });
+    expect(JSON.stringify(response.body)).not.toContain('redis-private-detail');
   });
 
   it('preserves an unmapped client-error status without turning it into a 5xx', async () => {

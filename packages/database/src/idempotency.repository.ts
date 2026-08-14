@@ -52,6 +52,11 @@ export type IdempotencyResult =
       responseBody: CacheableCommandResponse;
     })
   | (IdempotencyResultBase & {
+      storage: 'CACHEABLE';
+      policy: 'FILE_UPLOAD_COMPLETE';
+      responseBody: CacheableFileUploadCompleteResponse;
+    })
+  | (IdempotencyResultBase & {
       storage: 'HASH_ONLY';
       resourceId?: string;
       responseForHash: unknown;
@@ -71,6 +76,28 @@ export interface CacheableCommandResponse {
   request_id: string;
 }
 
+export type CacheableFilePurpose =
+  | 'PRODUCT_IMAGE'
+  | 'BRAND_LOGO'
+  | 'CATEGORY_ICON'
+  | 'BANNER'
+  | 'AFTERSALE_EVIDENCE'
+  | 'WITHDRAWAL_PROOF'
+  | 'PROMOTION_QR';
+
+export interface CacheableFileUploadCompleteResponse {
+  code: 'OK';
+  message: 'success';
+  data: {
+    file_id: string;
+    purpose: CacheableFilePurpose;
+    status: 'READY';
+    public_url: string | null;
+    completed_at: string;
+  };
+  request_id: string;
+}
+
 const COMMAND_RESPONSE_TOP_LEVEL_FIELDS = new Set(['code', 'data', 'message', 'request_id']);
 const COMMAND_RESPONSE_DATA_FIELDS = new Set([
   'occurred_at',
@@ -78,6 +105,29 @@ const COMMAND_RESPONSE_DATA_FIELDS = new Set([
   'resource_type',
   'status',
   'version',
+]);
+const FILE_UPLOAD_COMPLETE_TOP_LEVEL_FIELDS = new Set(['code', 'data', 'message', 'request_id']);
+const FILE_UPLOAD_COMPLETE_DATA_FIELDS = new Set([
+  'completed_at',
+  'file_id',
+  'public_url',
+  'purpose',
+  'status',
+]);
+const FILE_PURPOSE = new Set<CacheableFilePurpose>([
+  'PRODUCT_IMAGE',
+  'BRAND_LOGO',
+  'CATEGORY_ICON',
+  'BANNER',
+  'AFTERSALE_EVIDENCE',
+  'WITHDRAWAL_PROOF',
+  'PROMOTION_QR',
+]);
+const PUBLIC_FILE_PURPOSE = new Set<CacheableFilePurpose>([
+  'PRODUCT_IMAGE',
+  'BRAND_LOGO',
+  'CATEGORY_ICON',
+  'BANNER',
 ]);
 const COMMAND_RESPONSE_STATUS = new Set([
   'ACTIVE',
@@ -166,6 +216,39 @@ function isCacheableCommandResponse(value: unknown): value is CacheableCommandRe
     typeof value.data.occurred_at === 'string' && ISO_TIMESTAMP.test(value.data.occurred_at);
 }
 
+function isStablePublicUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 2_048) return false;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  return (url.protocol === 'http:' || url.protocol === 'https:') &&
+    url.username === '' && url.password === '' && url.search === '' && url.hash === '';
+}
+
+function isCacheableFileUploadCompleteResponse(
+  value: unknown,
+): value is CacheableFileUploadCompleteResponse {
+  if (!isExactPlainObject(value, FILE_UPLOAD_COMPLETE_TOP_LEVEL_FIELDS)) return false;
+  if (value.code !== 'OK' || value.message !== 'success' || !REQUEST_ID.test(String(value.request_id))) return false;
+  if (!isExactPlainObject(value.data, FILE_UPLOAD_COMPLETE_DATA_FIELDS)) return false;
+  if (!isValidUlid(value.data.file_id) || value.data.status !== 'READY' ||
+    typeof value.data.purpose !== 'string' || !FILE_PURPOSE.has(value.data.purpose as CacheableFilePurpose) ||
+    typeof value.data.completed_at !== 'string' || !ISO_TIMESTAMP.test(value.data.completed_at)) {
+    return false;
+  }
+  const purpose = value.data.purpose as CacheableFilePurpose;
+  return PUBLIC_FILE_PURPOSE.has(purpose)
+    ? isStablePublicUrl(value.data.public_url)
+    : value.data.public_url === null;
+}
+
+function cacheableResourceId(response: CacheableCommandResponse | CacheableFileUploadCompleteResponse): string {
+  return isCacheableCommandResponse(response) ? response.data.resource_id : response.data.file_id;
+}
+
 function validateClaim(input: IdempotencyClaim): void {
   if (!isExactPlainObject(input, CLAIM_FIELDS)) {
     throw new TypeError('Idempotency claim contains unsupported fields');
@@ -185,6 +268,9 @@ function validateClaim(input: IdempotencyClaim): void {
 }
 
 function validateResult(result: IdempotencyResult): void {
+  if (result.storage !== 'CACHEABLE' && result.storage !== 'HASH_ONLY') {
+    throw new TypeError('Idempotency storage policy is invalid');
+  }
   const fields = result.storage === 'CACHEABLE' ? CACHEABLE_RESULT_FIELDS : HASH_ONLY_RESULT_FIELDS;
   const expectedFields = new Set([...fields].filter((field) =>
     field !== 'resourceId' || (result.storage === 'HASH_ONLY' && result.resourceId !== undefined)));
@@ -197,9 +283,22 @@ function validateResult(result: IdempotencyResult): void {
   if (result.storage === 'CACHEABLE' && (result.responseStatus < 200 || result.responseStatus > 299)) {
     throw new TypeError('CACHEABLE idempotency responses must use a successful HTTP status');
   }
-  if (result.storage === 'CACHEABLE' &&
-    (result.policy !== 'COMMAND_RESPONSE' || !isCacheableCommandResponse(result.responseBody))) {
-    throw new TypeError('Only a valid COMMAND_RESPONSE may use CACHEABLE idempotency storage');
+  if (result.storage === 'CACHEABLE' && result.policy === 'FILE_UPLOAD_COMPLETE' &&
+    result.responseStatus !== 200) {
+    throw new TypeError('FILE_UPLOAD_COMPLETE responses must use HTTP status 200');
+  }
+  if (result.storage === 'CACHEABLE') {
+    if (result.policy === 'COMMAND_RESPONSE') {
+      if (!isCacheableCommandResponse(result.responseBody)) {
+        throw new TypeError('Only a valid COMMAND_RESPONSE may use the COMMAND_RESPONSE cache policy');
+      }
+    } else if (result.policy === 'FILE_UPLOAD_COMPLETE') {
+      if (!isCacheableFileUploadCompleteResponse(result.responseBody)) {
+        throw new TypeError('Only a valid file completion response may use the FILE_UPLOAD_COMPLETE cache policy');
+      }
+    } else {
+      throw new TypeError('CACHEABLE idempotency policy is not registered');
+    }
   }
   if (result.storage === 'HASH_ONLY' && result.resourceId !== undefined && !isValidUlid(result.resourceId)) {
     throw new TypeError('Idempotency resource ID must be a ULID');
@@ -289,12 +388,24 @@ export class IdempotencyRepository {
       }
       return;
     }
+    const response = record.response_body;
+    const commandResponse = isCacheableCommandResponse(response);
+    const fileCompleteResponse = isCacheableFileUploadCompleteResponse(response);
     if (record.response_status < 200 || record.response_status > 299 ||
-      !isCacheableCommandResponse(record.response_body) ||
-      record.resource_id !== record.response_body.data.resource_id ||
+      (!commandResponse && !fileCompleteResponse) ||
+      (fileCompleteResponse && record.response_status !== 200) ||
+      record.resource_id !== cacheableResourceId(response) ||
       !this.responseHashMatches(record.response_body, record.response_body_hash)) {
       throw new ApplicationError('INTERNAL_ERROR', 'Idempotency record integrity check failed');
     }
+  }
+
+  fileUploadCompleteReplay(record: IdempotencyRecord): CacheableFileUploadCompleteResponse {
+    this.assertReplayIntegrity(record);
+    if (!isCacheableFileUploadCompleteResponse(record.response_body)) {
+      throw new ApplicationError('INTERNAL_ERROR', 'Idempotency record is not a file completion response');
+    }
+    return record.response_body;
   }
 
   async claim(transaction: DatabaseTransaction, input: IdempotencyClaim): Promise<IdempotencyClaimResult> {
@@ -364,7 +475,7 @@ export class IdempotencyRepository {
       response_body: responseBody ?? Prisma.DbNull,
       response_body_hash: responseBodyHash,
       resource_id: result.storage === 'CACHEABLE'
-        ? result.responseBody.data.resource_id
+        ? cacheableResourceId(result.responseBody)
         : result.resourceId ?? null,
       expires_at: new Date(now.getTime() + IDEMPOTENCY_TTL_MS),
       created_at: now,

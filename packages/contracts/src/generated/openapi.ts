@@ -3001,7 +3001,7 @@ export interface paths {
         };
         /**
          * 按角色和业务对象返回短时签名 URL
-         * @description 仅 READY 且通过角色和业务归属校验的文件可下载。private/ 对象返回有效期 5 分钟的签名 URL；公开素材的稳定地址由 FileUploadCompleteResponse.public_url 提供。响应使用 HASH_ONLY，不得持久化签名 URL。存储桶默认私有，仅 public/* 允许匿名 GET，private/* 始终禁止匿名访问。PENDING 或 staging/ 满 24 小时仅进入清理候选，删除前必须再次确认没有 READY 引用。
+         * @description 仅 READY 且通过角色和业务归属校验的文件可下载。private/ 对象返回有效期 5 分钟的签名 URL；公开素材的稳定地址由 FileUploadCompleteResponse.public_url 提供。本 GET operation 不接受 Idempotency-Key、不创建幂等记录；响应必须 no-store/private，且不得持久化或记录签名 URL。存储桶默认私有，仅 public/* 允许匿名 GET，private/* 始终禁止匿名访问。PENDING 或 staging/ 满 24 小时仅进入清理候选，删除前必须再次确认没有 READY 引用。
          */
         get: operations["getFilesByFileIdDownloadUrl"];
         put?: never;

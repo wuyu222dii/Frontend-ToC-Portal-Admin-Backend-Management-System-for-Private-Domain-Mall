@@ -88,7 +88,6 @@ export class OutboxDispatcherService implements OnModuleInit, OnApplicationShutd
   }
 
   async onModuleInit(): Promise<void> {
-    await this.database.connect();
     this.schedule(0);
   }
 
@@ -96,7 +95,6 @@ export class OutboxDispatcherService implements OnModuleInit, OnApplicationShutd
     this.stopping = true;
     if (this.timer) clearTimeout(this.timer);
     while (this.running) await new Promise((resolve) => setTimeout(resolve, 10));
-    await this.database.disconnect();
   }
 
   async pollOnce(): Promise<void> {

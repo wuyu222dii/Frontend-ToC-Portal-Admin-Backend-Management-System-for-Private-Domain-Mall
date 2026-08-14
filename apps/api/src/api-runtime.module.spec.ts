@@ -12,8 +12,10 @@ import {
 import { describe, expect, it, vi } from 'vitest';
 
 import { AdminAuthService } from './admin-auth/admin-auth.service';
+import { FileAssetsService } from './files/files.service';
 import { ApiRuntimeModule, API_RUNTIME_CONFIG } from './api-runtime.module';
 import { API_DATABASE_RUNTIME } from './platform/database/api-database-runtime';
+import { apiRedisReconnectDelay } from './platform/redis/api-redis-runtime';
 
 function runtimeConfig(): PlatformRuntimeConfig {
   const key = (byte: number) => Buffer.alloc(32, byte);
@@ -41,11 +43,22 @@ function runtimeConfig(): PlatformRuntimeConfig {
     port: 3000,
     redis: { url: 'redis://:runtime-test-password@127.0.0.1:6379/0' },
     service: 'api',
+    storage: {
+      accessKey: 'minio-access-key-value', bucket: 'mall-test', endpoint: 'http://127.0.0.1:9000',
+      forcePathStyle: true, maxUploadBytes: 5_242_880, pendingCleanupAgeSeconds: 86_400,
+      privateDownloadTtlSeconds: 300, publicBaseUrl: 'http://127.0.0.1:9000/mall-test',
+      region: 'us-east-1', secretKey: 'minio-secret-value', uploadTtlSeconds: 900,
+    },
     worker: { baseRetryDelayMs: 1_000, batchSize: 20, maxRetries: 8, pollIntervalMs: 1_000 },
   };
 }
 
 describe('ApiRuntimeModule authentication wiring', () => {
+  it('uses bounded reconnect delays for transient Redis outages', () => {
+    expect([0, 1, 2, 3, 10, Number.MAX_SAFE_INTEGER].map(apiRedisReconnectDelay))
+      .toEqual([100, 200, 400, 800, 3_200, 3_200]);
+  });
+
   it('resolves auth providers without a CommonJS symbol cycle', async () => {
     const database = {
       connect: vi.fn(), disconnect: vi.fn(), ping: vi.fn(),
@@ -56,6 +69,7 @@ describe('ApiRuntimeModule authentication wiring', () => {
       .compile();
     expect(moduleRef.get(API_RUNTIME_CONFIG)).toMatchObject({ service: 'api' });
     expect(moduleRef.get(AdminAuthService)).toBeInstanceOf(AdminAuthService);
+    expect(moduleRef.get(FileAssetsService)).toBeInstanceOf(FileAssetsService);
     await moduleRef.close();
   });
 

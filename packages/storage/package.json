@@ -1,0 +1,32 @@
+{
+  "name": "@qingxu/storage",
+  "version": "0.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.1110.0",
+    "@aws-sdk/s3-request-presigner": "3.1110.0",
+    "@smithy/node-http-handler": "4.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "vitest": "^4.0.6"
+  }
+}

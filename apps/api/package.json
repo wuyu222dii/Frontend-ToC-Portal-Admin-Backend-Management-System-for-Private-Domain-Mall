@@ -17,6 +17,7 @@
     "@qingxu/config": "workspace:*",
     "@qingxu/database": "workspace:*",
     "@qingxu/platform-core": "workspace:*",
+    "@qingxu/storage": "workspace:*",
     "reflect-metadata": "^0.2.2",
     "redis": "6.1.0",
     "rxjs": "^7.8.2"

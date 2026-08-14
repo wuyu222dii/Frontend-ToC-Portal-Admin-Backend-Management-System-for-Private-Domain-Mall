@@ -46,7 +46,23 @@ describe('OutboxRepository append boundary', () => {
         event_type: 'order.updated',
         payload: event.payload,
         created_at: createdAt,
+        next_retry_at: null,
       }),
+    }));
+  });
+
+  it('stores a future availability boundary in the existing retry timestamp', async () => {
+    const transaction = transactionStub();
+    const createdAt = new Date('2026-08-13T00:00:00.000Z');
+    const availableAt = new Date('2026-08-14T00:15:00.000Z');
+
+    await new OutboxRepository({} as DatabaseRuntime, () => createdAt).append(transaction, {
+      ...input(),
+      availableAt,
+    });
+
+    expect(transaction.outboxEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ next_retry_at: availableAt }),
     }));
   });
 
@@ -57,6 +73,19 @@ describe('OutboxRepository append boundary', () => {
     } as never)).rejects.toThrow('unsupported fields');
     expect(() => new OutboxRepository({} as DatabaseRuntime, () => new Date(Number.NaN)))
       .toThrow('clock must return a valid Date');
+  });
+
+  it('rejects an invalid or pre-creation availability boundary', async () => {
+    const createdAt = new Date('2026-08-13T00:00:00.000Z');
+    const repository = new OutboxRepository({} as DatabaseRuntime, () => createdAt);
+    await expect(repository.append(transactionStub(), {
+      ...input(),
+      availableAt: new Date(createdAt.getTime() - 1),
+    })).rejects.toThrow('at or after creation');
+    await expect(repository.append(transactionStub(), {
+      ...input(),
+      availableAt: new Date(Number.NaN),
+    })).rejects.toThrow('valid date');
   });
 
   it.each([
@@ -83,5 +112,36 @@ describe('OutboxRepository append boundary', () => {
       eventType: 'recovery-code-ABCDEF123456',
     })).rejects.toThrow('event type has an invalid format');
     expect(transaction.outboxEvent.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('OutboxRepository due boundary', () => {
+  it('includes PENDING events only when their availability time is null or due', async () => {
+    const now = new Date('2026-08-14T00:00:00.000Z');
+    const findMany = vi.fn(async () => []);
+    const runtime = { prisma: { outboxEvent: { findMany } } } as unknown as DatabaseRuntime;
+
+    await new OutboxRepository(runtime, () => now).findDue({
+      eventTypes: ['file.staging_cleanup_requested'],
+      limit: 20,
+    });
+
+    expect(findMany).toHaveBeenCalledWith({
+      orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
+      take: 20,
+      where: {
+        event_type: { in: ['file.staging_cleanup_requested'] },
+        OR: [
+          {
+            status: 'PENDING',
+            OR: [
+              { next_retry_at: null },
+              { next_retry_at: { lte: now } },
+            ],
+          },
+          { status: 'FAILED', next_retry_at: { lte: now } },
+        ],
+      },
+    });
   });
 });

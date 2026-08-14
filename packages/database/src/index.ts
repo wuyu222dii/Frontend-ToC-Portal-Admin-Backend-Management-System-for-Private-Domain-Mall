@@ -2,6 +2,7 @@ export * from './advisory-lock';
 export * from './admin-auth.repository';
 export * from './audit.repository';
 export * from './callback-inbox.repository';
+export * from './file-asset.repository';
 export * from './idempotency.repository';
 export * from './outbox.repository';
 export * from './runtime';

@@ -10,6 +10,13 @@ export const SERVICE_DATABASE_POOL_LIMITS = {
   worker: 5,
 } as const;
 
+export const FILE_STORAGE_LIMITS = {
+  maxUploadBytes: 5 * 1024 * 1024,
+  pendingCleanupAgeSeconds: 24 * 60 * 60,
+  privateDownloadTtlSeconds: 5 * 60,
+  uploadTtlSeconds: 15 * 60,
+} as const;
+
 export type ServiceName = keyof typeof SERVICE_DEFAULT_PORTS;
 export type RuntimeEnvironment = 'development' | 'test' | 'production';
 
@@ -35,6 +42,19 @@ export interface PlatformRuntimeConfig {
   };
   redis: {
     url: string;
+  };
+  storage: {
+    accessKey: string;
+    bucket: string;
+    endpoint: string;
+    forcePathStyle: boolean;
+    maxUploadBytes: number;
+    pendingCleanupAgeSeconds: number;
+    privateDownloadTtlSeconds: number;
+    publicBaseUrl: string;
+    region: string;
+    secretKey: string;
+    uploadTtlSeconds: number;
   };
   authentication: {
     accessTokenTtlSeconds: number;
@@ -72,6 +92,7 @@ export interface LoadPlatformConfigOptions {
   service: ServiceName;
   requireDatabase?: boolean;
   requireEncryption?: boolean;
+  requireStorage?: boolean;
 }
 
 function readEnvironment(value: string | undefined): RuntimeEnvironment {
@@ -159,6 +180,104 @@ function readRuntimeRedisUrl(
     throw new Error('Remote and production REDIS_URL values must use rediss');
   }
   return raw;
+}
+
+function readStorageUrl(
+  source: NodeJS.ProcessEnv,
+  name: 'S3_ENDPOINT' | 'S3_PUBLIC_BASE_URL',
+  required: boolean,
+  environment: RuntimeEnvironment,
+): string {
+  const raw = source[name]?.trim();
+  if (!raw) {
+    if (!required) return '';
+    throw new Error(`${name} is required`);
+  }
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`${name} must be a valid HTTP URL`);
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`${name} must use HTTP or HTTPS`);
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new Error(`${name} must not contain credentials, query parameters, or a fragment`);
+  }
+  const localHosts = new Set(['127.0.0.1', 'localhost', '[::1]']);
+  if ((environment === 'production' || !localHosts.has(url.hostname)) && url.protocol !== 'https:') {
+    throw new Error(`Remote and production ${name} values must use HTTPS`);
+  }
+  if (name === 'S3_ENDPOINT' && url.pathname !== '/') {
+    throw new Error('S3_ENDPOINT must be an origin without a path');
+  }
+  return raw.replace(/\/$/, '');
+}
+
+function readStorageConfig(
+  source: NodeJS.ProcessEnv,
+  required: boolean,
+  environment: RuntimeEnvironment,
+): PlatformRuntimeConfig['storage'] {
+  if (!required) {
+    return {
+      accessKey: '',
+      bucket: '',
+      endpoint: '',
+      forcePathStyle: true,
+      ...FILE_STORAGE_LIMITS,
+      publicBaseUrl: '',
+      region: '',
+      secretKey: '',
+    };
+  }
+  const bucket = source.S3_BUCKET?.trim() ?? '';
+  if (!/^(?!\d{1,3}(?:\.\d{1,3}){3}$)[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket) ||
+    bucket.includes('..')) {
+    throw new Error('S3_BUCKET must be a DNS-compatible bucket name');
+  }
+  const region = source.S3_REGION?.trim() ?? '';
+  if (!/^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/.test(region)) {
+    throw new Error('S3_REGION has an invalid format');
+  }
+  const accessKey = source.S3_ACCESS_KEY?.trim() ?? '';
+  const secretKey = source.S3_SECRET_KEY?.trim() ?? '';
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{15,127}$/.test(accessKey)) {
+    throw new Error('S3_ACCESS_KEY has an invalid format');
+  }
+  const secretContainsControl = Array.from(secretKey).some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f);
+  });
+  if (secretKey.length < 16 || secretKey.length > 256 || secretContainsControl) {
+    throw new Error('S3_SECRET_KEY must contain between 16 and 256 printable characters');
+  }
+  const forcePathStyle = source.S3_FORCE_PATH_STYLE;
+  if (forcePathStyle !== 'true' && forcePathStyle !== 'false') {
+    throw new Error('S3_FORCE_PATH_STYLE must be true or false');
+  }
+  const endpoint = readStorageUrl(source, 'S3_ENDPOINT', true, environment);
+  const publicBaseUrl = readStorageUrl(source, 'S3_PUBLIC_BASE_URL', true, environment);
+  let publicUrl: URL;
+  try {
+    publicUrl = new URL(publicBaseUrl);
+  } catch {
+    throw new Error('S3_PUBLIC_BASE_URL must be a valid HTTP URL');
+  }
+  if (publicUrl.pathname.replace(/\/$/, '') !== `/${bucket}`) {
+    throw new Error('S3_PUBLIC_BASE_URL path must identify S3_BUCKET');
+  }
+  return {
+    accessKey,
+    bucket,
+    endpoint,
+    forcePathStyle: forcePathStyle === 'true',
+    ...FILE_STORAGE_LIMITS,
+    publicBaseUrl,
+    region,
+    secretKey,
+  };
 }
 
 function readRuntimeDatabaseConnection(
@@ -399,6 +518,7 @@ export function loadPlatformConfig(
   const environment = readEnvironment(source.NODE_ENV);
   const requireDatabase = options.requireDatabase ?? true;
   const requireEncryption = options.requireEncryption ?? true;
+  const requireStorage = options.requireStorage ?? requireDatabase;
   const portName = options.service === 'api' ? 'API_PORT' : 'WORKER_PORT';
   const poolName = options.service === 'api' ? 'API_DATABASE_POOL_MAX' : 'WORKER_DATABASE_POOL_MAX';
   const fieldKeys = readSecurityKeyRing(source, {
@@ -424,6 +544,7 @@ export function loadPlatformConfig(
   });
   const databaseConnection = readRuntimeDatabaseConnection(source, requireDatabase, environment);
   const redisUrl = readRuntimeRedisUrl(source, requireDatabase, environment);
+  const storage = readStorageConfig(source, requireStorage, environment);
   const infrastructureKeys = [
     ...[fieldKeys.current, ...fieldKeys.previous].map(({ key }) => key),
     ipHashKey,
@@ -472,6 +593,7 @@ export function loadPlatformConfig(
       idempotencyHashKeys,
     },
     redis: { url: redisUrl },
+    storage,
     authentication: {
       accessTokenTtlSeconds: readInteger(source, 'AUTH_ACCESS_TOKEN_TTL_SECONDS', 900, 300, 3_600),
       audience: readIdentifier(source, 'AUTH_TOKEN_AUDIENCE', 'qingxu-admin-web', requireAuthentication),

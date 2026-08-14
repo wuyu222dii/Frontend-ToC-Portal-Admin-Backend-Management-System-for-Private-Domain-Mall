@@ -807,8 +807,8 @@ CH-006 文件契约统一如下：
 - `UploadIntentRequest` 必须提交 64 位小写十六进制 `sha256`；七类 purpose 只接受 `image/jpeg`、`image/png`，`size` 最大 5 MiB。上传签名 15 分钟过期。
 - `UploadCompleteRequest.sha256/size` 必须同时匹配 intent 与服务端从对象存储读取后的 MIME、文件魔数、大小和 SHA-256；任一不一致返回 `FILE_CONTENT_MISMATCH` 422，不把 PENDING 标为 READY。
 - bucket 默认私有；对象 key 只使用不含原文件名的 `staging/`、`public/`、`private/` 分区。仅 `public/*` 允许匿名 GET，私有素材只能通过 5 分钟签名下载 URL 访问。
-- PENDING/staging 满 24 小时才进入清理候选，Worker 删除前再次确认无 READY 记录和业务引用。数据库不新增 `completed_at`；完成事实由 READY、`updated_at`、对象元数据、审计和幂等记录联合表达。
-- 上传意图、下载签名和 lifecycle preview 的幂等响应策略为 `HASH_ONLY`，不得存签名 URL、签名请求头或 preview token。文件 complete 在 B3.1 实现闭合策略 `FILE_UPLOAD_COMPLETE`：同键同请求精确重放，新键重复完成返回 409；本节是实现要求，不表示该策略当前已交付。
+- PENDING/staging 满 24 小时才进入清理候选，Worker 删除前再次确认无 READY 记录和业务引用。数据库不新增 `completed_at` 或 `updated_at`；完成事实由 READY、最终对象 key、服务端实测 MIME/size/SHA-256、审计和闭合幂等响应联合表达，首次 `completed_at` 只保存在该响应及其幂等记录中。
+- 上传意图和 lifecycle preview 使用 `HASH_ONLY`，不得存签名 URL、签名请求头或 preview token。`GET /files/{file_id}/download-url` 不接受 `Idempotency-Key`、不创建幂等记录；其签名 URL 依靠鉴权、5 分钟 TTL、`Cache-Control: no-store, private`、`Pragma: no-cache` 以及禁止持久化/日志记录进行保护。文件 complete 在 B3.1 实现闭合策略 `FILE_UPLOAD_COMPLETE`：同键同请求精确重放，新键重复完成返回 409。
 
 ## 8. 幂等、事务与异步事件
 

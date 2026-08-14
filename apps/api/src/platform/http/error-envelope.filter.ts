@@ -41,6 +41,7 @@ const HTTP_ERROR_MAP: Readonly<Record<number, Omit<ResolvedError, 'status'>>> = 
   409: { code: 'STATE_CONFLICT', message: 'The resource state conflicts with this request' },
   422: { code: 'INVALID_ARGUMENT', message: 'The request failed business validation' },
   429: { code: 'RATE_LIMITED', message: 'Too many requests' },
+  503: { code: 'INTERNAL_ERROR', message: 'Service is temporarily unavailable' },
 };
 
 function frameworkClientStatus(exception: unknown): number | undefined {

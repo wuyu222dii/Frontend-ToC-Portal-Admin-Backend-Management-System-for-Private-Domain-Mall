@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Prisma } from '../.generated/prisma/client';
 import {
   IdempotencyRepository,
+  type CacheableFileUploadCompleteResponse,
   type CacheableCommandResponse,
   type DatabaseTransaction,
   deriveIdempotencyScope,
@@ -62,6 +63,24 @@ function commandResponse(override: Partial<CacheableCommandResponse> = {}): Cach
   };
 }
 
+function fileCompleteResponse(
+  override: Partial<CacheableFileUploadCompleteResponse> = {},
+): CacheableFileUploadCompleteResponse {
+  return {
+    code: 'OK',
+    data: {
+      completed_at: '2026-08-13T00:00:00.000Z',
+      file_id: generateUlid(),
+      public_url: 'https://assets.example.test/public/file-id',
+      purpose: 'BRAND_LOGO',
+      status: 'READY',
+    },
+    message: 'success',
+    request_id: 'req_0123456789abcdef0123456789abcdef',
+    ...override,
+  };
+}
+
 function transactionStub(): DatabaseTransaction {
   return {
     $queryRawUnsafe: vi.fn(async () => [{ acquired: 1 }]),
@@ -102,6 +121,102 @@ describe('IdempotencyRepository', () => {
         response_body_hash: responseHash(currentHashKey, responseBody),
       }),
     }));
+  });
+
+  it('stores and extracts the closed FILE_UPLOAD_COMPLETE response for exact replay', async () => {
+    const transaction = transactionStub();
+    const responseBody = fileCompleteResponse();
+    await repository().complete(transaction, baseClaim, {
+      policy: 'FILE_UPLOAD_COMPLETE',
+      responseBody,
+      responseStatus: 200,
+      storage: 'CACHEABLE',
+    });
+    expect(transaction.idempotencyRecord.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        resource_id: responseBody.data.file_id,
+        response_body: responseBody,
+        response_body_hash: responseHash(currentHashKey, responseBody),
+      }),
+    }));
+
+    const record = {
+      expires_at: new Date('2099-08-14T00:00:00.000Z'),
+      request_hash: requestHash(currentHashKey),
+      resource_id: responseBody.data.file_id,
+      response_body: responseBody,
+      response_body_hash: responseHash(currentHashKey, responseBody),
+      response_status: 200,
+    };
+    expect(repository().fileUploadCompleteReplay(record as never)).toEqual(responseBody);
+  });
+
+  it('accepts null public_url only for a private file purpose', async () => {
+    const transaction = transactionStub();
+    const responseBody = fileCompleteResponse({
+      data: {
+        ...fileCompleteResponse().data,
+        public_url: null,
+        purpose: 'AFTERSALE_EVIDENCE',
+      },
+    });
+    await expect(repository().complete(transaction, baseClaim, {
+      policy: 'FILE_UPLOAD_COMPLETE',
+      responseBody,
+      responseStatus: 200,
+      storage: 'CACHEABLE',
+    })).resolves.toBeDefined();
+  });
+
+  it.each([
+    fileCompleteResponse({ data: { ...fileCompleteResponse().data, public_url: null } }),
+    fileCompleteResponse({ data: {
+      ...fileCompleteResponse().data,
+      public_url: 'https://assets.example.test/private/file-id',
+      purpose: 'WITHDRAWAL_PROOF',
+    } }),
+    fileCompleteResponse({ data: {
+      ...fileCompleteResponse().data,
+      public_url: 'https://assets.example.test/public/file-id?signature=secret',
+    } }),
+    fileCompleteResponse({ data: { ...fileCompleteResponse().data, completed_at: 'not-a-date' } }),
+    fileCompleteResponse({ data: { ...fileCompleteResponse().data, status: 'PENDING' as 'READY' } }),
+    fileCompleteResponse({ data: { ...fileCompleteResponse().data, purpose: 'UNKNOWN' as 'BRAND_LOGO' } }),
+    { ...fileCompleteResponse(), extra: 'not-allowed' },
+  ])('rejects malformed FILE_UPLOAD_COMPLETE cache content: %j', async (responseBody) => {
+    await expect(repository().complete(transactionStub(), baseClaim, {
+      policy: 'FILE_UPLOAD_COMPLETE',
+      responseBody,
+      responseStatus: 200,
+      storage: 'CACHEABLE',
+    } as never)).rejects.toThrow('valid file completion response');
+  });
+
+  it('fails closed for unknown cache policies and non-200 file completions', async () => {
+    await expect(repository().complete(transactionStub(), baseClaim, {
+      policy: 'UNREGISTERED',
+      responseBody: fileCompleteResponse(),
+      responseStatus: 200,
+      storage: 'CACHEABLE',
+    } as never)).rejects.toThrow('policy is not registered');
+    await expect(repository().complete(transactionStub(), baseClaim, {
+      policy: 'FILE_UPLOAD_COMPLETE',
+      responseBody: fileCompleteResponse(),
+      responseStatus: 201,
+      storage: 'CACHEABLE',
+    })).rejects.toThrow('must use HTTP status 200');
+  });
+
+  it('does not extract a command response through the file replay helper', () => {
+    const responseBody = commandResponse();
+    expect(() => repository().fileUploadCompleteReplay({
+      expires_at: new Date('2099-08-14T00:00:00.000Z'),
+      request_hash: requestHash(currentHashKey),
+      resource_id: responseBody.data.resource_id,
+      response_body: responseBody,
+      response_body_hash: responseHash(currentHashKey, responseBody),
+      response_status: 200,
+    } as never)).toThrow('unexpected error');
   });
 
   it('derives CACHEABLE resource identity from the closed response body', async () => {

@@ -11,6 +11,7 @@ export interface AppendOutboxEventInput {
   aggregateId: string;
   eventType: string;
   payload: ResourceOutboxPayloadV1;
+  availableAt?: Date;
 }
 
 export interface ResourceOutboxPayloadV1 {
@@ -64,14 +65,25 @@ const OUTBOX_PAYLOAD_FIELDS = new Set([
   'resource_type',
   'resource_version',
 ]);
-const OUTBOX_INPUT_FIELDS = new Set(['aggregateId', 'aggregateType', 'eventType', 'payload']);
+const OUTBOX_INPUT_FIELDS = new Set(['aggregateId', 'aggregateType', 'availableAt', 'eventType', 'payload']);
+const OUTBOX_REQUIRED_INPUT_FIELDS = new Set(['aggregateId', 'aggregateType', 'eventType', 'payload']);
 
-function validateAppendInput(input: AppendOutboxEventInput): void {
+function validateAppendInput(input: AppendOutboxEventInput, createdAt: Date): void {
+  const keys = typeof input === 'object' && input !== null && !Array.isArray(input)
+    ? Object.keys(input)
+    : [];
   if (typeof input !== 'object' || input === null || Array.isArray(input) ||
     Object.getPrototypeOf(input) !== Object.prototype ||
-    Object.keys(input).length !== OUTBOX_INPUT_FIELDS.size ||
-    Object.keys(input).some((key) => !OUTBOX_INPUT_FIELDS.has(key))) {
+    keys.some((key) => !OUTBOX_INPUT_FIELDS.has(key)) ||
+    [...OUTBOX_REQUIRED_INPUT_FIELDS].some((key) => !keys.includes(key))) {
     throw new TypeError('Outbox append input contains unsupported fields');
+  }
+  if (input.availableAt !== undefined && (
+    !(input.availableAt instanceof Date) ||
+    !Number.isFinite(input.availableAt.getTime()) ||
+    input.availableAt.getTime() < createdAt.getTime()
+  )) {
+    throw new TypeError('Outbox available time must be a valid date at or after creation');
   }
   if (!OUTBOX_AGGREGATE_TYPE.has(input.aggregateType)) {
     throw new TypeError('Outbox aggregate type is not registered');
@@ -135,8 +147,8 @@ export class OutboxRepository {
   }
 
   async append(transaction: DatabaseTransaction, input: AppendOutboxEventInput): Promise<OutboxEvent> {
-    validateAppendInput(input);
     const createdAt = this.currentTime();
+    validateAppendInput(input, createdAt);
     return transaction.outboxEvent.create({
       data: {
         id: generateUlid(createdAt.getTime()),
@@ -145,6 +157,7 @@ export class OutboxRepository {
         event_type: input.eventType,
         payload: input.payload as unknown as Prisma.InputJsonValue,
         status: 'PENDING',
+        next_retry_at: input.availableAt ?? null,
         created_at: createdAt,
       },
     });
@@ -158,7 +171,13 @@ export class OutboxRepository {
       where: {
         ...(options.eventTypes === undefined ? {} : { event_type: { in: [...options.eventTypes] } }),
         OR: [
-          { status: 'PENDING' },
+          {
+            status: 'PENDING',
+            OR: [
+              { next_retry_at: null },
+              { next_retry_at: { lte: now } },
+            ],
+          },
           { status: 'FAILED', next_retry_at: { lte: now } },
         ],
       },

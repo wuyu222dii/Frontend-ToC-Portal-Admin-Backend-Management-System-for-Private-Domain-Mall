@@ -1,5 +1,6 @@
 import { type DynamicModule, Module } from '@nestjs/common';
 import type { PlatformRuntimeConfig } from '@qingxu/config';
+import { createS3ObjectStorage } from '@qingxu/storage';
 
 import { AppModule } from './app.module';
 import {
@@ -13,6 +14,7 @@ import {
   ApiRedisLifecycleService,
   createApiRedisClient,
 } from './platform/redis/api-redis-runtime';
+import { API_OBJECT_STORAGE } from './platform/storage/api-object-storage';
 
 export { API_RUNTIME_CONFIG } from './platform/config/api-runtime-config';
 
@@ -37,8 +39,13 @@ export class ApiRuntimeModule {
           useFactory: createApiRedisClient,
         },
         ApiRedisLifecycleService,
+        {
+          provide: API_OBJECT_STORAGE,
+          inject: [API_RUNTIME_CONFIG],
+          useFactory: (runtimeConfig: PlatformRuntimeConfig) => createS3ObjectStorage(runtimeConfig.storage),
+        },
       ],
-      exports: [API_DATABASE_RUNTIME, API_REDIS_CLIENT, API_RUNTIME_CONFIG],
+      exports: [API_DATABASE_RUNTIME, API_OBJECT_STORAGE, API_REDIS_CLIENT, API_RUNTIME_CONFIG],
     };
   }
 }

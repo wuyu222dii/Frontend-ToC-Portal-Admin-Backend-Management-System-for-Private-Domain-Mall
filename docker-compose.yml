@@ -29,6 +29,7 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+      MINIO_API_CORS_ALLOW_ORIGIN: http://127.0.0.1:5175,http://localhost:5175
     ports:
       - "127.0.0.1:${MINIO_API_PORT:-9000}:9000"
       - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
@@ -51,13 +52,34 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
       S3_BUCKET: ${S3_BUCKET:-mall-development}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?Set a non-root S3_ACCESS_KEY in .env}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?Set a non-root S3_SECRET_KEY in .env}
+    volumes:
+      - ./scripts/storage/minio-public-read-policy.json:/tmp/minio-public-read-policy.json:ro
+      - ./scripts/storage/minio-runtime-policy.json:/tmp/minio-runtime-policy.json:ro
     entrypoint:
       - /bin/sh
       - -ec
       - |
         mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        test "$$MINIO_ROOT_USER" != "$$S3_ACCESS_KEY"
+        test "$$MINIO_ROOT_PASSWORD" != "$$S3_SECRET_KEY"
         mc mb --ignore-existing "local/$$S3_BUCKET"
+        if ! lifecycle_result="$$(mc ilm rule remove --all --force "local/$$S3_BUCKET" 2>&1)"; then
+          case "$$lifecycle_result" in
+            *"lifecycle configuration does not exist"*) ;;
+            *) printf '%s\n' "$$lifecycle_result" >&2; exit 1 ;;
+          esac
+        fi
         mc anonymous set none "local/$$S3_BUCKET"
+        public_policy="$$(cat /tmp/minio-public-read-policy.json)"
+        printf '%s\n' "$${public_policy//__S3_BUCKET__/$$S3_BUCKET}" > /tmp/minio-public-read-policy.rendered.json
+        mc anonymous set-json /tmp/minio-public-read-policy.rendered.json "local/$$S3_BUCKET"
+        runtime_policy="$$(cat /tmp/minio-runtime-policy.json)"
+        printf '%s\n' "$${runtime_policy//__S3_BUCKET__/$$S3_BUCKET}" > /tmp/minio-runtime-policy.rendered.json
+        mc admin user add local "$$S3_ACCESS_KEY" "$$S3_SECRET_KEY"
+        mc admin policy create local "qingxu-runtime-$$S3_ACCESS_KEY" /tmp/minio-runtime-policy.rendered.json
+        mc admin policy attach local "qingxu-runtime-$$S3_ACCESS_KEY" --user "$$S3_ACCESS_KEY"
     restart: "no"
 
 volumes:

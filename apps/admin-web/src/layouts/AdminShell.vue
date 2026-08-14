@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { House, Lock, SwitchButton, User } from '@element-plus/icons-vue';
+import { CollectionTag, Lock, PriceTag, SwitchButton, User } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import { ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -40,12 +40,20 @@ async function endCurrentSession(): Promise<void> {
       </div>
       <nav aria-label="总部后台导航" class="admin-nav">
         <RouterLink
-          to="/workspace"
-          :class="{ active: route.name === 'workspace' }"
-          title="工作台"
+          to="/catalog/brands"
+          :class="{ active: route.name === 'brands' }"
+          title="品牌管理"
         >
-          <el-icon><House /></el-icon>
-          <span>工作台</span>
+          <el-icon><PriceTag /></el-icon>
+          <span>品牌管理</span>
+        </RouterLink>
+        <RouterLink
+          to="/catalog/categories"
+          :class="{ active: route.name === 'categories' }"
+          title="分类管理"
+        >
+          <el-icon><CollectionTag /></el-icon>
+          <span>分类管理</span>
         </RouterLink>
         <RouterLink
           to="/settings/account/security"
@@ -88,4 +96,3 @@ async function endCurrentSession(): Promise<void> {
     </div>
   </div>
 </template>
-

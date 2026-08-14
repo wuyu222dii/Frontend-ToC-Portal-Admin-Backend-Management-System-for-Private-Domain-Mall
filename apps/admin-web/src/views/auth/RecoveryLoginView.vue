@@ -25,7 +25,7 @@ async function submit(): Promise<void> {
     const session = await loginWithRecoveryCode(challengeId.value, recoveryCode.value.trim());
     authSession.acceptSession(session);
     recoveryCode.value = '';
-    await router.replace('/workspace');
+    await router.replace('/catalog/brands');
   } catch (error) {
     recoveryCode.value = '';
     if (error instanceof AdminApiError) {
@@ -61,4 +61,3 @@ onBeforeUnmount(() => { recoveryCode.value = ''; });
     </el-form>
   </AuthShell>
 </template>
-

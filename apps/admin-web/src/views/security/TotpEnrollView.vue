@@ -68,7 +68,7 @@ async function submit(): Promise<void> {
 
 async function acknowledgeCodes(): Promise<void> {
   authSession.clearOneTimeValues();
-  await router.replace('/workspace');
+  await router.replace('/catalog/brands');
 }
 
 async function restartLogin(): Promise<void> {

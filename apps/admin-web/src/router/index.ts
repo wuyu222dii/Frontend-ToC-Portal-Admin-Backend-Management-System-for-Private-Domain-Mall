@@ -11,7 +11,7 @@ declare module 'vue-router' {
 }
 
 function requiredRoute(): string {
-  if (authSession.state.session) return '/workspace';
+  if (authSession.state.session) return '/catalog/brands';
   if (authSession.state.preauth?.next_action === 'VERIFY_TOTP') return '/login/totp';
   if (authSession.state.preauth?.next_action === 'ENROLL_TOTP') return '/settings/account/security/enroll';
   return '/login';
@@ -49,10 +49,16 @@ export const router = createRouter({
       path: '/settings/account/security/enroll',
     },
     {
-      component: () => import('../views/security/EmptyWorkspaceView.vue'),
-      meta: { access: 'session', title: '工作台' },
-      name: 'workspace',
-      path: '/workspace',
+      component: () => import('../views/catalog/BrandsView.vue'),
+      meta: { access: 'session', title: '品牌管理' },
+      name: 'brands',
+      path: '/catalog/brands',
+    },
+    {
+      component: () => import('../views/catalog/CategoriesView.vue'),
+      meta: { access: 'session', title: '分类管理' },
+      name: 'categories',
+      path: '/catalog/categories',
     },
     {
       component: () => import('../views/security/SecurityHomeView.vue'),

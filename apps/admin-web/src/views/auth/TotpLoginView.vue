@@ -31,7 +31,7 @@ async function submit(): Promise<void> {
     const session = await verifyLoginTotp(challengeId.value, code.value);
     authSession.acceptSession(session);
     code.value = '';
-    await router.replace('/workspace');
+    await router.replace('/catalog/brands');
   } catch (error) {
     code.value = '';
     if (error instanceof AdminApiError) {

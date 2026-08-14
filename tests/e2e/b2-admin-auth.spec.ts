@@ -72,6 +72,14 @@ async function mockTotpLogin(page: Page, options: { verifyDelayMs?: number } = {
       await json(route, 200, success(session()));
       return;
     }
+    if (url.pathname === '/api/v1/admin/brands' && route.request().method() === 'GET') {
+      expect(route.request().headers().authorization).toBe(`Bearer ${accessToken}`);
+      await json(route, 200, success({
+        items: [],
+        pagination: { page: 1, page_size: 20, total: 0 },
+      }));
+      return;
+    }
     await route.fallback();
   });
   return {
@@ -88,7 +96,7 @@ async function completeTotpLogin(page: Page) {
   await expect(page).toHaveURL(/\/login\/totp$/);
   await page.getByLabel('动态验证码').fill('123456');
   await page.getByRole('button', { name: '完成验证' }).click();
-  await expect(page).toHaveURL(/\/workspace$/);
+  await expect(page).toHaveURL(/\/catalog\/brands$/);
 }
 
 test.describe('B2 admin authentication', () => {
@@ -111,8 +119,8 @@ test.describe('B2 admin authentication', () => {
     await page.getByLabel('动态验证码').fill('123456');
     await page.getByRole('button', { name: '完成验证' }).click();
     await expect(page.getByRole('button', { name: '完成验证' })).toBeDisabled();
-    await expect(page).toHaveURL(/\/workspace$/);
-    await expect(page.getByText('当前没有可用的业务模块')).toBeVisible();
+    await expect(page).toHaveURL(/\/catalog\/brands$/);
+    await expect(page.getByTestId('catalog-page')).toBeVisible();
     await expect(page.getByText('商品管理')).toHaveCount(0);
     expect(calls.loginRequests).toBe(1);
     expect(calls.verifyRequests).toBe(1);
@@ -176,7 +184,7 @@ test.describe('B2 admin authentication', () => {
     await page.getByRole('button', { name: '使用恢复码' }).click();
     await page.getByLabel('单次恢复码').fill('RECOVERY-RUNTIME');
     await page.getByRole('button', { name: '验证并登录' }).click();
-    await expect(page).toHaveURL(/\/workspace$/);
+    await expect(page).toHaveURL(/\/catalog\/brands$/);
   });
 
   test('forces first-login enrollment and clears one-time URI and recovery codes', async ({ page }) => {
@@ -227,7 +235,7 @@ test.describe('B2 admin authentication', () => {
     expect(consoleText.join('\n')).not.toContain(recoveryCodes[0] ?? 'missing');
 
     await page.getByRole('button', { name: '我已安全保存' }).click();
-    await expect(page).toHaveURL(/\/workspace$/);
+    await expect(page).toHaveURL(/\/catalog\/brands$/);
     await expect(page.getByText(recoveryCodes[0] ?? 'missing')).toHaveCount(0);
     await expect(page.getByText('otpauth://totp/', { exact: false })).toHaveCount(0);
   });
@@ -265,7 +273,7 @@ test.describe('B2 admin authentication', () => {
       } else await route.fallback();
     });
     await completeTotpLogin(page);
-    await page.getByRole('button', { name: '管理账户安全' }).click();
+    await page.getByRole('link', { name: '账户安全', exact: true }).click();
     await expect(page).toHaveURL(/\/settings\/account\/security$/);
     await expect(page.getByText('动态验证与恢复码')).toBeVisible();
 
@@ -330,7 +338,7 @@ test.describe('B2 admin authentication', () => {
     });
 
     await completeTotpLogin(page);
-    await page.getByRole('button', { name: '管理账户安全' }).click();
+    await page.getByRole('link', { name: '账户安全', exact: true }).click();
     await expect(page.getByText('动态验证与恢复码')).toBeVisible();
     expect(currentRequests).toBe(2);
     expect(refreshRequests).toBe(1);
@@ -384,7 +392,7 @@ test.describe('B2 admin authentication', () => {
     });
 
     await completeTotpLogin(page);
-    await page.getByRole('button', { name: '管理账户安全' }).click();
+    await page.getByRole('link', { name: '账户安全', exact: true }).click();
     await page.getByRole('button', { name: '修改密码' }).click();
     const passwordDialog = page.getByRole('dialog', { name: '修改登录密码' });
     await passwordDialog.getByLabel('当前密码').fill('CurrentRuntime');

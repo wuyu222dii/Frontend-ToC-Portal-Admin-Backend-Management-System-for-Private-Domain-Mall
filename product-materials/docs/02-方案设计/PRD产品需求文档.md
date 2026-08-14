@@ -8,8 +8,8 @@
 | 文档类型 | Product Requirements Document |
 | 文档版本 | v2.4.1 |
 | 对应阶段 | 三端标准 MVP |
-| 更新日期 | 2026-08-13 |
-| 当前状态 | CH-006/B3.0 已通过验收并暂停；B2 Supabase rollback-only 未通过前不得进入 B3.1 |
+| 更新日期 | 2026-08-14 |
+| 当前状态 | B3.0 至 B3.3 均已通过各自本地/一次性环境验收并暂停；B3.3 本地 `GO`，B3 整体因 CH-007 远端门禁保持 `NO-GO` |
 | 产品终端 | 消费者微信小程序、一级代理工作台、总部管理后台 |
 | 人员角色 | `CUSTOMER`、`AGENT_ADMIN`、`SUPER_ADMIN` |
 
@@ -1379,7 +1379,7 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 
 ## 20. 发布与回滚原则
 
-- CH-006 已批准，B3.0 文档、OpenAPI、生成 contracts、原型同步与门禁已通过并暂停。当前不进入 B3.1；只有 B2 Supabase rollback-only 通过且收到明确继续指令后才允许开始。生产发布仍需微信、Supabase staging、恢复演练和合规门禁。
+- CH-006 已批准，B3.0 至 B3.3 均已通过各自本地/一次性环境验收并暂停，B3.3 本地结论为 `GO`。CH-007 只调整远端证据时序，B2/B3 Supabase development rollback-only 与 GitHub 受保护运行证据未补齐前不得标记 B3 整体完成。生产发布仍需微信、Supabase staging、恢复演练和合规门禁。
 - 未来开发环境必须明确区分 development、test、staging、production。
 - 数据库发布采用 PostgreSQL 向后兼容迁移；订单、归属、佣金和提现表禁止人工直接修改。
 - 发布前执行 migration、构建、单元、集成、E2E、权限与响应式检查。
@@ -1451,8 +1451,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | 验收场景 AC | 116 | 0 |
 | 用户故事 US | 24 | 0 |
 
-当前准入结论：CH-005 的历史准入证据继续保留；CH-006 B3.0 的新契约统计、Redocly、生成漂移、冻结数据库核对、权限与原型回归已经通过，v2.4.1 B3 契约重新冻结。B3.0 已暂停；B2 Supabase development rollback-only 通过前不得进入 B3.1。
+当前准入结论：CH-005 的历史准入证据继续保留；CH-006 B3.0 的新契约统计、Redocly、生成漂移、冻结数据库核对、权限与原型回归已经通过，v2.4.1 B3 契约重新冻结。B3.1 至 B3.3 已按 CH-007 例外通过各自本地/一次性环境验收并暂停，B3.3 本地 `GO`。该状态不替代 B2/B3 Supabase development rollback-only 或 GitHub 受保护运行证据。
 
 ---
 
-PRD 状态：v2.4.1/CH-006 已重新冻结，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B3.0 契约解阻已通过验收并暂停。B0 工程底座、新加坡 Supabase development 首迁移与 B1 公共内核已通过；B2 已完成 ADM-01 和 ADM-16 账户安全范围的实现与本地/临时环境门禁，但 Supabase development rollback-only 待受控凭据。B3.1 及后续业务、目标 staging/production 部署尚未开始，生产上线须单独审批。
+PRD 状态：v2.4.1/CH-006 已重新冻结，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B3.0 至 B3.3 已完成各自本地/一次性环境验收并暂停，B3.3 本地结论为 `GO`。B0 工程底座、新加坡 Supabase development 首迁移与 B1 公共内核已通过；B2 已完成 ADM-01 和 ADM-16 账户安全范围的实现与本地/临时环境门禁，但 B2/B3 Supabase development rollback-only 与 GitHub 受保护运行证据仍待补齐。B3 整体保持 `NO-GO`，目标 staging/production 部署尚未放行，生产上线须单独审批。

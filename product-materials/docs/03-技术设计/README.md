@@ -1,6 +1,6 @@
 # 技术设计交付索引
 
-> 当前基线：MVP/PRD v2.4.1、线协议 CH-006，交付例外/勘误 CH-007 至 CH-008（2026-08-14）。B3.0 契约、B3.1 文件基础和 B3.2 品牌分类的本地/一次性环境验收已通过并暂停，B3.3 未开始；远端证据仍是 B3 最终验收硬门禁。
+> 当前基线：MVP/PRD v2.4.1、线协议 CH-006，交付例外/勘误 CH-007 至 CH-008（2026-08-14）。B3.0 至 B3.3 均已通过各自本地/一次性环境验收并暂停，B3.3 本地 `GO`；远端证据仍是 B3 最终验收硬门禁，B3 整体保持 `NO-GO`。
 
 | 文件 | 用途 |
 |---|---|
@@ -29,6 +29,7 @@
 - complete 在提交后即时尽力删除 staging，同时投递延迟清理事件兜底；Worker 删除前重新核对 READY/PENDING 和精确对象 key。MinIO runtime 使用最小对象权限，Redis 断线采用有界重连，注入 Redis 且未 ready 时 API/Worker 健康检查返回 503。
 - `pnpm check` exit 0，共 `424 passed / 37 skipped`；全量 build 通过，lint 0 error / 207 个既有 Vue warning。contracts lint/check/typecheck、生成 hash 一致、Prisma validate、冻结文件、权限故障注入、migration diff=0、MP-Weixin build、敏感扫描和 diff-check 均通过；独立安全审计 `P0/P1=0`。
 - B3.2 已通过 database `192/30 skipped`、API `161/14 skipped`、真实 PostgreSQL `5/1 mode-skipped` 和真实 Nest + PostgreSQL + Redis `4/4`。响应 HMAC 绑定 actor/scope/幂等键/request hash，高风险 preview 绑定 actor/session/action/target/request/version 并且单次消费。B3.2 现已暂停；B2/B3 Supabase development rollback-only 与 GitHub 受保护运行证据未补齐前，B3 整体仍不可完成。
+- B3.3 已实现 ADM-05/06 管理端请求层、素材上传、品牌/分类维护、生命周期 preview-confirm、归档恢复和受限导航；专用 E2E `26 passed / 4 designed skips`，全仓 `518 passed / 47 env-mode skipped`，安全复核 `P0=0 / P1=0`。B3.3 已本地 `GO` 并暂停。
 
 ## CH-005 历史设计验证
 
@@ -43,7 +44,7 @@ B0 已在工程根建立 `prisma.config.ts`、`prisma/` 和五应用脚手架；
 
 ## B3 开发入口
 
-B3.0 至 B3.2 交付及验收结果见 `../05-开发管理/B3-文件品牌与分类.md`。当前已暂停在 B3.2；B3.3 须收到明确继续指令后才能实施。扩展后的 CH-007 只调整远端证据时序，不放行 B3 整体验收、staging 或 production。
+B3.0 至 B3.3 交付及验收状态见 `../05-开发管理/B3-文件品牌与分类.md`。B3.3 已通过本地验收并暂停，不进入 B4。扩展后的 CH-007 只调整远端证据时序，不放行 B3 整体验收、staging 或 production。
 
 ## 剩余上线门禁
 

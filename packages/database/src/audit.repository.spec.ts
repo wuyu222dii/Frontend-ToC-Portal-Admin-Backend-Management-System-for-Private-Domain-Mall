@@ -63,6 +63,23 @@ describe('AuditRepository', () => {
     }));
   });
 
+  it.each([
+    'CATALOG.BRAND_ACTIVATE',
+    'CATALOG.BRAND_DEACTIVATE',
+    'CATALOG.BRAND_SOFT_DELETE',
+    'CATALOG.BRAND_RESTORE',
+    'CATALOG.CATEGORY_ACTIVATE',
+    'CATALOG.CATEGORY_DEACTIVATE',
+    'CATALOG.CATEGORY_SOFT_DELETE',
+    'CATALOG.CATEGORY_RESTORE',
+  ])('stores a closed B3 master-data reason code: %s', async (reasonCode) => {
+    const transaction = transactionStub();
+    await new AuditRepository(ipHashKey).append(transaction, { ...baseInput, reasonCode });
+    expect(transaction.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ reason: reasonCode }),
+    }));
+  });
+
   it('uses an internal clock and rejects caller-controlled audit time', async () => {
     const transaction = transactionStub();
     const occurredAt = new Date('2026-08-13T00:00:00.000Z');

@@ -1,0 +1,171 @@
+import { generateUlid } from '@qingxu/platform-core';
+import { describe, expect, it, vi } from 'vitest';
+
+import type { PrismaClient } from '../.generated/prisma/client';
+import type { DatabaseTransaction, IdempotencyHashKeyRing } from './idempotency.repository';
+import {
+  HIGH_RISK_PREVIEW_TTL_MS,
+  HighRiskPreviewRepository,
+  type IssueHighRiskPreviewInput,
+} from './high-risk-preview.repository';
+
+const NOW = new Date('2026-08-14T12:00:00.000Z');
+const actorId = generateUlid(NOW.getTime() - 5_000);
+const otherActorId = generateUlid(NOW.getTime() - 4_000);
+const sessionId = generateUlid(NOW.getTime() - 3_000);
+const targetId = generateUlid(NOW.getTime() - 2_000);
+const previewToken = 'pv_0123456789abcdefghijklmnopqrstuvwxyz';
+
+function ring(byte = 0x31, id = 'preview-key-v1'): IdempotencyHashKeyRing {
+  return { current: { id, key: Buffer.alloc(32, byte) }, previous: [] };
+}
+
+function input(overrides: Partial<IssueHighRiskPreviewInput> = {}): IssueHighRiskPreviewInput {
+  return {
+    action: 'BRAND.ACTIVATE',
+    actorId,
+    previewToken,
+    request: { action: 'ACTIVATE', reason: 'Approved catalog activation' },
+    resourceVersion: 3,
+    sessionId,
+    targetId,
+    targetType: 'BRAND',
+    ...overrides,
+  };
+}
+
+function harness(initialNow = NOW) {
+  let currentNow = initialNow;
+  let record: Record<string, unknown> | null = null;
+  const delegate = {
+    create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+      record = { ...data };
+      return record;
+    }),
+    findUnique: vi.fn(async ({ where }: { where: { id?: string; preview_token_hash?: string } }) => {
+      if (!record) return null;
+      if (where.id !== undefined) return where.id === record.id ? record : null;
+      return where.preview_token_hash === record.preview_token_hash ? record : null;
+    }),
+    updateMany: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+      if (!record || record.consumed_at !== null) return { count: 0 };
+      record = { ...record, ...data };
+      return { count: 1 };
+    }),
+  };
+  const transaction = {
+    $queryRawUnsafe: vi.fn(async () => [{ acquired: 1 }]),
+    highRiskOperationPreview: delegate,
+  };
+  return {
+    delegate,
+    getRecord: () => record,
+    repository: (keys = ring()) => new HighRiskPreviewRepository(
+      {} as PrismaClient,
+      keys,
+      () => currentNow,
+    ),
+    setNow: (value: Date) => { currentNow = value; },
+    transaction: transaction as unknown as DatabaseTransaction,
+  };
+}
+
+describe('HighRiskPreviewRepository', () => {
+  it('rejects unregistered preview metadata before writing', async () => {
+    const { delegate, repository, transaction } = harness();
+    await expect(repository().issueInTransaction(transaction, input({
+      action: 'BRAND.EXPORT_SECRETS' as never,
+    }))).rejects.toThrow('action is not registered');
+    expect(delegate.create).not.toHaveBeenCalled();
+  });
+
+  it('stores three domain-separated keyed hashes and fixes expiry to 60 seconds', async () => {
+    const { getRecord, repository, transaction } = harness();
+    const issued = await repository().issueInTransaction(transaction, input());
+    expect(issued.expiresAt).toEqual(new Date(NOW.getTime() + HIGH_RISK_PREVIEW_TTL_MS));
+    expect(issued.requestHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(issued.confirmationHash).toMatch(/^[a-f0-9]{64}$/);
+    const stored = getRecord();
+    expect(stored).toMatchObject({
+      action: 'BRAND.ACTIVATE',
+      actor_account_id: actorId,
+      resource_version: 3,
+      session_id: sessionId,
+      target_id: targetId,
+      target_type: 'BRAND',
+    });
+    expect(stored?.preview_token_hash).not.toBe(previewToken);
+    expect(stored?.preview_token_hash).not.toBe(issued.requestHash);
+    expect(stored?.preview_token_hash).not.toBe(issued.confirmationHash);
+    expect(JSON.stringify(stored)).not.toContain('Approved catalog activation');
+  });
+
+  it('consumes exactly once when every binding and hash matches', async () => {
+    const { getRecord, repository, transaction } = harness();
+    const previews = repository();
+    const issued = await previews.issueInTransaction(transaction, input());
+    await previews.consumeInTransaction(transaction, { ...input(), confirmationHash: issued.confirmationHash });
+    expect(getRecord()).toMatchObject({ consumed_at: NOW });
+    await expect(previews.consumeInTransaction(transaction, {
+      ...input(),
+      confirmationHash: issued.confirmationHash,
+    })).rejects.toMatchObject({ code: 'PREVIEW_EXPIRED' });
+  });
+
+  it.each([
+    { override: { actorId: otherActorId }, label: 'actor' },
+    { override: { sessionId: generateUlid() }, label: 'session' },
+    { override: { action: 'BRAND.DEACTIVATE' as const }, label: 'action' },
+    { override: { action: 'CATEGORY.ACTIVATE' as const, targetType: 'CATEGORY' as const }, label: 'target type' },
+    { override: { targetId: generateUlid() }, label: 'target ID' },
+    { override: { request: { action: 'ACTIVATE', reason: 'Tampered reason' } }, label: 'request' },
+  ])('rejects a mismatched $label binding', async ({ override }) => {
+    const { repository, transaction } = harness();
+    const previews = repository();
+    const issued = await previews.issueInTransaction(transaction, input());
+    await expect(previews.consumeInTransaction(transaction, {
+      ...input(override),
+      confirmationHash: issued.confirmationHash,
+    })).rejects.toMatchObject({ code: 'CONFIRMATION_MISMATCH' });
+  });
+
+  it('distinguishes resource version changes from confirmation tampering', async () => {
+    const { repository, transaction } = harness();
+    const previews = repository();
+    const issued = await previews.issueInTransaction(transaction, input());
+    await expect(previews.consumeInTransaction(transaction, {
+      ...input({ resourceVersion: 4 }),
+      confirmationHash: issued.confirmationHash,
+    })).rejects.toMatchObject({ code: 'RESOURCE_VERSION_CONFLICT' });
+    await expect(previews.consumeInTransaction(transaction, {
+      ...input(),
+      confirmationHash: '0'.repeat(64),
+    })).rejects.toMatchObject({ code: 'CONFIRMATION_MISMATCH' });
+  });
+
+  it('rejects expiry at the exact 60-second boundary without consuming', async () => {
+    const { getRecord, repository, setNow, transaction } = harness();
+    const previews = repository();
+    const issued = await previews.issueInTransaction(transaction, input());
+    setNow(new Date(NOW.getTime() + HIGH_RISK_PREVIEW_TTL_MS));
+    await expect(previews.consumeInTransaction(transaction, {
+      ...input(),
+      confirmationHash: issued.confirmationHash,
+    })).rejects.toMatchObject({ code: 'PREVIEW_EXPIRED' });
+    expect(getRecord()).toMatchObject({ consumed_at: null });
+  });
+
+  it('verifies a live preview with the matching previous key after rotation', async () => {
+    const { repository, transaction } = harness();
+    const oldRing = ring(0x41, 'preview-old');
+    const issued = await repository(oldRing).issueInTransaction(transaction, input());
+    const rotated: IdempotencyHashKeyRing = {
+      current: { id: 'preview-new', key: Buffer.alloc(32, 0x42) },
+      previous: [oldRing.current],
+    };
+    await expect(repository(rotated).consumeInTransaction(transaction, {
+      ...input(),
+      confirmationHash: issued.confirmationHash,
+    })).resolves.toBeUndefined();
+  });
+});

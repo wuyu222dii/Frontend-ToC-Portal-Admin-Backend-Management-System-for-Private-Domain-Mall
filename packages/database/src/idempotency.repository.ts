@@ -57,6 +57,11 @@ export type IdempotencyResult =
       responseBody: CacheableFileUploadCompleteResponse;
     })
   | (IdempotencyResultBase & {
+      storage: 'CACHEABLE';
+      policy: 'CATALOG_RESOURCE_RESPONSE';
+      responseBody: CacheableCatalogResourceResponse;
+    })
+  | (IdempotencyResultBase & {
       storage: 'HASH_ONLY';
       resourceId?: string;
       responseForHash: unknown;
@@ -98,6 +103,33 @@ export interface CacheableFileUploadCompleteResponse {
   request_id: string;
 }
 
+export interface CacheableBrandView {
+  brand_id: string;
+  name: string;
+  description: string | null;
+  logo_file_id: string | null;
+  logo_url: string | null;
+  status: 'DRAFT' | 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
+  sort_order: number;
+  version: number;
+}
+
+export interface CacheableCategoryView {
+  category_id: string;
+  name: string;
+  icon_file_id: string | null;
+  icon_url: string | null;
+  status: 'DRAFT' | 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
+  sort_order: number;
+  version: number;
+}
+
+export type CacheableCatalogResourceResponse = {
+  code: 'OK';
+  message: 'success';
+  request_id: string;
+} & ({ data: CacheableBrandView } | { data: CacheableCategoryView });
+
 const COMMAND_RESPONSE_TOP_LEVEL_FIELDS = new Set(['code', 'data', 'message', 'request_id']);
 const COMMAND_RESPONSE_DATA_FIELDS = new Set([
   'occurred_at',
@@ -114,6 +146,27 @@ const FILE_UPLOAD_COMPLETE_DATA_FIELDS = new Set([
   'purpose',
   'status',
 ]);
+const CATALOG_RESPONSE_TOP_LEVEL_FIELDS = new Set(['code', 'data', 'message', 'request_id']);
+const BRAND_VIEW_FIELDS = new Set([
+  'brand_id',
+  'description',
+  'logo_file_id',
+  'logo_url',
+  'name',
+  'sort_order',
+  'status',
+  'version',
+]);
+const CATEGORY_VIEW_FIELDS = new Set([
+  'category_id',
+  'icon_file_id',
+  'icon_url',
+  'name',
+  'sort_order',
+  'status',
+  'version',
+]);
+const CATALOG_STATUS = new Set(['ACTIVE', 'ARCHIVED', 'DRAFT', 'INACTIVE']);
 const FILE_PURPOSE = new Set<CacheableFilePurpose>([
   'PRODUCT_IMAGE',
   'BRAND_LOGO',
@@ -188,7 +241,15 @@ const REQUEST_DESCRIPTOR_FIELDS = new Set(['body', 'method', 'pathParameters', '
 const CACHEABLE_RESULT_FIELDS = new Set(['policy', 'responseBody', 'responseStatus', 'storage']);
 const HASH_ONLY_RESULT_FIELDS = new Set(['resourceId', 'responseForHash', 'responseStatus', 'storage']);
 const HASH_KEY_ID = /^[A-Za-z0-9._:-]{3,80}$/;
+const IDEMPOTENCY_SCOPE = /^idempotency:v1:[a-f0-9]{64}$/;
 const MAX_PREVIOUS_HASH_KEYS = 3;
+
+interface ResponseIntegrityContext {
+  actorId: string;
+  idempotencyKey: string;
+  requestHash: string;
+  scope: string;
+}
 
 export function deriveIdempotencyScope(
   request: Pick<IdempotencyRequestDescriptor, 'method' | 'route'>,
@@ -228,6 +289,46 @@ function isStablePublicUrl(value: unknown): value is string {
     url.username === '' && url.password === '' && url.search === '' && url.hash === '';
 }
 
+function isPublicFileUrl(value: unknown, fileId: string): value is string {
+  if (!isStablePublicUrl(value)) return false;
+  return new URL(value).pathname.endsWith(`/public/${fileId}`);
+}
+
+function isCatalogName(value: unknown): value is string {
+  return typeof value === 'string' && Array.from(value).length >= 1 && Array.from(value).length <= 120 &&
+    value.trim().length > 0;
+}
+
+function isCatalogState(status: unknown, sortOrder: unknown, version: unknown): boolean {
+  return typeof status === 'string' && CATALOG_STATUS.has(status) &&
+    Number.isSafeInteger(sortOrder) && Number(sortOrder) >= 0 && Number(sortOrder) <= 2_147_483_647 &&
+    Number.isSafeInteger(version) && Number(version) >= 1 && Number(version) <= 2_147_483_647;
+}
+
+function validPublicFilePair(fileId: unknown, fileUrl: unknown): boolean {
+  if (fileId === null) return fileUrl === null;
+  return typeof fileId === 'string' && isValidUlid(fileId) && isPublicFileUrl(fileUrl, fileId);
+}
+
+function isCacheableCatalogResourceResponse(value: unknown): value is CacheableCatalogResourceResponse {
+  if (!isExactPlainObject(value, CATALOG_RESPONSE_TOP_LEVEL_FIELDS) || value.code !== 'OK' ||
+    value.message !== 'success' || !REQUEST_ID.test(String(value.request_id))) return false;
+  const data = value.data;
+  if (isExactPlainObject(data, BRAND_VIEW_FIELDS)) {
+    return isValidUlid(data.brand_id) && isCatalogName(data.name) &&
+      (data.description === null ||
+        (typeof data.description === 'string' && Array.from(data.description).length <= 500)) &&
+      validPublicFilePair(data.logo_file_id, data.logo_url) &&
+      isCatalogState(data.status, data.sort_order, data.version);
+  }
+  if (isExactPlainObject(data, CATEGORY_VIEW_FIELDS)) {
+    return isValidUlid(data.category_id) && isCatalogName(data.name) &&
+      validPublicFilePair(data.icon_file_id, data.icon_url) &&
+      isCatalogState(data.status, data.sort_order, data.version);
+  }
+  return false;
+}
+
 function isCacheableFileUploadCompleteResponse(
   value: unknown,
 ): value is CacheableFileUploadCompleteResponse {
@@ -245,8 +346,12 @@ function isCacheableFileUploadCompleteResponse(
     : value.data.public_url === null;
 }
 
-function cacheableResourceId(response: CacheableCommandResponse | CacheableFileUploadCompleteResponse): string {
-  return isCacheableCommandResponse(response) ? response.data.resource_id : response.data.file_id;
+function cacheableResourceId(
+  response: CacheableCommandResponse | CacheableFileUploadCompleteResponse | CacheableCatalogResourceResponse,
+): string {
+  if (isCacheableCommandResponse(response)) return response.data.resource_id;
+  if (isCacheableFileUploadCompleteResponse(response)) return response.data.file_id;
+  return 'brand_id' in response.data ? response.data.brand_id : response.data.category_id;
 }
 
 function validateClaim(input: IdempotencyClaim): void {
@@ -287,6 +392,10 @@ function validateResult(result: IdempotencyResult): void {
     result.responseStatus !== 200) {
     throw new TypeError('FILE_UPLOAD_COMPLETE responses must use HTTP status 200');
   }
+  if (result.storage === 'CACHEABLE' && result.policy === 'CATALOG_RESOURCE_RESPONSE' &&
+    result.responseStatus !== 200 && result.responseStatus !== 201) {
+    throw new TypeError('CATALOG_RESOURCE_RESPONSE responses must use HTTP status 200 or 201');
+  }
   if (result.storage === 'CACHEABLE') {
     if (result.policy === 'COMMAND_RESPONSE') {
       if (!isCacheableCommandResponse(result.responseBody)) {
@@ -295,6 +404,10 @@ function validateResult(result: IdempotencyResult): void {
     } else if (result.policy === 'FILE_UPLOAD_COMPLETE') {
       if (!isCacheableFileUploadCompleteResponse(result.responseBody)) {
         throw new TypeError('Only a valid file completion response may use the FILE_UPLOAD_COMPLETE cache policy');
+      }
+    } else if (result.policy === 'CATALOG_RESOURCE_RESPONSE') {
+      if (!isCacheableCatalogResourceResponse(result.responseBody)) {
+        throw new TypeError('Only a valid catalog response may use the CATALOG_RESOURCE_RESPONSE cache policy');
       }
     } else {
       throw new TypeError('CACHEABLE idempotency policy is not registered');
@@ -361,23 +474,51 @@ export class IdempotencyRepository {
     return matched;
   }
 
-  private responseHash(value: unknown, hashKey = this.currentHashKey): string {
+  private responseHash(
+    value: unknown,
+    context: ResponseIntegrityContext,
+    hashKey = this.currentHashKey,
+  ): string {
     return hmacCanonicalJson(
-      { key_id: hashKey.id, response: value },
+      {
+        actor_id: context.actorId,
+        idempotency_key: context.idempotencyKey,
+        key_id: hashKey.id,
+        request_hash: context.requestHash,
+        response: value,
+        scope: context.scope,
+      },
       hashKey.key,
       'idempotency-response',
     );
   }
 
-  private responseHashMatches(value: unknown, storedHash: string | null): boolean {
+  private responseHashMatches(
+    value: unknown,
+    context: ResponseIntegrityContext,
+    storedHash: string | null,
+  ): boolean {
     if (!storedHash || !/^[a-f0-9]{64}$/.test(storedHash)) return false;
     const stored = Buffer.from(storedHash, 'hex');
     let matched = false;
     for (const hashKey of this.activeHashKeys) {
-      const candidate = Buffer.from(this.responseHash(value, hashKey), 'hex');
+      const candidate = Buffer.from(this.responseHash(value, context, hashKey), 'hex');
       matched = timingSafeEqual(stored, candidate) || matched;
     }
     return matched;
+  }
+
+  private responseIntegrityContext(record: IdempotencyRecord): ResponseIntegrityContext | undefined {
+    if (!isValidUlid(record.actor_id) || !UUID.test(record.idempotency_key) ||
+      !IDEMPOTENCY_SCOPE.test(record.scope) || !/^[a-f0-9]{64}$/.test(record.request_hash)) {
+      return undefined;
+    }
+    return {
+      actorId: record.actor_id,
+      idempotencyKey: record.idempotency_key,
+      requestHash: record.request_hash,
+      scope: record.scope,
+    };
   }
 
   private assertReplayIntegrity(record: IdempotencyRecord): void {
@@ -389,13 +530,17 @@ export class IdempotencyRepository {
       return;
     }
     const response = record.response_body;
+    const integrityContext = this.responseIntegrityContext(record);
     const commandResponse = isCacheableCommandResponse(response);
     const fileCompleteResponse = isCacheableFileUploadCompleteResponse(response);
+    const catalogResponse = isCacheableCatalogResourceResponse(response);
     if (record.response_status < 200 || record.response_status > 299 ||
-      (!commandResponse && !fileCompleteResponse) ||
+      (!commandResponse && !fileCompleteResponse && !catalogResponse) ||
       (fileCompleteResponse && record.response_status !== 200) ||
+      (catalogResponse && record.response_status !== 200 && record.response_status !== 201) ||
+      integrityContext === undefined ||
       record.resource_id !== cacheableResourceId(response) ||
-      !this.responseHashMatches(record.response_body, record.response_body_hash)) {
+      !this.responseHashMatches(record.response_body, integrityContext, record.response_body_hash)) {
       throw new ApplicationError('INTERNAL_ERROR', 'Idempotency record integrity check failed');
     }
   }
@@ -404,6 +549,14 @@ export class IdempotencyRepository {
     this.assertReplayIntegrity(record);
     if (!isCacheableFileUploadCompleteResponse(record.response_body)) {
       throw new ApplicationError('INTERNAL_ERROR', 'Idempotency record is not a file completion response');
+    }
+    return record.response_body;
+  }
+
+  catalogResourceReplay(record: IdempotencyRecord): CacheableCatalogResourceResponse {
+    this.assertReplayIntegrity(record);
+    if (!isCacheableCatalogResourceResponse(record.response_body)) {
+      throw new ApplicationError('INTERNAL_ERROR', 'Idempotency record is not a catalog response');
     }
     return record.response_body;
   }
@@ -446,6 +599,12 @@ export class IdempotencyRepository {
       throw new TypeError('Idempotency clock must return a valid Date');
     }
     const scope = deriveIdempotencyScope(claim.request);
+    const integrityContext: ResponseIntegrityContext = {
+      actorId: claim.actorId,
+      idempotencyKey: claim.idempotencyKey,
+      requestHash,
+      scope,
+    };
     await acquireTransactionLock(transaction, 'idempotency', [claim.actorId, scope, claim.idempotencyKey]);
     const existing = await transaction.idempotencyRecord.findUnique({
       where: {
@@ -468,6 +627,7 @@ export class IdempotencyRepository {
       : undefined;
     const responseBodyHash = this.responseHash(
       result.storage === 'CACHEABLE' ? result.responseBody : result.responseForHash,
+      integrityContext,
     );
     const data = {
       request_hash: requestHash,

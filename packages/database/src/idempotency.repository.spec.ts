@@ -1,9 +1,12 @@
+import { randomUUID } from 'node:crypto';
+
 import { generateUlid, hmacCanonicalJson } from '@qingxu/platform-core';
 import { describe, expect, it, vi } from 'vitest';
 
 import { Prisma } from '../.generated/prisma/client';
 import {
   IdempotencyRepository,
+  type CacheableCatalogResourceResponse,
   type CacheableFileUploadCompleteResponse,
   type CacheableCommandResponse,
   type DatabaseTransaction,
@@ -39,12 +42,28 @@ function requestHash(key: IdempotencyHashKey, claim = baseClaim): string {
   );
 }
 
-function responseHash(key: IdempotencyHashKey, response: unknown): string {
+function responseHash(key: IdempotencyHashKey, response: unknown, claim = baseClaim): string {
   return hmacCanonicalJson(
-    { key_id: key.id, response },
+    {
+      actor_id: claim.actorId,
+      idempotency_key: claim.idempotencyKey,
+      key_id: key.id,
+      request_hash: requestHash(key, claim),
+      response,
+      scope: deriveIdempotencyScope(claim.request),
+    },
     key.key,
     'idempotency-response',
   );
+}
+
+function recordContext(key = currentHashKey, claim = baseClaim) {
+  return {
+    actor_id: claim.actorId,
+    idempotency_key: claim.idempotencyKey,
+    request_hash: requestHash(key, claim),
+    scope: deriveIdempotencyScope(claim.request),
+  };
 }
 
 function commandResponse(override: Partial<CacheableCommandResponse> = {}): CacheableCommandResponse {
@@ -79,6 +98,48 @@ function fileCompleteResponse(
     request_id: 'req_0123456789abcdef0123456789abcdef',
     ...override,
   };
+}
+
+function catalogBrandResponse(
+  override: Partial<CacheableCatalogResourceResponse> = {},
+): CacheableCatalogResourceResponse {
+  const fileId = generateUlid();
+  return {
+    code: 'OK',
+    data: {
+      brand_id: generateUlid(),
+      description: 'Daily care',
+      logo_file_id: fileId,
+      logo_url: `https://assets.example.test/public/${fileId}`,
+      name: 'Qingxu',
+      sort_order: 1,
+      status: 'DRAFT',
+      version: 1,
+    },
+    message: 'success',
+    request_id: 'req_0123456789abcdef0123456789abcdef',
+    ...override,
+  } as CacheableCatalogResourceResponse;
+}
+
+function catalogCategoryResponse(
+  override: Partial<CacheableCatalogResourceResponse> = {},
+): CacheableCatalogResourceResponse {
+  return {
+    code: 'OK',
+    data: {
+      category_id: generateUlid(),
+      icon_file_id: null,
+      icon_url: null,
+      name: 'Body care',
+      sort_order: 2,
+      status: 'INACTIVE',
+      version: 3,
+    },
+    message: 'success',
+    request_id: 'req_0123456789abcdef0123456789abcdef',
+    ...override,
+  } as CacheableCatalogResourceResponse;
 }
 
 function transactionStub(): DatabaseTransaction {
@@ -141,14 +202,93 @@ describe('IdempotencyRepository', () => {
     }));
 
     const record = {
+      ...recordContext(),
       expires_at: new Date('2099-08-14T00:00:00.000Z'),
-      request_hash: requestHash(currentHashKey),
       resource_id: responseBody.data.file_id,
       response_body: responseBody,
       response_body_hash: responseHash(currentHashKey, responseBody),
       response_status: 200,
     };
     expect(repository().fileUploadCompleteReplay(record as never)).toEqual(responseBody);
+  });
+
+  it.each([
+    { responseBody: catalogBrandResponse(), responseStatus: 201 },
+    { responseBody: catalogCategoryResponse(), responseStatus: 200 },
+  ])('stores and exactly replays a closed catalog response', async ({ responseBody, responseStatus }) => {
+    const transaction = transactionStub();
+    await repository().complete(transaction, baseClaim, {
+      policy: 'CATALOG_RESOURCE_RESPONSE',
+      responseBody,
+      responseStatus,
+      storage: 'CACHEABLE',
+    });
+    const resourceId = 'brand_id' in responseBody.data
+      ? responseBody.data.brand_id
+      : responseBody.data.category_id;
+    expect(transaction.idempotencyRecord.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ resource_id: resourceId, response_body: responseBody }),
+    }));
+    expect(repository().catalogResourceReplay({
+      ...recordContext(),
+      expires_at: new Date('2099-08-14T00:00:00.000Z'),
+      resource_id: resourceId,
+      response_body: responseBody,
+      response_body_hash: responseHash(currentHashKey, responseBody),
+      response_status: responseStatus,
+    } as never)).toEqual(responseBody);
+  });
+
+  it.each([
+    catalogBrandResponse({ data: { ...catalogBrandResponse().data, access_token: 'secret' } } as never),
+    catalogBrandResponse({ data: { ...catalogBrandResponse().data, brand_id: 'not-an-ulid' } } as never),
+    catalogBrandResponse({ data: { ...catalogBrandResponse().data, name: ' '.repeat(3) } } as never),
+    catalogBrandResponse({ data: { ...catalogBrandResponse().data, status: 'DELETED' } } as never),
+    catalogBrandResponse({ data: { ...catalogBrandResponse().data, sort_order: -1 } } as never),
+    catalogBrandResponse({ data: { ...catalogBrandResponse().data, version: 0 } } as never),
+    catalogBrandResponse({ data: { ...catalogBrandResponse().data, logo_url: 'https://assets.example.test/private/file' } } as never),
+    catalogBrandResponse({ data: { ...catalogBrandResponse().data, logo_url: 'https://assets.example.test/public/file?sig=secret' } } as never),
+    catalogCategoryResponse({ data: { ...catalogCategoryResponse().data, icon_file_id: generateUlid() } } as never),
+    { ...catalogCategoryResponse(), refresh_token: 'secret' },
+  ])('rejects malformed or sensitive catalog cache content: %j', async (responseBody) => {
+    await expect(repository().complete(transactionStub(), baseClaim, {
+      policy: 'CATALOG_RESOURCE_RESPONSE',
+      responseBody,
+      responseStatus: 200,
+      storage: 'CACHEABLE',
+    } as never)).rejects.toThrow('valid catalog response');
+  });
+
+  it('rejects catalog replay with a mismatched resource identity or response HMAC', () => {
+    const responseBody = catalogBrandResponse();
+    for (const override of [
+      { resource_id: generateUlid() },
+      { response_body_hash: '0'.repeat(64) },
+      { response_status: 202 },
+    ]) {
+      expect(() => repository().catalogResourceReplay({
+        ...recordContext(),
+        expires_at: new Date('2099-08-14T00:00:00.000Z'),
+        resource_id: responseBody.data.brand_id,
+        response_body: responseBody,
+        response_body_hash: responseHash(currentHashKey, responseBody),
+        response_status: 200,
+        ...override,
+      } as never)).toThrow('unexpected error');
+    }
+  });
+
+  it('rejects transplanting a valid catalog response and HMAC into another idempotency record', () => {
+    const transplanted = catalogBrandResponse();
+    const sourceClaim = { ...baseClaim, idempotencyKey: randomUUID() };
+    expect(() => repository().catalogResourceReplay({
+      ...recordContext(currentHashKey, baseClaim),
+      expires_at: new Date('2099-08-14T00:00:00.000Z'),
+      resource_id: transplanted.data.brand_id,
+      response_body: transplanted,
+      response_body_hash: responseHash(currentHashKey, transplanted, sourceClaim),
+      response_status: 201,
+    } as never)).toThrow('unexpected error');
   });
 
   it('accepts null public_url only for a private file purpose', async () => {
@@ -210,8 +350,8 @@ describe('IdempotencyRepository', () => {
   it('does not extract a command response through the file replay helper', () => {
     const responseBody = commandResponse();
     expect(() => repository().fileUploadCompleteReplay({
+      ...recordContext(),
       expires_at: new Date('2099-08-14T00:00:00.000Z'),
-      request_hash: requestHash(currentHashKey),
       resource_id: responseBody.data.resource_id,
       response_body: responseBody,
       response_body_hash: responseHash(currentHashKey, responseBody),
@@ -371,17 +511,14 @@ describe('IdempotencyRepository', () => {
   it('replays an unexpired record signed by a retained previous key after rotation', async () => {
     const responseBody = commandResponse();
     const record = {
-      actor_id: baseClaim.actorId,
+      ...recordContext(previousHashKey),
       created_at: new Date('2026-08-12T00:00:00.000Z'),
       expires_at: new Date('2099-08-14T00:00:00.000Z'),
       id: generateUlid(),
-      idempotency_key: baseClaim.idempotencyKey,
-      request_hash: requestHash(previousHashKey),
       resource_id: responseBody.data.resource_id,
       response_body: responseBody,
       response_body_hash: responseHash(previousHashKey, responseBody),
       response_status: 201,
-      scope: deriveIdempotencyScope(baseClaim.request),
     };
     const transaction = transactionStub();
     vi.mocked(transaction.idempotencyRecord.findUnique).mockResolvedValue(record as never);
@@ -416,8 +553,8 @@ describe('IdempotencyRepository', () => {
   ])('rejects a corrupted cache record before replay', async (corrupt) => {
     const responseBody = commandResponse();
     const baseRecord = {
+      ...recordContext(),
       expires_at: new Date('2099-08-14T00:00:00.000Z'),
-      request_hash: requestHash(currentHashKey),
       response_body: responseBody,
       response_body_hash: responseHash(currentHashKey, responseBody),
       response_status: 200,
@@ -433,8 +570,8 @@ describe('IdempotencyRepository', () => {
     const responseBody = commandResponse();
     const transaction = transactionStub();
     vi.mocked(transaction.idempotencyRecord.findUnique).mockResolvedValue({
+      ...recordContext(),
       expires_at: new Date('2099-08-14T00:00:00.000Z'),
-      request_hash: requestHash(currentHashKey),
       response_body: responseBody,
       response_body_hash: '0'.repeat(64),
       response_status: 200,

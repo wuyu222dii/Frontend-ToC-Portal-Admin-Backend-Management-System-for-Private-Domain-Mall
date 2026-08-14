@@ -1,6 +1,6 @@
 # 青序生活三端私域商城
 
-本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。当前开发按 `B0` 至 `B19` 小批次推进；B0、B1 已验收通过，B2 总部安全入口已完成实现与本地/临时环境门禁，Supabase 远端证据按 CH-007 延期。B3.0 CH-006 契约解阻与 B3.1 文件基础的本地/一次性环境验收均已通过并暂停，B3.2 品牌与分类尚未开始；远端证据补齐前不得标记 B3 整体完成或进入 staging/production。
+本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。当前开发按 `B0` 至 `B19` 小批次推进；B0、B1 已验收通过，B2 总部安全入口已完成实现与本地/临时环境门禁，Supabase 远端证据按 CH-007 延期。B3.0 CH-006 契约解阻、B3.1 文件基础和 B3.2 品牌分类的本地/一次性环境验收均已通过并暂停，B3.3 未开始；远端证据补齐前不得标记 B3 整体完成或进入 staging/production。
 
 ## 工程结构
 
@@ -53,9 +53,11 @@ pnpm contracts:check
 pnpm prisma:validate
 pnpm db:migrate:baseline # CI 临时空库专用
 pnpm db:supabase:bootstrap # 受控的 Supabase 首次初始化
+pnpm db:test-b3-master-data # B3.2 数据库 full/rollback 门禁
+pnpm db:test-b3-catalog-api # B3.2 真实 Nest + PostgreSQL + Redis 纵向门禁
 pnpm db:diff
 ```
 
 Supabase 项目创建、连接分权和受保护烟测见 [B0 工程与 Supabase](product-materials/docs/05-开发管理/B0-工程与Supabase.md)，公共内核边界见 [B1 平台公共内核](product-materials/docs/05-开发管理/B1-平台公共内核.md)，总部认证实现与安全操作见 [B2 总部安全入口](product-materials/docs/05-开发管理/B2-总部安全入口.md)，CH-006 与 B3 分段门禁见 [B3 文件、品牌与分类](product-materials/docs/05-开发管理/B3-文件品牌与分类.md)。普通 PR 只使用 CI 的临时 PostgreSQL，不读取 Supabase 凭据。
 
-B3.1 已交付文件上传 intent/complete、私有下载签名、Redis owner lease、最小权限 MinIO 分区和 Worker 清理闭环。当前停在 B3.1 验收暂停点；B2/B3 Supabase development rollback-only 与 GitHub 受保护运行证据仍按 CH-007 延期，本地 PostgreSQL、Redis、MinIO 结果不能替代这些远端证据。
+B3.1 已交付文件上传与清理闭环；B3.2 已交付品牌/分类 14 个管理端 operation、精确幂等重放、高风险预览确认和并发依赖保护。用户已批准把 CH-007 扩展到整个 B3：B3.3 可在明确继续后使用本地和一次性环境实施；B2/B3 Supabase development rollback-only 与 GitHub 受保护运行证据统一在 B3 最终验收前补齐，本地结果不能替代远端证据。

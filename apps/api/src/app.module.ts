@@ -1,6 +1,7 @@
 import { MiddlewareConsumer, Module, RequestMethod, type NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 
+import { AdminCatalogModule } from './admin-catalog/admin-catalog.module';
 import { AdminAuthModule } from './admin-auth/admin-auth.module';
 import { HealthModule } from './health/health.module';
 import { FilesModule } from './files/files.module';
@@ -12,7 +13,7 @@ import { RequestIdMiddleware } from './platform/http/request-id.middleware';
 import { SuccessEnvelopeInterceptor } from './platform/http/success-envelope.interceptor';
 
 @Module({
-  imports: [AdminAuthModule, FilesModule, HealthModule],
+  imports: [AdminAuthModule, AdminCatalogModule, FilesModule, HealthModule],
   providers: [
     { provide: APP_FILTER, useClass: ErrorEnvelopeFilter },
     { provide: APP_GUARD, useClass: AuthenticationGuard },

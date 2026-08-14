@@ -1,6 +1,6 @@
 # 技术设计交付索引
 
-> 当前基线：MVP/PRD v2.4.1、线协议 CH-006，交付例外/勘误 CH-007 至 CH-008（2026-08-14）。B3.0 契约与 B3.1 文件基础的本地/一次性环境验收已通过并暂停；B3.2 未开始，B2/B3 Supabase rollback-only 与 GitHub 受保护运行证据仍延期。
+> 当前基线：MVP/PRD v2.4.1、线协议 CH-006，交付例外/勘误 CH-007 至 CH-008（2026-08-14）。B3.0 契约、B3.1 文件基础和 B3.2 品牌分类的本地/一次性环境验收已通过并暂停，B3.3 未开始；远端证据仍是 B3 最终验收硬门禁。
 
 | 文件 | 用途 |
 |---|---|
@@ -19,7 +19,7 @@
 - 新增持久契约门禁 `pnpm contracts:check`，专项实测通过：172 paths / 196 operations / 196 unique operationId / 306 schemas / 685 schema refs / 2,561 local refs / 0 dangling refs。CH-008 只修正文案，当前生成文件 SHA-256 为 `a216f4bc665160cdfbff078410c87fbfc7d4748b23ddc1f08c7c702a817b245e`；线协议、统计和数据库均不变。
 - CH-006 未修改 76 models / 59 enums、Prisma schema 或 `0001_initial`；`prisma validate`、逐字节冻结校验、PostgreSQL 18.3 空库回放、权限故障注入和 migration diff=0 均已通过。
 - Product/SKU 拒绝 ACTIVATE；品牌/分类创建 DRAFT、排序、专用状态机、ARCHIVED 查询、restore-to-DRAFT 及三项错误码均已通过契约结构、AJV 与故障注入测试。
-- B3.0 已通过 Redocly、契约/AJV/故障注入、生成漂移、冻结数据库、权限、零漂移、全仓和原型门禁并暂停。CH-007 随后批准 B3.1 在本地和一次性环境实施，不改变远端验收或上线标准。
+- B3.0 已通过 Redocly、契约/AJV/故障注入、生成漂移、冻结数据库、权限、零漂移、全仓和原型门禁并暂停。CH-007 随后批准整个 B3 在本地和一次性环境逐段实施，不改变最终远端验收或上线标准。
 
 ## B3.1 当前验证状态
 
@@ -28,7 +28,7 @@
 - `GET /files/{file_id}/download-url` 按 CH-008 不接受幂等键、不创建幂等记录；每次重新鉴权并写不含 URL 的 `READ_SENSITIVE` 审计，签名 URL 只在 no-store/private 响应中返回。
 - complete 在提交后即时尽力删除 staging，同时投递延迟清理事件兜底；Worker 删除前重新核对 READY/PENDING 和精确对象 key。MinIO runtime 使用最小对象权限，Redis 断线采用有界重连，注入 Redis 且未 ready 时 API/Worker 健康检查返回 503。
 - `pnpm check` exit 0，共 `424 passed / 37 skipped`；全量 build 通过，lint 0 error / 207 个既有 Vue warning。contracts lint/check/typecheck、生成 hash 一致、Prisma validate、冻结文件、权限故障注入、migration diff=0、MP-Weixin build、敏感扫描和 diff-check 均通过；独立安全审计 `P0/P1=0`。
-- 上述证据只完成 B3.1 本地/一次性环境验收。B3.1 现已暂停，B3.2 未开始；B2/B3 Supabase development rollback-only 与 GitHub 受保护运行证据未补齐前，B3 整体仍不可完成。
+- B3.2 已通过 database `192/30 skipped`、API `161/14 skipped`、真实 PostgreSQL `5/1 mode-skipped` 和真实 Nest + PostgreSQL + Redis `4/4`。响应 HMAC 绑定 actor/scope/幂等键/request hash，高风险 preview 绑定 actor/session/action/target/request/version 并且单次消费。B3.2 现已暂停；B2/B3 Supabase development rollback-only 与 GitHub 受保护运行证据未补齐前，B3 整体仍不可完成。
 
 ## CH-005 历史设计验证
 
@@ -43,7 +43,7 @@ B0 已在工程根建立 `prisma.config.ts`、`prisma/` 和五应用脚手架；
 
 ## B3 开发入口
 
-B3.0 与 B3.1 交付及验收结果见 `../05-开发管理/B3-文件品牌与分类.md`。当前停在 B3.1 验收暂停点；B3.2 品牌分类和 B3.3 总部后台须分别收到明确继续指令后实施并逐段暂停。CH-007 不放行 B3 整体验收、staging 或 production。
+B3.0 至 B3.2 交付及验收结果见 `../05-开发管理/B3-文件品牌与分类.md`。当前已暂停在 B3.2；B3.3 须收到明确继续指令后才能实施。扩展后的 CH-007 只调整远端证据时序，不放行 B3 整体验收、staging 或 production。
 
 ## 剩余上线门禁
 

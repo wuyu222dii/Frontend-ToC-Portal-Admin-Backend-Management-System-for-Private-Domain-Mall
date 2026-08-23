@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Inject, Param, Post, Req } from '@nestjs/common';
 
 import { NoStore } from '../admin-auth/no-store.decorator';
 import { RequireRoles } from '../platform/access/rbac.metadata';
@@ -11,7 +11,7 @@ import { requireFilesRequest } from './files.request';
 @Controller('files')
 @RequireRoles('SUPER_ADMIN')
 export class FilesController {
-  constructor(private readonly files: FileAssetsService) {}
+  constructor(@Inject(FileAssetsService) private readonly files: FileAssetsService) {}
 
   @Post('upload-intents') @HttpCode(HttpStatus.OK) @NoStore()
   createUploadIntent(

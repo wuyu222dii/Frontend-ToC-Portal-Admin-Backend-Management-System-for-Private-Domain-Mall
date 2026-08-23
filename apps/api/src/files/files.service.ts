@@ -62,7 +62,7 @@ export class FileAssetsService {
     @Optional() @Inject(API_RUNTIME_CONFIG) private readonly config?: PlatformRuntimeConfig,
     @Optional() @Inject(API_DATABASE_RUNTIME) private readonly database?: DatabaseRuntime,
     @Optional() @Inject(API_OBJECT_STORAGE) private readonly storage?: ObjectStoragePort,
-    @Optional() private readonly leases?: FileObjectLeaseManager,
+    @Optional() @Inject(FileObjectLeaseManager) private readonly leases?: FileObjectLeaseManager,
   ) {
     if (config && database) {
       this.assets = new FileAssetRepository(database.prisma);

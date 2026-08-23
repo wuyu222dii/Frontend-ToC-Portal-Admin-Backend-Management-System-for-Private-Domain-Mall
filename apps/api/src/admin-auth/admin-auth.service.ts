@@ -114,7 +114,7 @@ export class AdminAuthService {
   constructor(
     @Optional() @Inject(API_RUNTIME_CONFIG) config?: PlatformRuntimeConfig,
     @Optional() @Inject(API_DATABASE_RUNTIME) database?: DatabaseRuntime,
-    @Optional() private readonly loginRateLimiter?: AdminLoginRateLimiter,
+    @Optional() @Inject(AdminLoginRateLimiter) private readonly loginRateLimiter?: AdminLoginRateLimiter,
   ) {
     if (!config || !database) {
       this.config = undefined as never;

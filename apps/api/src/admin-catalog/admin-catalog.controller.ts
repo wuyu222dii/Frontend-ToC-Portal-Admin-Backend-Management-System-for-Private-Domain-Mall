@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Inject,
   Param,
   Patch,
   Post,
@@ -33,7 +34,7 @@ import { AdminCatalogService } from './admin-catalog.service';
 @Controller('admin')
 @RequireRoles('SUPER_ADMIN')
 export class AdminCatalogController {
-  constructor(private readonly catalog: AdminCatalogService) {}
+  constructor(@Inject(AdminCatalogService) private readonly catalog: AdminCatalogService) {}
 
   @Get('brands')
   listBrands(@Query() query: unknown) {

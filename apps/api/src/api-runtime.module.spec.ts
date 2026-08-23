@@ -11,7 +11,13 @@ import {
 } from '@qingxu/platform-core';
 import { describe, expect, it, vi } from 'vitest';
 
+import { AdminCatalogController } from './admin-catalog/admin-catalog.controller';
+import { AdminCatalogService } from './admin-catalog/admin-catalog.service';
+import { AdminAuthController } from './admin-auth/admin-auth.controller';
+import { AdminLoginRateLimiter } from './admin-auth/admin-login-rate-limiter';
 import { AdminAuthService } from './admin-auth/admin-auth.service';
+import { FileObjectLeaseManager } from './files/file-object-lease';
+import { FilesController } from './files/files.controller';
 import { FileAssetsService } from './files/files.service';
 import { ApiRuntimeModule, API_RUNTIME_CONFIG } from './api-runtime.module';
 import { API_DATABASE_RUNTIME } from './platform/database/api-database-runtime';
@@ -59,7 +65,7 @@ describe('ApiRuntimeModule authentication wiring', () => {
       .toEqual([100, 200, 400, 800, 3_200, 3_200]);
   });
 
-  it('resolves auth providers without a CommonJS symbol cycle', async () => {
+  it('resolves explicit class dependencies without decorator metadata', async () => {
     const database = {
       connect: vi.fn(), disconnect: vi.fn(), ping: vi.fn(),
       prisma: {}, withPgTransaction: vi.fn(), withPrismaTransaction: vi.fn(),
@@ -68,8 +74,13 @@ describe('ApiRuntimeModule authentication wiring', () => {
       .overrideProvider(API_DATABASE_RUNTIME).useValue(database)
       .compile();
     expect(moduleRef.get(API_RUNTIME_CONFIG)).toMatchObject({ service: 'api' });
-    expect(moduleRef.get(AdminAuthService)).toBeInstanceOf(AdminAuthService);
-    expect(moduleRef.get(FileAssetsService)).toBeInstanceOf(FileAssetsService);
+    const authService = moduleRef.get(AdminAuthService);
+    const fileService = moduleRef.get(FileAssetsService);
+    expect(authService).toHaveProperty('loginRateLimiter', moduleRef.get(AdminLoginRateLimiter));
+    expect(moduleRef.get(AdminAuthController)).toHaveProperty('auth', authService);
+    expect(moduleRef.get(AdminCatalogController)).toHaveProperty('catalog', moduleRef.get(AdminCatalogService));
+    expect(moduleRef.get(FilesController)).toHaveProperty('files', fileService);
+    expect(fileService).toHaveProperty('leases', moduleRef.get(FileObjectLeaseManager));
     await moduleRef.close();
   });
 

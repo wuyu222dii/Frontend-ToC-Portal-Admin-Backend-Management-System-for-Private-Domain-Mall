@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Inject, Param, Post } from '@nestjs/common';
 
 import { RequireRoles, Public } from '../platform/access/rbac.metadata';
 import { IdempotencyKey } from '../platform/http/idempotency-key.decorator';
@@ -19,7 +19,7 @@ import { NoStore } from './no-store.decorator';
 
 @Controller('admin/auth')
 export class AdminAuthController {
-  constructor(private readonly auth: AdminAuthService) {}
+  constructor(@Inject(AdminAuthService) private readonly auth: AdminAuthService) {}
 
   @Post('login') @HttpCode(HttpStatus.OK) @Public() @NoStore()
   login(@Body() body: unknown, @IdempotencyKey() key: string, @AuthRequest() request: AdminAuthRequestContext) {

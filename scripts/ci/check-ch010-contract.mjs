@@ -112,9 +112,28 @@ try {
   assert.equal(operations.length, 196, 'OpenAPI operation count drifted');
   assert.equal(new Set(operationIds).size, 196, 'operationId values must be unique');
   assert.ok(operationIds.every((operationId) => typeof operationId === 'string' && operationId.length > 0));
+  const adminProductKeyword = document.paths['/admin/products'].get.parameters
+    .find((parameter) => parameter.name === 'keyword');
+  assert.deepEqual(
+    adminProductKeyword?.schema,
+    { type: 'string', minLength: 1, maxLength: 200 },
+    'Admin product keyword must remain bounded to the implemented query limit',
+  );
 
   const schemas = document.components.schemas;
   assert.equal(Object.keys(schemas).length, 307, 'OpenAPI schema count drifted');
+  assert.equal(
+    schemas.PositiveMoney.pattern,
+    '^(?:0\\.(?:0[1-9]|[1-9][0-9])|[1-9][0-9]{0,15}\\.[0-9]{2})$',
+    'PositiveMoney must remain within DECIMAL(18,2) and be greater than zero',
+  );
+  const positiveMoneyPattern = new RegExp(schemas.PositiveMoney.pattern);
+  for (const value of ['0.01', '0.99', '1.00', '9999999999999999.99']) {
+    assert.match(value, positiveMoneyPattern, `PositiveMoney must accept ${value}`);
+  }
+  for (const value of ['0.00', '-0.01', '1', '1.0', '10000000000000000.00']) {
+    assert.doesNotMatch(value, positiveMoneyPattern, `PositiveMoney must reject ${value}`);
+  }
 
   const brandCreate = schemas.BrandCreateRequest;
   assert.equal(brandCreate.additionalProperties, false);

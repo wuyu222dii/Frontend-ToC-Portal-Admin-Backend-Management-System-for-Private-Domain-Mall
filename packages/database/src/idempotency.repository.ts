@@ -62,6 +62,11 @@ export type IdempotencyResult =
       responseBody: CacheableCatalogResourceResponse;
     })
   | (IdempotencyResultBase & {
+      storage: 'CACHEABLE';
+      policy: 'PRODUCT_CATALOG_RESPONSE';
+      responseBody: CacheableProductCatalogResponse;
+    })
+  | (IdempotencyResultBase & {
       storage: 'HASH_ONLY';
       resourceId?: string;
       responseForHash: unknown;
@@ -130,6 +135,54 @@ export type CacheableCatalogResourceResponse = {
   request_id: string;
 } & ({ data: CacheableBrandView } | { data: CacheableCategoryView });
 
+export interface CacheableProductImageView {
+  file_id: string;
+  url: string;
+  sort_order: number;
+  is_primary: boolean;
+}
+
+export interface CacheableSkuSpec {
+  attributes: Array<{ name: string; value: string }>;
+}
+
+export interface CacheableSkuView {
+  sku_id: string;
+  code: string;
+  name: string;
+  spec_json: CacheableSkuSpec | null;
+  retail_price: string;
+  is_recommended: boolean;
+  status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
+  available_stock: number;
+  version: number;
+}
+
+export interface CacheableProductDetailView {
+  product_id: string;
+  spu_code: string;
+  name: string;
+  subtitle: string | null;
+  introduction: string | null;
+  ingredients: string | null;
+  usage_method: string | null;
+  brand: CacheableBrandView;
+  category: CacheableCategoryView;
+  images: CacheableProductImageView[];
+  skus: CacheableSkuView[];
+  net_sales_count: number;
+  is_hot: boolean;
+  is_new: boolean;
+  status: 'DRAFT' | 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
+  version: number;
+}
+
+export type CacheableProductCatalogResponse = {
+  code: 'OK';
+  message: 'success';
+  request_id: string;
+} & ({ data: CacheableProductDetailView } | { data: CacheableSkuView });
+
 const COMMAND_RESPONSE_TOP_LEVEL_FIELDS = new Set(['code', 'data', 'message', 'request_id']);
 const COMMAND_RESPONSE_DATA_FIELDS = new Set([
   'occurred_at',
@@ -166,7 +219,41 @@ const CATEGORY_VIEW_FIELDS = new Set([
   'status',
   'version',
 ]);
+const PRODUCT_DETAIL_VIEW_FIELDS = new Set([
+  'brand',
+  'category',
+  'images',
+  'ingredients',
+  'introduction',
+  'is_hot',
+  'is_new',
+  'name',
+  'net_sales_count',
+  'product_id',
+  'skus',
+  'spu_code',
+  'status',
+  'subtitle',
+  'usage_method',
+  'version',
+]);
+const PRODUCT_IMAGE_VIEW_FIELDS = new Set(['file_id', 'is_primary', 'sort_order', 'url']);
+const SKU_VIEW_FIELDS = new Set([
+  'available_stock',
+  'code',
+  'is_recommended',
+  'name',
+  'retail_price',
+  'sku_id',
+  'spec_json',
+  'status',
+  'version',
+]);
+const SKU_SPEC_FIELDS = new Set(['attributes']);
+const SKU_ATTRIBUTE_FIELDS = new Set(['name', 'value']);
 const CATALOG_STATUS = new Set(['ACTIVE', 'ARCHIVED', 'DRAFT', 'INACTIVE']);
+const SKU_STATUS = new Set(['ACTIVE', 'ARCHIVED', 'INACTIVE']);
+const POSITIVE_MONEY = /^(?:0\.(?:0[1-9]|[1-9][0-9])|[1-9][0-9]{0,15}\.[0-9]{2})$/;
 const FILE_PURPOSE = new Set<CacheableFilePurpose>([
   'PRODUCT_IMAGE',
   'BRAND_LOGO',
@@ -310,23 +397,111 @@ function validPublicFilePair(fileId: unknown, fileUrl: unknown): boolean {
   return typeof fileId === 'string' && isValidUlid(fileId) && isPublicFileUrl(fileUrl, fileId);
 }
 
+function isCacheableBrandView(value: unknown): value is CacheableBrandView {
+  if (!isExactPlainObject(value, BRAND_VIEW_FIELDS)) return false;
+  return isValidUlid(value.brand_id) && isCatalogName(value.name) &&
+    (value.description === null ||
+      (typeof value.description === 'string' && Array.from(value.description).length <= 500)) &&
+    validPublicFilePair(value.logo_file_id, value.logo_url) &&
+    isCatalogState(value.status, value.sort_order, value.version);
+}
+
+function isCacheableCategoryView(value: unknown): value is CacheableCategoryView {
+  if (!isExactPlainObject(value, CATEGORY_VIEW_FIELDS)) return false;
+  return isValidUlid(value.category_id) && isCatalogName(value.name) &&
+    validPublicFilePair(value.icon_file_id, value.icon_url) &&
+    isCatalogState(value.status, value.sort_order, value.version);
+}
+
 function isCacheableCatalogResourceResponse(value: unknown): value is CacheableCatalogResourceResponse {
   if (!isExactPlainObject(value, CATALOG_RESPONSE_TOP_LEVEL_FIELDS) || value.code !== 'OK' ||
     value.message !== 'success' || !REQUEST_ID.test(String(value.request_id))) return false;
-  const data = value.data;
-  if (isExactPlainObject(data, BRAND_VIEW_FIELDS)) {
-    return isValidUlid(data.brand_id) && isCatalogName(data.name) &&
-      (data.description === null ||
-        (typeof data.description === 'string' && Array.from(data.description).length <= 500)) &&
-      validPublicFilePair(data.logo_file_id, data.logo_url) &&
-      isCatalogState(data.status, data.sort_order, data.version);
+  return isCacheableBrandView(value.data) || isCacheableCategoryView(value.data);
+}
+
+function isBoundedNonBlankString(value: unknown, maximum: number): value is string {
+  return typeof value === 'string' && value.trim().length > 0 &&
+    Array.from(value).length >= 1 && Array.from(value).length <= maximum;
+}
+
+function isNullableBoundedString(value: unknown, maximum: number): value is string | null {
+  return value === null || (typeof value === 'string' && Array.from(value).length <= maximum);
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 1 && Number(value) <= 2_147_483_647;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= 2_147_483_647;
+}
+
+function isCacheableSkuSpec(value: unknown): value is CacheableSkuSpec {
+  if (!isExactPlainObject(value, SKU_SPEC_FIELDS) || !Array.isArray(value.attributes) ||
+    value.attributes.length === 0) return false;
+  const identities = new Set<string>();
+  for (const attribute of value.attributes) {
+    if (!isExactPlainObject(attribute, SKU_ATTRIBUTE_FIELDS) ||
+      !isBoundedNonBlankString(attribute.name, 80) ||
+      !isBoundedNonBlankString(attribute.value, 160)) return false;
+    const identity = canonicalJson({ name: attribute.name, value: attribute.value });
+    if (identities.has(identity)) return false;
+    identities.add(identity);
   }
-  if (isExactPlainObject(data, CATEGORY_VIEW_FIELDS)) {
-    return isValidUlid(data.category_id) && isCatalogName(data.name) &&
-      validPublicFilePair(data.icon_file_id, data.icon_url) &&
-      isCatalogState(data.status, data.sort_order, data.version);
+  return true;
+}
+
+function isCacheableSkuView(value: unknown): value is CacheableSkuView {
+  if (!isExactPlainObject(value, SKU_VIEW_FIELDS)) return false;
+  return isValidUlid(value.sku_id) &&
+    isBoundedNonBlankString(value.code, 80) &&
+    isBoundedNonBlankString(value.name, 160) &&
+    (value.spec_json === null || isCacheableSkuSpec(value.spec_json)) &&
+    typeof value.retail_price === 'string' && POSITIVE_MONEY.test(value.retail_price) &&
+    typeof value.is_recommended === 'boolean' &&
+    typeof value.status === 'string' && SKU_STATUS.has(value.status) &&
+    isNonNegativeInteger(value.available_stock) &&
+    isPositiveInteger(value.version);
+}
+
+function isCacheableProductImageView(value: unknown): value is CacheableProductImageView {
+  if (!isExactPlainObject(value, PRODUCT_IMAGE_VIEW_FIELDS)) return false;
+  return isValidUlid(value.file_id) && isPublicFileUrl(value.url, value.file_id) &&
+    isNonNegativeInteger(value.sort_order) && typeof value.is_primary === 'boolean';
+}
+
+function isCacheableProductDetailView(value: unknown): value is CacheableProductDetailView {
+  if (!isExactPlainObject(value, PRODUCT_DETAIL_VIEW_FIELDS) ||
+    !isValidUlid(value.product_id) ||
+    !isBoundedNonBlankString(value.spu_code, 80) ||
+    !isBoundedNonBlankString(value.name, 200) ||
+    !isNullableBoundedString(value.subtitle, 300) ||
+    !isNullableBoundedString(value.introduction, 5_000) ||
+    !isNullableBoundedString(value.ingredients, 10_000) ||
+    !isNullableBoundedString(value.usage_method, 5_000) ||
+    !isCacheableBrandView(value.brand) ||
+    !isCacheableCategoryView(value.category) ||
+    !Array.isArray(value.images) || value.images.length > 8 ||
+    !Array.isArray(value.skus) ||
+    !isNonNegativeInteger(value.net_sales_count) ||
+    typeof value.is_hot !== 'boolean' || typeof value.is_new !== 'boolean' ||
+    typeof value.status !== 'string' || !CATALOG_STATUS.has(value.status) ||
+    !isPositiveInteger(value.version)) return false;
+  const fileIds = new Set<string>();
+  const sortOrders = new Set<number>();
+  for (const [index, image] of value.images.entries()) {
+    if (!isCacheableProductImageView(image) || fileIds.has(image.file_id) ||
+      sortOrders.has(image.sort_order) || image.is_primary !== (index === 0)) return false;
+    fileIds.add(image.file_id);
+    sortOrders.add(image.sort_order);
   }
-  return false;
+  return value.skus.every((sku) => isCacheableSkuView(sku));
+}
+
+function isCacheableProductCatalogResponse(value: unknown): value is CacheableProductCatalogResponse {
+  if (!isExactPlainObject(value, CATALOG_RESPONSE_TOP_LEVEL_FIELDS) || value.code !== 'OK' ||
+    value.message !== 'success' || !REQUEST_ID.test(String(value.request_id))) return false;
+  return isCacheableProductDetailView(value.data) || isCacheableSkuView(value.data);
 }
 
 function isCacheableFileUploadCompleteResponse(
@@ -347,10 +522,14 @@ function isCacheableFileUploadCompleteResponse(
 }
 
 function cacheableResourceId(
-  response: CacheableCommandResponse | CacheableFileUploadCompleteResponse | CacheableCatalogResourceResponse,
+  response: CacheableCommandResponse | CacheableFileUploadCompleteResponse |
+    CacheableCatalogResourceResponse | CacheableProductCatalogResponse,
 ): string {
   if (isCacheableCommandResponse(response)) return response.data.resource_id;
   if (isCacheableFileUploadCompleteResponse(response)) return response.data.file_id;
+  if (isCacheableProductCatalogResponse(response)) {
+    return 'product_id' in response.data ? response.data.product_id : response.data.sku_id;
+  }
   return 'brand_id' in response.data ? response.data.brand_id : response.data.category_id;
 }
 
@@ -396,6 +575,10 @@ function validateResult(result: IdempotencyResult): void {
     result.responseStatus !== 200 && result.responseStatus !== 201) {
     throw new TypeError('CATALOG_RESOURCE_RESPONSE responses must use HTTP status 200 or 201');
   }
+  if (result.storage === 'CACHEABLE' && result.policy === 'PRODUCT_CATALOG_RESPONSE' &&
+    result.responseStatus !== 200 && result.responseStatus !== 201) {
+    throw new TypeError('PRODUCT_CATALOG_RESPONSE responses must use HTTP status 200 or 201');
+  }
   if (result.storage === 'CACHEABLE') {
     if (result.policy === 'COMMAND_RESPONSE') {
       if (!isCacheableCommandResponse(result.responseBody)) {
@@ -408,6 +591,12 @@ function validateResult(result: IdempotencyResult): void {
     } else if (result.policy === 'CATALOG_RESOURCE_RESPONSE') {
       if (!isCacheableCatalogResourceResponse(result.responseBody)) {
         throw new TypeError('Only a valid catalog response may use the CATALOG_RESOURCE_RESPONSE cache policy');
+      }
+    } else if (result.policy === 'PRODUCT_CATALOG_RESPONSE') {
+      if (!isCacheableProductCatalogResponse(result.responseBody)) {
+        throw new TypeError(
+          'Only a valid product catalog response may use the PRODUCT_CATALOG_RESPONSE cache policy',
+        );
       }
     } else {
       throw new TypeError('CACHEABLE idempotency policy is not registered');
@@ -534,10 +723,12 @@ export class IdempotencyRepository {
     const commandResponse = isCacheableCommandResponse(response);
     const fileCompleteResponse = isCacheableFileUploadCompleteResponse(response);
     const catalogResponse = isCacheableCatalogResourceResponse(response);
+    const productCatalogResponse = isCacheableProductCatalogResponse(response);
     if (record.response_status < 200 || record.response_status > 299 ||
-      (!commandResponse && !fileCompleteResponse && !catalogResponse) ||
+      (!commandResponse && !fileCompleteResponse && !catalogResponse && !productCatalogResponse) ||
       (fileCompleteResponse && record.response_status !== 200) ||
       (catalogResponse && record.response_status !== 200 && record.response_status !== 201) ||
+      (productCatalogResponse && record.response_status !== 200 && record.response_status !== 201) ||
       integrityContext === undefined ||
       record.resource_id !== cacheableResourceId(response) ||
       !this.responseHashMatches(record.response_body, integrityContext, record.response_body_hash)) {
@@ -557,6 +748,14 @@ export class IdempotencyRepository {
     this.assertReplayIntegrity(record);
     if (!isCacheableCatalogResourceResponse(record.response_body)) {
       throw new ApplicationError('INTERNAL_ERROR', 'Idempotency record is not a catalog response');
+    }
+    return record.response_body;
+  }
+
+  productCatalogReplay(record: IdempotencyRecord): CacheableProductCatalogResponse {
+    this.assertReplayIntegrity(record);
+    if (!isCacheableProductCatalogResponse(record.response_body)) {
+      throw new ApplicationError('INTERNAL_ERROR', 'Idempotency record is not a product catalog response');
     }
     return record.response_body;
   }

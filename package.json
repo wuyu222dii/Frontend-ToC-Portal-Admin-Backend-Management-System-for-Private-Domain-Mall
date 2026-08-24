@@ -34,6 +34,7 @@
     "db:test-b3-files-api": "node scripts/ci/test-b3-files-api.mjs",
     "db:test-b3-catalog-api": "node scripts/ci/test-b3-catalog-api.mjs",
     "db:test-b3-master-data": "node scripts/ci/test-b3-master-data.mjs",
+    "db:test-b4-product-catalog": "node scripts/ci/test-b4-product-catalog.mjs",
     "db:check-frozen": "node scripts/db/check-frozen.mjs",
     "db:supabase:bootstrap": "node scripts/db/bootstrap.mjs",
     "db:diff": "scripts/ci/verify-migration-diff.sh",

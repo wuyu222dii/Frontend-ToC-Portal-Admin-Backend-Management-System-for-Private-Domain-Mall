@@ -9,6 +9,7 @@ import {
   type CacheableCatalogResourceResponse,
   type CacheableFileUploadCompleteResponse,
   type CacheableCommandResponse,
+  type CacheableProductCatalogResponse,
   type DatabaseTransaction,
   deriveIdempotencyScope,
   type IdempotencyHashKey,
@@ -142,6 +143,57 @@ function catalogCategoryResponse(
   } as CacheableCatalogResourceResponse;
 }
 
+function productDetailResponse(): CacheableProductCatalogResponse {
+  const imageFileId = generateUlid();
+  return {
+    code: 'OK',
+    data: {
+      brand: catalogBrandResponse().data as never,
+      category: catalogCategoryResponse().data as never,
+      images: [{
+        file_id: imageFileId,
+        is_primary: true,
+        sort_order: 0,
+        url: `https://assets.example.test/public/${imageFileId}`,
+      }],
+      ingredients: null,
+      introduction: 'Daily wash',
+      is_hot: false,
+      is_new: true,
+      name: 'Daily wash',
+      net_sales_count: 0,
+      product_id: generateUlid(),
+      skus: [],
+      spu_code: 'SPU-001',
+      status: 'DRAFT',
+      subtitle: null,
+      usage_method: null,
+      version: 1,
+    },
+    message: 'success',
+    request_id: 'req_0123456789abcdef0123456789abcdef',
+  };
+}
+
+function skuResponse(): CacheableProductCatalogResponse {
+  return {
+    code: 'OK',
+    data: {
+      available_stock: 0,
+      code: 'SKU-001',
+      is_recommended: false,
+      name: '500 ml',
+      retail_price: '19.90',
+      sku_id: generateUlid(),
+      spec_json: { attributes: [{ name: 'Volume', value: '500 ml' }] },
+      status: 'INACTIVE',
+      version: 1,
+    },
+    message: 'success',
+    request_id: 'req_0123456789abcdef0123456789abcdef',
+  };
+}
+
 function transactionStub(): DatabaseTransaction {
   return {
     $queryRawUnsafe: vi.fn(async () => [{ acquired: 1 }]),
@@ -237,6 +289,73 @@ describe('IdempotencyRepository', () => {
       response_body_hash: responseHash(currentHashKey, responseBody),
       response_status: responseStatus,
     } as never)).toEqual(responseBody);
+  });
+
+  it.each([
+    { responseBody: productDetailResponse(), responseStatus: 201 },
+    { responseBody: skuResponse(), responseStatus: 200 },
+  ])('stores and exactly replays a closed product catalog response', async ({ responseBody, responseStatus }) => {
+    const transaction = transactionStub();
+    await repository().complete(transaction, baseClaim, {
+      policy: 'PRODUCT_CATALOG_RESPONSE',
+      responseBody,
+      responseStatus,
+      storage: 'CACHEABLE',
+    });
+    const resourceId = 'product_id' in responseBody.data
+      ? responseBody.data.product_id
+      : responseBody.data.sku_id;
+    expect(transaction.idempotencyRecord.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ resource_id: resourceId, response_body: responseBody }),
+    }));
+    expect(repository().productCatalogReplay({
+      ...recordContext(),
+      expires_at: new Date('2099-08-14T00:00:00.000Z'),
+      resource_id: resourceId,
+      response_body: responseBody,
+      response_body_hash: responseHash(currentHashKey, responseBody),
+      response_status: responseStatus,
+    } as never)).toEqual(responseBody);
+  });
+
+  it.each([
+    { ...productDetailResponse(), refresh_token: 'secret' },
+    (() => {
+      const response = productDetailResponse();
+      return {
+        ...response,
+        data: {
+          ...response.data,
+          images: [{
+            ...(response.data as Extract<typeof response.data, { product_id: string }>).images[0],
+            url: 'https://assets.example.test/private/file-id',
+          }],
+        },
+      };
+    })(),
+    (() => {
+      const response = skuResponse();
+      return { ...response, data: { ...response.data, retail_price: '12345678901234567.00' } };
+    })(),
+  ])('rejects malformed or sensitive product catalog cache content', async (responseBody) => {
+    await expect(repository().complete(transactionStub(), baseClaim, {
+      policy: 'PRODUCT_CATALOG_RESPONSE',
+      responseBody,
+      responseStatus: 200,
+      storage: 'CACHEABLE',
+    } as never)).rejects.toThrow('valid product catalog response');
+  });
+
+  it('rejects a product catalog replay with mismatched identity', () => {
+    const responseBody = productDetailResponse();
+    expect(() => repository().productCatalogReplay({
+      ...recordContext(),
+      expires_at: new Date('2099-08-14T00:00:00.000Z'),
+      resource_id: generateUlid(),
+      response_body: responseBody,
+      response_body_hash: responseHash(currentHashKey, responseBody),
+      response_status: 201,
+    } as never)).toThrow('unexpected error');
   });
 
   it.each([

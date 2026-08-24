@@ -9,8 +9,8 @@
 | MVP 模式 | 三端标准 MVP |
 | 目标用户 | 终端消费者、一级代理、总部商城经营人员 |
 | 人员角色 | `SUPER_ADMIN`、`AGENT_ADMIN`、`CUSTOMER` |
-| 更新日期 | 2026-08-24 |
-| 文档状态 | CH-010 已批准并进入 B4.0 商品/SKU 契约解阻；B4.1 等待契约门禁和准确 SHA 的普通 CI 全绿，staging/production 仍为 `NO-GO` |
+| 更新日期 | 2026-08-25 |
+| 文档状态 | CH-010 的 B4.0 至 B4.4 development 已完成；实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的普通 CI 与 Supabase rollback-only 均通过，development `GO`，staging/production 仍为 `NO-GO` |
 
 ## 1. MVP 概述
 
@@ -325,7 +325,7 @@
 
 ## 7. 技术方案摘要
 
-CH-005/CH-006 产品规则和数据库基线继续有效；CH-010 将 Product/SKU 线协议升级为 v2.4.2，补齐重新启用、创建状态、图集、最低活动价和库存初值，不改变页面、FR、AC、operation 或数据库模型数量。B3 development 与 B2/B3 Supabase rollback-only 已通过；B4.0 正在实施，B4.1 仍须等待 CH-010 契约门禁和准确 SHA 的普通 CI 全绿。CH-009 的单人 reviewer 例外只适用于脱敏 development，staging 和 production 仍关闭。
+CH-005/CH-006 产品规则和数据库基线继续有效；CH-010 将 Product/SKU 线协议升级为 v2.4.2，补齐重新启用、创建状态、图集、最低活动价和库存初值，不改变页面、FR、AC、operation 或数据库模型数量。B4.0 至 B4.4 已完成 development 验收，普通 CI Run `32721588213` 与 Supabase rollback-only Run `32722510890` 均在实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 上成功。CH-009 的单人 reviewer 例外已在 B4 development 结束时耗尽，staging 和 production 仍关闭。
 
 | 层级 | 选型方向 |
 |---|---|
@@ -368,14 +368,14 @@ Supabase 在当前 MVP 中仅作为 PostgreSQL 托管服务。消费者小程序
 
 ## 9. 里程碑建议
 
-CH-006 已解除并完成 B3 契约与交付门禁；CH-010 正在解除 B4 商品/SKU 契约阻塞。B4 继续按 B4.0 至 B4.4 串行小批次实施，每批 P0/P1 清零并暂停后才允许进入下一批；该过程不等同于 staging 或生产上线许可。
+CH-006 已解除并完成 B3 契约与交付门禁；CH-010 已解除 B4 商品/SKU 契约阻塞。B4 已按 B4.0 至 B4.4 串行完成，最终 P0/P1 为 0；该结果仅构成脱敏 development `GO`，不等同于 staging 或生产上线许可。
 
 | 阶段 | 主要交付物 | 当前状态 |
 |---|---|---|
 | 需求确认 | MVP、三端角色确认、变更记录 | CH-010 已批准，v2.4.2 基线已登记 |
-| 产品设计 | PRD、三端信息架构、可点击原型、Figma 重建规范 | B4.0 同步 ADM-03/04；页面仍为 21/9/22 |
-| 技术设计 | 系统架构、数据库 ERD、接口文档、OpenAPI、Prisma 草案与部署拓扑 | B4.0 契约门禁待本轮实测；Prisma/首迁移不得改变 |
-| 开发与测试 | 三端工程、API、数据库、自动化测试 | B4.0 进行中；B4.1 等待契约门禁及准确 SHA 普通 CI 全绿 |
+| 产品设计 | PRD、三端信息架构、可点击原型、Figma 重建规范 | ADM-03/04 商品/SKU 交互已完成；页面仍为 21/9/22 |
+| 技术设计 | 系统架构、数据库 ERD、接口文档、OpenAPI、Prisma 草案与部署拓扑 | CH-010 契约门禁通过；Prisma/首迁移逐字节不变 |
+| 开发与测试 | 三端工程、API、数据库、自动化测试 | B4.0 至 B4.4 development 完成；普通 CI 与 Supabase rollback-only 在同一实现 SHA 上通过 |
 | 上线准备 | 微信资质、真实支付退款、隐私合规、部署与验收 | 未开始 |
 
 ## 10. 风险与应对
@@ -443,15 +443,15 @@ CH-006 已解除并完成 B3 契约与交付门禁；CH-010 正在解除 B4 商�
 
 - 尚无真实用户访谈、历史订单、代理规模、佣金预算、商品规模和并发数据；指标阈值需试运行后校准。
 - 尚无微信正式参数、物流合同、隐私文本、线下打款财务制度和法律审核结论。
-- 当前交付物仍不是完整可用商城业务系统。B2 已开放 ADM-01 与 ADM-16 账户安全部分，B3 已实现文件、品牌、分类与 ADM-05/06；B4.0 仅修订商品/SKU 契约，Product/SKU 业务代码、Banner、库存调整、交易和资金仍未实施。
+- 当前交付物仍不是完整可用商城业务系统。B2 已开放 ADM-01 与 ADM-16 账户安全部分，B3 已实现文件、品牌、分类与 ADM-05/06，B4 已实现 Product/SKU 后端及 ADM-03/04；Banner、库存人工调整/流水、交易和资金仍未实施。
 
 ## 13. 后续建议
 
-1. 先完成 B4.0 契约、冻结数据库和普通 CI 门禁并暂停；缺少准确 SHA 的全绿运行时不得进入 B4.1 Product/SKU CRUD。
-2. 后续每个 development 阶段继续登记实现基准 SHA、成功远端 run、rollback 结果和无残留证据；本地或临时 PostgreSQL 结果不能替代。
-3. 第一次进入 staging 前取得外部独立代码、安全、数据库和证据复核；CH-009 不得延伸到 staging 或 production。
+1. CH-009 已耗尽；后续 development 若仍无独立复核须新变更批准，第一次进入 staging 前必须取得外部独立代码、安全、数据库和证据复核。
+2. 关闭 GitHub Actions 引用固定与 CA 校验两项残余 P2，并在下一 development 阶段继续登记准确实现 SHA、成功远端 run、rollback 结果和无残留证据。
+3. 本地或临时 PostgreSQL 结果不能替代目标环境证据；后续业务批次仍须逐批保持 P0/P1 为 0。
 4. 上线前补充真实商品、代理协议、佣金税务、银行卡处理、隐私合规、微信资质和目标 Supabase staging 验收。
 
 ---
 
-项目状态：三端 MVP 产品/API 基线为 v2.4.2（CH-010）。B0 至 B3 development 及 B2/B3 Supabase rollback-only 已通过，B4.0 已启动；B4.1 仍以 CH-010 契约门禁和准确 SHA 普通 CI 全绿为前置。目标 staging/production 尚未放行；进入 staging 前须外部独立复核，生产上线还须通过外部凭据、联调、恢复演练和合规门禁。
+项目状态：三端 MVP 产品/API 基线为 v2.4.2（CH-010）。B0 至 B4 development 已通过，B4 实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的普通 CI Run `32721588213` 与 Supabase rollback-only Run `32722510890` 均成功。目标 staging/production 尚未放行；进入 staging 前须外部独立复核，生产上线还须通过外部凭据、联调、恢复演练和合规门禁。

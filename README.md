@@ -1,6 +1,6 @@
 # 青序生活三端私域商城
 
-本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。当前开发按 `B0` 至 `B19` 小批次推进；B0、B1、B2 与 B3 已完成各自 development 验收。B3.0 CH-006 契约解阻、B3.1 文件基础、B3.2 品牌分类、B3.3 总部后台以及 B2/B3 Supabase repository rollback-only 均已通过。CH-009 对单人维护者的独立 reviewer 要求只作 development 例外，B3 development 为 `GO`，已解除进入 B4 开发的前置阻断；staging、production 和真实客户数据仍为 `NO-GO`，第一次进入 staging 前必须取得外部独立复核。
+本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。当前开发按 `B0` 至 `B19` 小批次推进；B0 至 B4 已完成各自 development 验收。B4.0 CH-010 契约、B4.1 Product/SKU CRUD、B4.2 生命周期、B4.3 ADM-03/04 与 B4.4 总验收均已通过。实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的 [普通 CI Run 32721588213](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32721588213) 和 [Supabase rollback-only Run 32722510890](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32722510890) 均成功。该结论仅为脱敏 development `GO`；CH-009 的单人 reviewer 例外已在 B4 development 结束时耗尽，后续 development 若仍无独立复核须重新走变更批准。staging、production 和真实客户数据仍为 `NO-GO`，第一次进入 staging 前必须取得外部独立复核。
 
 ## 工程结构
 
@@ -48,6 +48,7 @@ pnpm dev:admin
 pnpm dev:api
 pnpm dev:worker
 pnpm e2e:b3 # B3.3 总部后台五视口与异常路径 E2E
+pnpm e2e:b4 # B4 ADM-03/04 五视口与异常路径 E2E
 pnpm admin:bootstrap # 受控创建首个 SUPER_ADMIN；读取 TTY 或 0600 密码文件
 pnpm contracts:lint
 pnpm contracts:check
@@ -59,6 +60,8 @@ pnpm db:test-b3-catalog-api # B3.2 真实 Nest + PostgreSQL + Redis 纵向门禁
 pnpm db:diff
 ```
 
-Supabase 项目创建、连接分权和受保护烟测见 [B0 工程与 Supabase](product-materials/docs/05-开发管理/B0-工程与Supabase.md)，公共内核边界见 [B1 平台公共内核](product-materials/docs/05-开发管理/B1-平台公共内核.md)，总部认证实现与安全操作见 [B2 总部安全入口](product-materials/docs/05-开发管理/B2-总部安全入口.md)，CH-006 与 B3 分段门禁见 [B3 文件、品牌与分类](product-materials/docs/05-开发管理/B3-文件品牌与分类.md)。普通 PR 只使用 CI 的临时 PostgreSQL，不读取 Supabase 凭据。
+`pnpm e2e:b4:vertical` 与 `pnpm db:test-b4-product-catalog` 不是日常开发命令：它们会拒绝普通 `.env`，仅允许在显式 `CI=true`、`NODE_ENV=test`、对应 B4 mode 和一次性回环 PostgreSQL/隔离 Redis/MinIO 凭据齐全时运行。受控环境编排以 [B4 商品与 SKU](product-materials/docs/05-开发管理/B4-商品与SKU.md) 和普通 CI workflow 为准，禁止指向 Supabase development 日常数据库执行 full 模式。
 
-B3.1 已交付文件上传与清理闭环；B3.2 已交付品牌/分类 14 个管理端 operation、精确幂等重放、高风险预览确认和并发依赖保护；B3.3 已交付 ADM-05/06 的素材上传、CRUD、筛选、生命周期预览确认、归档恢复与受限导航。B2 E2E `45/45`、B3 E2E `26 passed / 4 designed skips`、全仓 `518 passed / 47 env-mode skipped`，安全复核 `P0=0 / P1=0`。远端证据为 [`Supabase development smoke` Run 32678252828](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32678252828)，覆盖实现基准 SHA 上的只读检查及 B1/B2/B3 rollback-only；它不等同于 API + Redis/browser 云端端到端或 staging/production 验收。
+Supabase 项目创建、连接分权和受保护烟测见 [B0 工程与 Supabase](product-materials/docs/05-开发管理/B0-工程与Supabase.md)，公共内核边界见 [B1 平台公共内核](product-materials/docs/05-开发管理/B1-平台公共内核.md)，总部认证实现与安全操作见 [B2 总部安全入口](product-materials/docs/05-开发管理/B2-总部安全入口.md)，CH-006 与 B3 分段门禁见 [B3 文件、品牌与分类](product-materials/docs/05-开发管理/B3-文件品牌与分类.md)，CH-010 与 B4 证据见 [B4 商品与 SKU](product-materials/docs/05-开发管理/B4-商品与SKU.md)。普通 PR 只使用 CI 的临时 PostgreSQL，不读取 Supabase 凭据。
+
+B3.1 至 B3.3 的文件、品牌/分类与 ADM-05/06 证据继续有效。B4 已交付 Product/SKU CRUD、图集、零库存投影、preview-confirm/restore、依赖保护及 ADM-03/04。最终本地工程为 `641 passed / 60 designed environment skips`；B2 E2E `45/45`、B3 E2E `26 passed / 4 designed skips`、B4 E2E `27 passed / 8 designed skips`，真实 browser → Nest → PostgreSQL/Redis/MinIO 为 `1/1`，最终审查 `P0=0 / P1=0`。这不等同于 staging/production 验收。

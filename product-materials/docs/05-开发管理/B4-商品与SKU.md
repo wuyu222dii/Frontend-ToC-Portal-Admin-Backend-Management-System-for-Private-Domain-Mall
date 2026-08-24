@@ -1,6 +1,6 @@
 # B4 商品与 SKU
 
-> 批次：B4；产品/API 基线：v2.4.2 / CH-010；更新日期：2026-08-24；当前状态：B4.3 已验收并暂停，B4.4 尚未开始；数据范围：仅脱敏 development；staging/production：`NO-GO`。
+> 批次：B4；产品/API 基线：v2.4.2 / CH-010；更新日期：2026-08-25；当前状态：B4.4 已验收并暂停，B4 development `GO`；数据范围：仅脱敏 development；staging/production：`NO-GO`。
 
 ## 1. 范围与串行门禁
 
@@ -12,7 +12,7 @@ B4 只交付 ADM-03/04 的 Product/SKU 最小管理闭环，不包含 Banner、�
 | B4.1 Product/SKU CRUD | ProductCatalogRepository、12 个现有 operation 中的 6 个 CRUD operation、图集、投影、零库存和幂等 | 已完成并暂停 | 本地门禁通过，独立终审 P0=0/P1=0 |
 | B4.2 生命周期 | Product/SKU preview-confirm、restore、依赖重查、锁序与审计 | 已完成并暂停 | 本地/一次性 PostgreSQL 门禁通过，独立终审 P0=0/P1=0 |
 | B4.3 ADM-03/04 | 商品列表、新建/编辑、图集、SKU、生命周期、归档恢复和只读库存 | 已完成并暂停 | 本地门禁和独立终审 P0=0/P1=0 |
-| B4.4 总验收 | 普通 CI full gates、真实纵向链路、Supabase rollback-only 和五视口 | 未开始 | B4.3 已验收暂停 |
+| B4.4 总验收 | 普通 CI full gates、真实纵向链路、Supabase rollback-only 和五视口 | 已完成并暂停 | [普通 CI Run 32721588213](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32721588213) 与 [Supabase Run 32722510890](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32722510890) 在同一实现 SHA 成功，P0=0/P1=0 |
 
 B0 至 B3 development 及 B2/B3 Supabase rollback-only 已通过。普通 CI 原先因 MinIO root 密码与 runtime S3 密钥使用同一个表达式而在初始化阶段失败；本批已改为两个独立值。[Run 32688928791](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32688928791) 在提交 `6739d5f78b94d4db2110041bd81fa8c17736fe77` 上实际完成依赖安装、契约、数据库、测试、五应用与 MP-Weixin 构建、真实纵向浏览器 E2E 及清理，结论为 success。
 
@@ -41,7 +41,7 @@ B4.0 独立终审结论为 `P0=0/P1=0`。本批在此暂停；未收到下一批
 | 契约 | Redocly、生成漂移与 CH-010 专项检查通过；172 paths / 196 operations / 196 unique operationId / 307 schemas / 685 schema refs / 0 dangling refs |
 | 冻结与安全 | Prisma 与 `0001_initial` 逐字节不变；runtime 环境契约、Prisma validate、敏感内容扫描通过；测试 PostgreSQL 容器已清理，用户 Redis/MinIO 未改动 |
 
-B4.1 独立终审结论为 `P0=0/P1=0`。真实 Nest → PostgreSQL/Redis/MinIO 纵向链路、远端 Supabase rollback-only 和更完整的 HTTP 403/成功态验证按计划保留到 B4.4；它们不作为 B4.1 本地退出门禁的替代证据。B4.1 在此暂停，未收到下一批进入指令前不实现 B4.2 生命周期。
+B4.1 独立终审结论为 `P0=0/P1=0`。真实 Nest → PostgreSQL/Redis/MinIO 纵向链路、远端 Supabase rollback-only 和更完整的 HTTP 403/成功态验证按计划保留到 B4.4；它们不作为 B4.1 本地退出门禁的替代证据，现已由第 6 节的 B4.4 最终证据闭合。B4.1 在此暂停，未收到下一批进入指令前不实现 B4.2 生命周期。
 
 ### 1.3 B4.2 当前本地证据
 
@@ -55,7 +55,7 @@ B4.1 独立终审结论为 `P0=0/P1=0`。真实 Nest → PostgreSQL/Redis/MinIO 
 | 契约与安全 | Redocly、CH-010 统计、contracts 生成漂移、敏感内容扫描、runtime 环境契约、Prisma validate 与冻结文件门禁通过；172 paths / 196 operations / 196 unique operationId / 307 schemas / 685 schema refs / 0 dangling refs |
 | 独立终审 | 修复陈旧版本错误优先级、Product 停用预览指标、B3 公共 preview 锁序和原始原因审计后，结论为 `P0=0/P1=0` |
 
-B4.2 的一次性纵向证据使用真实 `AdminProductsService -> DatabaseRuntime -> PostgreSQL`，覆盖 preview 消费与失败回滚、依赖阻断、审计、Outbox、精确幂等重放、并发确认和恢复不级联。真实浏览器 → Nest → PostgreSQL/Redis/MinIO、普通 CI full 集成及最终 Supabase rollback-only 仍按计划保留到 B4.4，不以本批结果替代。
+B4.2 的一次性纵向证据使用真实 `AdminProductsService -> DatabaseRuntime -> PostgreSQL`，覆盖 preview 消费与失败回滚、依赖阻断、审计、Outbox、精确幂等重放、并发确认和恢复不级联。真实浏览器 → Nest → PostgreSQL/Redis/MinIO、普通 CI full 集成及最终 Supabase rollback-only 按计划保留到 B4.4，不以本批结果替代；现已由第 6 节的 B4.4 最终证据闭合。
 
 ## 2. B4.0 冻结契约
 
@@ -122,7 +122,7 @@ B4.2 的一次性纵向证据使用真实 `AdminProductsService -> DatabaseRunti
 | 冻结边界 | OpenAPI、生成 contracts、Prisma 与 `0001_initial` 均未修改；本批只消费 CH-010 既有 12 个 Product/SKU operation |
 | 独立终审 | 客户端/上传、前端工作流和 Playwright 三路复核发现的问题均已修复回归，最终结论 `P0=0/P1=0` |
 
-B4.3 的 Playwright 使用受控 Mock API 验证前端状态与请求契约，不替代真实 Nest、PostgreSQL、Redis、MinIO 或远端 Supabase 证据。B4.3 在此暂停；未收到下一批进入指令前，不开始 B4.4 总验收，也不将 B4 标记为 development `GO`。
+B4.3 的 Playwright 使用受控 Mock API 验证前端状态与请求契约，不替代真实 Nest、PostgreSQL、Redis、MinIO 或远端 Supabase 证据。该限制是 B4.3 退出时的历史事实；其后已按批准指令进入 B4.4，并以真实纵向链路和远端运行补齐最终证据。
 
 ## 5. B4.3 总部后台
 
@@ -133,7 +133,7 @@ B4.3 的 Playwright 使用受控 Mock API 验证前端状态与请求契约，�
 
 退出条件：375/390/414/1024/1440 覆盖 loading、empty、401、403、409、422、500、重复提交和成功路径；无重叠、横向溢出、敏感数据或旧状态，P0/P1 为 0 后暂停。
 
-2026-08-24 实测已满足上述退出条件。独立终审发现的测试假阳性、跨动作幂等键断言、422 修复入口、未保存/上传中资料覆盖和创建/编辑 409 分流问题均已修复；最终 `P0=0/P1=0`。B4.3 状态为“已验收并暂停”，B4.4 尚未开始。
+2026-08-24 实测已满足上述退出条件。独立终审发现的测试假阳性、跨动作幂等键断言、422 修复入口、未保存/上传中资料覆盖和创建/编辑 409 分流问题均已修复；最终 `P0=0/P1=0`。B4.3 状态为“已验收并暂停”；其后已按批准指令进入并完成 B4.4。
 
 ## 6. B4.4 总验收
 
@@ -143,6 +143,24 @@ B4.3 的 Playwright 使用受控 Mock API 验证前端状态与请求契约，�
 - 数据库门禁：新库回放、权限验证、Prisma validate、冻结文件检查和 migration diff=0。
 - 在最终 B4 实现 SHA 上执行受控 Supabase development rollback-only，登记成功 run、各 step 结果和事务外无 synthetic 残留断言。
 - CH-009 只接受单人 development 独立 reviewer 风险；第一次进入 staging 前必须取得外部独立代码、安全、数据库和验收证据复核。
+
+### 6.1 最终验收证据
+
+| 门禁 | 2026-08-24 实测结果 |
+|---|---|
+| 实现基准 | `main` / `0929f2435e7f5b9ad745fd9cab60b066378e502e`；普通 CI 与 Supabase development smoke 的 `head_sha` 均与该实现基准一致 |
+| 本地工程 | `pnpm check` 通过：641 passed / 60 个环境模式跳过；lint 0 errors / 308 warnings，全仓 typecheck、测试和五应用/packages build 通过 |
+| 契约 | OpenAPI `2.4.2-ch010`、Redocly、CH-010 专项检查和生成漂移门禁通过；172 paths / 196 operations / 196 unique operationId / 307 schemas / 685 schema refs / 0 dangling refs |
+| 数据库 | PostgreSQL 18.3 冻结基线仍为 76 tables / 59 enums；Prisma validate、冻结文件逐字节检查、空库回放、权限验证与 migration diff=0 通过 |
+| 浏览器 | B2 `45/45`、B3 `26 passed / 4 designed skips`、B4 `27 passed / 8 designed skips`；B4 覆盖 375/390/414/1024/1440 及 loading、empty、401、403、409、422、500、重复提交和成功路径 |
+| 真实纵向链路 | `1/1` 真实 browser → Nest → PostgreSQL/Redis/MinIO 通过；覆盖受保护登录、PRODUCT_IMAGE 上传与公开读取、Product/SKU 创建及零库存投影；结束后数据库和精确对象残留为 0，Redis `DBSIZE=0` |
+| 远端普通 CI | [Run 32721588213](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32721588213) 在上述实现 SHA、`main` 分支完成依赖安装、契约、冻结数据库、B3/B4 full 集成、B2/B3/B4 Playwright、测试与构建，结论 `success` |
+| Supabase development | [Run 32722510890](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32722510890) 在同一实现 SHA、`main` 分支完成只读前置与 B1/B2/B3/B4 repository/service rollback-only，事务外 synthetic 残留断言通过，结论 `success` |
+| 最终审查 | B4.4 `P0=0/P1=0`；RS-002 在 B3/B4 按 CH-009 记为已接受并缓解但未解决，该风险接受现已耗尽 |
+
+B4.4 已满足全部退出条件并暂停，B4 仅获得脱敏 development `GO`。真实 browser → Nest 纵向证据已由本批关闭，不再列为残余 P2。残余非阻断 P2 为无业务引用 READY/PUBLIC 素材回收、storage origin allowlist 配置化、GitHub Actions 引用按 commit 固定、Supabase CA 下载校验，以及根级 B4 纵向 runner 纳入 lint 范围。CH-009 的单人 reviewer 例外已在 B4 development 结束时耗尽；后续 development 若仍无独立复核须新变更批准，第一次进入 staging 前仍须取得外部独立代码、安全、数据库和验收证据复核。
+
+上述两次远端运行证明的技术基准固定为 `0929f2435e7f5b9ad745fd9cab60b066378e502e`。后续仅登记运行链接和状态的 docs-only 提交不扩张该实现 SHA 的技术证明范围；若后续修改应用、测试、workflow、契约或数据库产物，必须在新的准确 SHA 上重新执行对应门禁。
 
 ## 7. 回退与禁止范围
 

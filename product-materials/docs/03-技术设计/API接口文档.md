@@ -6,9 +6,9 @@
 |---|---|
 | 文档版本 | v2.4.2 |
 | 对应产品基线 | MVP/PRD v2.4.2、CH-001 至 CH-010 |
-| 接口阶段 | CH-010 B4.0 Product/SKU 契约解阻；B4.1 等待契约门禁和准确 SHA 的普通 CI 全绿，staging/production 未批准 |
+| 接口阶段 | CH-010 B4.0 至 B4.4 development 已完成；实现基准 SHA 的普通 CI 与 Supabase rollback-only 均通过，staging/production 未批准 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
-| 更新时间 | 2026-08-24 |
+| 更新时间 | 2026-08-25 |
 
 ## 1. 设计目标
 

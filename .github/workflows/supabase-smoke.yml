@@ -79,3 +79,13 @@ jobs:
         env:
           B2_DATABASE_TEST_MODE: rollback
         run: pnpm db:test-b2
+
+      - name: Run rollback-only B3 file-assets smoke
+        env:
+          B3_FILE_DATABASE_TEST_MODE: rollback
+        run: pnpm db:test-b3-files
+
+      - name: Run rollback-only B3 master-data smoke
+        env:
+          B3_MASTER_DATA_DATABASE_TEST_MODE: rollback
+        run: pnpm db:test-b3-master-data

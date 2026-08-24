@@ -1,6 +1,6 @@
 # B4 商品与 SKU
 
-> 批次：B4；产品/API 基线：v2.4.2 / CH-010；更新日期：2026-08-24；当前状态：B4.0 契约解阻实施中，B4.1 `NO-GO`；数据范围：仅脱敏 development；staging/production：`NO-GO`。
+> 批次：B4；产品/API 基线：v2.4.2 / CH-010；更新日期：2026-08-24；当前状态：B4.0 已验收并暂停，B4.1 尚未开始；数据范围：仅脱敏 development；staging/production：`NO-GO`。
 
 ## 1. 范围与串行门禁
 
@@ -8,13 +8,13 @@ B4 只交付 ADM-03/04 的 Product/SKU 最小管理闭环，不包含 Banner、�
 
 | 批次 | 交付物 | 当前状态 | 下一批前置 |
 |---|---|---|---|
-| B4.0 准入与契约 | 普通 CI 修复、CH-010 文档/OpenAPI/contracts/原型、冻结数据库门禁 | 实施中 | 契约与数据库门禁通过，准确 SHA 的普通 CI 全绿 |
+| B4.0 准入与契约 | 普通 CI 修复、CH-010 文档/OpenAPI/contracts/原型、冻结数据库门禁 | 已完成并暂停 | [Run 32688928791](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32688928791) 在准确 SHA 全绿，P0=0/P1=0 |
 | B4.1 Product/SKU CRUD | ProductCatalogRepository、12 个现有 operation 中的 CRUD、图集、投影、零库存和幂等 | 未开始 | B4.0 已验收暂停 |
 | B4.2 生命周期 | Product/SKU preview-confirm、restore、依赖重查、锁序与审计 | 未开始 | B4.1 已验收暂停 |
 | B4.3 ADM-03/04 | 商品列表、新建/编辑、图集、SKU、生命周期、归档恢复和只读库存 | 未开始 | B4.2 已验收暂停 |
 | B4.4 总验收 | 普通 CI full gates、真实纵向链路、Supabase rollback-only 和五视口 | 未开始 | B4.3 已验收暂停 |
 
-B0 至 B3 development 及 B2/B3 Supabase rollback-only 已通过。最近一次普通 CI 在 MinIO 初始化阶段失败：root 密码与 runtime S3 密钥使用同一个表达式，触发 Compose 的独立密钥检查；该冲突已在当前工作树改为两个独立值。B4.0 仍须在准确提交 SHA 上取得实际执行依赖安装、契约、数据库、测试、构建和 E2E 的全绿运行；本地通过或只通过初始化步骤均不构成远端证据。
+B0 至 B3 development 及 B2/B3 Supabase rollback-only 已通过。普通 CI 原先因 MinIO root 密码与 runtime S3 密钥使用同一个表达式而在初始化阶段失败；本批已改为两个独立值。[Run 32688928791](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32688928791) 在提交 `6739d5f78b94d4db2110041bd81fa8c17736fe77` 上实际完成依赖安装、契约、数据库、测试、五应用与 MP-Weixin 构建、真实纵向浏览器 E2E 及清理，结论为 success。
 
 ### 1.1 B4.0 当前本地证据
 
@@ -25,8 +25,10 @@ B0 至 B3 development 及 B2/B3 Supabase rollback-only 已通过。最近一次�
 | 数据库 | Prisma validate、冻结文件、一次性 PostgreSQL 18.3 空库回放、权限故障注入和 migration diff=0 通过；development 只读核验仍为 76 tables / 59 enums，`mall_runtime` TLS 与最小权限正常 |
 | 对象存储 | 隔离 Compose project 使用独立 root/runtime 凭据完成 MinIO 建桶、匿名 `public/*` 策略、runtime 用户和最小策略绑定；测试容器与卷已清理 |
 | 浏览器 | 普通纵向 E2E 76 passed / 4 designed skips；B2 独立 45/45；B3 独立 26 passed / 4 designed skips |
-| 静态原型 | 90 个响应式渲染、21/9/22 页面契约、14 条小程序流程和 16 条后台/代理流程通过；四个 422 修复入口及 Product/SKU 409 旧预览销毁均有自动化断言 |
-| 仍缺证据 | 当前变更尚未提交推送，因此没有准确 SHA 的绿色普通 CI；B4.0 不得标记完成，B4.1 继续 `NO-GO` |
+| 静态原型 | 90 个响应式渲染、21/9/22 页面契约、14 条小程序流程和 16 条后台/代理流程通过；四个 422 修复入口、Product/SKU 409 旧预览销毁、归档商品只读详情、父商品归档阻断及当前 SKU 预占来源均有自动化断言 |
+| 远端普通 CI | [Run 32688928791](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32688928791) success；准确实现 SHA `6739d5f78b94d4db2110041bd81fa8c17736fe77` |
+
+B4.0 独立终审结论为 `P0=0/P1=0`。本批在此暂停；未收到下一批进入指令前，不创建 Product/SKU repository、API 或工程前端业务代码。
 
 ## 2. B4.0 冻结契约
 

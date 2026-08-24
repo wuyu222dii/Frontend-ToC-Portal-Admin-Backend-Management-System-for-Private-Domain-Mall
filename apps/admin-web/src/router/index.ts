@@ -61,6 +61,24 @@ export const router = createRouter({
       path: '/catalog/categories',
     },
     {
+      component: () => import('../views/products/ProductListView.vue'),
+      meta: { access: 'session', title: '商品管理' },
+      name: 'products',
+      path: '/catalog/products',
+    },
+    {
+      component: () => import('../views/products/ProductEditorView.vue'),
+      meta: { access: 'session', title: '新增商品' },
+      name: 'product-new',
+      path: '/catalog/products/new',
+    },
+    {
+      component: () => import('../views/products/ProductEditorView.vue'),
+      meta: { access: 'session', title: '商品编辑' },
+      name: 'product-detail',
+      path: '/catalog/products/:product_id',
+    },
+    {
       component: () => import('../views/security/SecurityHomeView.vue'),
       meta: { access: 'session', title: '账户安全' },
       name: 'security',

@@ -1,6 +1,6 @@
 # B4 商品与 SKU
 
-> 批次：B4；产品/API 基线：v2.4.2 / CH-010；更新日期：2026-08-24；当前状态：B4.2 已验收并暂停，B4.3 尚未开始；数据范围：仅脱敏 development；staging/production：`NO-GO`。
+> 批次：B4；产品/API 基线：v2.4.2 / CH-010；更新日期：2026-08-24；当前状态：B4.3 已验收并暂停，B4.4 尚未开始；数据范围：仅脱敏 development；staging/production：`NO-GO`。
 
 ## 1. 范围与串行门禁
 
@@ -11,7 +11,7 @@ B4 只交付 ADM-03/04 的 Product/SKU 最小管理闭环，不包含 Banner、�
 | B4.0 准入与契约 | 普通 CI 修复、CH-010 文档/OpenAPI/contracts/原型、冻结数据库门禁 | 已完成并暂停 | [Run 32688928791](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32688928791) 在准确 SHA 全绿，P0=0/P1=0 |
 | B4.1 Product/SKU CRUD | ProductCatalogRepository、12 个现有 operation 中的 6 个 CRUD operation、图集、投影、零库存和幂等 | 已完成并暂停 | 本地门禁通过，独立终审 P0=0/P1=0 |
 | B4.2 生命周期 | Product/SKU preview-confirm、restore、依赖重查、锁序与审计 | 已完成并暂停 | 本地/一次性 PostgreSQL 门禁通过，独立终审 P0=0/P1=0 |
-| B4.3 ADM-03/04 | 商品列表、新建/编辑、图集、SKU、生命周期、归档恢复和只读库存 | 未开始 | B4.2 已验收暂停 |
+| B4.3 ADM-03/04 | 商品列表、新建/编辑、图集、SKU、生命周期、归档恢复和只读库存 | 已完成并暂停 | 本地门禁和独立终审 P0=0/P1=0 |
 | B4.4 总验收 | 普通 CI full gates、真实纵向链路、Supabase rollback-only 和五视口 | 未开始 | B4.3 已验收暂停 |
 
 B0 至 B3 development 及 B2/B3 Supabase rollback-only 已通过。普通 CI 原先因 MinIO root 密码与 runtime S3 密钥使用同一个表达式而在初始化阶段失败；本批已改为两个独立值。[Run 32688928791](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32688928791) 在提交 `6739d5f78b94d4db2110041bd81fa8c17736fe77` 上实际完成依赖安装、契约、数据库、测试、五应用与 MP-Weixin 构建、真实纵向浏览器 E2E 及清理，结论为 success。
@@ -106,7 +106,23 @@ B4.2 的一次性纵向证据使用真实 `AdminProductsService -> DatabaseRunti
 
 退出条件：完整状态矩阵、图片/SKU/预占依赖、preview 篡改/过期/重放、409、四个 422、并发 confirm、失败不消费和原因审计全部通过，P0/P1 为 0 后暂停。
 
-2026-08-24 实测已满足上述退出条件。独立终审发现的四项 P1 均已修复并回归：陈旧 Product/SKU `If-Match` 先返回 `RESOURCE_VERSION_CONFLICT`；Product DEACTIVATE 不再错误要求活动 SKU 为零；品牌/分类 confirm 统一先消费 preview 再取得目录锁；品牌/分类 lifecycle/restore 审计保留用户提交的原始 `reason`。B4.2 状态为“已验收并暂停”，B4.3 尚未开始。
+2026-08-24 实测已满足上述退出条件。独立终审发现的四项 P1 均已修复并回归：陈旧 Product/SKU `If-Match` 先返回 `RESOURCE_VERSION_CONFLICT`；Product DEACTIVATE 不再错误要求活动 SKU 为零；品牌/分类 confirm 统一先消费 preview 再取得目录锁；品牌/分类 lifecycle/restore 审计保留用户提交的原始 `reason`。B4.2 状态为“已验收并暂停”；其后已按批准指令进入并完成 B4.3。
+
+### 1.4 B4.3 当前本地证据
+
+| 门禁 | 2026-08-24 实测结果 |
+|---|---|
+| 页面与导航 | 新增 ADM-03 商品列表、ADM-04 新建/编辑三个受保护路由和商品导航；品牌、分类、账户安全保留，Banner 与库存调整入口继续关闭 |
+| Product/SKU | 覆盖筛选分页、nullable 最低价、同快照库存摘要、草稿 Product、停用 SKU、不可变 code、8 图上传/排序、SKU 编辑、归档只读和分别恢复；未保存资料及上传中的图集均阻止切换到 SKU 或发起 Product lifecycle |
+| 生命周期与错误 | Product/SKU 三动作均强制 preview-confirm，restore 不生成 preview；409 丢弃旧 preview 并刷新最新资源，四类 422 均显示中文原因和可执行修复入口；preview token、confirmation hash 与签名 URL 不写浏览器存储 |
+| 幂等与冲突 | Product/SKU 重复提交只发一笔业务请求；未知结果保留同一命令幂等键，每次新 preview/confirm 使用全局不同的新键；创建型编码冲突保留表单，编辑型 409 刷新最新 Product/SKU |
+| 五视口 | `pnpm e2e:b4` 在 375/390/414/1024/1440 共发现 35 个项目用例，27 passed / 8 个专项矩阵 designed skips；覆盖 loading、empty、401、403、409、四类 422、500、分页、重复提交、完整状态动作和成功路径 |
+| B3 回归 | `pnpm e2e:b3` 为 26 passed / 4 designed skips；共享文件上传、第五个导航项和后台样式未破坏品牌/分类流程 |
+| 全仓工程 | `pnpm check` 通过：640 passed / 60 个环境模式跳过；lint 0 errors（既有 308 warnings），全仓 typecheck、五应用及 packages build 成功 |
+| 冻结边界 | OpenAPI、生成 contracts、Prisma 与 `0001_initial` 均未修改；本批只消费 CH-010 既有 12 个 Product/SKU operation |
+| 独立终审 | 客户端/上传、前端工作流和 Playwright 三路复核发现的问题均已修复回归，最终结论 `P0=0/P1=0` |
+
+B4.3 的 Playwright 使用受控 Mock API 验证前端状态与请求契约，不替代真实 Nest、PostgreSQL、Redis、MinIO 或远端 Supabase 证据。B4.3 在此暂停；未收到下一批进入指令前，不开始 B4.4 总验收，也不将 B4 标记为 development `GO`。
 
 ## 5. B4.3 总部后台
 
@@ -116,6 +132,8 @@ B4.2 的一次性纵向证据使用真实 `AdminProductsService -> DatabaseRunti
 - 409 必须刷新最新 Product/SKU、丢弃旧 preview 并要求重新确认；422 显示对应依赖和修复入口，不自动重试或复用 token。
 
 退出条件：375/390/414/1024/1440 覆盖 loading、empty、401、403、409、422、500、重复提交和成功路径；无重叠、横向溢出、敏感数据或旧状态，P0/P1 为 0 后暂停。
+
+2026-08-24 实测已满足上述退出条件。独立终审发现的测试假阳性、跨动作幂等键断言、422 修复入口、未保存/上传中资料覆盖和创建/编辑 409 分流问题均已修复；最终 `P0=0/P1=0`。B4.3 状态为“已验收并暂停”，B4.4 尚未开始。
 
 ## 6. B4.4 总验收
 
@@ -129,5 +147,5 @@ B4.2 的一次性纵向证据使用真实 `AdminProductsService -> DatabaseRunti
 ## 7. 回退与禁止范围
 
 - B4.1/B4.2 已进入业务实现，不再采用整体契约回滚；通过关闭 Product/SKU 模块路由回退，保留审计、幂等和历史记录，不修改冻结迁移。
-- ADM-03/04 尚未进入工程实现，当前没有需要关闭的商品后台导航。
+- ADM-03/04 已进入工程实现；回退时关闭三个 Product 路由及商品导航，保留 B4.1/B4.2 审计、幂等和数据库历史，不回退冻结迁移。
 - B4 最终最多标记脱敏 development `GO`。Banner、库存人工调整/流水、staging、production、真实客户数据、真实微信登录/支付/退款、物流和银行卡付款均不在本阶段。

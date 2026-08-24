@@ -41,6 +41,7 @@
     "e2e": "playwright test",
     "e2e:b2": "playwright test --config playwright.b2.config.ts",
     "e2e:b3": "playwright test --config playwright.b3.config.ts",
+    "e2e:b4": "playwright test --config playwright.b4.config.ts",
     "scan:sensitive": "node scripts/ci/scan-sensitive.mjs",
     "test:b3-files:minio": "node scripts/ci/test-b3-files-minio.mjs",
     "pretest": "pnpm build:packages",

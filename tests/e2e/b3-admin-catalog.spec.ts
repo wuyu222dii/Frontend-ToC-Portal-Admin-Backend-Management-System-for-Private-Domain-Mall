@@ -604,7 +604,7 @@ test.describe('B3.3 admin brand and category management', () => {
     await expect(page.getByRole('link', { name: '品牌管理' })).toBeVisible();
     await expect(page.getByRole('link', { name: '分类管理' })).toBeVisible();
     await expect(page.getByRole('link', { name: '账户安全', exact: true })).toBeVisible();
-    await expect(page.getByText('商品管理')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: '商品管理', exact: true })).toBeVisible();
     await expectNoHorizontalOverflow(page);
   });
 

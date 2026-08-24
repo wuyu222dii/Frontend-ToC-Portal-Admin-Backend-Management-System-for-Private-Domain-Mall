@@ -1687,10 +1687,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 商品列表、新建商品 */
+        /**
+         * 商品列表、新建商品
+         * @description 默认排除 ARCHIVED，仅显式 status=ARCHIVED 返回归档商品；列表固定按 published_at DESC NULLS LAST,id DESC 排序；没有 ACTIVE SKU 时 minimum_active_price 返回 null。
+         */
         get: operations["getAdminProducts"];
         put?: never;
-        /** 商品列表、新建商品 */
+        /**
+         * 商品列表、新建商品
+         * @description 商品固定创建为 DRAFT；SPU code 创建后不可修改且软删除后继续保留。图集最多 8 张，按 sort_order ASC,id ASC 返回。
+         */
         post: operations["postAdminProducts"];
         delete?: never;
         options?: never;
@@ -1705,14 +1711,20 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 商品详情与非生命周期资料修改 */
+        /**
+         * 商品详情与非生命周期资料修改
+         * @description 详情允许读取 ARCHIVED 商品并返回全部 SKU（包括 ARCHIVED）；SKU 固定按 created_at ASC,id ASC，图集固定按 sort_order ASC,id ASC。
+         */
         get: operations["getAdminProductsByProductId"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
-        /** 商品详情与非生命周期资料修改 */
+        /**
+         * 商品详情与非生命周期资料修改
+         * @description SPU code 不可修改；images 是最多 8 张的完整替换集合，服务端原子校验并按 sort_order ASC,id ASC 返回。
+         */
         patch: operations["patchAdminProductsByProductId"];
         trace?: never;
     };
@@ -1725,7 +1737,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** HR-06 预览停用或软删除的预占/历史影响 */
+        /**
+         * HR-06 预览商品启用、停用或软删除影响
+         * @description 状态机固定为 DRAFT/INACTIVE 经 ACTIVATE 进入 ACTIVE、ACTIVE 经 DEACTIVATE 进入 INACTIVE、DRAFT/INACTIVE 经 SOFT_DELETE 进入 ARCHIVED 并设置 deleted_at；ACTIVE 不得直接软删除。ACTIVATE 校验 ACTIVE 品牌、ACTIVE 分类、至少一张 READY/PUBLIC PRODUCT_IMAGE 和至少一个 ACTIVE SKU。preview 即使发现启用前置条件或软删除依赖不满足仍返回 200，并在 impact.warnings 中说明；真正阻断发生在 confirm。reason 最终写入 audit_log.reason。
+         */
         post: operations["postAdminProductsByProductIdLifecyclePreview"];
         delete?: never;
         options?: never;
@@ -1742,7 +1757,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** HR-06 确认停用或软删除 */
+        /**
+         * HR-06 确认商品启用、停用或软删除
+         * @description 必须使用同主体、同会话、同 action、同 target、同请求体和同版本的未消费 preview，并提交新幂等键与 If-Match。ACTIVATE 时品牌或分类不是 ACTIVE 返回 409 STATE_CONFLICT，缺少图片或 ACTIVE SKU 分别返回 422 PRODUCT_PRIMARY_IMAGE_REQUIRED 或 PRODUCT_ACTIVE_SKU_REQUIRED；SOFT_DELETE 存在 ACTIVE SKU 或活动库存预占分别返回 422 ACTIVE_SKU_DEPENDENCY 或 ACTIVE_INVENTORY_RESERVATION。published_at 仅首次 ACTIVATE 时写入，重新启用不得覆盖；reason 写入 audit_log.reason。
+         */
         post: operations["postAdminProductsByProductIdLifecycleChanges"];
         delete?: never;
         options?: never;
@@ -1759,7 +1777,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 恢复原 SPU，不创建重复业务键 */
+        /**
+         * 恢复原 SPU，不创建重复业务键
+         * @description 仅允许 ARCHIVED 恢复为 DRAFT 并清空 deleted_at，不级联恢复 SKU；重新启用前必须重新 preview。reason 写入 audit_log.reason，并要求新幂等键与 If-Match。
+         */
         post: operations["postAdminProductsByProductIdRestore"];
         delete?: never;
         options?: never;
@@ -1776,7 +1797,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 新建 SKU */
+        /**
+         * 新建 SKU
+         * @description SKU 固定创建为 INACTIVE；code 创建后不可修改且软删除后继续保留。创建事务同时建立 physical_stock=0、locked_stock=0、available_stock=0 的库存余额。
+         */
         post: operations["postAdminProductsByProductIdSkus"];
         delete?: never;
         options?: never;
@@ -1797,7 +1821,10 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** 修改非生命周期字段 */
+        /**
+         * 修改非生命周期字段
+         * @description SKU code 与生命周期状态不可通过本接口修改。
+         */
         patch: operations["patchAdminSkusBySkuId"];
         trace?: never;
     };
@@ -1810,7 +1837,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** HR-06 预览停用或软删除的预占/历史影响 */
+        /**
+         * HR-06 预览 SKU 启用、停用或软删除影响
+         * @description 状态机固定为 INACTIVE 经 ACTIVATE 进入 ACTIVE、ACTIVE 经 DEACTIVATE 进入 INACTIVE、INACTIVE 经 SOFT_DELETE 进入 ARCHIVED 并设置 deleted_at；ACTIVE 不得直接软删除。SKU 只可在非 ARCHIVED Product 下 ACTIVATE，允许先于父商品启用以完成 DRAFT/INACTIVE Product 的发布准备；只有 Product 与 SKU 同时 ACTIVE 时才公开可售。preview 即使发现父商品归档或活动库存预占仍返回 200，并在 impact.warnings 中说明；confirm 分别以 409 STATE_CONFLICT 或 422 ACTIVE_INVENTORY_RESERVATION 阻断。reason 最终写入 audit_log.reason。
+         */
         post: operations["postAdminSkusBySkuIdLifecyclePreview"];
         delete?: never;
         options?: never;
@@ -1827,7 +1857,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** HR-06 确认停用或软删除 */
+        /**
+         * HR-06 确认 SKU 启用、停用或软删除
+         * @description 必须使用同主体、同会话、同 action、同 target、同请求体和同版本的未消费 preview，并提交新幂等键与 If-Match；ARCHIVED Product 下的 SKU 不得 ACTIVATE，返回 409 STATE_CONFLICT。confirm 在串行化事务中消费 preview、更新状态与版本并将 reason 写入 audit_log.reason；SKU 状态变化不级联修改 Product。
+         */
         post: operations["postAdminSkusBySkuIdLifecycleChanges"];
         delete?: never;
         options?: never;
@@ -1844,7 +1877,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 恢复原 SKU，历史 code 永不复用 */
+        /**
+         * 恢复原 SKU，历史 code 永不复用
+         * @description 仅允许 ARCHIVED 恢复为 INACTIVE 并清空 deleted_at；恢复后必须重新 preview 才能 ACTIVATE。reason 写入 audit_log.reason，并要求新幂等键与 If-Match。
+         */
         post: operations["postAdminSkusBySkuIdRestore"];
         delete?: never;
         options?: never;
@@ -3406,9 +3442,16 @@ export interface components {
             physical_delta: number;
             reason: string;
         };
-        LifecycleAction: {
+        /** @description 商品高风险生命周期动作；operation 组合层使用 unevaluatedProperties=false 闭合请求。 */
+        ProductLifecycleAction: {
             /** @enum {string} */
-            action: "DEACTIVATE" | "SOFT_DELETE";
+            action: "ACTIVATE" | "DEACTIVATE" | "SOFT_DELETE";
+            reason: string;
+        };
+        /** @description SKU 高风险生命周期动作；operation 组合层使用 unevaluatedProperties=false 闭合请求。 */
+        SkuLifecycleAction: {
+            /** @enum {string} */
+            action: "ACTIVATE" | "DEACTIVATE" | "SOFT_DELETE";
             reason: string;
         };
         MasterDataLifecycleAction: {
@@ -3572,6 +3615,7 @@ export interface components {
             file_id: string;
             sort_order: number;
         };
+        /** @description 固定创建 DRAFT；SPU code 创建后永不可改且软删除后继续保留。 */
         ProductCreateRequest: {
             spu_code: string;
             name: string;
@@ -3581,12 +3625,12 @@ export interface components {
             introduction?: string | null;
             ingredients?: string | null;
             usage_method?: string | null;
-            /** @enum {string} */
-            initial_status: "DRAFT" | "ACTIVE";
+            /** @constant */
+            initial_status: "DRAFT";
             is_hot?: boolean;
             is_new?: boolean;
             images: components["schemas"]["ProductImageInput"][];
-        } & unknown;
+        };
         ProductUpdateRequest: {
             name?: string;
             brand_id?: string;
@@ -3606,6 +3650,7 @@ export interface components {
         SkuSpec: {
             attributes: components["schemas"]["SpecAttribute"][];
         };
+        /** @description 固定创建 INACTIVE；code 创建后永不可改且软删除后继续保留，并在同一事务创建零值库存余额。 */
         SkuCreateRequest: {
             code: string;
             name: string;
@@ -3613,8 +3658,8 @@ export interface components {
             retail_price: components["schemas"]["PositiveMoney"];
             /** @default false */
             is_recommended: boolean;
-            /** @enum {string} */
-            initial_status: "ACTIVE" | "INACTIVE";
+            /** @constant */
+            initial_status: "INACTIVE";
         };
         SkuUpdateRequest: {
             name?: string;
@@ -4364,7 +4409,7 @@ export interface components {
             brand: components["schemas"]["BrandView"];
             category: components["schemas"]["CategoryView"];
             primary_image: components["schemas"]["ProductImageView"] | null;
-            minimum_active_price: components["schemas"]["PositiveMoney"];
+            minimum_active_price: components["schemas"]["PositiveMoney"] | null;
             net_sales_count: number;
             is_hot: boolean;
             is_new: boolean;
@@ -4372,6 +4417,7 @@ export interface components {
             status: "DRAFT" | "ACTIVE" | "INACTIVE" | "ARCHIVED";
             version: number;
         };
+        /** @description 详情返回全部 SKU（包括 ARCHIVED），固定按 created_at ASC,id ASC；图集最多 8 张，固定按 sort_order ASC,id ASC。 */
         ProductDetailView: {
             product_id: string;
             spu_code: string;
@@ -6668,7 +6714,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
-        /** @description 库存、售后额度、金额分配或业务前置校验失败；CH-006 固定业务码包括 ACTIVE_PRODUCT_DEPENDENCY、FILE_CONTENT_MISMATCH。 */
+        /** @description 库存、售后额度、金额分配或业务前置校验失败；固定业务码包括 ACTIVE_PRODUCT_DEPENDENCY、FILE_CONTENT_MISMATCH，以及 CH-010 的 PRODUCT_PRIMARY_IMAGE_REQUIRED、PRODUCT_ACTIVE_SKU_REQUIRED、ACTIVE_SKU_DEPENDENCY、ACTIVE_INVENTORY_RESERVATION（均为 422）。 */
         BusinessError: {
             headers: {
                 [name: string]: unknown;
@@ -10683,7 +10729,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["LifecycleAction"];
+                "application/json": components["schemas"]["ProductLifecycleAction"];
             };
         };
         responses: {
@@ -10722,7 +10768,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["LifecycleAction"] & components["schemas"]["HighRiskConfirmationFields"];
+                "application/json": components["schemas"]["ProductLifecycleAction"] & components["schemas"]["HighRiskConfirmationFields"];
             };
         };
         responses: {
@@ -10800,7 +10846,7 @@ export interface operations {
         };
         responses: {
             /** @description 成功 */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10868,7 +10914,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["LifecycleAction"];
+                "application/json": components["schemas"]["SkuLifecycleAction"];
             };
         };
         responses: {
@@ -10907,7 +10953,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["LifecycleAction"] & components["schemas"]["HighRiskConfirmationFields"];
+                "application/json": components["schemas"]["SkuLifecycleAction"] & components["schemas"]["HighRiskConfirmationFields"];
             };
         };
         responses: {

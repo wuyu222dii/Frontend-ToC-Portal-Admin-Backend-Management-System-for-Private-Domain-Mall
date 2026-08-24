@@ -15,7 +15,7 @@
     "admin:bootstrap": "pnpm build:packages && pnpm --filter @qingxu/api exec tsx src/admin-auth/bootstrap-super-admin.cli.ts",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "config:check": "node scripts/ci/validate-env.mjs",
-    "contracts:check": "node scripts/ci/check-ch006-contract.mjs",
+    "contracts:check": "node scripts/ci/check-ch010-contract.mjs",
     "contracts:generate": "pnpm --filter @qingxu/contracts generate",
     "contracts:lint": "redocly lint product-materials/docs/03-技术设计/openapi.yaml --config .redocly.yaml",
     "dev:admin": "pnpm --filter @qingxu/admin-web dev",

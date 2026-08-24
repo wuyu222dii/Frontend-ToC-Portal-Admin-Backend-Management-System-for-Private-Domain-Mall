@@ -1,11 +1,12 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
-const { chromium } = require("playwright");
+const { chromium } = require("@playwright/test");
 
 const prototypeDir = __dirname;
 const exportDir = path.join(prototypeDir, "exports");
-const chromeExecutable = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const defaultChromeExecutable = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const chromeExecutable = process.env.CHROME_EXECUTABLE_PATH || (fs.existsSync(defaultChromeExecutable) ? defaultChromeExecutable : undefined);
 const updateExports = process.env.UPDATE_PROTOTYPE_EXPORTS === "1";
 const flowFilter = process.env.PROTOTYPE_FLOW_FILTER || "";
 const quiet = process.env.PROTOTYPE_QUIET === "1";
@@ -15,6 +16,8 @@ const agentViews = ["dashboard", "products", "customers", "orders", "commission"
 
 function adminExpectedTerms(view) {
   if (view === "dashboard") return ["代理归属销售", "活跃代理", "新增绑定", "待审核提现"];
+  if (view === "products") return ["ADM-03", "最低活动价", "库存只读", "首次启用"];
+  if (view === "product-edit") return ["SKU 与价格", "创建后为停用状态", "最多 8 张", "保存资料不会改变状态"];
   if (view === "brands") return ["ADM-05", "排序", "草稿", "已归档"];
   if (view === "categories") return ["ADM-06", "活动商品依赖", "排序", "版本"];
   if (view === "commission-rules") return ["平台默认", "分类规则", "SKU", "全部一级代理"];
@@ -86,6 +89,14 @@ const cases = [
     expectedTerms: adminExpectedTerms(view)
   })),
   ...[375, 390, 414].flatMap((width) => ["brands", "categories"].map((view) => ({
+    name: `admin-${view}-${width}`,
+    file: "admin.html",
+    query: { autologin: "1", view },
+    viewport: { width, height: width === 375 ? 812 : width === 390 ? 844 : 896 },
+    kind: "admin",
+    expectedTerms: adminExpectedTerms(view)
+  }))),
+  ...[375, 390, 414].flatMap((width) => ["products", "product-edit"].map((view) => ({
     name: `admin-${view}-${width}`,
     file: "admin.html",
     query: { autologin: "1", view },
@@ -287,6 +298,21 @@ async function runSurfaceContractChecks(browser) {
   if (exposedCategoryTerms.length) failures.push(`ADM-06 暴露未支持字段: ${exposedCategoryTerms.join(", ")}`);
   if ([masterDataProjection.brandStatuses, masterDataProjection.categoryStatuses].some((values) => values.join(",") !== ",DRAFT,ACTIVE,INACTIVE,ARCHIVED")) failures.push("ADM-05/06 状态筛选未锁定 DRAFT/ACTIVE/INACTIVE/ARCHIVED");
   if (masterDataProjection.sortMinimum !== "0" || masterDataProjection.sortStep !== "1") failures.push("ADM-05/06 排序输入未锁定 integer >= 0");
+  const productProjection = await adminPage.evaluate(() => ({
+    list: document.querySelector('[data-view="products"]')?.innerText || "",
+    editor: document.querySelector('[data-view="product-edit"]')?.innerText || "",
+    statuses: [...document.querySelectorAll("#productStatus option")].map((option) => option.value),
+    hasOrdinaryStatusControl: Boolean(document.querySelector("#productOnlineInput")),
+    hasDirectPublish: Boolean(document.querySelector("#publishProduct")),
+    hasEditableStock: Boolean(document.querySelector('#skuRows [data-sku-field="stock"]')),
+    hasProductStockAction: Boolean(document.querySelector("#productRows .stock-action")),
+    skuHeaders: [...document.querySelectorAll("#skuRows")].map((body) => body.closest("table")?.querySelector("thead")?.innerText || "").join(" ")
+  }));
+  if (productProjection.statuses.join(",") !== ",DRAFT,ACTIVE,INACTIVE,ARCHIVED") failures.push("ADM-03 状态筛选未锁定 DRAFT/ACTIVE/INACTIVE/ARCHIVED");
+  if (productProjection.hasOrdinaryStatusControl || productProjection.hasDirectPublish) failures.push("ADM-04 仍暴露普通状态切换或保存即发布入口");
+  if (productProjection.hasEditableStock || productProjection.hasProductStockAction) failures.push("ADM-03/04 库存摘要仍可直接调整");
+  if (["有效佣金", "规则来源"].some((term) => productProjection.editor.includes(term) || productProjection.skuHeaders.includes(term))) failures.push("ADM-04 仍暴露佣金字段");
+  if (!["最多 8 张", "创建后为停用状态", "保存资料不会改变状态"].every((term) => productProjection.editor.includes(term))) failures.push("ADM-04 未完整声明图集、SKU 创建或普通保存契约");
   await adminContext.close();
 
   const agentContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
@@ -745,16 +771,251 @@ async function runOpsInteractionChecks(browser) {
     await page.click('[data-page="products"]');
     await page.click('tr[data-product-id="2"] .edit-product');
     expect((await page.inputValue("#productNameInput")).includes("沐光"), "商品编辑未绑定当前选中记录");
+    expect(await page.locator("#productCodeInput").isDisabled(), "已创建 SPU code 仍可修改");
+    expect(await page.locator("#productOnlineInput, #publishProduct").count() === 0, "商品普通编辑仍可直接改变生命周期或保存即发布");
     await page.fill("#productNameInput", "沐光动态绑定洗发水");
-    await page.click("#publishProduct");
+    await page.click("#saveProduct");
     await page.waitForFunction(() => document.querySelector('[data-view="products"]').classList.contains('active'));
     expect((await page.locator('tr[data-product-id="2"] .product-cell-copy strong').innerText()).includes("动态绑定"), "商品编辑保存未写回当前记录");
+    expect((await page.locator('tr[data-product-id="2"] .product-status').getAttribute("data-status-code")) === "ACTIVE", "普通资料保存错误改变商品状态");
 
-    await page.click('tr[data-product-id="8"] .delete-product');
-    await page.fill("#deleteProductReason", "停止维护该草稿商品");
-    await page.check("#deleteProductConfirm");
-    await page.click("#confirmDelete");
-    expect((await page.locator('tr[data-product-id="8"] .tag').innerText()) === "已归档", "商品删除未采用软归档");
+    await page.click("#openCreateProduct");
+    expect((await page.locator("#productEditStatus").getAttribute("data-status-code")) === "DRAFT", "商品创建未固定为 DRAFT");
+    expect(await page.locator("#productCodeInput").isEnabled(), "商品创建时 SPU code 不可填写");
+    expect((await page.locator("#productImageCount").innerText()) === "0 / 8", "新商品图集计数未从 0 开始或未限制 8 张");
+    expect(await page.locator("#skuRows tr").count() === 0, "商品创建被错误强制内嵌 SKU");
+    await page.fill("#productNameInput", "CH-010 自动化商品");
+    await page.fill("#productCodeInput", "CH010-PRODUCT");
+    await page.click("#saveProduct");
+    await page.waitForFunction(() => document.querySelector('[data-view="products"]').classList.contains('active'));
+    let productRow = page.locator("#productRows tr", { hasText: "CH-010 自动化商品" });
+    expect(await productRow.count() === 1 && (await productRow.locator(".product-status").getAttribute("data-status-code")) === "DRAFT" && (await productRow.innerText()).includes("暂无活动价"), "商品未以 DRAFT 和 nullable 最低活动价写回");
+    const productId = await productRow.getAttribute("data-product-id");
+
+    await productRow.locator('[data-lifecycle-action="ACTIVATE"]').click();
+    expect((await page.locator("#highRiskImpact").innerText()).includes("至少需要一张可公开展示的商品图片"), "无图商品启用预览未展示中文业务阻断");
+    expect((await page.locator("#highRiskDiagnosticCode").getAttribute("data-error-code")) === "PRODUCT_PRIMARY_IMAGE_REQUIRED", "无图商品预览未在折叠诊断中保留 PRODUCT_PRIMARY_IMAGE_REQUIRED");
+    expect(!(await page.locator("#highRiskImpact").innerText()).includes("PRODUCT_PRIMARY_IMAGE_REQUIRED"), "商品主提示泄露技术错误码");
+    await page.fill("#highRiskReason", "验证缺少主图阻断"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    expect((await page.locator("#highRiskError").getAttribute("data-error-code")) === "PRODUCT_PRIMARY_IMAGE_REQUIRED" && (await page.locator("#highRiskError").getAttribute("data-http-status")) === "422", "无图商品确认未保留 typed 422 诊断");
+    expect((await page.locator("#highRiskError").innerText()).includes("至少需要一张"), "无图商品确认未显示可执行的中文原因");
+    expect((await page.locator("#highRiskRepair").innerText()).includes("上传商品图片"), "无图商品缺少直接修复入口");
+    expect(await page.evaluate(() => window.__ADMIN_PROTOTYPE__.getState().state.pendingHighRiskAction === null) && await page.locator("#confirmHighRisk").isDisabled(), "无图商品 422 后旧 preview 或确认仍可复用");
+    await page.click("#highRiskRepair");
+    expect(await page.locator('[data-view="product-edit"]').evaluate((node) => node.classList.contains("active")) && await page.locator('[data-edit-panel="basic"]').evaluate((node) => node.classList.contains("active")), "主图阻断修复入口未定位商品图集");
+    await page.click("#uploadProductImage");
+    expect((await page.locator("#productImageCount").innerText()) === "1 / 8", "商品图片上传未写回图集计数");
+    await page.click("#saveProduct");
+    await page.waitForFunction(() => document.querySelector('[data-view="products"]').classList.contains('active'));
+    productRow = page.locator(`tr[data-product-id="${productId}"]`);
+    await productRow.locator('[data-lifecycle-action="ACTIVATE"]').click();
+    expect((await page.locator("#highRiskImpact").innerText()).includes("至少需要一个已启用的 SKU"), "无已启用 SKU 商品的启用预览未展示业务阻断");
+    expect((await page.locator("#highRiskDiagnosticCode").getAttribute("data-error-code")) === "PRODUCT_ACTIVE_SKU_REQUIRED", "无已启用 SKU 预览未保留 PRODUCT_ACTIVE_SKU_REQUIRED");
+    await page.fill("#highRiskReason", "验证缺少已启用 SKU 阻断"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    expect((await page.locator("#highRiskError").getAttribute("data-error-code")) === "PRODUCT_ACTIVE_SKU_REQUIRED" && (await page.locator("#highRiskError").getAttribute("data-http-status")) === "422", "无已启用 SKU 确认未保留 typed 422 诊断");
+    expect((await page.locator("#highRiskRepair").innerText()).includes("管理 SKU"), "无已启用 SKU 阻断缺少修复入口");
+    expect(await page.evaluate(() => window.__ADMIN_PROTOTYPE__.getState().state.pendingHighRiskAction === null) && await page.locator("#confirmHighRisk").isDisabled(), "无已启用 SKU 422 后旧 preview 或确认仍可复用");
+    await page.click("#highRiskRepair");
+    expect(await page.locator('[data-edit-panel="sku"]').evaluate((node) => node.classList.contains("active")), "已启用 SKU 阻断修复入口未定位 SKU 管理");
+    await page.click('[data-edit-tab="sku"]');
+    await page.click("#addSku");
+    const draftSkuRow = page.locator("#skuRows tr").first();
+    await draftSkuRow.locator('[data-sku-field="spec"]').fill("标准装");
+    await draftSkuRow.locator('[data-sku-field="id"]').fill("CH010-SKU");
+    await draftSkuRow.locator('[data-sku-field="price"]').fill("59.00");
+    expect((await draftSkuRow.locator("[data-status-code]").getAttribute("data-status-code")) === "INACTIVE" && (await draftSkuRow.innerText()).includes("实物 0"), "新 SKU 未声明固定 INACTIVE 或零库存");
+    await page.click("#saveProduct");
+    await page.waitForFunction(() => document.querySelector('[data-view="products"]').classList.contains('active'));
+    productRow = page.locator(`tr[data-product-id="${productId}"]`);
+    expect((await productRow.innerText()).includes("暂无活动价"), "只有 INACTIVE SKU 时最低活动价未返回空值");
+
+    await productRow.locator(".edit-product").click();
+    await page.click('[data-edit-tab="sku"]');
+    let skuRow = page.locator('tr[data-sku-id="CH010-SKU"]');
+    expect((await skuRow.locator("[data-status-code]").getAttribute("data-status-code")) === "INACTIVE" && await skuRow.locator('[data-sku-field="stock"]').count() === 0, "SKU 创建状态错误或库存仍可编辑");
+    expect(await skuRow.locator('[data-sku-field="id"]').isDisabled(), "已创建 SKU code 仍可修改");
+    await skuRow.locator('[data-lifecycle-action="ACTIVATE"]').click();
+    expect((await page.locator("#highRiskImpact").innerText()).includes("已停用 → 已启用"), "SKU 启用未先展示中文影响预览");
+    await page.locator("#highRiskDiagnostics summary").click();
+    await page.click("#simulateHighRiskConflict");
+    const skuVersionAfterConcurrentUpdate = await page.evaluate((id) => window.__ADMIN_PROTOTYPE__.getState().productSkus[Number(id)][0].version, productId);
+    await page.fill("#highRiskReason", "验证 SKU 并发版本冲突"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    expect((await page.locator("#highRiskError").getAttribute("data-error-code")) === "RESOURCE_VERSION_CONFLICT" && (await page.locator("#highRiskError").getAttribute("data-http-status")) === "409", "SKU 并发确认未进入 typed 409");
+    expect((await page.locator("#highRiskError").innerText()).includes("已刷新至最新版本"), "SKU 409 未向管理员说明已刷新最新资源");
+    expect(await page.evaluate(() => window.__ADMIN_PROTOTYPE__.getState().state.pendingHighRiskAction === null), "SKU 409 后旧 preview 仍可复用");
+    expect((await page.locator('tr[data-sku-id="CH010-SKU"] [data-status-code]').getAttribute("data-status-code")) === "INACTIVE", "SKU 409 后错误覆盖了最新状态");
+    expect(skuVersionAfterConcurrentUpdate > 1 && await page.locator("#confirmHighRisk").isDisabled(), "SKU 409 未刷新版本或未禁用旧确认");
+    await page.click("#highRiskRepair");
+    expect(await page.locator('[data-edit-panel="sku"]').evaluate((node) => node.classList.contains("active")), "SKU 409 后未返回最新 SKU 记录");
+    skuRow = page.locator('tr[data-sku-id="CH010-SKU"]');
+    await skuRow.locator('[data-lifecycle-action="ACTIVATE"]').click();
+    await page.fill("#highRiskReason", "SKU 资料与价格已核对"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    await page.waitForFunction(() => !window.__ADMIN_PROTOTYPE__.getState().state.highRiskSubmitting);
+    skuRow = page.locator('tr[data-sku-id="CH010-SKU"]');
+    expect((await skuRow.locator("[data-status-code]").getAttribute("data-status-code")) === "ACTIVE", "SKU ACTIVATE 确认未生效");
+    await page.click('[data-go="products"]');
+    productRow = page.locator(`tr[data-product-id="${productId}"]`);
+    expect((await productRow.locator(".product-minimum-price").innerText()) === "¥59.00", "最低活动价未使用 ACTIVE SKU 最低零售价");
+
+    await productRow.locator('[data-lifecycle-action="ACTIVATE"]').click();
+    expect((await page.locator("#highRiskImpact").innerText()).includes("草稿 → 已启用"), "商品启用未先展示中文影响预览");
+    await page.locator("#highRiskDiagnostics summary").click();
+    await page.click("#simulateHighRiskConflict");
+    const productVersionAfterConcurrentUpdate = await page.evaluate((id) => window.__ADMIN_PROTOTYPE__.getState().products.find((item) => item.id === Number(id)).version, productId);
+    await page.fill("#highRiskReason", "验证商品并发版本冲突"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    expect((await page.locator("#highRiskError").getAttribute("data-error-code")) === "RESOURCE_VERSION_CONFLICT" && (await page.locator("#highRiskError").getAttribute("data-http-status")) === "409", "商品并发确认未进入 typed 409");
+    expect(await page.evaluate(() => window.__ADMIN_PROTOTYPE__.getState().state.pendingHighRiskAction === null), "商品 409 后旧 preview 仍可复用");
+    expect((await page.locator(`tr[data-product-id="${productId}"] .product-status`).getAttribute("data-status-code")) === "DRAFT", "商品 409 后错误覆盖了最新状态");
+    expect(productVersionAfterConcurrentUpdate > 1 && await page.locator("#confirmHighRisk").isDisabled(), "商品 409 未刷新版本或未禁用旧确认");
+    await page.click("#highRiskRepair");
+    productRow = page.locator(`tr[data-product-id="${productId}"]`);
+    await productRow.locator('[data-lifecycle-action="ACTIVATE"]').click();
+    await page.fill("#highRiskReason", "商品图集与活动 SKU 已就绪"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    await page.waitForFunction(() => !window.__ADMIN_PROTOTYPE__.getState().state.highRiskSubmitting);
+    productRow = page.locator(`tr[data-product-id="${productId}"]`);
+    expect((await productRow.locator(".product-status").getAttribute("data-status-code")) === "ACTIVE" && await productRow.locator('[data-lifecycle-action="SOFT_DELETE"]').count() === 0, "ACTIVE 商品状态错误或仍允许直接归档");
+    const firstPublishedAt = (await page.evaluate((id) => window.__ADMIN_PROTOTYPE__.getState().products.find((item) => item.id === Number(id)).publishedAt, productId));
+    expect(Boolean(firstPublishedAt), "首次 ACTIVATE 未写入 published_at");
+
+    for (const [action, reason] of [["DEACTIVATE", "暂停商品公开展示"], ["ACTIVATE", "重新启用商品"]]) {
+      await productRow.locator(`[data-lifecycle-action="${action}"]`).click();
+      await page.fill("#highRiskReason", reason); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+      await page.waitForFunction(() => !window.__ADMIN_PROTOTYPE__.getState().state.highRiskSubmitting);
+      productRow = page.locator(`tr[data-product-id="${productId}"]`);
+    }
+    const republishedAt = await page.evaluate((id) => window.__ADMIN_PROTOTYPE__.getState().products.find((item) => item.id === Number(id)).publishedAt, productId);
+    expect(republishedAt === firstPublishedAt, "重新 ACTIVATE 错误覆盖首次 published_at");
+
+    await productRow.locator('[data-lifecycle-action="DEACTIVATE"]').click();
+    await page.fill("#highRiskReason", "准备归档测试商品"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    await page.waitForFunction(() => !window.__ADMIN_PROTOTYPE__.getState().state.highRiskSubmitting);
+    productRow = page.locator(`tr[data-product-id="${productId}"]`);
+    await productRow.locator('[data-lifecycle-action="SOFT_DELETE"]').click();
+    expect((await page.locator("#highRiskImpact").innerText()).includes("仍有 1 个已启用 SKU"), "商品归档预览未展示已启用 SKU 依赖");
+    expect((await page.locator("#highRiskDiagnosticCode").getAttribute("data-error-code")) === "ACTIVE_SKU_DEPENDENCY", "商品归档预览未在折叠诊断中保留 ACTIVE_SKU_DEPENDENCY");
+    await page.fill("#highRiskReason", "验证活动 SKU 阻断"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    expect((await page.locator("#highRiskError").getAttribute("data-error-code")) === "ACTIVE_SKU_DEPENDENCY" && (await page.locator("#highRiskError").getAttribute("data-http-status")) === "422", "商品归档确认未保留 ACTIVE_SKU_DEPENDENCY 422");
+    expect((await page.locator("#highRiskRepair").innerText()).includes("停用 SKU"), "已启用 SKU 依赖缺少修复入口");
+    expect(await page.evaluate(() => window.__ADMIN_PROTOTYPE__.getState().state.pendingHighRiskAction === null) && await page.locator("#confirmHighRisk").isDisabled(), "SKU 依赖 422 后旧 preview 或确认仍可复用");
+    await page.click("#highRiskRepair");
+    expect(await page.locator('[data-edit-panel="sku"]').evaluate((node) => node.classList.contains("active")), "已启用 SKU 依赖修复入口未定位 SKU 管理");
+    await page.click('[data-edit-tab="sku"]');
+    skuRow = page.locator('tr[data-sku-id="CH010-SKU"]');
+    await skuRow.locator('[data-lifecycle-action="DEACTIVATE"]').click();
+    await page.fill("#highRiskReason", "准备归档 SKU"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    await page.waitForFunction(() => !window.__ADMIN_PROTOTYPE__.getState().state.highRiskSubmitting);
+    skuRow = page.locator('tr[data-sku-id="CH010-SKU"]');
+    await skuRow.locator('[data-lifecycle-action="SOFT_DELETE"]').click();
+    await page.fill("#highRiskReason", "停止维护测试 SKU"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    await page.waitForFunction(() => !window.__ADMIN_PROTOTYPE__.getState().state.highRiskSubmitting);
+    skuRow = page.locator('tr[data-sku-id="CH010-SKU"]');
+    expect((await skuRow.locator("[data-status-code]").getAttribute("data-status-code")) === "ARCHIVED" && await skuRow.locator(".restore-sku").count() === 1, "归档 SKU 未在商品详情保留或缺少恢复入口");
+    await skuRow.locator(".restore-sku").click();
+    expect((await page.locator("#restoreResultStatus").innerText()).includes("已停用"), "SKU 恢复未明确固定返回已停用");
+    await page.fill("#restoreEntityReason", "恢复测试 SKU"); await page.click("#confirmRestoreEntity");
+    expect((await page.locator('tr[data-sku-id="CH010-SKU"] [data-status-code]').getAttribute("data-status-code")) === "INACTIVE", "SKU restore 未恢复为 INACTIVE");
+    await page.click('[data-go="products"]');
+    productRow = page.locator(`tr[data-product-id="${productId}"]`);
+    await productRow.locator('[data-lifecycle-action="SOFT_DELETE"]').click();
+    await page.fill("#highRiskReason", "停止维护测试商品"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    await page.waitForFunction(() => !window.__ADMIN_PROTOTYPE__.getState().state.highRiskSubmitting);
+    expect(await page.locator(`tr[data-product-id="${productId}"]`).count() === 0, "ARCHIVED 商品仍出现在默认列表");
+    await page.selectOption("#productStatus", "ARCHIVED");
+    productRow = page.locator(`tr[data-product-id="${productId}"]`);
+    expect(await productRow.count() === 1, "显式 ARCHIVED 筛选未返回软删除商品");
+    expect(await productRow.locator(".view-product").count() === 1, "归档商品缺少详情读取入口");
+    await productRow.locator(".view-product").click();
+    expect((await page.locator("#productEditTitle").innerText()).includes("查看归档商品") && await page.locator("#saveProduct").isHidden(), "归档商品详情未进入只读模式");
+    expect(await page.locator("#productNameInput").isDisabled() && await page.locator("#productBrandInput").isDisabled() && await page.locator("#uploadProductImage").count() === 0, "归档商品只读详情仍可修改资料或图集");
+    await page.click('[data-edit-tab="sku"]');
+    const archivedParentSku = page.locator('tr[data-sku-id="CH010-SKU"]');
+    expect(await archivedParentSku.count() === 1 && await archivedParentSku.locator('[data-sku-field="spec"]').isDisabled() && await archivedParentSku.locator('[data-sku-field="price"]').isDisabled(), "归档商品详情未返回全部 SKU 或 SKU 资料仍可编辑");
+    expect(await page.locator("#addSku").isHidden(), "归档商品详情仍可新增 SKU");
+    await archivedParentSku.locator('[data-lifecycle-action="ACTIVATE"]').click();
+    expect((await page.locator("#highRiskImpact").innerText()).includes("父商品当前已归档") && (await page.locator("#highRiskDiagnosticCode").getAttribute("data-error-code")) === "STATE_CONFLICT", "父商品已归档时 SKU ACTIVATE preview 未以 200 影响信息呈现阻断");
+    await page.fill("#highRiskReason", "验证归档父商品阻断"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    expect((await page.locator("#highRiskError").getAttribute("data-error-code")) === "STATE_CONFLICT" && (await page.locator("#highRiskError").getAttribute("data-http-status")) === "409", "父商品已归档时 SKU ACTIVATE confirm 未返回 STATE_CONFLICT 409");
+    expect(await page.evaluate(() => window.__ADMIN_PROTOTYPE__.getState().state.pendingHighRiskAction === null) && await page.locator("#confirmHighRisk").isDisabled(), "归档父商品 409 后旧 preview 或确认仍可复用");
+    await page.click("#highRiskRepair");
+    productRow = page.locator(`tr[data-product-id="${productId}"]`);
+    await productRow.locator(".restore-product").click();
+    expect((await page.locator("#restoreResultStatus").innerText()).includes("草稿"), "商品恢复未明确固定返回草稿");
+    await page.fill("#restoreEntityReason", "恢复测试商品"); await page.click("#confirmRestoreEntity");
+    await page.selectOption("#productStatus", "DRAFT");
+    expect((await page.locator(`tr[data-product-id="${productId}"] .product-status`).getAttribute("data-status-code")) === "DRAFT", "Product restore 未恢复为 DRAFT");
+    await page.fill("#productSearch", "");
+
+    await page.selectOption("#productStatus", "INACTIVE");
+    let reservedProductRow = page.locator('tr[data-product-id="7"]');
+    await reservedProductRow.locator('[data-lifecycle-action="ACTIVATE"]').click();
+    expect((await page.locator("#highRiskImpact").innerText()).includes("请先启用该商品所属的品牌和一级分类"), "父主数据未启用时缺少中文业务阻断");
+    expect((await page.locator("#highRiskDiagnosticCode").getAttribute("data-error-code")) === "STATE_CONFLICT" && (await page.locator("#highRiskDiagnosticCode").getAttribute("data-http-status")) === "409", "父主数据未启用未按契约返回 STATE_CONFLICT 409");
+    await page.fill("#highRiskReason", "验证父主数据状态冲突"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    expect((await page.locator("#highRiskError").getAttribute("data-error-code")) === "STATE_CONFLICT" && (await page.locator("#highRiskError").getAttribute("data-http-status")) === "409", "父主数据未启用确认未保留 STATE_CONFLICT 409");
+    expect(await page.evaluate(() => window.__ADMIN_PROTOTYPE__.getState().state.pendingHighRiskAction === null), "父主数据 409 后旧 preview 仍可复用");
+    expect(await page.locator("#confirmHighRisk").isDisabled(), "父主数据 409 后旧确认仍可提交");
+    await page.click("#highRiskRepair");
+    expect(await page.locator('[data-view="categories"]').evaluate((node) => node.classList.contains("active")), "STATE_CONFLICT 修复入口未定位未启用分类");
+    await page.click('[data-page="products"]');
+    await page.selectOption("#productStatus", "INACTIVE");
+    reservedProductRow = page.locator('tr[data-product-id="7"]');
+    await reservedProductRow.locator('[data-lifecycle-action="SOFT_DELETE"]').click();
+    expect((await page.locator("#highRiskImpact").innerText()).includes("库存被订单或售后流程占用"), "商品归档预览未展示库存预占业务阻断");
+    expect((await page.locator("#highRiskDiagnosticCode").getAttribute("data-error-code")) === "ACTIVE_INVENTORY_RESERVATION", "库存预占预览未在折叠诊断中保留 ACTIVE_INVENTORY_RESERVATION");
+    await page.fill("#highRiskReason", "验证活动库存预占阻断"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    expect((await page.locator("#highRiskError").getAttribute("data-error-code")) === "ACTIVE_INVENTORY_RESERVATION" && (await page.locator("#highRiskError").getAttribute("data-http-status")) === "422", "商品归档确认未保留 ACTIVE_INVENTORY_RESERVATION 422");
+    expect((await page.locator("#highRiskRepair").innerText()).includes("相关订单"), "支付预占缺少只读订单修复入口");
+    expect(await page.evaluate(() => window.__ADMIN_PROTOTYPE__.getState().state.pendingHighRiskAction === null) && await page.locator("#confirmHighRisk").isDisabled(), "库存预占 422 后旧 preview 或确认仍可复用");
+    await page.click("#highRiskRepair");
+    expect(await page.locator('[data-view="orders"]').evaluate((node) => node.classList.contains("active")) && (await page.inputValue("#orderSearch")) === "QY202608060021", "支付预占修复入口未定位相关订单");
+    expect(await page.locator('#orderRows tr[data-order-id="QY202608060021"]').count() === 1, "支付预占修复入口未显示相关订单");
+    await page.click("#orderReset");
+
+    await page.click('[data-page="products"]');
+    await page.selectOption("#productStatus", "ACTIVE");
+    await page.click('tr[data-product-id="1"] .edit-product');
+    await page.click('[data-edit-tab="sku"]');
+    let reservedSkuRow = page.locator('tr[data-sku-id="CLEAN-120X2"]');
+    await reservedSkuRow.locator('[data-lifecycle-action="DEACTIVATE"]').click();
+    await page.fill("#highRiskReason", "准备核验当前 SKU 预占"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    await page.waitForFunction(() => !window.__ADMIN_PROTOTYPE__.getState().state.highRiskSubmitting);
+    reservedSkuRow = page.locator('tr[data-sku-id="CLEAN-120X2"]');
+    await reservedSkuRow.locator('[data-lifecycle-action="SOFT_DELETE"]').click();
+    expect((await page.locator("#highRiskImpact").innerText()).includes("库存预占 3 件"), "SKU 归档预览未按当前 SKU 计算库存预占");
+    await page.fill("#highRiskReason", "验证当前 SKU 活动库存预占"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    expect((await page.locator("#highRiskError").getAttribute("data-error-code")) === "ACTIVE_INVENTORY_RESERVATION" && (await page.locator("#highRiskRepair").innerText()).includes("相关订单"), "SKU 库存预占错误使用同商品其他 SKU 的占用来源");
+    expect(await page.evaluate(() => window.__ADMIN_PROTOTYPE__.getState().state.pendingHighRiskAction === null) && await page.locator("#confirmHighRisk").isDisabled(), "SKU 库存预占 422 后旧 preview 或确认仍可复用");
+    await page.click("#highRiskRepair");
+    expect(await page.locator('[data-view="orders"]').evaluate((node) => node.classList.contains("active")) && (await page.inputValue("#orderSearch")) === "QY202608060028", "SKU 库存预占修复入口未定位当前 SKU 的订单");
+    expect(await page.locator('#orderRows tr[data-order-id="QY202608060028"]').count() === 1, "当前 SKU 的预占订单未显示");
+    await page.locator('#orderRows tr[data-order-id="QY202608060028"] .view-order').first().click();
+    const reservationOrderDetail = await page.locator("#detailOrderProducts").innerText();
+    const reservationOrderState = await page.locator('[data-view="order-detail"]').innerText();
+    expect(reservationOrderDetail.includes("CLEAN-120X2") && reservationOrderDetail.includes("¥128.00 × 3"), "预占修复订单快照未包含当前 SKU 或预占数量不一致");
+    expect(reservationOrderState.includes("PAID") && reservationOrderState.includes("READY_TO_SHIP"), "预占修复订单不是仍持有库存的活动履约状态");
+    await page.click('[data-view="order-detail"] [data-go="orders"]');
+    await page.click("#orderReset");
+
+    await page.click('[data-page="products"]');
+    await page.selectOption("#productStatus", "DRAFT");
+    await page.click('tr[data-product-id="8"] .edit-product');
+    await page.click('[data-edit-tab="sku"]');
+    const parentArchivedSkuRow = page.locator('tr[data-sku-id="HOME-021"]');
+    await parentArchivedSkuRow.locator('[data-lifecycle-action="ACTIVATE"]').click();
+    expect(await page.evaluate(() => window.__ADMIN_PROTOTYPE__.archiveParentDuringPendingSkuActivation()), "未能构造 SKU 启用确认前父商品并发归档场景");
+    await page.fill("#highRiskReason", "验证父商品并发归档阻断"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    expect((await page.locator("#highRiskError").getAttribute("data-error-code")) === "STATE_CONFLICT" && (await page.locator("#highRiskError").getAttribute("data-http-status")) === "409", "父商品并发归档后 SKU 启用确认未返回 STATE_CONFLICT 409");
+    expect((await page.locator("#highRiskError").innerText()).includes("所属商品已归档"), "父商品归档冲突未展示可执行中文原因");
+    expect(await page.evaluate(() => window.__ADMIN_PROTOTYPE__.getState().state.pendingHighRiskAction === null) && await page.locator("#confirmHighRisk").isDisabled(), "父商品归档 409 后旧 preview 或确认仍可复用");
+    expect((await page.locator('tr[data-sku-id="HOME-021"] [data-status-code]').getAttribute("data-status-code")) === "INACTIVE", "父商品归档冲突后错误启用了 SKU");
+    await page.click("#highRiskRepair");
+    expect(await page.locator('[data-view="products"]').evaluate((node) => node.classList.contains("active")) && (await page.inputValue("#productStatus")) === "ARCHIVED", "父商品归档修复入口未返回归档商品列表");
+    const concurrentlyArchivedProduct = page.locator('tr[data-product-id="8"]');
+    expect(await concurrentlyArchivedProduct.count() === 1, "父商品归档修复入口未定位最新商品");
+    await concurrentlyArchivedProduct.locator(".restore-product").click();
+    await page.fill("#restoreEntityReason", "恢复并发归档商品"); await page.click("#confirmRestoreEntity");
+    await page.selectOption("#productStatus", "DRAFT");
+    expect((await page.locator('tr[data-product-id="8"] .product-status').getAttribute("data-status-code")) === "DRAFT", "父商品修复后未恢复为 DRAFT");
 
     await page.click('[data-page="brands"]');
     await page.click("#openCreateBrand");
@@ -844,23 +1105,20 @@ async function runOpsInteractionChecks(browser) {
     expect((await page.locator("#minimumWithdrawalValue").innerText()) === "120" && (await page.locator("#withdrawalRuleVersion").innerText()).includes("04"), "业务规则未生成新版本");
   });
 
-  await run("admin-interaction-product-inventory-drilldown", "admin.html", async (page) => {
+  await run("admin-interaction-product-readonly-inventory", "admin.html", async (page) => {
     await page.click('[data-page="products"]');
-    const summary = await page.locator('tr[data-product-id="1"] .product-inventory-summary').innerText();
-    expect(["3 SKU", "实物 424", "锁定 13", "可售 411"].every((term) => summary.includes(term)), "SPU 列表未从 SKU 台账汇总规格数/实物/锁定/可售");
-    await page.click('tr[data-product-id="1"] .product-inventory-summary');
-    expect(await page.locator("#stockSkuSelect option").count() === 3 && (await page.inputValue("#stockSkuSelect")) === "CLEAN-120", "商品库存下钻未选中当前 SPU 首个 SKU");
-    await captureFlow(page, "admin-product-stock-drilldown");
-    const firstBefore = Number(await page.inputValue("#newStock"));
-    await page.selectOption("#stockSkuSelect", "CLEAN-120X2");
-    expect((await page.inputValue("#newStock")) === "96" && (await page.locator("#stockProductName").innerText()).includes("CLEAN-120X2"), "切换 SKU 后表单未绑定所选记录");
-    await page.fill("#newStock", "99"); await page.fill("#stockWarning", "22"); await page.selectOption("#stockReason", { label: "盘点修正" }); await page.fill("#stockNote", "下钻选中 SKU 验收");
-    await page.click("#confirmStock");
-    await page.click('[data-page="inventory"]');
-    expect((await page.locator('tr[data-inventory-id="CLEAN-120X2"] td').nth(1).innerText()) === "99", "库存保存未命中所选 SKU");
-    expect((await page.locator('tr[data-inventory-id="CLEAN-120"] td').nth(1).innerText()) === String(firstBefore), "库存保存误改其他 SKU");
-    await page.click('[data-page="products"]');
-    expect((await page.locator('tr[data-product-id="1"] .product-inventory-summary').innerText()).includes("实物 427"), "SKU 保存后 SPU 汇总未实时更新");
+    const inventorySummary = page.locator('tr[data-product-id="1"] .product-inventory-summary');
+    const summary = await inventorySummary.innerText();
+    expect(["3 SKU · 3 个已启用", "实物 424", "锁定 13", "可售 411"].every((term) => summary.includes(term)), "SPU 列表未从同一库存快照汇总规格数/实物/锁定/可售");
+    expect(await inventorySummary.evaluate((element) => element.tagName) === "DIV" && await page.locator('tr[data-product-id="1"] .stock-action').count() === 0, "ADM-03 库存摘要仍可进入调整流程");
+    await page.click('tr[data-product-id="1"] .edit-product');
+    await page.click('[data-edit-tab="sku"]');
+    const skuPanelText = await page.locator('[data-edit-panel="sku"]').innerText();
+    expect(await page.locator('#skuRows [data-sku-field="stock"]').count() === 0, "ADM-04 仍可编辑 SKU 库存");
+    expect(!skuPanelText.includes("有效佣金") && !skuPanelText.includes("规则来源") && skuPanelText.includes("实物 286") && skuPanelText.includes("锁定 10"), "ADM-04 未移除佣金字段或缺少库存只读投影");
+    await page.click('[data-edit-tab="basic"]');
+    for (let index = 0; index < 6; index += 1) await page.click("#uploadProductImage");
+    expect((await page.locator("#productImageCount").innerText()) === "8 / 8" && await page.locator('[data-product-image]').count() === 8, "商品图集未在第 8 张封顶");
   });
 
   await run("admin-interaction-commission-version", "admin.html", async (page) => {
@@ -1176,7 +1434,7 @@ async function runOpsInteractionChecks(browser) {
 
 async function main() {
   if (updateExports) fs.mkdirSync(exportDir, { recursive: true });
-  const browser = await chromium.launch({ executablePath: chromeExecutable, headless: true });
+  const browser = await chromium.launch({ ...(chromeExecutable ? { executablePath: chromeExecutable } : {}), headless: true });
   const failures = inspectSensitiveSources();
   if (!failures.length && !quiet) console.log("PASS sensitive-source-scan");
 

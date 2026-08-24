@@ -1,6 +1,6 @@
 # 技术设计交付索引
 
-> 当前基线：MVP/PRD v2.4.1、线协议 CH-006，交付例外/勘误 CH-007 至 CH-009（2026-08-24）。B3.0 至 B3.3 及 B2/B3 Supabase repository rollback-only 均已通过；B3 development `GO`，staging/production `NO-GO`。
+> 当前基线：MVP/PRD v2.4.2、线协议 CH-010（2026-08-24）。B3 与 B2/B3 Supabase rollback-only 已通过；B4.0 契约解阻实施中，B4.1 等待契约门禁及准确 SHA 普通 CI 全绿，staging/production `NO-GO`。
 
 | 文件 | 用途 |
 |---|---|
@@ -11,15 +11,23 @@
 | `schema.prisma` | Prisma 7.9.1 逻辑模型：76 models、59 enums、270 个 model-typed relation fields，全部位于 `public` |
 | `prisma.config.ts` | 设计验证用 Prisma 7 config；CLI 读取 `DIRECT_URL` |
 | `migrations/0001_initial/migration.sql` | Prisma 基线 DDL + PostgreSQL 专属 partial unique/CHECK/触发器/角色/RLS 草案 |
+| `../05-开发管理/B4-商品与SKU.md` | B4.0 至 B4.4 串行批次、准入门禁、验收与回退边界 |
 
-上游真相顺序为：已批准需求变更记录、PRD v2.4.1、MVP v2.4.1、原型设计方案。发生冲突时先更新上游基线和本目录契约，不由开发人员临时选择口径。
+上游真相顺序为：已批准需求变更记录、PRD v2.4.2、MVP v2.4.2、原型设计方案。发生冲突时先更新上游基线和本目录契约，不由开发人员临时选择口径。
 
-## CH-006 当前验证状态
+## CH-006 历史验证状态
 
 - 新增持久契约门禁 `pnpm contracts:check`，专项实测通过：172 paths / 196 operations / 196 unique operationId / 306 schemas / 685 schema refs / 2,561 local refs / 0 dangling refs。CH-008 只修正文案，当前生成文件 SHA-256 为 `a216f4bc665160cdfbff078410c87fbfc7d4748b23ddc1f08c7c702a817b245e`；线协议、统计和数据库均不变。
 - CH-006 未修改 76 models / 59 enums、Prisma schema 或 `0001_initial`；`prisma validate`、逐字节冻结校验、PostgreSQL 18.3 空库回放、权限故障注入和 migration diff=0 均已通过。
-- Product/SKU 拒绝 ACTIVATE；品牌/分类创建 DRAFT、排序、专用状态机、ARCHIVED 查询、restore-to-DRAFT 及三项错误码均已通过契约结构、AJV 与故障注入测试。
+- CH-006 当时要求 Product/SKU 拒绝 ACTIVATE；该结论是 B3 历史验收事实，现行 Product/SKU 线协议已由 CH-010 专用 DTO 取代。品牌/分类创建 DRAFT、排序、专用状态机、ARCHIVED 查询、restore-to-DRAFT 及三项错误码的既有证据继续有效。
 - B3.0 已通过 Redocly、契约/AJV/故障注入、生成漂移、冻结数据库、权限、零漂移、全仓和原型门禁并暂停。CH-007 随后批准整个 B3 在本地和一次性环境逐段实施；远端 repository 证据后续已补齐，CH-009 只对单人 development 独立 reviewer 作例外。
+
+## CH-010 当前实施状态
+
+- 现行线协议升级为 `2.4.2-ch010`；本轮实测保持 172 paths、196 operations、196 unique operationId、307 schemas、685 schema refs 和 0 dangling refs。
+- 旧 `LifecycleAction` 删除，Product/SKU 分别使用闭合 `ProductLifecycleAction`、`SkuLifecycleAction`，均支持 ACTIVATE/DEACTIVATE/SOFT_DELETE；创建和恢复目标、发布依赖、不级联及审计原因按 CH-010 固定。
+- Product 列表/详情冻结 `published_at DESC NULLS LAST,id DESC`、nullable 最低活动价、全部含 ARCHIVED 的 SKU、8 图；SKU 创建为 201 并原子建立零库存余额，SPU/SKU code 永不可改或复用。
+- Prisma、`0001_initial`、76 models / 59 enums 均不得改变。B4.1 只有在契约、冻结数据库和准确 SHA 普通 CI 全绿后才准入。
 
 ## B3.1 当前验证状态
 
@@ -42,9 +50,9 @@
 
 B0 已在工程根建立 `prisma.config.ts`、`prisma/` 和五应用脚手架；根目录中的 schema 与首迁移必须和本目录冻结产物逐字节一致。CLI/migration 通过 `DIRECT_URL` 连接，后续 runtime 通过 `@prisma/adapter-pg` 读取 `DATABASE_URL`。三端只调用 NestJS HTTPS API，禁止使用 Supabase client、Data API 或 `service_role` 密钥访问业务表。
 
-## B3 开发入口
+## B4 开发入口
 
-B3.0 至 B3.3 交付及验收状态见 `../05-开发管理/B3-文件品牌与分类.md`。B3 development 已通过，进入 B4 开发的 B3 前置阻断已解除；B4 仍等待明确小批次启动指令。CH-009 不放行 staging、production 或真实客户数据，staging 前必须外部独立复核。
+B3.0 至 B3.3 历史交付见 `../05-开发管理/B3-文件品牌与分类.md`，B4 当前门禁和串行批次见 `../05-开发管理/B4-商品与SKU.md`。B4.0 已启动，B4.1 仍为 `NO-GO`；CH-009 不放行 staging、production 或真实客户数据，staging 前必须外部独立复核。
 
 ## 剩余上线门禁
 

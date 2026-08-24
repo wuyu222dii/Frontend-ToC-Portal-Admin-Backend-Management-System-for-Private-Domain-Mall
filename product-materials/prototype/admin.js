@@ -21,25 +21,25 @@
   };
 
   const products = [
-    { id: 1, name: "植萃研氨基酸净澈洁面乳 120g", brand: "植萃研", category: "护肤品", code: "QY-CLEAN-001", sku: 3, price: "69.00", stock: 424, sales: 1826, status: "在售", recommended: true, art: "art-green" },
-    { id: 2, name: "沐光无硅油蓬松洗发水 500ml", brand: "沐光", category: "洗发水", code: "QY-HAIR-018", sku: 2, price: "89.00", stock: 68, sales: 1432, status: "在售", recommended: true, art: "art-blue" },
-    { id: 3, name: "青木序积雪草舒缓修护霜 50g", brand: "青木序", category: "护肤品", code: "QY-SKIN-027", sku: 1, price: "129.00", stock: 16, sales: 986, status: "在售", recommended: false, art: "art-coral" },
-    { id: 4, name: "净简酵素浓缩洗衣凝珠 30颗", brand: "净简", category: "家庭清洁", code: "QY-HOME-008", sku: 2, price: "49.00", stock: 238, sales: 862, status: "在售", recommended: true, art: "art-amber" },
-    { id: 5, name: "植萃研烟酰胺焕亮精华液 30ml", brand: "植萃研", category: "护肤品", code: "QY-SKIN-031", sku: 1, price: "159.00", stock: 8, sales: 748, status: "在售", recommended: false, art: "art-purple" },
-    { id: 6, name: "沐光白茶香氛沐浴露 500ml", brand: "沐光", category: "沐浴露", code: "QY-BODY-012", sku: 3, price: "79.00", stock: 186, sales: 635, status: "在售", recommended: false, art: "art-coral" },
-    { id: 7, name: "青木序轻透倍护防晒乳 SPF50+", brand: "青木序", category: "防晒产品", code: "QY-SUN-006", sku: 1, price: "119.00", stock: 0, sales: 528, status: "已下架", recommended: false, art: "art-blue" },
-    { id: 8, name: "净简柑橘厨房重油污清洁剂", brand: "净简", category: "家庭清洁", code: "QY-HOME-021", sku: 1, price: "39.00", stock: 0, sales: 0, status: "草稿", recommended: false, art: "art-green" }
+    { id: 1, name: "植萃研氨基酸净澈洁面乳 120g", brand: "植萃研", category: "护肤品", code: "QY-CLEAN-001", sales: 1826, status: "ACTIVE", version: 6, publishedAt: "2026-07-18 09:20", imageCount: 3, isHot: true, isNew: false, art: "art-green" },
+    { id: 2, name: "沐光无硅油蓬松洗发水 500ml", brand: "沐光", category: "洗发水", code: "QY-HAIR-018", sales: 1432, status: "ACTIVE", version: 4, publishedAt: "2026-07-22 14:08", imageCount: 2, isHot: true, isNew: false, art: "art-blue" },
+    { id: 3, name: "青木序积雪草舒缓修护霜 50g", brand: "青木序", category: "护肤品", code: "QY-SKIN-027", sales: 986, status: "ACTIVE", version: 3, publishedAt: "2026-07-28 10:16", imageCount: 4, isHot: false, isNew: false, art: "art-coral" },
+    { id: 4, name: "净简酵素浓缩洗衣凝珠 30颗", brand: "净简", category: "家庭清洁", code: "QY-HOME-008", sales: 862, status: "ACTIVE", version: 5, publishedAt: "2026-08-01 08:30", imageCount: 3, isHot: true, isNew: false, art: "art-amber" },
+    { id: 5, name: "植萃研烟酰胺焕亮精华液 30ml", brand: "植萃研", category: "护肤品", code: "QY-SKIN-031", sales: 748, status: "ACTIVE", version: 4, publishedAt: "2026-08-03 11:25", imageCount: 5, isHot: false, isNew: true, art: "art-purple" },
+    { id: 6, name: "沐光白茶香氛沐浴露 500ml", brand: "沐光", category: "沐浴露", code: "QY-BODY-012", sales: 635, status: "ACTIVE", version: 3, publishedAt: "2026-08-05 16:40", imageCount: 3, isHot: false, isNew: true, art: "art-coral" },
+    { id: 7, name: "青木序轻透倍护防晒乳 SPF50+", brand: "青木序", category: "防晒产品", code: "QY-SUN-006", sales: 528, status: "INACTIVE", version: 4, publishedAt: "2026-07-10 09:05", imageCount: 2, isHot: false, isNew: false, art: "art-blue" },
+    { id: 8, name: "净简柑橘厨房重油污清洁剂", brand: "净简", category: "家庭清洁", code: "QY-HOME-021", sales: 0, status: "DRAFT", version: 1, publishedAt: null, imageCount: 0, isHot: false, isNew: true, art: "art-green" }
   ];
 
   const orders = [
-    { id: "QY202608060028", customer: "林晓月", phone: "138****6821", avatar: "林", product: "氨基酸洁面乳等 2 款", count: 3, amount: "227.00", payment: "微信支付", status: "待发货", orderStatus: "PENDING_SHIPMENT", paymentStatus: "PAID", refundStatus: "NONE", fulfillmentStatus: "READY_TO_SHIP", closeReason: null, displayStatus: "待发货", time: "08-06 09:18", arts: ["art-green", "art-blue"] },
+    { id: "QY202608060028", customer: "林晓月", phone: "138****6821", avatar: "林", product: "氨基酸洁面乳两支装", count: 3, amount: "384.00", payment: "微信支付", status: "待发货", orderStatus: "PENDING_SHIPMENT", paymentStatus: "PAID", refundStatus: "NONE", fulfillmentStatus: "READY_TO_SHIP", closeReason: null, displayStatus: "待发货", time: "08-06 09:18", arts: ["art-green"] },
     { id: "QY202608060027", customer: "周敏", phone: "186****3096", avatar: "周", product: "无硅油蓬松洗发水", count: 1, amount: "89.00", payment: "微信支付", status: "退款售后", orderStatus: "COMPLETED", paymentStatus: "PAID", refundStatus: "FULL", fulfillmentStatus: "DELIVERED", closeReason: null, displayStatus: "退款售后", time: "08-06 09:02", arts: ["art-blue"] },
     { id: "QY202608060026", customer: "陈嘉禾", phone: "159****2218", avatar: "陈", product: "酵素浓缩洗衣凝珠", count: 2, amount: "84.00", payment: "微信支付", status: "运输中", orderStatus: "SHIPPING", paymentStatus: "PAID", refundStatus: "NONE", fulfillmentStatus: "IN_TRANSIT", closeReason: null, displayStatus: "运输中", time: "08-06 08:46", arts: ["art-amber"] },
     { id: "QY202608060025", customer: "赵倩", phone: "133****5107", avatar: "赵", product: "积雪草舒缓修护霜", count: 1, amount: "109.00", payment: "微信支付", status: "已完成", orderStatus: "COMPLETED", paymentStatus: "PAID", refundStatus: "NONE", fulfillmentStatus: "DELIVERED", closeReason: null, displayStatus: "已完成", time: "08-06 08:25", arts: ["art-coral"] },
     { id: "QY202608060024", customer: "王悦", phone: "137****8432", avatar: "王", product: "白茶香氛沐浴露等 3 款", count: 5, amount: "326.00", payment: "微信支付", status: "待付款", orderStatus: "PENDING_PAYMENT", paymentStatus: "UNPAID", refundStatus: "NONE", fulfillmentStatus: "NOT_STARTED", closeReason: null, displayStatus: "待付款", time: "08-06 08:12", arts: ["art-coral", "art-purple"] },
     { id: "QY202608060023", customer: "刘雨晴", phone: "188****0076", avatar: "刘", product: "烟酰胺焕亮精华液", count: 1, amount: "139.00", payment: "微信支付", status: "待发货", orderStatus: "PENDING_SHIPMENT", paymentStatus: "PAID", refundStatus: "NONE", fulfillmentStatus: "READY_TO_SHIP", closeReason: null, displayStatus: "待发货", time: "08-06 07:58", arts: ["art-purple"] },
     { id: "QY202608060022", customer: "何文", phone: "135****6190", avatar: "何", product: "氨基酸洁面乳旅行装", count: 2, amount: "50.00", payment: "微信支付", status: "运输中", orderStatus: "SHIPPING", paymentStatus: "PAID", refundStatus: "NONE", fulfillmentStatus: "IN_TRANSIT", closeReason: null, displayStatus: "运输中", time: "08-06 07:31", arts: ["art-green"] },
-    { id: "QY202608060021", customer: "孙可心", phone: "180****4175", avatar: "孙", product: "轻透倍护防晒乳", count: 1, amount: "99.00", payment: "微信支付", status: "已完成", orderStatus: "COMPLETED", paymentStatus: "PAID", refundStatus: "NONE", fulfillmentStatus: "DELIVERED", closeReason: null, displayStatus: "已完成", time: "08-06 07:16", arts: ["art-blue"] }
+    { id: "QY202608060021", customer: "孙可心", phone: "180****4175", avatar: "孙", product: "轻透倍护防晒乳", count: 1, amount: "99.00", payment: "微信支付", status: "待付款", orderStatus: "PENDING_PAYMENT", paymentStatus: "UNPAID", refundStatus: "NONE", fulfillmentStatus: "NOT_STARTED", closeReason: null, displayStatus: "待付款", time: "08-06 07:16", arts: ["art-blue"] }
   ];
 
   const aftersales = [
@@ -111,7 +111,7 @@
 
   const inventorySkus = [
     { id: "CLEAN-120", product: "植萃研氨基酸净澈洁面乳", spec: "120g 单支", art: "art-green", available: 286, paymentReserved: 8, aftersaleReserved: 2, warning: 30 },
-    { id: "CLEAN-120X2", product: "植萃研氨基酸净澈洁面乳", spec: "120g 两支装", art: "art-green", available: 96, paymentReserved: 3, aftersaleReserved: 0, warning: 20 },
+    { id: "CLEAN-120X2", product: "植萃研氨基酸净澈洁面乳", spec: "120g 两支装", art: "art-green", available: 96, paymentReserved: 3, aftersaleReserved: 0, paymentReservationOrderId: "QY202608060028", warning: 20 },
     { id: "HAIR-500", product: "沐光无硅油蓬松洗发水", spec: "500ml 正装", art: "art-blue", available: 16, paymentReserved: 6, aftersaleReserved: 1, warning: 20 },
     { id: "HAIR-500R", product: "沐光无硅油蓬松洗发水", spec: "500ml 补充装", art: "art-blue", available: 52, paymentReserved: 4, aftersaleReserved: 0, warning: 15 },
     { id: "CLEAN-030", product: "植萃研氨基酸净澈洁面乳", spec: "30g 旅行装", art: "art-green", available: 42, paymentReserved: 0, aftersaleReserved: 0, warning: 10 },
@@ -122,7 +122,7 @@
     { id: "SERUM-030", product: "植萃研烟酰胺焕亮精华液", spec: "30ml 正装", art: "art-purple", available: 8, paymentReserved: 1, aftersaleReserved: 1, warning: 12 },
     { id: "HOME-030", product: "净简酵素浓缩洗衣凝珠", spec: "30 颗", art: "art-amber", available: 238, paymentReserved: 7, aftersaleReserved: 0, warning: 40 },
     { id: "HOME-060", product: "净简酵素浓缩洗衣凝珠", spec: "60 颗", art: "art-amber", available: 80, paymentReserved: 2, aftersaleReserved: 0, warning: 20 },
-    { id: "SUN-050", product: "青木序轻透倍护防晒乳", spec: "50ml 正装", art: "art-blue", available: 0, paymentReserved: 0, aftersaleReserved: 0, warning: 20 },
+    { id: "SUN-050", product: "青木序轻透倍护防晒乳", spec: "50ml 正装", art: "art-blue", available: 1, paymentReserved: 1, aftersaleReserved: 0, warning: 20 },
     { id: "HOME-021", product: "净简柑橘厨房重油污清洁剂", spec: "500ml", art: "art-green", available: 0, paymentReserved: 0, aftersaleReserved: 0, warning: 12 }
   ];
 
@@ -137,19 +137,18 @@
     intro: `${product.name} 的商品介绍按当前商品记录独立保存，不复用其他商品内容。`,
     ingredients: product.category === "家庭清洁" ? "表面活性剂、酵素复合物、香氛成分。" : "水、甘油、核心植物提取物及配方所需成分。",
     usage: product.category === "家庭清洁" ? "按包装建议用量投入对应清洁场景，避免儿童接触。" : "取适量均匀涂抹或清洁，按商品包装建议频次使用。",
-    isNew: product.sales < 800,
     favorites: Math.max(0, Math.round(product.sales / 5))
   }]));
 
   const productSkus = {
-    1: [{ spec: "120g 单支", id: "CLEAN-120", price: 69, stock: 286 }, { spec: "120g 两支装", id: "CLEAN-120X2", price: 128, stock: 96 }, { spec: "30g 旅行装", id: "CLEAN-030", price: 29, stock: 42 }],
-    2: [{ spec: "500ml 正装", id: "HAIR-500", price: 89, stock: 16 }, { spec: "500ml 补充装", id: "HAIR-500R", price: 79, stock: 52 }],
-    3: [{ spec: "50g 正装", id: "SKIN-050", price: 129, stock: 16 }],
-    4: [{ spec: "30 颗", id: "HOME-030", price: 49, stock: 238 }, { spec: "60 颗", id: "HOME-060", price: 84, stock: 80 }],
-    5: [{ spec: "30ml 正装", id: "SERUM-030", price: 159, stock: 8 }],
-    6: [{ spec: "500ml 正装", id: "BODY-500", price: 79, stock: 120 }, { spec: "500ml × 2", id: "BODY-1000", price: 139, stock: 46 }, { spec: "400ml 补充装", id: "BODY-REFILL", price: 59, stock: 20 }],
-    7: [{ spec: "50ml 正装", id: "SUN-050", price: 119, stock: 0 }],
-    8: [{ spec: "500ml", id: "HOME-021", price: 39, stock: 0 }]
+    1: [{ spec: "120g 单支", id: "CLEAN-120", price: 69, status: "ACTIVE", version: 3, isRecommended: true }, { spec: "120g 两支装", id: "CLEAN-120X2", price: 128, status: "ACTIVE", version: 2, isRecommended: false }, { spec: "30g 旅行装", id: "CLEAN-030", price: 29, status: "ACTIVE", version: 2, isRecommended: false }],
+    2: [{ spec: "500ml 正装", id: "HAIR-500", price: 89, status: "ACTIVE", version: 2, isRecommended: true }, { spec: "500ml 补充装", id: "HAIR-500R", price: 79, status: "ACTIVE", version: 2, isRecommended: false }],
+    3: [{ spec: "50g 正装", id: "SKIN-050", price: 129, status: "ACTIVE", version: 2, isRecommended: true }],
+    4: [{ spec: "30 颗", id: "HOME-030", price: 49, status: "ACTIVE", version: 2, isRecommended: true }, { spec: "60 颗", id: "HOME-060", price: 84, status: "ACTIVE", version: 2, isRecommended: false }],
+    5: [{ spec: "30ml 正装", id: "SERUM-030", price: 159, status: "ACTIVE", version: 2, isRecommended: true }],
+    6: [{ spec: "500ml 正装", id: "BODY-500", price: 79, status: "ACTIVE", version: 2, isRecommended: true }, { spec: "500ml × 2", id: "BODY-1000", price: 139, status: "ACTIVE", version: 2, isRecommended: false }, { spec: "400ml 补充装", id: "BODY-REFILL", price: 59, status: "ACTIVE", version: 2, isRecommended: false }],
+    7: [{ spec: "50ml 正装", id: "SUN-050", price: 119, status: "INACTIVE", version: 3, isRecommended: false }],
+    8: [{ spec: "500ml", id: "HOME-021", price: 39, status: "INACTIVE", version: 1, isRecommended: false }]
   };
 
   function inventoryForProduct(productId) {
@@ -201,8 +200,7 @@
       agent: "清源生活馆",
       version: "CR-20260811-03",
       items: [
-        { name: "植萃研氨基酸净澈洁面乳", brand: "植萃研", art: "art-green", sku: "120g 单支 · CLEAN-120", quantity: 2, price: 69, base: 138, rate: 10, source: "一级分类“护肤品”", commission: 13.8 },
-        { name: "沐光无硅油蓬松洗发水", brand: "沐光", art: "art-blue", sku: "500ml 正装 · HAIR-500", quantity: 1, price: 89, base: 89, rate: 8, source: "一级分类“洗发水”", commission: 7.12 }
+        { name: "植萃研氨基酸净澈洁面乳", brand: "植萃研", art: "art-green", sku: "120g 两支装 · CLEAN-120X2", quantity: 3, price: 128, base: 384, rate: 12, source: "SKU 覆盖规则", commission: 46.08 }
       ]
     },
     QY202608060027: {
@@ -261,6 +259,8 @@
     reportRequestTimer: null,
     rankingType: "product",
     activeProductId: null,
+    activeProductImageCount: 0,
+    productReadOnly: false,
     activeAftersaleId: null,
     activeOrderId: "QY202608060028",
     activeAgentId: null,
@@ -274,6 +274,7 @@
     commissionRuleMode: "custom",
     commissionRuleRevision: 3,
     pendingHighRiskAction: null,
+    highRiskRepairAction: null,
     bankVerifyFailures: 0,
     bankVerifyLockedUntil: 0,
     bankRevealGrant: null,
@@ -335,6 +336,15 @@
     }[status] || "neutral";
   }
 
+  function catalogStatusLabel(status) {
+    return { DRAFT: "草稿", ACTIVE: "已启用", INACTIVE: "已停用", ARCHIVED: "已归档" }[status] || status;
+  }
+
+  function selectProductEditorTab(tab) {
+    $$('[data-edit-tab]').forEach((item) => item.classList.toggle("active", item.dataset.editTab === tab));
+    $$('[data-edit-panel]').forEach((panel) => panel.classList.toggle("active", panel.dataset.editPanel === tab));
+  }
+
   let toastTimer;
   function showToast(message) {
     const toast = $("#toast");
@@ -383,31 +393,59 @@
     return `<div class="product-art ${art}"><i></i><b>${brand}</b></div>`;
   }
 
+  function activeProductSkus(productId) {
+    return (productSkus[productId] || []).filter((sku) => sku.status === "ACTIVE");
+  }
+
+  function minimumActivePrice(productId) {
+    const prices = activeProductSkus(productId).map((sku) => sku.price);
+    return prices.length ? Math.min(...prices) : null;
+  }
+
+  function productActions(product) {
+    if (product.status === "ARCHIVED") return `<button class="icon-button view-product" type="button" title="查看归档商品">${icon("eye")}</button><button class="button text restore-product" type="button">恢复</button>`;
+    const lifecycle = [];
+    if (["DRAFT", "INACTIVE"].includes(product.status)) lifecycle.push(`<button class="button text product-lifecycle" type="button" data-lifecycle-action="ACTIVATE">启用</button>`);
+    if (product.status === "ACTIVE") lifecycle.push(`<button class="button text product-lifecycle" type="button" data-lifecycle-action="DEACTIVATE">停用</button>`);
+    if (["DRAFT", "INACTIVE"].includes(product.status)) lifecycle.push(`<button class="icon-button danger product-lifecycle" type="button" data-lifecycle-action="SOFT_DELETE" title="归档商品">${icon("trash")}</button>`);
+    return `<button type="button" class="icon-button edit-product" title="编辑商品">${icon("edit")}</button>${lifecycle.join("")}`;
+  }
+
   function renderProducts() {
     const keyword = $("#productSearch").value.trim().toLowerCase();
     const category = $("#productCategory").value;
     const brand = $("#productBrand").value;
     const status = $("#productStatus").value;
-    const filtered = products.filter((product) => {
-      const matchesKeyword = !keyword || `${product.name}${product.code}${product.brand}`.toLowerCase().includes(keyword);
-      return matchesKeyword && (!category || product.category === category) && (!brand || product.brand === brand) && (!status || product.status === status);
-    });
+    const filtered = products
+      .filter((product) => {
+        const matchesKeyword = !keyword || `${product.name}${product.code}${product.brand}`.toLowerCase().includes(keyword);
+        const matchesStatus = status ? product.status === status : product.status !== "ARCHIVED";
+        return matchesKeyword && matchesStatus && (!category || product.category === category) && (!brand || product.brand === brand);
+      })
+      .sort((a, b) => {
+        if (a.publishedAt && b.publishedAt) return b.publishedAt.localeCompare(a.publishedAt) || b.id - a.id;
+        if (a.publishedAt) return -1;
+        if (b.publishedAt) return 1;
+        return b.id - a.id;
+      });
 
     $("#productCount").textContent = `共 ${filtered.length} 件商品`;
     $("#productRows").innerHTML = filtered.length ? filtered.map((product) => {
       const inventory = productInventorySnapshot(product.id);
       const low = inventory.available <= 20;
+      const skuCount = (productSkus[product.id] || []).length;
+      const activeSkuCount = activeProductSkus(product.id).length;
+      const activePrice = minimumActivePrice(product.id);
       return `<tr data-product-id="${product.id}">
-        <td class="checkbox-cell"><input type="checkbox" aria-label="选择 ${product.name}"></td>
-        <td><div class="product-cell">${renderProductArt(product.art, product.brand)}<div class="product-cell-copy"><strong title="${product.name}">${product.name}</strong><span>${product.code} · ${product.sku} 个规格</span></div></div></td>
-        <td><span class="cell-main">${money(product.price)}</span><span class="cell-sub">零售价</span></td>
-        <td><button class="product-inventory-summary stock-action ${low ? "low" : ""}" type="button" title="下钻 SKU 库存"><strong>${inventory.skuCount} SKU</strong><span>实物 ${inventory.physical} · 锁定 ${inventory.locked}</span><em>可售 ${inventory.available} ${icon("chevron-right")}</em></button></td>
+        <td><div class="product-cell">${renderProductArt(product.art, product.brand)}<div class="product-cell-copy"><strong title="${product.name}">${product.name}</strong><span>${product.code} · v${product.version}</span></div></div></td>
+        <td><span class="cell-main product-minimum-price">${activePrice === null ? "暂无活动价" : money(activePrice)}</span><span class="cell-sub">${activePrice === null ? "无已启用 SKU" : "已启用 SKU 最低价"}</span></td>
+        <td><div class="product-inventory-summary ${low ? "low" : ""}" aria-label="SKU 与库存只读摘要"><strong>${skuCount} SKU · ${activeSkuCount} 个已启用</strong><span>实物 ${inventory.physical} · 锁定 ${inventory.locked}</span><em>可售 ${inventory.available}</em></div></td>
         <td class="optional-wide"><span class="cell-main">${product.sales.toLocaleString("zh-CN")}</span><span class="cell-sub">累计销量</span></td>
-        <td><span class="tag ${statusClass(product.status)}">${product.status}</span></td>
-        <td class="optional-wide"><button type="button" class="switch recommend-toggle ${product.recommended ? "active" : ""}" title="切换首页推荐" aria-pressed="${product.recommended}"><i></i></button></td>
-        <td><div class="row-actions"><button type="button" class="icon-button edit-product" title="编辑商品">${icon("edit")}</button><button type="button" class="icon-button delete-product danger" title="删除商品">${icon("trash")}</button></div></td>
+        <td><span class="tag product-status ${statusClass(product.status)}" data-status-code="${product.status}">${catalogStatusLabel(product.status)}</span><span class="cell-sub product-published-at">${product.publishedAt ? `首次 ${product.publishedAt}` : "尚未发布"}</span></td>
+        <td class="optional-wide"><span class="tag ${product.isHot ? "success" : "neutral"}">${product.isHot ? "HOT" : "非热销"}</span><span class="cell-sub">${product.isNew ? "NEW" : "常规"}</span></td>
+        <td><div class="row-actions">${productActions(product)}</div></td>
       </tr>`;
-      }).join("") : `<tr><td colspan="8"><div class="empty-state">${icon("search")}<strong>没有找到匹配商品</strong><span>请调整搜索词或筛选条件</span></div></td></tr>`;
+      }).join("") : `<tr><td colspan="7"><div class="empty-state">${icon("search")}<strong>没有找到匹配商品</strong><span>请调整搜索词或筛选条件</span></div></td></tr>`;
   }
 
   function renderBrands() {
@@ -509,7 +547,7 @@
     $("#rankingSubtitle").textContent = customerMode ? `${periodLabel}有效净消费额` : `${periodLabel}支付件数`;
     $("#rankingList").innerHTML = customerMode
       ? customers.slice().sort((a, b) => b.spend - a.spend).slice(0, 5).map((customer, index) => `<div class="ranking-item"><span class="ranking-number">${index + 1}</span><span class="avatar soft-green">${customer.avatar}</span><div class="ranking-copy"><strong>${customer.name} <small class="muted">@${customer.nickname}</small></strong><span>${customer.orders} 次消费 · ${customer.agentName}</span></div><strong>¥${customer.spend.toLocaleString("zh-CN")}</strong></div>`).join("")
-      : products.slice().sort((a, b) => b.sales - a.sales).slice(0, 5).map((product, index) => `<div class="ranking-item"><span class="ranking-number">${index + 1}</span>${renderProductArt(product.art, product.brand)}<div class="ranking-copy"><strong title="${product.name}">${product.name}</strong><span>${product.category} · 库存 ${product.stock}</span></div><strong>${product.sales.toLocaleString("zh-CN")} 件</strong></div>`).join("");
+      : products.slice().sort((a, b) => b.sales - a.sales).slice(0, 5).map((product, index) => `<div class="ranking-item"><span class="ranking-number">${index + 1}</span>${renderProductArt(product.art, product.brand)}<div class="ranking-copy"><strong title="${product.name}">${product.name}</strong><span>${product.category} · 实物 ${productInventorySnapshot(product.id).physical}</span></div><strong>${product.sales.toLocaleString("zh-CN")} 件</strong></div>`).join("");
   }
 
   function renderReportRange() {
@@ -766,6 +804,26 @@
     if (firstInput) firstInput.focus();
   }
 
+  function setHighRiskDiagnostic({ code = "", status = "", message = "" } = {}) {
+    const diagnostics = $("#highRiskDiagnostics");
+    const codeNode = $("#highRiskDiagnosticCode");
+    diagnostics.hidden = !code && !message;
+    diagnostics.open = false;
+    codeNode.dataset.errorCode = code;
+    codeNode.dataset.httpStatus = status ? String(status) : "";
+    codeNode.textContent = code ? `${code}${status ? ` · HTTP ${status}` : ""}` : "";
+    $("#highRiskDiagnosticMessage").textContent = message || "当前暂无错误。";
+  }
+
+  function showHighRiskBusinessError(error) {
+    $("#highRiskSubtitle").textContent = error.subtitle || "本次确认未生效，记录保持不变";
+    $("#highRiskError").textContent = error.businessMessage || error.message;
+    $("#highRiskError").dataset.errorCode = error.code || "";
+    $("#highRiskError").dataset.httpStatus = error.status ? String(error.status) : "";
+    $("#highRiskError").hidden = false;
+    setHighRiskDiagnostic({ code: error.code, status: error.status, message: error.diagnosticMessage || error.message });
+  }
+
   function requestHighRiskAction(config) {
     $("#highRiskTitle").textContent = config.title;
     $("#highRiskSubtitle").textContent = config.subtitle || "操作将写入不可变审计日志";
@@ -774,9 +832,19 @@
     $("#highRiskReasonField").hidden = config.reasonRequired === false;
     $("#highRiskConfirm").checked = false;
     $("#highRiskError").hidden = true;
+    $("#highRiskError").dataset.errorCode = "";
+    $("#highRiskError").dataset.httpStatus = "";
     $("#highRiskConfirmLabel").textContent = config.confirmLabel || "确认执行";
+    $("#highRiskRepair").hidden = !config.repairAction;
+    $("#highRiskRepair").textContent = config.repairLabel || "去处理";
+    $("#simulateHighRiskConflict").hidden = !config.catalogContext;
+    $("#simulateHighRiskConflict").disabled = false;
+    setHighRiskDiagnostic(config.diagnostic || (config.catalogContext ? {
+      message: `预览已绑定 ${config.catalogContext.type.toUpperCase()} / ${config.catalogContext.action} / v${config.catalogContext.expectedVersion}`
+    } : {}));
     openModal("#highRiskModal");
     state.pendingHighRiskAction = config;
+    state.highRiskRepairAction = config.repairAction || null;
   }
 
   function clearBankReveal() {
@@ -799,6 +867,7 @@
     clearBankReveal();
     state.bankRevealContext = null;
     state.pendingHighRiskAction = null;
+    state.highRiskRepairAction = null;
     $("#highRiskConfirm").disabled = false;
     if (!state.highRiskSubmitting) $("#confirmHighRisk").disabled = false;
     if (credentialWasVisible) {
@@ -865,67 +934,99 @@
     openInventoryEditor(skus[0].id, false, { preserveProduct: true });
   }
 
-  function openDelete(productId) {
-    const product = products.find((item) => item.id === Number(productId));
-    if (!product) return;
-    state.activeProductId = product.id;
-    $("#deleteProductName").textContent = product.name;
-    $("#deleteProductReason").value = "";
-    $("#deleteProductConfirm").checked = false;
-    $("#deleteProductError").hidden = true;
-    openModal("#deleteModal");
+  function skuInventorySummary(skuId) {
+    const item = inventorySkus.find((entry) => entry.id === skuId);
+    return item ? inventorySnapshot(item) : { physical: 0, locked: 0, available: 0 };
   }
 
-  function effectiveSkuRate(skuId, category) {
-    const skuRule = commissionSkuRules.find((item) => item.id === skuId);
-    return skuRule && skuRule.rate !== null ? skuRule.rate : categoryRate(category);
+  function skuActions(sku, { parentArchived = false } = {}) {
+    if (parentArchived) {
+      return sku.status === "INACTIVE"
+        ? `<button class="button text sku-lifecycle" type="button" data-lifecycle-action="ACTIVATE">检查启用</button>`
+        : `<span class="cell-sub">归档商品只读</span>`;
+    }
+    if (sku.status === "ARCHIVED") return `<button class="button text restore-sku" type="button">恢复</button>`;
+    const actions = [];
+    if (sku.status === "INACTIVE") actions.push(`<button class="button text sku-lifecycle" type="button" data-lifecycle-action="ACTIVATE">启用</button>`);
+    if (sku.status === "ACTIVE") actions.push(`<button class="button text sku-lifecycle" type="button" data-lifecycle-action="DEACTIVATE">停用</button>`);
+    if (sku.status === "INACTIVE") actions.push(`<button class="icon-button danger sku-lifecycle" type="button" data-lifecycle-action="SOFT_DELETE" title="归档 SKU">${icon("trash")}</button>`);
+    return actions.join("");
   }
 
-  function renderProductEditorSkus(skus, category) {
+  function renderProductEditorImages(product, count, readOnly = state.productReadOnly) {
+    const tone = product?.art || "art-green";
+    const brand = product?.brand || $("#productBrandInput").value || "商品图片";
+    const upload = readOnly
+      ? count ? "" : `<div class="upload-card" aria-label="暂无商品图片"><strong>暂无图片</strong></div>`
+      : `<button id="uploadProductImage" class="upload-card" type="button"><svg class="icon"><use href="#i-upload"></use></svg><strong>上传图片</strong><span>JPG / PNG</span></button>`;
+    $("#productImageUploader").innerHTML = `${upload}${Array.from({ length: count }, (_, index) => `<div class="product-art ${tone} large" data-product-image="${index + 1}"><i></i><b>${brand}</b><span>图集 ${index + 1}</span>${index === 0 ? "<em>主图</em>" : ""}</div>`).join("")}`;
+    $("#productImageCount").textContent = `${count} / 8`;
+    $("#productSummaryImages").textContent = `${count} / 8`;
+  }
+
+  function renderProductEditorSkus(skus, readOnly = state.productReadOnly) {
     $("#skuRows").innerHTML = skus.map((sku) => {
-      const rate = effectiveSkuRate(sku.id, category);
-      const explicit = commissionSkuRules.find((item) => item.id === sku.id && item.rate !== null);
-      return `<tr><td><input data-sku-field="spec" value="${sku.spec}"></td><td><input data-sku-field="id" value="${sku.id}"></td><td><div class="money-input"><span>¥</span><input data-sku-field="price" value="${Number(sku.price).toFixed(2)}"></div></td><td><input data-sku-field="stock" type="number" min="0" value="${sku.stock}"></td><td><div class="sku-commission-cell"><strong>${rate.toFixed(2)}%</strong><small>预计 ${money(sku.price * rate / 100)} / 件</small></div></td><td><span class="rule-source ${explicit ? "sku" : "category"}">${explicit ? "SKU 例外" : "一级分类"}</span></td><td><button class="icon-button danger sku-delete" title="删除规格">${icon("trash")}</button></td></tr>`;
+      const inventory = skuInventorySummary(sku.id);
+      const disabled = readOnly ? " disabled" : "";
+      return `<tr data-sku-id="${sku.id}" data-sku-persisted="true"><td><input data-sku-field="spec" value="${sku.spec}"${disabled}></td><td><input data-sku-field="id" value="${sku.id}" disabled title="SKU 编码创建后不可修改"></td><td><div class="money-input"><span>¥</span><input data-sku-field="price" value="${Number(sku.price).toFixed(2)}"${disabled}></div></td><td><span class="cell-main">实物 ${inventory.physical}</span><span class="cell-sub">锁定 ${inventory.locked} · 可售 ${inventory.available}</span></td><td><label class="switch ${sku.isRecommended ? "active" : ""}" title="SKU 推荐"><input data-sku-field="recommended" type="checkbox" ${sku.isRecommended ? "checked" : ""}${disabled}><i></i></label></td><td><span class="tag ${statusClass(sku.status)}" data-status-code="${sku.status}">${catalogStatusLabel(sku.status)}</span><span class="cell-sub">v${sku.version}</span></td><td><div class="row-actions">${skuActions(sku, { parentArchived: readOnly })}</div></td></tr>`;
     }).join("");
+    $("#productSkuTabCount").textContent = skus.length;
+    $("#productSummarySkuCount").textContent = skus.length;
+  }
+
+  function setProductEditorReadOnly(readOnly, product = null) {
+    state.productReadOnly = readOnly;
+    ["#productNameInput", "#productBrandInput", "#productCategoryInput", "#productSellingPointInput", "#productIntroInput", "#productIngredientsInput", "#productUsageInput", "#productRecommendedInput", "#productNewInput"].forEach((selector) => { $(selector).disabled = readOnly; });
+    $("#saveProduct").hidden = readOnly;
+    $("#addSku").hidden = readOnly;
+    if (readOnly && product) $("#productEditTitle").textContent = `查看归档商品 · ${product.brand}`;
   }
 
   function openProductEditor(productId = null) {
     const product = products.find((item) => item.id === Number(productId));
-    const details = product ? productDetails[product.id] : { sellingPoint: "", intro: "", ingredients: "", usage: "", isNew: true, favorites: 0 };
+    const details = product ? productDetails[product.id] : { sellingPoint: "", intro: "", ingredients: "", usage: "", favorites: 0 };
+    const readOnly = product?.status === "ARCHIVED";
     state.activeProductId = product ? product.id : null;
     $("#productBrandInput").innerHTML = brands.filter((item) => item.status === "ACTIVE").map((item) => `<option>${item.name}</option>`).join("");
     $("#productCategoryInput").innerHTML = commissionCategories.filter((item) => item.status === "ACTIVE").map((item) => `<option>${item.name}</option>`).join("");
-    $("#productEditTitle").textContent = product ? `编辑商品 · ${product.brand}` : "新增商品";
+    $("#productEditTitle").textContent = readOnly ? `查看归档商品 · ${product.brand}` : product ? `编辑商品 · ${product.brand}` : "新增商品";
     $("#productEditMeta").textContent = product ? `${product.code} · 当前记录 ID ${product.id}` : "尚未生成 SPU · 保存后创建当前记录";
-    $("#productEditStatus").textContent = product ? product.status : "草稿";
-    $("#productEditStatus").className = `tag ${statusClass(product ? product.status : "草稿")}`;
+    const editStatus = product ? product.status : "DRAFT";
+    $("#productEditStatus").textContent = catalogStatusLabel(editStatus);
+    $("#productEditStatus").dataset.statusCode = editStatus;
+    $("#productEditStatus").className = `tag ${statusClass(editStatus)}`;
     $("#productNameInput").value = product ? product.name : "";
     $("#productBrandInput").value = product ? product.brand : brands.find((item) => item.status === "ACTIVE")?.name || "";
     $("#productCodeInput").value = product ? product.code : "";
+    $("#productCodeInput").disabled = Boolean(product);
     $("#productCategoryInput").value = product ? product.category : commissionCategories[0].name;
     $("#productSellingPointInput").value = details.sellingPoint;
     $("#productIntroInput").value = details.intro;
     $("#productIngredientsInput").value = details.ingredients;
     $("#productUsageInput").value = details.usage;
-    $("#productOnlineInput").checked = product ? product.status === "在售" : false;
-    $("#productRecommendedInput").checked = Boolean(product && product.recommended);
-    $("#productNewInput").checked = details.isNew;
-    $("#productSummaryStock").textContent = product ? product.stock : 0;
-    $("#productSummaryReserved").textContent = product ? inventorySkus.filter((item) => item.product.includes(product.name.split(" ")[0])).reduce((sum, item) => sum + item.paymentReserved + item.aftersaleReserved, 0) : 0;
-    $("#productSummarySales").textContent = product ? product.sales.toLocaleString("zh-CN") : 0;
-    $("#productSummaryFavorites").textContent = details.favorites;
+    $("#productRecommendedInput").checked = Boolean(product && product.isHot);
+    $("#productNewInput").checked = product ? product.isNew : true;
+    setProductEditorReadOnly(readOnly, product);
+    const inventory = product ? productInventorySnapshot(product.id) : { physical: 0, locked: 0, available: 0 };
+    $("#productSummaryStock").textContent = inventory.physical;
+    $("#productSummaryReserved").textContent = inventory.locked;
+    $("#productSummaryPublishedAt").textContent = product?.publishedAt || "尚未发布";
     $("#productNameCount").textContent = `${$("#productNameInput").value.length} / 60`;
     $("#productEditError").hidden = true;
-    renderProductEditorSkus(product ? productSkus[product.id] : [{ spec: "", id: "", price: 0, stock: 0 }], product ? product.category : commissionCategories[0].name);
+    state.activeProductImageCount = product?.imageCount || 0;
+    renderProductEditorImages(product, state.activeProductImageCount, readOnly);
+    renderProductEditorSkus(product ? productSkus[product.id] : [], readOnly);
+    selectProductEditorTab("basic");
     showPage("product-edit");
   }
 
   function readProductEditorSkus() {
     return $$("#skuRows tr").map((row) => ({
+      originalId: row.dataset.skuPersisted === "true" ? row.dataset.skuId : null,
       spec: $('[data-sku-field="spec"]', row)?.value.trim() || "",
       id: $('[data-sku-field="id"]', row)?.value.trim().toUpperCase() || "",
       price: Number($('[data-sku-field="price"]', row)?.value),
-      stock: Number($('[data-sku-field="stock"]', row)?.value)
+      isRecommended: Boolean($('[data-sku-field="recommended"]', row)?.checked)
     }));
   }
 
@@ -997,10 +1098,135 @@
     });
   }
 
-  function openRestoreEntity(type, item) {
-    state.activeEntity = { type, id: item.id, item };
-    $("#restoreEntityTitle").textContent = `恢复${type === "brand" ? "品牌" : "分类"} · ${item.name}`;
-    $("#restoreEntitySubtitle").textContent = `当前 ARCHIVED · If-Match v${item.version}`;
+  function archivedParentSkuActivationError() {
+    return {
+      code: "STATE_CONFLICT",
+      status: 409,
+      message: "父商品已归档，SKU 不可启用",
+      businessMessage: "该 SKU 所属商品已归档，请先恢复商品后重新检查。"
+    };
+  }
+
+  function archivedProductRepair(product) {
+    return () => {
+      showPage("products");
+      $("#productSearch").value = product.code;
+      $("#productCategory").value = "";
+      $("#productBrand").value = "";
+      $("#productStatus").value = "ARCHIVED";
+      renderProducts();
+      showToast("已定位归档商品，请先恢复后重新发起 SKU 启用预览");
+    };
+  }
+
+  function catalogLifecyclePreview(type, product, item, action) {
+    const target = type === "product" ? product : item;
+    const labels = { ACTIVATE: "启用", DEACTIVATE: "停用", SOFT_DELETE: "归档" };
+    const targetStatus = { ACTIVATE: "ACTIVE", DEACTIVATE: "INACTIVE", SOFT_DELETE: "ARCHIVED" }[action];
+    let confirmError = null;
+    const impacts = [];
+    let repairAction = null;
+    let repairLabel = "去处理";
+
+    if (type === "sku" && action === "ACTIVATE" && product.status === "ARCHIVED") {
+      confirmError = archivedParentSkuActivationError();
+      repairLabel = "返回最新商品";
+      repairAction = archivedProductRepair(product);
+      impacts.push("父商品当前已归档");
+    }
+
+    if (type === "product" && action === "ACTIVATE") {
+      const brand = brands.find((entry) => entry.name === product.brand);
+      const category = commissionCategories.find((entry) => entry.name === product.category);
+      if (!brand || brand.status !== "ACTIVE" || !category || category.status !== "ACTIVE") {
+        confirmError = { code: "STATE_CONFLICT", status: 409, message: "品牌或分类当前不可用于商品启用", businessMessage: "请先启用该商品所属的品牌和一级分类。" };
+        repairLabel = "去检查品牌与分类";
+        repairAction = () => showPage(!brand || brand.status !== "ACTIVE" ? "brands" : "categories");
+      } else if (product.imageCount < 1) {
+        confirmError = { code: "PRODUCT_PRIMARY_IMAGE_REQUIRED", status: 422, message: "请先挂接至少一张 READY/PUBLIC PRODUCT_IMAGE", businessMessage: "启用前至少需要一张可公开展示的商品图片。" };
+        repairLabel = "去上传商品图片";
+        repairAction = () => { openProductEditor(product.id); selectProductEditorTab("basic"); $("#uploadProductImage").focus(); };
+      } else if (!activeProductSkus(product.id).length) {
+        confirmError = { code: "PRODUCT_ACTIVE_SKU_REQUIRED", status: 422, message: "请先启用至少一个 SKU", businessMessage: "启用商品前，至少需要一个已启用的 SKU。" };
+        repairLabel = "去管理 SKU";
+        repairAction = () => { openProductEditor(product.id); selectProductEditorTab("sku"); $("#addSku").focus(); };
+      }
+      impacts.push(`商品图片 ${product.imageCount}/8`, `已启用 SKU ${activeProductSkus(product.id).length}`);
+    }
+
+    if (action === "SOFT_DELETE") {
+      const activeSkuCount = type === "product" ? activeProductSkus(product.id).length : 0;
+      const locked = type === "product"
+        ? productInventorySnapshot(product.id).locked
+        : skuInventorySummary(item.id).locked;
+      if (activeSkuCount > 0) {
+        confirmError = { code: "ACTIVE_SKU_DEPENDENCY", status: 422, message: `仍有 ${activeSkuCount} 个 ACTIVE SKU`, businessMessage: `仍有 ${activeSkuCount} 个已启用 SKU，请先逐一停用。` };
+        repairLabel = "去停用 SKU";
+        repairAction = () => { openProductEditor(product.id); selectProductEditorTab("sku"); $("#skuRows .sku-lifecycle")?.focus(); };
+      } else if (locked > 0) {
+        const lockedSku = type === "sku"
+          ? inventorySkus.find((entry) => entry.id === item.id && inventorySnapshot(entry).locked > 0)
+          : inventoryForProduct(product.id).find((entry) => inventorySnapshot(entry).locked > 0);
+        confirmError = { code: "ACTIVE_INVENTORY_RESERVATION", status: 422, message: `仍有 ${locked} 件活动库存预占`, businessMessage: `仍有 ${locked} 件库存被订单或售后流程占用，需先完成相关业务。` };
+        const relatedAftersale = lockedSku?.aftersaleReserved > 0 ? aftersales.find((entry) => entry.sku === lockedSku.id) : null;
+        const relatedOrder = lockedSku?.paymentReserved > 0
+          ? orders.find((entry) => entry.id === lockedSku.paymentReservationOrderId)
+            || orders.find((entry) => frozenOrderDetails[entry.id]?.items.some((snapshot) => snapshot.sku.includes(lockedSku.id)))
+          : null;
+        repairLabel = relatedAftersale ? "查看相关售后" : "查看相关订单";
+        repairAction = () => {
+          if (relatedAftersale) {
+            $("#aftersaleSearch").value = relatedAftersale.id;
+            $("#aftersaleType").value = "";
+            $("#aftersaleStatus").value = "";
+            renderAftersales();
+            showPage("aftersales");
+          } else {
+            $("#orderSearch").value = relatedOrder?.id || lockedSku?.id || product.code;
+            $("#orderStatus").value = "";
+            renderOrders();
+            showPage("orders");
+          }
+          showToast("已定位占用来源，请先完成相关订单或售后流程");
+        };
+      }
+      impacts.push(`已启用 SKU ${activeSkuCount}`, `库存预占 ${locked} 件`);
+    }
+
+    const kindLabel = type === "product" ? "商品" : "SKU";
+    requestHighRiskAction({
+      title: `影响预览 · ${labels[action]}${kindLabel} · ${type === "product" ? product.name : item.id}`,
+      subtitle: `本次预览仅适用于当前${kindLabel}和当前版本`,
+      impact: `${catalogStatusLabel(target.status)} → ${catalogStatusLabel(targetStatus)}。${impacts.length ? impacts.join("；") : "状态变化不会自动修改下级记录。"}${confirmError ? `；${confirmError.businessMessage}` : "；已通过当前检查，可以继续确认。"}`,
+      confirmLabel: `确认${labels[action]}`,
+      confirmError,
+      repairAction,
+      repairLabel,
+      diagnostic: confirmError ? { code: confirmError.code, status: confirmError.status, message: confirmError.message } : null,
+      catalogContext: { type, action, target, product, item, expectedVersion: target.version },
+      action: (reason) => {
+        target.status = targetStatus;
+        target.version += 1;
+        if (action === "SOFT_DELETE") target.deletedAt = "2026-08-24 11:20";
+        if (type === "product" && action === "ACTIVATE" && !product.publishedAt) product.publishedAt = "2026-08-24 11:20";
+        auditLogs.unshift({ id: `AUD-${Date.now()}`, time: "08-24 11:20:00", type: `${kindLabel}生命周期`, actor: "林老板", target: type === "product" ? product.code : item.id, reason, result: `${action} · ${targetStatus} · v${target.version}`, client: "Web · Prototype", status: "成功" });
+        renderProducts();
+        if (type === "sku" && state.activeProductId === product.id) renderProductEditorSkus(productSkus[product.id]);
+        renderAuditLogs();
+        showToast(`${kindLabel}已${labels[action]}`);
+      }
+    });
+  }
+
+  function openRestoreEntity(type, item, product = null) {
+    const labels = { brand: "品牌", category: "分类", product: "商品", sku: "SKU" };
+    const restoredStatus = type === "sku" ? "INACTIVE" : "DRAFT";
+    state.activeEntity = { type, id: item.id, item, product };
+    $("#restoreEntityTitle").textContent = `恢复${labels[type]} · ${item.name || item.code || item.id}`;
+    $("#restoreEntitySubtitle").textContent = `当前已归档 · 版本 v${item.version}`;
+    $("#restoreResultStatus").textContent = `恢复结果：${catalogStatusLabel(restoredStatus)}`;
+    $("#restoreResultHint").textContent = "恢复后如需启用，请重新检查影响并单独确认。";
+    $("#confirmRestoreEntityLabel").textContent = `恢复为${catalogStatusLabel(restoredStatus)}`;
     $("#restoreEntityReason").value = "";
     $("#restoreEntityError").hidden = true;
     openModal("#restoreEntityModal");
@@ -1353,7 +1579,7 @@
     if (!agent) return;
     state.activeAgentId = agent.id;
     $("#whitelistTitle").textContent = `配置白名单 · ${agent.name}`;
-    $("#whitelistProducts").innerHTML = products.filter((item) => item.status === "在售").map((product) => `<label class="check whitelist-product"><input type="checkbox" value="${product.id}" ${agent.authMode === "全部在售商品" || agent.whitelist.includes(product.id) ? "checked" : ""}><span>${product.name}<small>${product.code} · ${product.category}</small></span></label>`).join("");
+    $("#whitelistProducts").innerHTML = products.filter((item) => item.status === "ACTIVE").map((product) => `<label class="check whitelist-product"><input type="checkbox" value="${product.id}" ${agent.authMode === "全部在售商品" || agent.whitelist.includes(product.id) ? "checked" : ""}><span>${product.name}<small>${product.code} · ${product.category}</small></span></label>`).join("");
     $("#whitelistReason").value = "";
     $("#whitelistConfirm").checked = false;
     $("#whitelistError").hidden = true;
@@ -1703,16 +1929,45 @@
         openProductEditor(editProduct.closest("tr").dataset.productId);
       }
 
-      const deleteProduct = event.target.closest(".delete-product");
-      if (deleteProduct) openDelete(deleteProduct.closest("tr").dataset.productId);
+      const viewProduct = event.target.closest(".view-product");
+      if (viewProduct) {
+        openProductEditor(viewProduct.closest("tr").dataset.productId);
+      }
 
-      const recommend = event.target.closest(".recommend-toggle");
-      if (recommend) {
-        const product = products.find((item) => item.id === Number(recommend.closest("tr").dataset.productId));
-        product.recommended = !product.recommended;
-        recommend.classList.toggle("active", product.recommended);
-        recommend.setAttribute("aria-pressed", product.recommended);
-        showToast(product.recommended ? "已加入首页推荐" : "已取消首页推荐");
+      const productLifecycle = event.target.closest(".product-lifecycle");
+      if (productLifecycle) {
+        const product = products.find((item) => item.id === Number(productLifecycle.closest("tr").dataset.productId));
+        if (product) catalogLifecyclePreview("product", product, product, productLifecycle.dataset.lifecycleAction);
+      }
+
+      const restoreProduct = event.target.closest(".restore-product");
+      if (restoreProduct) {
+        const product = products.find((item) => item.id === Number(restoreProduct.closest("tr").dataset.productId));
+        if (product) openRestoreEntity("product", product);
+      }
+
+      const skuLifecycle = event.target.closest(".sku-lifecycle");
+      if (skuLifecycle) {
+        const product = products.find((item) => item.id === state.activeProductId);
+        const sku = product && productSkus[product.id]?.find((item) => item.id === skuLifecycle.closest("tr").dataset.skuId);
+        if (product && sku) catalogLifecyclePreview("sku", product, sku, skuLifecycle.dataset.lifecycleAction);
+      }
+
+      const restoreSku = event.target.closest(".restore-sku");
+      if (restoreSku) {
+        const product = products.find((item) => item.id === state.activeProductId);
+        const sku = product && productSkus[product.id]?.find((item) => item.id === restoreSku.closest("tr").dataset.skuId);
+        if (product && sku) openRestoreEntity("sku", sku, product);
+      }
+
+      if (event.target.closest("#uploadProductImage")) {
+        if (state.activeProductImageCount >= 8) showToast("商品图集最多 8 张");
+        else {
+          state.activeProductImageCount += 1;
+          const product = products.find((item) => item.id === state.activeProductId);
+          renderProductEditorImages(product, state.activeProductImageCount);
+          showToast(`已加入第 ${state.activeProductImageCount} 张图片`);
+        }
       }
 
       const review = event.target.closest(".review-aftersale");
@@ -1900,10 +2155,10 @@
 
       const skuDelete = event.target.closest(".sku-delete");
       if (skuDelete) {
-        const rows = $$("#skuRows tr");
-        if (rows.length <= 1) return showToast("至少保留一个商品规格");
         skuDelete.closest("tr").remove();
-        showToast("规格已删除");
+        $("#productSkuTabCount").textContent = $$("#skuRows tr").length;
+        $("#productSummarySkuCount").textContent = $$("#skuRows tr").length;
+        showToast("未保存的 SKU 已移除");
       }
     });
 
@@ -1912,21 +2167,94 @@
     });
 
     $("#modalBackdrop").addEventListener("click", closeOverlays);
+    $("#highRiskRepair").addEventListener("click", () => {
+      const repair = state.highRiskRepairAction;
+      if (!repair) return;
+      closeOverlays();
+      repair();
+    });
+    $("#simulateHighRiskConflict").addEventListener("click", () => {
+      const context = state.pendingHighRiskAction?.catalogContext;
+      if (!context) return;
+      context.target.version += 1;
+      renderProducts();
+      if (context.type === "sku" && state.activeProductId === context.product.id) renderProductEditorSkus(productSkus[context.product.id]);
+      $("#simulateHighRiskConflict").disabled = true;
+      setHighRiskDiagnostic({ message: `已模拟其他管理员将记录更新至 v${context.target.version}；当前预览仍绑定 v${context.expectedVersion}。` });
+    });
     $("#confirmHighRisk").addEventListener("click", () => {
       const pending = state.pendingHighRiskAction;
       const reason = $("#highRiskReason").value.trim();
       if (state.highRiskSubmitting) return showToast("操作正在提交，请勿重复点击");
-      if (!pending || (pending.reasonRequired !== false && !reason) || !$("#highRiskConfirm").checked) {
+      if (!pending || (pending.reasonRequired !== false && (reason.length < 2 || reason.length > 500)) || !$("#highRiskConfirm").checked) {
         $("#highRiskError").hidden = false;
         return;
       }
+      const catalogContext = pending.catalogContext;
+      if (catalogContext && catalogContext.target.version !== catalogContext.expectedVersion) {
+        const currentVersion = catalogContext.target.version;
+        renderProducts();
+        if (catalogContext.type === "sku" && state.activeProductId === catalogContext.product.id) renderProductEditorSkus(productSkus[catalogContext.product.id]);
+        showHighRiskBusinessError({
+          code: "RESOURCE_VERSION_CONFLICT",
+          status: 409,
+          businessMessage: "记录已被其他操作更新。页面已刷新至最新版本，请重新检查影响后再确认。",
+          diagnosticMessage: `旧预览绑定 v${catalogContext.expectedVersion}，当前资源为 v${currentVersion}；旧预览已销毁，不得复用或自动覆盖。`,
+          subtitle: "已刷新最新记录，本次确认未生效"
+        });
+        $("#highRiskConfirm").checked = false;
+        $("#confirmHighRisk").disabled = true;
+        $("#highRiskRepair").hidden = false;
+        $("#highRiskRepair").textContent = `返回最新${catalogContext.type === "product" ? "商品" : "SKU"}`;
+        state.highRiskRepairAction = () => {
+          if (catalogContext.type === "product") {
+            renderProducts();
+            showPage("products");
+          } else {
+            openProductEditor(catalogContext.product.id);
+            selectProductEditorTab("sku");
+          }
+          showToast("已载入最新版本，请重新发起影响预览");
+        };
+        state.pendingHighRiskAction = null;
+        return;
+      }
+      if (catalogContext?.type === "sku" && catalogContext.action === "ACTIVATE" && catalogContext.product.status === "ARCHIVED") {
+        pending.confirmError = archivedParentSkuActivationError();
+        setProductEditorReadOnly(true, catalogContext.product);
+        renderProductEditorImages(catalogContext.product, state.activeProductImageCount, true);
+        renderProductEditorSkus(productSkus[catalogContext.product.id], true);
+        $("#highRiskRepair").hidden = false;
+        $("#highRiskRepair").textContent = "返回最新商品";
+        state.highRiskRepairAction = archivedProductRepair(catalogContext.product);
+      }
       if (pending.confirmError) {
         const error = pending.confirmError;
-        $("#highRiskSubtitle").textContent = `确认失败 · HTTP ${error.status}`;
-        $("#highRiskError").textContent = `${error.code}（${error.status}）：${error.message}`;
-        $("#highRiskError").hidden = false;
+        if (pending.catalogContext) {
+          showHighRiskBusinessError(error);
+          if (error.status === 409) {
+            renderProducts();
+            if (pending.catalogContext.type === "sku" && state.activeProductId === pending.catalogContext.product.id) {
+              renderProductEditorSkus(productSkus[pending.catalogContext.product.id]);
+            }
+            $("#highRiskConfirm").checked = false;
+            $("#confirmHighRisk").disabled = true;
+            state.pendingHighRiskAction = null;
+            showToast("已刷新最新数据，请处理冲突后重新发起影响预览");
+            return;
+          }
+          $("#highRiskConfirm").checked = false;
+          $("#confirmHighRisk").disabled = true;
+          state.pendingHighRiskAction = null;
+          showToast("本次确认未生效，请修复后重新发起影响预览");
+          return;
+        } else {
+          $("#highRiskSubtitle").textContent = `确认失败 · HTTP ${error.status}`;
+          $("#highRiskError").textContent = `${error.code}（${error.status}）：${error.message}`;
+          $("#highRiskError").hidden = false;
+        }
         $("#highRiskConfirm").checked = false;
-        showToast(`${error.code}：记录未改变`);
+        showToast("本次确认未生效，记录保持不变");
         return;
       }
       const action = pending.action;
@@ -1991,31 +2319,11 @@
       item.warning = warning;
       inventoryLedger[item.id] ||= [];
       inventoryLedger[item.id].unshift({ time: "08-11 12:18", delta, result: value, reason: `${reason} · ${note}`, actor: "林老板" });
-      const product = products.find((entry) => inventoryForProduct(entry.id).some((sku) => sku.id === item.id));
-      if (product) product.stock = productInventorySnapshot(product.id).physical;
       renderProducts();
       renderRankings();
       renderInventory();
       closeOverlays();
       showToast("库存已调整，并写入库存流水");
-    });
-
-    $("#confirmDelete").addEventListener("click", () => {
-      const product = products.find((item) => item.id === state.activeProductId);
-      const reason = $("#deleteProductReason").value.trim();
-      if (!product || !reason || !$("#deleteProductConfirm").checked) {
-        $("#deleteProductError").hidden = false;
-        return;
-      }
-      product.status = "已归档";
-      product.deletedAt = "2026-08-11 12:20";
-      product.recommended = false;
-      auditLogs.unshift({ id: `AUD-${Date.now()}`, time: "08-11 12:20:00", type: "商品归档", actor: "林老板", target: product.code, reason, result: "SOFT_DELETED · 历史快照保留", client: "Web · Prototype", status: "成功" });
-      renderProducts();
-      renderRankings();
-      renderAuditLogs();
-      closeOverlays();
-      showToast("商品已软删除并归档，历史订单与佣金快照不受影响");
     });
 
     Object.values(inspectionInputs).forEach((selector) => $(selector).addEventListener("input", () => {
@@ -2423,40 +2731,50 @@
 
     $("#productNameInput").addEventListener("input", () => { $("#productNameCount").textContent = `${$("#productNameInput").value.length} / 60`; });
 
-    $("#publishProduct").addEventListener("click", () => {
+    $("#saveProduct").addEventListener("click", () => {
       const name = $("#productNameInput").value.trim();
       const code = $("#productCodeInput").value.trim().toUpperCase();
       const brand = $("#productBrandInput").value;
       const category = $("#productCategoryInput").value;
       const skus = readProductEditorSkus();
-      const invalidSku = skus.some((sku) => !sku.spec || !sku.id || sku.price < 0 || sku.stock < 0 || !Number.isFinite(sku.price) || !Number.isInteger(sku.stock));
+      const invalidSku = skus.some((sku) => !sku.spec || !sku.id || sku.price <= 0 || !Number.isFinite(sku.price));
       const duplicateCode = products.some((item) => item.code === code && item.id !== state.activeProductId);
       const duplicateSku = skus.some((sku, index) => skus.findIndex((other) => other.id === sku.id) !== index);
-      if (!name || !code || !brand || !category || !$("#productSellingPointInput").value.trim() || invalidSku || duplicateCode || duplicateSku) {
+      const reservedSku = skus.some((sku) => !sku.originalId && Object.values(productSkus).flat().some((existing) => existing.id === sku.id));
+      if (!name || !code || !brand || !category || invalidSku || duplicateCode || duplicateSku || reservedSku) {
         $("#productEditError").hidden = false;
-        $("#productEditError").textContent = duplicateCode ? "商品货号已存在" : duplicateSku ? "同一商品内 SKU 编码不可重复" : "请完整填写商品资料和至少一个有效 SKU";
+        $("#productEditError").textContent = duplicateCode ? "商品货号已存在且归档后仍保留" : duplicateSku ? "同一商品内 SKU 编码不可重复" : reservedSku ? "SKU 编码已存在且归档后仍保留" : "请完整填写商品资料，并确保 SKU 零售价大于 0";
         return;
       }
       let product = products.find((item) => item.id === state.activeProductId);
       if (!product) {
-        product = { id: Math.max(...products.map((item) => item.id)) + 1, name, brand, category, code, sku: skus.length, price: skus[0].price.toFixed(2), stock: skus.reduce((sum, sku) => sum + sku.stock, 0), sales: 0, status: $("#productOnlineInput").checked ? "在售" : "草稿", recommended: $("#productRecommendedInput").checked, art: "art-green" };
+        product = { id: Math.max(...products.map((item) => item.id)) + 1, name, brand, category, code, sales: 0, status: "DRAFT", version: 1, publishedAt: null, imageCount: state.activeProductImageCount, isHot: $("#productRecommendedInput").checked, isNew: $("#productNewInput").checked, art: "art-green" };
         products.unshift(product);
       } else {
-        Object.assign(product, { name, brand, category, code, sku: skus.length, price: skus[0].price.toFixed(2), stock: skus.reduce((sum, sku) => sum + sku.stock, 0), status: $("#productOnlineInput").checked ? "在售" : "已下架", recommended: $("#productRecommendedInput").checked });
+        Object.assign(product, { name, brand, category, imageCount: state.activeProductImageCount, isHot: $("#productRecommendedInput").checked, isNew: $("#productNewInput").checked, version: product.version + 1 });
       }
-      productSkus[product.id] = skus;
-      productDetails[product.id] = { sellingPoint: $("#productSellingPointInput").value.trim(), intro: $("#productIntroInput").value.trim(), ingredients: $("#productIngredientsInput").value.trim(), usage: $("#productUsageInput").value.trim(), isNew: $("#productNewInput").checked, favorites: productDetails[product.id]?.favorites || 0 };
+      const previousSkus = productSkus[product.id] || [];
+      productSkus[product.id] = skus.map((sku) => {
+        const existing = previousSkus.find((item) => item.id === sku.originalId);
+        if (existing) return { ...existing, spec: sku.spec, price: sku.price, isRecommended: sku.isRecommended, version: existing.version + 1 };
+        inventorySkus.push({ id: sku.id, product: name, spec: sku.spec, art: product.art, available: 0, paymentReserved: 0, aftersaleReserved: 0, warning: 0 });
+        return { spec: sku.spec, id: sku.id, price: sku.price, status: "INACTIVE", version: 1, isRecommended: sku.isRecommended };
+      });
+      productDetails[product.id] = { sellingPoint: $("#productSellingPointInput").value.trim(), intro: $("#productIntroInput").value.trim(), ingredients: $("#productIngredientsInput").value.trim(), usage: $("#productUsageInput").value.trim(), favorites: productDetails[product.id]?.favorites || 0 };
       state.activeProductId = product.id;
-      auditLogs.unshift({ id: `AUD-${Date.now()}`, time: "08-11 12:30:00", type: "商品资料", actor: "林老板", target: product.code, reason: "商品表单校验通过", result: `${product.status} · ${skus.length} 个 SKU`, client: "Web · Prototype", status: "成功" });
+      auditLogs.unshift({ id: `AUD-${Date.now()}`, time: "08-24 11:18:00", type: "商品资料", actor: "林老板", target: product.code, reason: "普通资料保存与 If-Match 通过", result: `${product.status} · ${skus.length} 个 SKU · 新 SKU 固定 INACTIVE`, client: "Web · Prototype", status: "成功" });
       renderProducts();
       renderAuditLogs();
-      showToast(`商品“${product.name}”已保存并绑定当前记录`);
+      showToast(`商品“${product.name}”已保存；生命周期状态未改变`);
       setTimeout(() => showPage("products"), 300);
     });
 
     $("#addSku").addEventListener("click", () => {
-      $("#skuRows").insertAdjacentHTML("beforeend", `<tr><td><input data-sku-field="spec" value="新规格"></td><td><input data-sku-field="id" value="NEW-SKU"></td><td><div class="money-input"><span>¥</span><input data-sku-field="price" value="0.00"></div></td><td><input data-sku-field="stock" type="number" min="0" value="0"></td><td><div class="sku-commission-cell"><strong>${categoryRate($("#productCategoryInput").value).toFixed(2)}%</strong><small>预计 ¥0.00 / 件</small></div></td><td><span class="rule-source category">一级分类</span></td><td><button class="icon-button danger sku-delete" title="删除规格">${icon("trash")}</button></td></tr>`);
-      showToast("已新增规格，请填写价格和库存");
+      const sequence = $$("#skuRows tr").length + 1;
+      $("#skuRows").insertAdjacentHTML("beforeend", `<tr data-sku-persisted="false"><td><input data-sku-field="spec" value="新规格 ${sequence}"></td><td><input data-sku-field="id" value="NEW-SKU-${sequence}"></td><td><div class="money-input"><span>¥</span><input data-sku-field="price" value="1.00"></div></td><td><span class="cell-main">实物 0</span><span class="cell-sub">锁定 0 · 可售 0</span></td><td><label class="switch"><input data-sku-field="recommended" type="checkbox"><i></i></label></td><td><span class="tag neutral" data-status-code="INACTIVE">已停用</span><span class="cell-sub">保存后 v1</span></td><td><button class="icon-button danger sku-delete" title="移除未保存 SKU">${icon("trash")}</button></td></tr>`);
+      $("#productSkuTabCount").textContent = $$("#skuRows tr").length;
+      $("#productSummarySkuCount").textContent = $$("#skuRows tr").length;
+      showToast("已新增 SKU 草稿；保存后为停用状态，库存为 0");
     });
 
     $("#saveEntity").addEventListener("click", () => {
@@ -2508,14 +2826,19 @@
         $("#restoreEntityError").hidden = false;
         return;
       }
-      active.item.status = "DRAFT";
+      const restoredStatus = active.type === "sku" ? "INACTIVE" : "DRAFT";
+      active.item.status = restoredStatus;
       active.item.deletedAt = null;
       active.item.version += 1;
-      auditLogs.unshift({ id: `AUD-${Date.now()}`, time: "08-11 12:33:00", type: "内容配置", actor: "林老板", target: active.item.id, reason, result: `RESTORE · DRAFT · v${active.item.version}`, client: "Web · Prototype", status: "成功" });
-      renderMasterData(active.type);
+      auditLogs.unshift({ id: `AUD-${Date.now()}`, time: "08-24 11:22:00", type: active.type === "product" || active.type === "sku" ? "商品生命周期" : "内容配置", actor: "林老板", target: active.item.code || active.item.id, reason, result: `RESTORE · ${restoredStatus} · v${active.item.version}`, client: "Web · Prototype", status: "成功" });
+      if (["brand", "category"].includes(active.type)) renderMasterData(active.type);
+      else {
+        renderProducts();
+        if (active.type === "sku" && active.product) renderProductEditorSkus(productSkus[active.product.id]);
+      }
       renderAuditLogs();
       closeOverlays();
-      showToast(`${active.item.name} 已恢复为草稿，请单独执行启用`);
+      showToast(`${active.item.name || active.item.id} 已恢复为 ${restoredStatus}，请单独执行启用`);
     });
 
     $("#archiveEntity").addEventListener("click", () => {
@@ -2639,8 +2962,18 @@
     renderWithdrawals();
     renderAuditLogs();
     setupEvents();
+    if (state.page === "product-edit") openProductEditor(1);
     window.__ADMIN_PROTOTYPE__ = {
-      getState: () => JSON.parse(JSON.stringify({ state, aftersales, inventorySkus, agents, auditLogs })),
+      getState: () => JSON.parse(JSON.stringify({ state, products, productSkus, aftersales, inventorySkus, agents, auditLogs })),
+      archiveParentDuringPendingSkuActivation: () => {
+        const context = state.pendingHighRiskAction?.catalogContext;
+        if (!context || context.type !== "sku" || context.action !== "ACTIVATE") return false;
+        context.product.status = "ARCHIVED";
+        context.product.deletedAt = "2026-08-24 11:30";
+        context.product.version += 1;
+        renderProducts();
+        return true;
+      },
       inspectionIsSealed: (id) => {
         const inspection = aftersales.find((item) => item.id === id)?.inspection;
         return Boolean(inspection?.evidenceSealed && Object.isFrozen(inspection) && Object.isFrozen(inspection.evidenceManifest));

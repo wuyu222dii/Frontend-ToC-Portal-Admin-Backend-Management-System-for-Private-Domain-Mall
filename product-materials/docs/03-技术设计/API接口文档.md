@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 |---|---|
-| 文档版本 | v2.4.1 |
-| 对应产品基线 | MVP/PRD v2.4.1、CH-001 至 CH-006 |
-| 接口阶段 | CH-006 B3 契约保持冻结；B3 后端 development 已实现并验收 `GO`，staging/production 未批准 |
+| 文档版本 | v2.4.2 |
+| 对应产品基线 | MVP/PRD v2.4.2、CH-001 至 CH-010 |
+| 接口阶段 | CH-010 B4.0 Product/SKU 契约解阻；B4.1 等待契约门禁和准确 SHA 的普通 CI 全绿，staging/production 未批准 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
 | 更新时间 | 2026-08-24 |
 
@@ -67,7 +67,7 @@ OpenAPI 与所有客户端只配置一个 server：`/api/v1`。下表及全文�
 - 分页默认 `page=1&page_size=20`，`page_size` 最大 100。
 - 删除业务实体默认是软删除或归档；历史订单、账本、规则版本和审计记录不可物理删除。
 
-列表查询使用端点专用参数，不向单资源 GET 注入分页。所有日期筛选均按 `Asia/Shanghai` 自然日包含 `date_to`，服务端转换为 UTC 半开区间 `[date_from 00:00, date_to+1day 00:00)`；金额上下限是两位 decimal string。未显式传 `sort` 时普通列表固定 `created_at DESC,id DESC`，品牌和分类固定 `sort_order ASC,id ASC`，商品列表固定 `published_at DESC,id DESC`，流水固定 `occurred_at DESC,id DESC`，排行固定净值 DESC、资源 ID ASC，保证翻页稳定。
+列表查询使用端点专用参数，不向单资源 GET 注入分页。所有日期筛选均按 `Asia/Shanghai` 自然日包含 `date_to`，服务端转换为 UTC 半开区间 `[date_from 00:00, date_to+1day 00:00)`；金额上下限是两位 decimal string。未显式传 `sort` 时普通列表固定 `created_at DESC,id DESC`，品牌和分类固定 `sort_order ASC,id ASC`，商品列表固定 `published_at DESC NULLS LAST,id DESC`，流水固定 `occurred_at DESC,id DESC`，排行固定净值 DESC、资源 ID ASC，保证翻页稳定。
 
 | 列表 | 专用 query（除 `page/page_size`） |
 |---|---|
@@ -124,7 +124,7 @@ OpenAPI 与所有客户端只配置一个 server：`/api/v1`。下表及全文�
 | 403 | `PERMISSION_DENIED`、`REAUTH_REQUIRED` | 角色、数据范围或二次验证不足 |
 | 404 | `RESOURCE_NOT_FOUND` | 不存在或无权查看时统一返回 |
 | 409 | `RESOURCE_VERSION_CONFLICT`、`STATE_CONFLICT`、`SOFT_DELETED_KEY_RESERVED` | 乐观锁、非法/同状态转换或软删除业务键保留冲突 |
-| 422 | `STOCK_INSUFFICIENT`、`AFTERSALE_QUOTA_EXCEEDED`、`ACTIVE_PRODUCT_DEPENDENCY`、`FILE_CONTENT_MISMATCH` | 业务依赖或文件实测内容校验不通过 |
+| 422 | `STOCK_INSUFFICIENT`、`AFTERSALE_QUOTA_EXCEEDED`、`ACTIVE_PRODUCT_DEPENDENCY`、`FILE_CONTENT_MISMATCH`、`PRODUCT_PRIMARY_IMAGE_REQUIRED`、`PRODUCT_ACTIVE_SKU_REQUIRED`、`ACTIVE_SKU_DEPENDENCY`、`ACTIVE_INVENTORY_RESERVATION` | 业务依赖、活动预占或文件实测内容校验不通过 |
 | 429 | `RATE_LIMITED`、`REAUTH_LOCKED` | 访问或验证次数受限 |
 | 500 | `INTERNAL_ERROR` | 未预期错误，不暴露堆栈和敏感值 |
 
@@ -605,14 +605,14 @@ HR-15 预览只提交 `reason/reset_password/reset_totp`，不得提交 TOTP、�
 | `POST` | `/admin/categories/{category_id}/restore` | 原因 + If-Match 恢复原记录为 DRAFT |
 | `GET/POST` | `/admin/products` | 商品列表、新建商品 |
 | `GET/PATCH` | `/admin/products/{product_id}` | 商品详情与非生命周期资料修改 |
-| `POST` | `/admin/products/{product_id}/lifecycle-preview` | HR-06 预览停用或软删除的预占/历史影响 |
-| `POST` | `/admin/products/{product_id}/lifecycle-changes` | HR-06 确认停用或软删除 |
-| `POST` | `/admin/products/{product_id}/restore` | 恢复原 SPU，不创建重复业务键 |
-| `POST` | `/admin/products/{product_id}/skus` | 新建 SKU |
+| `POST` | `/admin/products/{product_id}/lifecycle-preview` | HR-06 预览启用、停用或软删除的图片、SKU、预占与历史影响 |
+| `POST` | `/admin/products/{product_id}/lifecycle-changes` | HR-06 确认启用、停用或软删除 |
+| `POST` | `/admin/products/{product_id}/restore` | 原因 + If-Match 恢复原 SPU 为 DRAFT，不创建重复业务键 |
+| `POST` | `/admin/products/{product_id}/skus` | 201 新建 INACTIVE SKU 并原子建立零值库存余额 |
 | `PATCH` | `/admin/skus/{sku_id}` | 修改非生命周期字段 |
-| `POST` | `/admin/skus/{sku_id}/lifecycle-preview` | HR-06 预览停用或软删除的预占/历史影响 |
-| `POST` | `/admin/skus/{sku_id}/lifecycle-changes` | HR-06 确认停用或软删除 |
-| `POST` | `/admin/skus/{sku_id}/restore` | 恢复原 SKU，历史 code 永不复用 |
+| `POST` | `/admin/skus/{sku_id}/lifecycle-preview` | HR-06 预览启用、停用或软删除的预占/历史影响 |
+| `POST` | `/admin/skus/{sku_id}/lifecycle-changes` | HR-06 确认启用、停用或软删除 |
+| `POST` | `/admin/skus/{sku_id}/restore` | 原因 + If-Match 恢复原 SKU 为 INACTIVE，历史 code 永不复用 |
 | `GET/POST` | `/admin/banners` | Banner 列表、新建 |
 | `PATCH/DELETE` | `/admin/banners/{banner_id}` | 修改、启停、归档 |
 | `POST` | `/admin/banners/{banner_id}/restore` | 恢复原 Banner |
@@ -621,15 +621,23 @@ HR-15 预览只提交 `reason/reset_password/reset_totp`，不得提交 TOTP、�
 | `POST` | `/admin/inventory/{sku_id}/adjustments` | 填写原因后调整实物库存 |
 | `GET` | `/admin/inventory/{sku_id}/ledger` | SKU 库存流水 |
 
-品牌、分类、商品、SKU 和 Banner 使用软删除。品牌/分类使用闭合 `MasterDataLifecycleAction`，只接受 `action=ACTIVATE|DEACTIVATE|SOFT_DELETE + reason`；商品/SKU 继续使用原闭合 `LifecycleAction`，只接受 `DEACTIVATE|SOFT_DELETE`，不得因 CH-006 获得 ACTIVATE。三类品牌/分类动作均经过影响预览/二次确认，确认携带新 `Idempotency-Key`、预览 token/确认哈希和 `If-Match`。
+品牌、分类、商品、SKU 和 Banner 使用软删除。品牌/分类继续使用闭合 `MasterDataLifecycleAction`；CH-010 删除旧共享 `LifecycleAction`，商品与 SKU 分别使用闭合 `ProductLifecycleAction`、`SkuLifecycleAction`。三个 DTO 都只接受 `action=ACTIVATE|DEACTIVATE|SOFT_DELETE + reason`。三类动作均经过影响预览/二次确认，确认携带新 `Idempotency-Key`、预览 token/确认哈希和 `If-Match`；原因最终写入 `audit_log.reason`。
 
 品牌/分类创建的 `initial_status` 固定为 `DRAFT`。非删除状态只允许 `DRAFT/INACTIVE -> ACTIVATE -> ACTIVE`、`ACTIVE -> DEACTIVATE -> INACTIVE`、`DRAFT/INACTIVE -> SOFT_DELETE -> ARCHIVED + deleted_at`；ACTIVE 不得直接软删除，非法或同状态的新幂等请求返回 409。默认列表排除软删除记录，只有显式 `status=ARCHIVED` 才返回归档记录，详情允许读取归档。restore 只接受软删除 ARCHIVED，不走 preview，要求原因、幂等键和 `If-Match`，成功后清除 `deleted_at`、固定恢复为 DRAFT 并递增版本；若需启用必须重新 preview。
 
 品牌 `BrandCreateRequest.sort_order` 为必填非负整数，`BrandUpdateRequest.sort_order` 为可选非负整数；分类保持同样的创建必填/更新可选约束。两类列表固定按 `sort_order ASC,id ASC`。名称/业务 code 在软删除后仍全局保留，只能恢复原记录，再次创建返回 `SOFT_DELETED_KEY_RESERVED` 409。存在 ACTIVE 商品时，DEACTIVATE/SOFT_DELETE preview 仍以 200 返回影响，confirm 返回 `ACTIVE_PRODUCT_DEPENDENCY` 422；历史引用不丢失。商品/SKU 存在活动预占时不得软删除，已产生订单或库存流水的 SKU 编码不可修改、不可复用。
 
-商品写契约与存储字段一致：Product create 接收 `spu_code/name/brand_id/category_id/subtitle/introduction/ingredients/usage_method/is_hot/is_new/initial_status/images`，update 接收上述可变字段与完整 `images`，不接收任何价格；SKU create/update 接收 `code/name/spec_json/retail_price/is_recommended/status` 中适用字段，`spec_json` 必须是闭合键值对象，当前唯一成交价为 `retail_price`，全局不存在 `member_price` 或代理价。`GET /admin/products` 使用 `AdminProductListResponse`：每个 SPU 同时返回 SKU 数、活动 SKU 数、实物/锁定/可售库存合计，以及每个 SKU 的同口径库存摘要；三个库存值必须来自同一快照，`available=physical-locked`。Product 详情响应返回按 `sort_order,id` 排序的活动图集和全部可见 SKU。
+商品写契约与存储字段一致：Product create 接收 `spu_code/name/brand_id/category_id/subtitle/introduction/ingredients/usage_method/is_hot/is_new/initial_status/images`，其中 `initial_status` 固定为 `DRAFT`；update 只接收可变资料与完整 `images`，不得修改 `spu_code`、状态或价格。SKU create 接收 `code/name/spec_json/retail_price/is_recommended/initial_status`，其中 `initial_status` 固定为 `INACTIVE`；update 不接收 code 或状态。`spec_json` 是闭合键值对象，唯一成交价为 `retail_price`，不存在 `member_price` 或代理价。SKU create 成功使用 201，并在同一事务创建 `physical_qty=0,locked_qty=0` 的 `inventory_balance`。
 
-`images[{file_id,sort_order}]` 是活动图集原子替换而非增量追加：服务端校验文件 `READY`、用途和操作者归属，排序与文件不重复；被移除关系软删除。`initial_status=ACTIVE` 或生命周期启用时至少一张活动图，最小 sort_order 为主图，否则返回 `PRODUCT_PRIMARY_IMAGE_REQUIRED`。品牌 `logo_file_id/description`、分类 `icon_file_id` 与 Banner 的 `file_id/target_type/target_id/target_url` 都有对应持久字段；Banner target 使用闭合互斥联合 `NONE/PRODUCT/CATEGORY/URL`，PRODUCT/CATEGORY 只允许一个有效 `target_id`，URL 只允许 HTTPS `target_url` 且须通过域名/内部路由白名单，不能携带多余目标字段；`ends_at` 必须晚于 `starts_at`。所有素材写入都要求 READY 且 purpose 匹配，幂等重放不得生成重复关系。
+Product 状态只允许 `DRAFT/INACTIVE -> ACTIVATE -> ACTIVE`、`ACTIVE -> DEACTIVATE -> INACTIVE`、`DRAFT/INACTIVE -> SOFT_DELETE -> ARCHIVED`；restore 固定回 DRAFT。SKU 只允许 `INACTIVE -> ACTIVATE -> ACTIVE`、`ACTIVE -> DEACTIVATE -> INACTIVE`、`INACTIVE -> SOFT_DELETE -> ARCHIVED`；restore 固定回 INACTIVE。ACTIVE 不得直接软删除，父级状态变化不级联 SKU。SKU 可在非归档 DRAFT/INACTIVE/ACTIVE Product 下启用，但 Store 仅返回 Product 与 SKU 同时 ACTIVE 的记录。
+
+Product 管理列表默认排除 ARCHIVED，只有显式 `status=ARCHIVED` 才返回软删除商品；按 ID 详情允许读取 ARCHIVED。Product 详情不因 SKU 归档而裁剪子项，始终返回全部 SKU，保证恢复和历史审计入口稳定。
+
+Product ACTIVATE 必须重查 ACTIVE 品牌、ACTIVE 分类、至少一张 `READY/PUBLIC/PRODUCT_IMAGE` 和至少一个 ACTIVE SKU；缺图或缺活动 SKU 分别返回 `PRODUCT_PRIMARY_IMAGE_REQUIRED`、`PRODUCT_ACTIVE_SKU_REQUIRED` 422。首次 ACTIVATE 写 `published_at`，后续重新启用不得覆盖。Product 软删除有 ACTIVE SKU 时返回 `ACTIVE_SKU_DEPENDENCY` 422；Product 任一 SKU 或目标 SKU 有活动库存预占时返回 `ACTIVE_INVENTORY_RESERVATION` 422。preview 仍返回 200 影响信息，confirm 才阻断且失败时不得消费 preview。
+
+`GET /admin/products` 使用 `AdminProductListResponse` 并固定 `published_at DESC NULLS LAST,id DESC`：每个 SPU 返回 SKU 数、活动 SKU 数、实物/锁定/可售库存合计和 SKU 同口径摘要；三个库存值必须来自同一快照，`available=physical-locked`。没有 ACTIVE SKU 时 `minimum_active_price` 返回 null。Product 详情返回最多 8 张、按 `sort_order ASC,id ASC` 排序的活动图集，以及包括 ARCHIVED 在内、按 `created_at ASC,id ASC` 排序的全部 SKU。
+
+`images[{file_id,sort_order}]` 是最多 8 张的活动图集原子替换：服务端校验文件 `READY/PUBLIC/PRODUCT_IMAGE`、操作者归属、排序和文件不重复；被移除关系软删除。最小 sort_order 为主图。SPU/SKU code 创建后永不可改，软删除后仍全局保留，只能恢复原记录。品牌 `logo_file_id/description`、分类 `icon_file_id` 与 Banner 的 `file_id/target_type/target_id/target_url` 都有对应持久字段；Banner 仍属于后续批次，不进入 B4 Product/SKU 最小闭环。
 
 ### 6.3 订单、发货、售后和退款
 
@@ -830,7 +838,7 @@ Provider 回调先写入回调收件箱，再由幂等处理器消费；领域�
 
 ### 8.1 高风险预览确认协议
 
-只有 PRD `HR-01` 至 `HR-15` 标记“预览 + 二次确认”的动作采用本协议：停用代理；轮换/停用邀请码；重置代理密码；客户转移；佣金规则；品牌/分类启用、停用或软删除；商品/SKU 停用或软删除；库存调整；售后初审/验货后拒绝；退款、金额补偿和重试；提现拒绝/通过/付款；业务规则/退货地址；管理员安全重置。品牌/分类恢复、商品白名单、售后同意、验货记录、订单兜底完成、代理重新启用和物流更正不冒充高风险动作。OpenAPI 为每对动作提供具体请求 DTO，不允许使用无字段通配对象绕过字段校验：
+只有 PRD `HR-01` 至 `HR-15` 标记“预览 + 二次确认”的动作采用本协议：停用代理；轮换/停用邀请码；重置代理密码；客户转移；佣金规则；品牌、分类、商品或 SKU 启用、停用、软删除；库存调整；售后初审/验货后拒绝；退款、金额补偿和重试；提现拒绝/通过/付款；业务规则/退货地址；管理员安全重置。品牌/分类/Product/SKU 恢复、商品白名单、售后同意、验货记录、订单兜底完成、代理重新启用和物流更正不冒充高风险动作。OpenAPI 为每对动作提供具体请求 DTO，不允许使用无字段通配对象绕过字段校验：
 
 1. 预览接口对规范化请求体计算 `request_hash`，返回影响摘要、当前 `resource_version`、60 秒短时 `preview_token` 和 `confirmation_hash`；所有该类成功响应必须带 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；
 2. 确认接口必须提交完全一致的业务字段、`preview_token`、`confirmation_hash`、`If-Match` 与新的 `Idempotency-Key`；
@@ -865,8 +873,8 @@ Provider 回调先写入回调收件箱，再由幂等处理器消费；领域�
 - 商城公开目录不出现 file ID、管理状态/版本或草稿归档记录；后台商品列表的 SPU/SKU 实物、锁定、可售库存同一快照守恒。
 - 代理客户列表只出现当前 `ACTIVE/BOUND` 客户；代理订单列表/详情只出现 `PAID` 且最终归因为当前代理的订单，不泄露客户电话或详细地址。
 - 候选查询/拒绝、文件完成确认等非首次响应不能重新返回 candidate token 或无关签名能力；所有短时能力响应均可机器校验禁止缓存头。
-- `pnpm contracts:check` 固定校验 172 paths、196 operations、196 unique operationId、306 schemas 和 0 dangling refs；原始 schema refs 685。品牌/分类专用 ACTIVATE 可解析，Product/SKU ACTIVATE 被闭合 schema 拒绝。
-- 品牌/分类创建只接受 DRAFT，排序稳定；三动作状态矩阵、ARCHIVED 查询与恢复为 DRAFT、三项新错误码和文件 SHA-256/JPEG-PNG/5 MiB/TTL 约束均有契约测试。
+- `pnpm contracts:check` 本轮实测 172 paths、196 operations、196 unique operationId、307 schemas、685 schema refs 和 0 dangling refs。旧 `LifecycleAction` 不再存在，Product/SKU 专用三动作 DTO 均闭合并拒绝额外字段。
+- Product/SKU 固定创建状态、完整状态矩阵、恢复目标、不级联、首次 `published_at`、nullable 最低活动价、8 图、归档 SKU、零库存余额、不可变 code、201 SKU create 和四个新 422 均有契约及集成测试。
 - 非 `APPROVED` 提现无法请求完整银行卡号；短时授权不可跨提现单、跨会话或重复使用。
 - 所有关键回调和写操作在重复请求下只产生一次业务结果。
 - OpenAPI 中的所有文本目录 operation 可被唯一 operationId 覆盖，路径只拼接一次 `/api/v1`；三端 auth refresh/logout/current/change-password 和 TOTP/recovery 均有契约。

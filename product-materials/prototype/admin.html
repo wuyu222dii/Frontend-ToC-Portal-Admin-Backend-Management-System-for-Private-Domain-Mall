@@ -264,20 +264,21 @@
 
         <section class="page-view" data-view="products">
           <div class="page-heading">
-            <div><p class="page-kicker">商品中心</p><h2>商品管理</h2><p>维护商品资料、规格价格和实时库存。</p></div>
+            <div><p class="page-kicker">商品中心 · ADM-03</p><h2>商品管理</h2><p>维护商品资料、图集、SKU 价格与独立生命周期；库存仅作只读汇总。</p></div>
             <div class="heading-actions"><button id="openCreateProduct" class="button primary" type="button"><svg class="icon"><use href="#i-plus"></use></svg>新增商品</button></div>
           </div>
-          <div class="subnav-tabs"><button class="active" type="button">全部商品 <span>128</span></button><button type="button" data-status-shortcut="在售">在售 <span>116</span></button><button type="button" data-status-shortcut="已下架">已下架 <span>8</span></button><button type="button" data-status-shortcut="草稿">草稿 <span>4</span></button></div>
+          <div class="rule-priority-callout"><div><svg class="icon"><use href="#i-alert"></use></svg></div><p><strong>启停与归档必须先预览再确认</strong><span>已启用商品不能直接归档；恢复后回到草稿。首次启用会记录发布时间，再次启用不会改变原发布时间。</span></p></div>
+          <div class="subnav-tabs"><button class="active" type="button" data-status-shortcut="">默认列表</button><button type="button" data-status-shortcut="ACTIVE">已启用</button><button type="button" data-status-shortcut="INACTIVE">已停用</button><button type="button" data-status-shortcut="DRAFT">草稿</button></div>
           <div class="filter-bar">
             <div class="filter-search"><svg class="icon"><use href="#i-search"></use></svg><input id="productSearch" placeholder="搜索商品名称或货号"></div>
             <select id="productCategory" aria-label="商品分类"><option value="">全部分类</option><option>护肤品</option><option>洗发水</option><option>沐浴露</option><option>防晒产品</option><option>香水</option><option>彩妆</option><option>男士护理</option><option>家庭清洁</option></select>
             <select id="productBrand" aria-label="商品品牌"><option value="">全部品牌</option><option>植萃研</option><option>沐光</option><option>青木序</option><option>净简</option></select>
-            <select id="productStatus" aria-label="商品状态"><option value="">全部状态</option><option>在售</option><option>已下架</option><option>草稿</option><option>已归档</option></select>
+            <select id="productStatus" aria-label="商品状态"><option value="">默认（不含已归档）</option><option value="DRAFT">草稿</option><option value="ACTIVE">已启用</option><option value="INACTIVE">已停用</option><option value="ARCHIVED">已归档</option></select>
             <button id="productReset" class="button ghost" type="button"><svg class="icon"><use href="#i-refresh"></use></svg>重置</button>
           </div>
           <article class="panel table-panel product-table-panel">
-            <div class="table-toolbar"><div><strong id="productCount">共 8 件商品</strong><span class="muted">库存不足商品 2 件</span></div></div>
-            <div class="table-scroll"><table class="products-table"><thead><tr><th class="checkbox-cell"><input type="checkbox" aria-label="全选商品"></th><th>商品信息</th><th>价格</th><th>SKU / 库存摘要</th><th class="optional-wide">销量</th><th>状态</th><th class="optional-wide">首页推荐</th><th>操作</th></tr></thead><tbody id="productRows"></tbody></table></div>
+            <div class="table-toolbar"><div><strong id="productCount">共 0 件商品</strong><span class="muted">默认不显示归档记录；最低活动价可能为空</span></div></div>
+            <div class="table-scroll"><table class="products-table"><thead><tr><th>商品信息</th><th>最低活动价</th><th>SKU / 库存只读摘要</th><th class="optional-wide">净销量</th><th>状态 / 首次发布</th><th class="optional-wide">商品标记</th><th>操作</th></tr></thead><tbody id="productRows"></tbody></table></div>
             <div class="pagination"><span>第 1-8 条 / 共 128 条</span><div><button class="icon-button" disabled title="上一页"><svg class="icon"><use href="#i-chevron-left"></use></svg></button><button class="page-number active">1</button><button class="page-number">2</button><button class="page-number">3</button><button class="icon-button next-page" title="下一页"><svg class="icon"><use href="#i-chevron-left"></use></svg></button></div></div>
           </article>
         </section>
@@ -312,32 +313,30 @@
           <div class="detail-heading">
             <button class="back-button" type="button" data-go="products" title="返回商品列表"><svg class="icon"><use href="#i-chevron-left"></use></svg></button>
 	            <div><div class="detail-title-row"><h2 id="productEditTitle">编辑商品</h2><span id="productEditStatus" class="tag success">在售</span></div><p id="productEditMeta">SPU-202608-001 · 最后保存于今天 09:42</p></div>
-            <div class="detail-actions"><button class="button secondary" type="button" data-toast="已保存为草稿"><svg class="icon"><use href="#i-save"></use></svg>保存草稿</button><button class="button primary" type="button" id="publishProduct"><svg class="icon"><use href="#i-check"></use></svg>保存并上架</button></div>
+            <div class="detail-actions"><button class="button primary" type="button" id="saveProduct"><svg class="icon"><use href="#i-save"></use></svg>保存商品资料</button></div>
           </div>
           <div class="edit-layout">
             <div class="edit-main">
-              <div class="edit-tabs" role="tablist"><button class="active" type="button" data-edit-tab="basic">基本信息</button><button type="button" data-edit-tab="sku">规格与库存 <span>3</span></button><button type="button" data-edit-tab="detail">详情内容</button></div>
+              <div class="edit-tabs" role="tablist"><button class="active" type="button" data-edit-tab="basic">基本信息</button><button type="button" data-edit-tab="sku">SKU 与价格 <span id="productSkuTabCount">0</span></button><button type="button" data-edit-tab="detail">详情内容</button></div>
               <section class="edit-section active" data-edit-panel="basic">
-                <div class="section-title"><h3>商品图片</h3><p>建议 1:1 比例，单张不超过 5MB，最多 8 张。</p></div>
-                <div class="image-uploader">
-                  <button class="upload-card" type="button" data-toast="原型：已打开本地图片选择器"><svg class="icon"><use href="#i-upload"></use></svg><strong>上传图片</strong><span>JPG / PNG</span></button>
+                <div class="section-title"><h3>商品图集</h3><p>按设定顺序稳定展示；单张不超过 5MB，最多 8 张。<span id="productImageCount">0 / 8</span></p></div>
+                <div id="productImageUploader" class="image-uploader">
+                  <button id="uploadProductImage" class="upload-card" type="button"><svg class="icon"><use href="#i-upload"></use></svg><strong>上传图片</strong><span>JPG / PNG</span></button>
                   <div id="productEditArt" class="product-art art-green large"><i></i><b>植萃研</b><span>氨基酸净澈洁面乳</span><em>主图</em></div>
-                  <div class="product-art art-blue large"><i></i><b>AMINO</b><span>温和洁面</span></div>
-                  <div class="product-art art-coral large"><i></i><b>DETAIL</b><span>细腻泡沫</span></div>
                 </div>
                 <div class="form-grid two-cols">
                   <label class="form-field full"><span>商品名称 <b>*</b></span><input id="productNameInput" maxlength="60"><small id="productNameCount">0 / 60</small></label>
                   <label class="form-field"><span>品牌 <b>*</b></span><select id="productBrandInput"></select></label>
                   <label class="form-field"><span>商品货号 <b>*</b></span><input id="productCodeInput"></label>
                   <label class="form-field"><span>一级分类 <b>*</b></span><select id="productCategoryInput"></select></label>
-                  <label class="form-field full"><span>商品卖点 <b>*</b></span><textarea id="productSellingPointInput" rows="3"></textarea><small>建议突出核心成分与使用感受</small></label>
-                  <div id="productEditError" class="form-error full" hidden>请完整填写商品名称、货号、品牌、分类和至少一个有效 SKU</div>
+                  <label class="form-field full"><span>副标题</span><textarea id="productSellingPointInput" rows="3" maxlength="300"></textarea><small>可选，最多 300 字</small></label>
+                  <div id="productEditError" class="form-error full" hidden>请完整填写商品名称、货号、品牌和分类，并检查 SKU</div>
                 </div>
               </section>
               <section class="edit-section" data-edit-panel="sku">
-                <div class="section-title row"><div><h3>规格与库存</h3><p>每个规格独立维护零售价和可售库存；有效佣金由统一规则自动解析。</p></div><button id="addSku" class="button secondary small" type="button"><svg class="icon"><use href="#i-plus"></use></svg>新增规格</button></div>
-                <div class="sku-table-wrap"><table class="sku-table"><thead><tr><th>规格名称</th><th>规格编码</th><th>零售价</th><th>可售库存</th><th>有效佣金</th><th>规则来源</th><th>操作</th></tr></thead><tbody id="skuRows"><tr><td><input value="120g 单支"></td><td><input value="CLEAN-120"></td><td><div class="money-input"><span>¥</span><input value="69.00"></div></td><td><input type="number" value="286"></td><td><div class="sku-commission-cell"><strong>10.00%</strong><small>预计 ¥6.90 / 件</small></div></td><td><span class="rule-source category">一级分类</span></td><td><button class="icon-button danger sku-delete" title="删除规格"><svg class="icon"><use href="#i-trash"></use></svg></button></td></tr><tr><td><input value="120g 两支装"></td><td><input value="CLEAN-120X2"></td><td><div class="money-input"><span>¥</span><input value="128.00"></div></td><td><input type="number" value="96"></td><td><div class="sku-commission-cell"><strong>12.00%</strong><small>预计 ¥15.36 / 件</small></div></td><td><span class="rule-source sku">SKU 例外</span></td><td><button class="icon-button danger sku-delete" title="删除规格"><svg class="icon"><use href="#i-trash"></use></svg></button></td></tr><tr><td><input value="30g 旅行装"></td><td><input value="CLEAN-030"></td><td><div class="money-input"><span>¥</span><input value="29.00"></div></td><td><input type="number" value="42"></td><td><div class="sku-commission-cell"><strong>10.00%</strong><small>预计 ¥2.90 / 件</small></div></td><td><span class="rule-source category">一级分类</span></td><td><button class="icon-button danger sku-delete" title="删除规格"><svg class="icon"><use href="#i-trash"></use></svg></button></td></tr></tbody></table></div>
-                <div class="inventory-tip"><svg class="icon"><use href="#i-alert"></use></svg><span>保存后，库存变化会自动写入库存流水。订单锁定库存不包含在可售库存中。</span></div>
+                <div class="section-title row"><div><h3>SKU 与价格</h3><p>新 SKU 创建后为停用状态；编码创建后不可修改，启停和归档需单独确认。</p></div><button id="addSku" class="button secondary small" type="button"><svg class="icon"><use href="#i-plus"></use></svg>新增 SKU</button></div>
+                <div class="sku-table-wrap"><table class="sku-table"><thead><tr><th>规格名称</th><th>SKU 编码</th><th>零售价</th><th>库存只读</th><th>SKU 推荐</th><th>状态 / 版本</th><th>操作</th></tr></thead><tbody id="skuRows"></tbody></table></div>
+                <div class="inventory-tip"><svg class="icon"><use href="#i-info"></use></svg><span>SKU 创建时库存固定为 0；实物、锁定和可售库存仅展示，不在 ADM-04 调整。</span></div>
               </section>
               <section class="edit-section" data-edit-panel="detail">
                 <div class="section-title"><h3>商品详情</h3><p>信息将按以下顺序展示在小程序商品详情页。</p></div>
@@ -348,8 +347,9 @@
               </section>
             </div>
             <aside class="edit-aside">
-	              <section class="panel aside-panel"><h3>发布设置</h3><label class="setting-row"><span><strong>商品状态</strong><small>开启后小程序可见</small></span><span class="switch active"><input id="productOnlineInput" type="checkbox" checked><i></i></span></label><label class="setting-row"><span><strong>首页推荐</strong><small>展示在热销推荐中</small></span><span class="switch active"><input id="productRecommendedInput" type="checkbox" checked><i></i></span></label><label class="setting-row"><span><strong>新品标记</strong><small>展示新品角标</small></span><span class="switch"><input id="productNewInput" type="checkbox"><i></i></span></label></section>
-	              <section class="panel aside-panel"><h3>商品摘要</h3><dl class="summary-list"><div><dt>总库存</dt><dd id="productSummaryStock">0</dd></div><div><dt>锁定库存</dt><dd id="productSummaryReserved">0</dd></div><div><dt>累计销量</dt><dd id="productSummarySales">0</dd></div><div><dt>收藏人数</dt><dd id="productSummaryFavorites">0</dd></div></dl></section>
+		              <section class="panel aside-panel"><h3>商品标记</h3><label class="setting-row"><span><strong>热销标记</strong><small>仅影响商品展示，不改变启停状态</small></span><span class="switch"><input id="productRecommendedInput" type="checkbox"><i></i></span></label><label class="setting-row"><span><strong>新品标记</strong><small>仅影响商品展示，不改变启停状态</small></span><span class="switch"><input id="productNewInput" type="checkbox"><i></i></span></label></section>
+	              <section class="panel aside-panel"><h3>只读摘要</h3><dl class="summary-list"><div><dt>图集</dt><dd id="productSummaryImages">0 / 8</dd></div><div><dt>SKU</dt><dd id="productSummarySkuCount">0</dd></div><div><dt>实物 / 锁定</dt><dd><span id="productSummaryStock">0</span> / <span id="productSummaryReserved">0</span></dd></div><div><dt>首次发布</dt><dd id="productSummaryPublishedAt">尚未发布</dd></div></dl></section>
+              <div class="state-footnote"><svg class="icon"><use href="#i-info"></use></svg>新 SKU 创建后为停用状态；保存资料不会改变状态，可在列表中单独启用、停用或归档。</div>
               <button class="button secondary full-width" type="button" data-toast="小程序预览二维码已生成"><svg class="icon"><use href="#i-eye"></use></svg>预览小程序页面</button>
             </aside>
           </div>
@@ -478,12 +478,6 @@
     <div class="modal-actions"><button class="button secondary modal-close" type="button">取消</button><button id="confirmStock" class="button primary" type="button">确认调整</button></div>
   </section>
 
-  <section id="deleteModal" class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="deleteTitle" hidden>
-    <div class="modal-heading"><div><h3 id="deleteTitle">归档商品</h3><p>软删除需要原因与二次确认</p></div><button class="icon-button modal-close" type="button" title="关闭"><svg class="icon"><use href="#i-x"></use></svg></button></div>
-    <div class="modal-body"><div class="danger-callout"><svg class="icon"><use href="#i-alert"></use></svg><div><strong id="deleteProductName">商品</strong><span>商品将进入“已归档”且停止展示；历史订单、库存流水与佣金快照永久保留。</span></div></div><label class="form-field"><span>归档原因 <b>*</b></span><textarea id="deleteProductReason" rows="3"></textarea></label><label class="check agreement"><input id="deleteProductConfirm" type="checkbox"><span>我确认这是软删除，且已核对在途订单影响</span></label><div id="deleteProductError" class="form-error" hidden>请填写原因并勾选确认</div></div>
-    <div class="modal-actions"><button class="button secondary modal-close" type="button">取消</button><button id="confirmDelete" class="button danger-outline" type="button"><svg class="icon"><use href="#i-trash"></use></svg>确认归档</button></div>
-  </section>
-
   <section id="aftersaleModal" class="modal wide-modal" role="dialog" aria-modal="true" aria-labelledby="aftersaleTitle" hidden>
     <div class="modal-heading"><div><h3 id="aftersaleTitle">审核售后申请</h3><p id="aftersaleModalNo">AS202608060003 · 仅退款</p></div><button class="icon-button modal-close" type="button" title="关闭"><svg class="icon"><use href="#i-x"></use></svg></button></div>
     <div class="modal-body"><div class="review-grid"><div class="review-product"><div class="product-art art-blue"><i></i><b>售后</b></div><div><strong id="reviewProductName">商品</strong><span id="reviewSkuQuantity">SKU × 1</span><small id="reviewPaidAmount">实付</small></div></div><dl class="review-facts"><div><dt>客户</dt><dd id="reviewCustomer"></dd></div><div><dt>申请金额</dt><dd id="reviewAmount" class="coral-text"></dd></div><div><dt>申请原因</dt><dd id="reviewReason"></dd></div><div><dt>货物状态</dt><dd id="reviewGoodsState"></dd></div></dl></div><div class="proof-box"><strong>客户说明与占用</strong><p id="reviewCustomerNote"></p><span id="reviewReservation"></span></div><div id="aftersaleWorkflow" class="workflow-panel"></div><section id="inspectionFields" class="inspection-panel" hidden><div class="inspection-heading"><div><strong>退货验货与处置</strong><span id="inspectionRequested">申请退货 0 件</span></div><small>PASS 必须全量实收、全额批准且不退回客户；ABNORMAL 也必须完整分配退款与处置数量，不保留未退款货物。</small></div><div class="inspection-grid"><label class="form-field"><span>received_qty 实收数量 <b>*</b></span><input id="inspectionReceivedQty" name="received_qty" type="number" min="0" step="1"></label><label class="form-field"><span>approved_refund_qty 批准退款数量 <b>*</b></span><input id="inspectionApprovedQty" name="approved_refund_qty" type="number" min="0" step="1"></label><label class="form-field"><span>restock 回库 <b>*</b></span><input id="inspectionRestockQty" name="restock" type="number" min="0" step="1"></label><label class="form-field"><span>damaged 损坏 <b>*</b></span><input id="inspectionDamagedQty" name="damaged" type="number" min="0" step="1"></label><label class="form-field"><span>scrap 报废 <b>*</b></span><input id="inspectionScrapQty" name="scrap" type="number" min="0" step="1"></label><label class="form-field"><span>return_to_customer 退回客户 <b>*</b></span><input id="inspectionReturnQty" name="return_to_customer" type="number" min="0" step="1"></label></div><div id="inspectionBalance" class="inspection-balance" role="status"></div><div id="inspectionEvidencePanel" class="inspection-evidence"><div><strong>验货证据清单</strong><span id="inspectionEvidencePolicy">PASS 可为 0 份；ABNORMAL 至少 1 份。</span></div><button id="addInspectionEvidence" class="button secondary small" type="button">选择证据文件</button><div id="inspectionEvidenceList" class="inspection-evidence-list"></div></div></section><section id="inspectionResolutionPanel" class="inspection-resolution" hidden><div><strong>验货异常二阶段处置</strong><span>首次 ABNORMAL 数量、证据与异常原因已封存，此处只能选择一次终态分支。</span></div><label class="form-field"><span>处置原因 <b>*</b></span><textarea id="inspectionResolutionReason" rows="2" placeholder="CONTINUE_REFUND 与 REJECT_AFTER_RETURN 均须填写可审计原因"></textarea></label></section><label class="form-field"><span>处理说明 <b>*</b></span><textarea id="reviewNote" rows="3" placeholder="审核、验货、退款重试均须填写原因"></textarea></label><label id="inspectionExceptionField" class="form-field" hidden><span>验货异常说明 <b>*</b></span><textarea id="inspectionException" rows="2" placeholder="例如：寄回数量不足、商品缺件或需退回客户"></textarea></label></div>
@@ -543,7 +537,7 @@
 
   <section id="highRiskModal" class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="highRiskTitle" hidden>
     <div class="modal-heading"><div><h3 id="highRiskTitle">确认高风险操作</h3><p id="highRiskSubtitle">操作将写入不可变审计日志</p></div><button class="icon-button modal-close" type="button" title="关闭"><svg class="icon"><use href="#i-x"></use></svg></button></div>
-    <div class="modal-body"><div class="danger-callout"><svg class="icon"><use href="#i-alert"></use></svg><div><strong>影响范围</strong><span id="highRiskImpact">请核对本次操作影响。</span></div></div><label id="highRiskReasonField" class="form-field"><span>操作原因 <b>*</b></span><textarea id="highRiskReason" rows="3" placeholder="请填写可供审计追溯的业务原因"></textarea></label><label class="check agreement"><input id="highRiskConfirm" type="checkbox"><span>我已核对目标、影响范围和历史数据保留规则</span></label><div id="highRiskError" class="form-error" hidden>请完成必填项并勾选确认</div></div>
+    <div class="modal-body"><div class="danger-callout"><svg class="icon"><use href="#i-alert"></use></svg><div><strong>影响范围</strong><span id="highRiskImpact">请核对本次操作影响。</span></div></div><label id="highRiskReasonField" class="form-field"><span>操作原因 <b>*</b></span><textarea id="highRiskReason" rows="3" placeholder="请填写可供审计追溯的业务原因"></textarea></label><label class="check agreement"><input id="highRiskConfirm" type="checkbox"><span>我已核对目标、影响范围和历史数据保留规则</span></label><div id="highRiskError" class="form-error" hidden>请完成必填项并勾选确认</div><button id="highRiskRepair" class="button secondary small" type="button" hidden>去处理</button><details id="highRiskDiagnostics" hidden><summary>查看诊断详情</summary><p id="highRiskDiagnosticMessage">当前暂无错误。</p><code id="highRiskDiagnosticCode" data-error-code="" data-http-status=""></code><button id="simulateHighRiskConflict" class="button text small" type="button" hidden>模拟其他管理员更新记录</button></details></div>
     <div class="modal-actions"><button class="button secondary modal-close" type="button">取消</button><button id="confirmHighRisk" class="button danger-outline" type="button"><svg class="icon"><use href="#i-check"></use></svg><span id="highRiskConfirmLabel">确认执行</span></button></div>
   </section>
 
@@ -566,9 +560,9 @@
   </section>
 
   <section id="restoreEntityModal" class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="restoreEntityTitle" hidden>
-    <div class="modal-heading"><div><h3 id="restoreEntityTitle">恢复记录</h3><p id="restoreEntitySubtitle">If-Match 乐观锁校验</p></div><button class="icon-button modal-close" type="button" title="关闭"><svg class="icon"><use href="#i-x"></use></svg></button></div>
-    <div class="modal-body"><div class="receiver-summary"><svg class="icon"><use href="#i-refresh"></use></svg><div><strong>恢复结果：草稿（DRAFT）</strong><span>恢复不生成影响预览；如需上线，恢复后须单独执行 ACTIVATE。</span></div></div><label class="form-field"><span>恢复原因 <b>*</b></span><textarea id="restoreEntityReason" rows="3" minlength="2" maxlength="500" placeholder="请填写可供审计追溯的恢复原因"></textarea></label><div id="restoreEntityError" class="form-error" hidden>恢复原因需为 2–500 个字符</div></div>
-    <div class="modal-actions"><button class="button secondary modal-close" type="button">取消</button><button id="confirmRestoreEntity" class="button primary" type="button"><svg class="icon"><use href="#i-refresh"></use></svg>恢复为草稿</button></div>
+    <div class="modal-heading"><div><h3 id="restoreEntityTitle">恢复记录</h3><p id="restoreEntitySubtitle">恢复前将校验最新版本</p></div><button class="icon-button modal-close" type="button" title="关闭"><svg class="icon"><use href="#i-x"></use></svg></button></div>
+    <div class="modal-body"><div class="receiver-summary"><svg class="icon"><use href="#i-refresh"></use></svg><div><strong id="restoreResultStatus">恢复结果：草稿</strong><span id="restoreResultHint">恢复后如需启用，请重新检查影响并单独确认。</span></div></div><label class="form-field"><span>恢复原因 <b>*</b></span><textarea id="restoreEntityReason" rows="3" minlength="2" maxlength="500" placeholder="请填写可供审计追溯的恢复原因"></textarea></label><div id="restoreEntityError" class="form-error" hidden>恢复原因需为 2–500 个字符</div></div>
+    <div class="modal-actions"><button class="button secondary modal-close" type="button">取消</button><button id="confirmRestoreEntity" class="button primary" type="button"><svg class="icon"><use href="#i-refresh"></use></svg><span id="confirmRestoreEntityLabel">恢复为草稿</span></button></div>
   </section>
 
   <section id="businessRuleModal" class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="businessRuleTitle" hidden>

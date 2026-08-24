@@ -42,13 +42,13 @@ jobs:
       REDIS_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
       REDIS_URL: redis://:ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}@127.0.0.1:6379/0
       MINIO_ROOT_USER: ci-${{ github.run_id }}
-      MINIO_ROOT_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+      MINIO_ROOT_PASSWORD: ci-minio-root-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
       S3_ENDPOINT: http://127.0.0.1:9000
       S3_BUCKET: mall-ci
       S3_PUBLIC_BASE_URL: http://127.0.0.1:9000/mall-ci
       S3_REGION: us-east-1
       S3_ACCESS_KEY: ci-access-${{ github.run_id }}-${{ github.run_attempt }}
-      S3_SECRET_KEY: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+      S3_SECRET_KEY: ci-s3-runtime-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
       S3_FORCE_PATH_STYLE: "true"
       WORKER_POLL_INTERVAL_MS: "1000"
       WORKER_BATCH_SIZE: "20"
@@ -134,7 +134,7 @@ jobs:
       - name: Lint OpenAPI
         run: pnpm contracts:lint
 
-      - name: Check CH-006 contract invariants
+      - name: Check CH-010 contract invariants
         run: pnpm contracts:check
 
       - name: Check generated contract drift

@@ -1,8 +1,8 @@
 openapi: "3.1.0"
 info:
   title: "洗化产品私域商城 API"
-  version: "2.4.1-ch006"
-  description: "CH-006 单一线协议，含 CH-008 下载签名幂等语义勘误。所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
+  version: "2.4.2-ch010"
+  description: "CH-010 单一线协议，继承 CH-006 与 CH-008，并闭合商品、SKU 创建和生命周期语义。所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
   license:
     name: "Proprietary"
     identifier: "LicenseRef-Proprietary"
@@ -5434,6 +5434,7 @@ paths:
       tags:
         - "Admin"
       summary: "商品列表、新建商品"
+      description: "默认排除 ARCHIVED，仅显式 status=ARCHIVED 返回归档商品；列表固定按 published_at DESC NULLS LAST,id DESC 排序；没有 ACTIVE SKU 时 minimum_active_price 返回 null。"
       operationId: "getAdminProducts"
       security:
         -
@@ -5513,6 +5514,7 @@ paths:
       tags:
         - "Admin"
       summary: "商品列表、新建商品"
+      description: "商品固定创建为 DRAFT；SPU code 创建后不可修改且软删除后继续保留。图集最多 8 张，按 sort_order ASC,id ASC 返回。"
       operationId: "postAdminProducts"
       security:
         -
@@ -5554,6 +5556,7 @@ paths:
       tags:
         - "Admin"
       summary: "商品详情与非生命周期资料修改"
+      description: "详情允许读取 ARCHIVED 商品并返回全部 SKU（包括 ARCHIVED）；SKU 固定按 created_at ASC,id ASC，图集固定按 sort_order ASC,id ASC。"
       operationId: "getAdminProductsByProductId"
       security:
         -
@@ -5593,6 +5596,7 @@ paths:
       tags:
         - "Admin"
       summary: "商品详情与非生命周期资料修改"
+      description: "SPU code 不可修改；images 是最多 8 张的完整替换集合，服务端原子校验并按 sort_order ASC,id ASC 返回。"
       operationId: "patchAdminProductsByProductId"
       security:
         -
@@ -5642,7 +5646,8 @@ paths:
     post:
       tags:
         - "Admin"
-      summary: "HR-06 预览停用或软删除的预占/历史影响"
+      summary: "HR-06 预览商品启用、停用或软删除影响"
+      description: "状态机固定为 DRAFT/INACTIVE 经 ACTIVATE 进入 ACTIVE、ACTIVE 经 DEACTIVATE 进入 INACTIVE、DRAFT/INACTIVE 经 SOFT_DELETE 进入 ARCHIVED 并设置 deleted_at；ACTIVE 不得直接软删除。ACTIVATE 校验 ACTIVE 品牌、ACTIVE 分类、至少一张 READY/PUBLIC PRODUCT_IMAGE 和至少一个 ACTIVE SKU。preview 即使发现启用前置条件或软删除依赖不满足仍返回 200，并在 impact.warnings 中说明；真正阻断发生在 confirm。reason 最终写入 audit_log.reason。"
       operationId: "postAdminProductsByProductIdLifecyclePreview"
       security:
         -
@@ -5664,7 +5669,7 @@ paths:
             schema:
               allOf:
                 -
-                  "$ref": "#/components/schemas/LifecycleAction"
+                  "$ref": "#/components/schemas/ProductLifecycleAction"
               unevaluatedProperties: false
       responses:
         200:
@@ -5698,7 +5703,8 @@ paths:
     post:
       tags:
         - "Admin"
-      summary: "HR-06 确认停用或软删除"
+      summary: "HR-06 确认商品启用、停用或软删除"
+      description: "必须使用同主体、同会话、同 action、同 target、同请求体和同版本的未消费 preview，并提交新幂等键与 If-Match。ACTIVATE 时品牌或分类不是 ACTIVE 返回 409 STATE_CONFLICT，缺少图片或 ACTIVE SKU 分别返回 422 PRODUCT_PRIMARY_IMAGE_REQUIRED 或 PRODUCT_ACTIVE_SKU_REQUIRED；SOFT_DELETE 存在 ACTIVE SKU 或活动库存预占分别返回 422 ACTIVE_SKU_DEPENDENCY 或 ACTIVE_INVENTORY_RESERVATION。published_at 仅首次 ACTIVATE 时写入，重新启用不得覆盖；reason 写入 audit_log.reason。"
       operationId: "postAdminProductsByProductIdLifecycleChanges"
       security:
         -
@@ -5722,7 +5728,7 @@ paths:
             schema:
               allOf:
                 -
-                  "$ref": "#/components/schemas/LifecycleAction"
+                  "$ref": "#/components/schemas/ProductLifecycleAction"
                 -
                   "$ref": "#/components/schemas/HighRiskConfirmationFields"
               unevaluatedProperties: false
@@ -5754,6 +5760,7 @@ paths:
       tags:
         - "Admin"
       summary: "恢复原 SPU，不创建重复业务键"
+      description: "仅允许 ARCHIVED 恢复为 DRAFT 并清空 deleted_at，不级联恢复 SKU；重新启用前必须重新 preview。reason 写入 audit_log.reason，并要求新幂等键与 If-Match。"
       operationId: "postAdminProductsByProductIdRestore"
       security:
         -
@@ -5804,6 +5811,7 @@ paths:
       tags:
         - "Admin"
       summary: "新建 SKU"
+      description: "SKU 固定创建为 INACTIVE；code 创建后不可修改且软删除后继续保留。创建事务同时建立 physical_stock=0、locked_stock=0、available_stock=0 的库存余额。"
       operationId: "postAdminProductsByProductIdSkus"
       security:
         -
@@ -5825,7 +5833,7 @@ paths:
             schema:
               "$ref": "#/components/schemas/SkuCreateRequest"
       responses:
-        200:
+        201:
           description: "成功"
           content:
             application/json:
@@ -5852,6 +5860,7 @@ paths:
       tags:
         - "Admin"
       summary: "修改非生命周期字段"
+      description: "SKU code 与生命周期状态不可通过本接口修改。"
       operationId: "patchAdminSkusBySkuId"
       security:
         -
@@ -5901,7 +5910,8 @@ paths:
     post:
       tags:
         - "Admin"
-      summary: "HR-06 预览停用或软删除的预占/历史影响"
+      summary: "HR-06 预览 SKU 启用、停用或软删除影响"
+      description: "状态机固定为 INACTIVE 经 ACTIVATE 进入 ACTIVE、ACTIVE 经 DEACTIVATE 进入 INACTIVE、INACTIVE 经 SOFT_DELETE 进入 ARCHIVED 并设置 deleted_at；ACTIVE 不得直接软删除。SKU 只可在非 ARCHIVED Product 下 ACTIVATE，允许先于父商品启用以完成 DRAFT/INACTIVE Product 的发布准备；只有 Product 与 SKU 同时 ACTIVE 时才公开可售。preview 即使发现父商品归档或活动库存预占仍返回 200，并在 impact.warnings 中说明；confirm 分别以 409 STATE_CONFLICT 或 422 ACTIVE_INVENTORY_RESERVATION 阻断。reason 最终写入 audit_log.reason。"
       operationId: "postAdminSkusBySkuIdLifecyclePreview"
       security:
         -
@@ -5923,7 +5933,7 @@ paths:
             schema:
               allOf:
                 -
-                  "$ref": "#/components/schemas/LifecycleAction"
+                  "$ref": "#/components/schemas/SkuLifecycleAction"
               unevaluatedProperties: false
       responses:
         200:
@@ -5957,7 +5967,8 @@ paths:
     post:
       tags:
         - "Admin"
-      summary: "HR-06 确认停用或软删除"
+      summary: "HR-06 确认 SKU 启用、停用或软删除"
+      description: "必须使用同主体、同会话、同 action、同 target、同请求体和同版本的未消费 preview，并提交新幂等键与 If-Match；ARCHIVED Product 下的 SKU 不得 ACTIVATE，返回 409 STATE_CONFLICT。confirm 在串行化事务中消费 preview、更新状态与版本并将 reason 写入 audit_log.reason；SKU 状态变化不级联修改 Product。"
       operationId: "postAdminSkusBySkuIdLifecycleChanges"
       security:
         -
@@ -5981,7 +5992,7 @@ paths:
             schema:
               allOf:
                 -
-                  "$ref": "#/components/schemas/LifecycleAction"
+                  "$ref": "#/components/schemas/SkuLifecycleAction"
                 -
                   "$ref": "#/components/schemas/HighRiskConfirmationFields"
               unevaluatedProperties: false
@@ -6013,6 +6024,7 @@ paths:
       tags:
         - "Admin"
       summary: "恢复原 SKU，历史 code 永不复用"
+      description: "仅允许 ARCHIVED 恢复为 INACTIVE 并清空 deleted_at；恢复后必须重新 preview 才能 ACTIVATE。reason 写入 audit_log.reason，并要求新幂等键与 If-Match。"
       operationId: "postAdminSkusBySkuIdRestore"
       security:
         -
@@ -10310,7 +10322,7 @@ components:
           schema:
             "$ref": "#/components/schemas/ErrorResponse"
     BusinessError:
-      description: "库存、售后额度、金额分配或业务前置校验失败；CH-006 固定业务码包括 ACTIVE_PRODUCT_DEPENDENCY、FILE_CONTENT_MISMATCH。"
+      description: "库存、售后额度、金额分配或业务前置校验失败；固定业务码包括 ACTIVE_PRODUCT_DEPENDENCY、FILE_CONTENT_MISMATCH，以及 CH-010 的 PRODUCT_PRIMARY_IMAGE_REQUIRED、PRODUCT_ACTIVE_SKU_REQUIRED、ACTIVE_SKU_DEPENDENCY、ACTIVE_INVENTORY_RESERVATION（均为 422）。"
       content:
         application/json:
           schema:
@@ -11440,7 +11452,7 @@ components:
           type: "string"
           minLength: 2
           maxLength: 500
-    LifecycleAction:
+    ProductLifecycleAction:
       type: "object"
       required:
         - "action"
@@ -11449,12 +11461,31 @@ components:
         action:
           type: "string"
           enum:
+            - "ACTIVATE"
             - "DEACTIVATE"
             - "SOFT_DELETE"
         reason:
           type: "string"
           minLength: 2
           maxLength: 500
+      description: "商品高风险生命周期动作；operation 组合层使用 unevaluatedProperties=false 闭合请求。"
+    SkuLifecycleAction:
+      type: "object"
+      required:
+        - "action"
+        - "reason"
+      properties:
+        action:
+          type: "string"
+          enum:
+            - "ACTIVATE"
+            - "DEACTIVATE"
+            - "SOFT_DELETE"
+        reason:
+          type: "string"
+          minLength: 2
+          maxLength: 500
+      description: "SKU 高风险生命周期动作；operation 组合层使用 unevaluatedProperties=false 闭合请求。"
     MasterDataLifecycleAction:
       type: "object"
       required:
@@ -11983,6 +12014,7 @@ components:
     ProductCreateRequest:
       type: "object"
       additionalProperties: false
+      description: "固定创建 DRAFT；SPU code 创建后永不可改且软删除后继续保留。"
       required:
         - "spu_code"
         - "name"
@@ -12024,29 +12056,17 @@ components:
             - "null"
           maxLength: 5000
         initial_status:
-          type: "string"
-          enum:
-            - "DRAFT"
-            - "ACTIVE"
+          const: "DRAFT"
         is_hot:
           type: "boolean"
         is_new:
           type: "boolean"
         images:
           type: "array"
+          maxItems: 8
           uniqueItems: true
           items:
             "$ref": "#/components/schemas/ProductImageInput"
-      allOf:
-        -
-          if:
-            properties:
-              initial_status:
-                const: "ACTIVE"
-          then:
-            properties:
-              images:
-                minItems: 1
     ProductUpdateRequest:
       type: "object"
       additionalProperties: false
@@ -12086,6 +12106,7 @@ components:
           type: "boolean"
         images:
           type: "array"
+          maxItems: 8
           uniqueItems: true
           items:
             "$ref": "#/components/schemas/ProductImageInput"
@@ -12119,6 +12140,7 @@ components:
     SkuCreateRequest:
       type: "object"
       additionalProperties: false
+      description: "固定创建 INACTIVE；code 创建后永不可改且软删除后继续保留，并在同一事务创建零值库存余额。"
       required:
         - "code"
         - "name"
@@ -12145,10 +12167,7 @@ components:
           type: "boolean"
           default: false
         initial_status:
-          type: "string"
-          enum:
-            - "ACTIVE"
-            - "INACTIVE"
+          const: "INACTIVE"
     SkuUpdateRequest:
       type: "object"
       additionalProperties: false
@@ -14193,7 +14212,11 @@ components:
             -
               type: "null"
         minimum_active_price:
-          "$ref": "#/components/schemas/PositiveMoney"
+          oneOf:
+            -
+              "$ref": "#/components/schemas/PositiveMoney"
+            -
+              type: "null"
         net_sales_count:
           type: "integer"
         is_hot:
@@ -14255,6 +14278,7 @@ components:
           "$ref": "#/components/schemas/CategoryView"
         images:
           type: "array"
+          maxItems: 8
           items:
             "$ref": "#/components/schemas/ProductImageView"
         skus:
@@ -14277,6 +14301,7 @@ components:
         version:
           type: "integer"
           minimum: 1
+      description: "详情返回全部 SKU（包括 ARCHIVED），固定按 created_at ASC,id ASC；图集最多 8 张，固定按 sort_order ASC,id ASC。"
     AdminProductSkuInventorySummary:
       type: "object"
       additionalProperties: false

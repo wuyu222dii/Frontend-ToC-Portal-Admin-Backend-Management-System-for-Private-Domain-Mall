@@ -6,10 +6,10 @@
 |---|---|
 | 产品名称 | 洗化产品私域商城（工作名） |
 | 文档类型 | Product Requirements Document |
-| 文档版本 | v2.4.1 |
+| 文档版本 | v2.4.2 |
 | 对应阶段 | 三端标准 MVP |
 | 更新日期 | 2026-08-24 |
-| 当前状态 | 产品/API 基线仍为 v2.4.1/CH-006；B3 development 及 B2/B3 repository rollback-only 已通过，CH-009 允许 B4 development；staging/production `NO-GO` |
+| 当前状态 | CH-010 已批准并进入 B4.0 商品/SKU 契约解阻；B4.1 等待契约门禁与准确 SHA 的普通 CI 全绿；staging/production `NO-GO` |
 | 产品终端 | 消费者微信小程序、一级代理工作台、总部管理后台 |
 | 人员角色 | `CUSTOMER`、`AGENT_ADMIN`、`SUPER_ADMIN` |
 
@@ -23,7 +23,8 @@
 | v2.2 | 2026-08-11 | 落实 CH-003：推广白名单语义、可选账户手机号、SKU 交易、待付款与迟到支付、独立状态轴、退款回库、售后额度占用、隐私删除和高风险操作保护 | 已归档 |
 | v2.3 | 2026-08-11 | 落实 CH-004：数据库改为 Supabase 托管 PostgreSQL；不改变业务功能、页面、FR、AC 或 US 范围 | 已归档 |
 | v2.4 | 2026-08-11 | 落实 CH-005：单包裹发货门禁、服务端售后计价、可恢复支付意图、退款双状态轴、退货验货、并发裁决、TOTP 与高风险操作唯一矩阵 | 已归档 |
-| v2.4.1 | 2026-08-13 | 落实 CH-006：品牌排序、品牌/分类 DRAFT 创建与专用生命周期、恢复草稿、文件内容完整性、签名 TTL、对象可见性和完成幂等策略 | 当前产品版本；B3 development 已按 CH-009 闭合交付门禁 |
+| v2.4.1 | 2026-08-13 | 落实 CH-006：品牌排序、品牌/分类 DRAFT 创建与专用生命周期、恢复草稿、文件内容完整性、签名 TTL、对象可见性和完成幂等策略 | 已归档；B3 development 已按 CH-009 闭合交付门禁 |
+| v2.4.2 | 2026-08-24 | 落实 CH-010：Product/SKU 专用三动作生命周期、固定创建状态、首次发布时间、nullable 最低活动价、归档 SKU、8 图、零库存初值和不可变 code | 当前产品版本；B4.0 契约批次实施中 |
 
 ### 文档使用约定
 
@@ -218,6 +219,7 @@
 - 上线前完成代理合作协议、佣金税务与结算政策、银行卡处理授权、隐私政策、用户协议和售后规则审核。
 - 线下付款操作需确定真实财务责任人、审批制度、付款凭证保留周期与异常追款流程。
 - 真实商品、图片版权、配送范围和售后地址必须在上线前提供。
+- B4 development 本轮只闭合 ADM-03/04 的 Product/SKU 最小管理链路；ADM-07 Banner、ADM-08 库存人工调整/流水仍属于整体 MVP，但不进入 B4.0 至 B4.4，不得在商品编辑中提供库存写入口。
 
 ## 5. 信息架构与页面清单
 
@@ -598,11 +600,11 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 
 | ID | 需求 | 优先级 | 验收要点 |
 |---|---|---:|---|
-| FR-ADM-PROD-001 | 管理品牌、分类、商品、图集、详情和 SKU | P0 | 品牌/分类创建固定 DRAFT，非负排序按 `sort_order,id` 稳定生效；历史订单不受商品修改影响 |
-| FR-ADM-PROD-002 | 管理 SKU 零售价、上下架和推荐状态 | P0 | 当前版本不出现代理价或会员价 |
-| FR-ADM-PROD-003 | 品牌、分类、商品和 SKU 采用软删除 | P0 | 品牌/分类 ACTIVE 不得直接软删除，DRAFT/INACTIVE 软删除为 ARCHIVED；恢复原记录固定回 DRAFT；历史订单、库存流水、佣金快照和规则版本仍可追溯 |
+| FR-ADM-PROD-001 | 管理品牌、分类、商品、最多 8 张图、详情和 SKU | P0 | Product 固定 DRAFT 创建，SKU 固定 INACTIVE 创建；图集原子替换并按 `sort_order,id` 排序，历史订单不受商品修改影响 |
+| FR-ADM-PROD-002 | 管理 SKU 零售价、上下架和推荐状态 | P0 | SKU 先启用后 Product 才可启用；当前版本不出现代理价或会员价，商品列表无 ACTIVE SKU 时最低活动价显示为空 |
+| FR-ADM-PROD-003 | 品牌、分类、商品和 SKU 采用软删除 | P0 | ACTIVE 不得直接软删除；Product/SKU 分别恢复为 DRAFT/INACTIVE，不级联恢复；SPU/SKU code 永不可改或复用，历史事实仍可追溯 |
 | FR-ADM-PROD-004 | 分类或品牌存在在售商品时禁止停用或软删除 | P0 | preview 返回影响清单，confirm 以 422 阻断；须先迁移或下架商品后重试 |
-| FR-ADM-PROD-005 | 商品/SKU 生命周期与活动预占一致 | P0 | 下架阻止新加购/结算但已有合法预占可在到期前支付；活动预占存在时禁止软删除 |
+| FR-ADM-PROD-005 | 商品/SKU 生命周期与活动预占一致 | P0 | 三动作均 preview-confirm；商品启用要求 ACTIVE 品牌/分类、公开主图和 ACTIVE SKU；ACTIVE SKU/活动预占按对象阻断软删除，下架不级联且已有合法预占可在到期前支付 |
 | FR-ADM-CONTENT-001 | 管理 Banner、热销和新品推荐 | P0 | 有效期、排序和启停生效 |
 | FR-ADM-INV-001 | 查看实物、锁定和可售库存 | P0 | 商品列表按 SPU 汇总 SKU 数及实物/锁定/可售库存，支持下钻每个 SKU 与流水；可售库存计算一致 |
 | FR-ADM-INV-002 | 库存调整必须填写原因并生成流水 | P0 | 调整后始终满足 `实物库存 >= 锁定库存 >= 0`，展示结果预览并用条件更新防并发越界 |
@@ -767,6 +769,12 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 - 品牌/分类状态机固定为：非删除 `DRAFT/INACTIVE -> ACTIVATE -> ACTIVE`；非删除 `ACTIVE -> DEACTIVATE -> INACTIVE`；非删除 `DRAFT/INACTIVE -> SOFT_DELETE -> ARCHIVED + deleted_at`。非法或同状态的新请求返回 409，ACTIVE 不得直接软删除。
 - ACTIVATE、DEACTIVATE、SOFT_DELETE 均要求原因、影响预览、二次确认、新幂等键和 `If-Match`。存在 ACTIVE 商品时，停用/软删除预览仍成功列出影响，确认以 `ACTIVE_PRODUCT_DEPENDENCY` 422 阻断。
 - restore 仅适用于软删除 ARCHIVED，保留原因、幂等和 `If-Match`，成功后清除 `deleted_at`、状态固定为 DRAFT、版本递增；恢复不复用 preview，启用必须另走 ACTIVATE。默认列表排除归档，显式 `status=ARCHIVED` 返回归档记录，详情允许读取归档以支持恢复。
+- Product 创建固定 `DRAFT`，SKU 创建固定 `INACTIVE`；普通编辑不得修改状态。Product 只允许 `DRAFT/INACTIVE -> ACTIVATE -> ACTIVE`、`ACTIVE -> DEACTIVATE -> INACTIVE`、`DRAFT/INACTIVE -> SOFT_DELETE -> ARCHIVED`，恢复固定 DRAFT；SKU 只允许 `INACTIVE -> ACTIVATE -> ACTIVE`、`ACTIVE -> DEACTIVATE -> INACTIVE`、`INACTIVE -> SOFT_DELETE -> ARCHIVED`，恢复固定 INACTIVE。状态变化不级联修改子 SKU，SKU 可在非归档 DRAFT/INACTIVE Product 下先启用，但仅 Product 与 SKU 同时 ACTIVE 才公开可售。
+- Product/SKU 的 ACTIVATE、DEACTIVATE、SOFT_DELETE 均要求原因、preview-confirm、新幂等键与 `If-Match`；restore 只要求原因、新幂等键与 `If-Match`，不新增 preview。原因写入审计；409 后必须刷新并重新预览，不能复用旧 token。
+- Product ACTIVATE 必须同时具备 ACTIVE 品牌、ACTIVE 分类、至少一张 `READY/PUBLIC/PRODUCT_IMAGE` 和至少一个 ACTIVE SKU；分别缺少图片或 ACTIVE SKU 时返回 `PRODUCT_PRIMARY_IMAGE_REQUIRED`、`PRODUCT_ACTIVE_SKU_REQUIRED` 422。首次启用写 `published_at`，重新启用不得覆盖。
+- ACTIVE Product/SKU 不得直接软删除。Product 存在 ACTIVE SKU 时 confirm 返回 `ACTIVE_SKU_DEPENDENCY` 422；Product 任一 SKU 或目标 SKU 存在活动库存预占时返回 `ACTIVE_INVENTORY_RESERVATION` 422。preview 仍以 200 返回影响，失败 confirm 不消费 preview。
+- Product 列表固定 `published_at DESC NULLS LAST,id DESC`；无 ACTIVE SKU 时 `minimum_active_price=null`。Product 详情返回全部 SKU，包括 ARCHIVED，固定按 `created_at ASC,id ASC`；活动图集最多 8 张，固定按 `sort_order ASC,id ASC`。
+- SPU/SKU code 创建后永不可改且软删除后继续保留。SKU 创建与零值 `inventory_balance` 同事务完成，初始物理/锁定/可售库存均为 0；B4 商品编辑只读展示库存摘要，不提供库存调整入口。
 - 七类文件 purpose 只接受 `image/jpeg`、`image/png` 且最大 5 MiB。上传意图声明 64 位小写 SHA-256，完成请求的 SHA-256/size 必须与 intent 及服务端 MIME、魔数、大小、哈希实测一致；不一致返回 `FILE_CONTENT_MISMATCH` 422。
 - 上传签名有效 15 分钟，私有下载签名有效 5 分钟；PENDING/staging 满 24 小时仅成为清理候选，删除前仍须复核无 READY 和业务引用。bucket 默认私有，仅 `public/*` 可匿名 GET；售后、提现、推广 QR 等私有素材只能位于 `private/*`。
 - 品牌、一级分类、商品和 SKU 只允许软删除。已被订单、库存流水、售后或佣金规则引用的记录必须永久保留历史可读性。
@@ -1014,7 +1022,7 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | HR-03 | 重置代理密码 | 必需 | 必需 | 临时密码只展示一次 | 撤销代理旧会话，下次强制改密 |
 | HR-04 | 客户归属转移/转直营 | 必需 | 必需 | 不要求 TOTP | 展示目标代理与未来订单影响；与订单提交按绑定版本串行 |
 | HR-05 | 平台/分类/SKU 佣金规则设置、0% 或恢复继承 | 必需 | 必需 | 不要求 TOTP | 展示受影响 SKU 和未来支付边界；只追加规则版本 |
-| HR-06 | 品牌/分类启用、停用或软删除；商品/SKU 停用或软删除 | 必需 | 必需 | 不要求 TOTP | 主数据启用同样绑定版本并预览；展示在售引用/活动预占阻断；历史快照保留 |
+| HR-06 | 品牌、分类、商品或 SKU 启用、停用或软删除 | 必需 | 必需 | 不要求 TOTP | 绑定版本与请求哈希；展示在售引用、图片、ACTIVE SKU 和活动预占影响；历史快照保留，恢复不走 preview |
 | HR-07 | 库存人工调整 | 必需 | 必需 | 不要求 TOTP | 展示调整前后和不变量；生成库存流水 |
 | HR-08 | 售后初审拒绝或验货后拒绝 | 必需 | 必需 | 异常证据按验货场景必需 | 展示释放额度与消费者影响；保留验货事实 |
 | HR-09 | 发起退款、金额补偿或失败重试 | 必需 | 必需 | 不要求 TOTP | 展示金额、库存与佣金影响；稳定退款号、尝试幂等 |
@@ -1144,6 +1152,10 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | 白名单商品被移除、商品下架或邀请码轮换 | 代理端不再可生成新物料；既有链接退化为普通商品页且不设置新候选；已有绑定、历史订单及全店计佣不变 |
 | 同一商品不同 SKU 加购 | 按 `sku_id` 分行；仅相同 SKU 合并数量，价格、库存和规格分别校验 |
 | 单 SKU 购买超过 99 或可售库存 | 服务端拒绝或返回可调整上限 `min(99, 可售库存)`，不得依赖前端截断后静默下单 |
+| 商品启用时没有合法公开商品图 | preview 显示缺口；confirm 返回 `PRODUCT_PRIMARY_IMAGE_REQUIRED` 422，不写状态或 `published_at` |
+| 商品启用时没有 ACTIVE SKU | preview 显示缺口；confirm 返回 `PRODUCT_ACTIVE_SKU_REQUIRED` 422，不写状态或 `published_at` |
+| 软删除商品时仍有 ACTIVE SKU | preview 返回依赖清单；confirm 返回 `ACTIVE_SKU_DEPENDENCY` 422，不消费 preview |
+| 软删除商品或 SKU 时存在活动预占 | preview 返回预占影响；confirm 返回 `ACTIVE_INVENTORY_RESERVATION` 422，已有待付款订单保持原事实 |
 | 商品下架/软删除时存在待付款预占 | 普通下架阻止新加购/结算但已有有效预占可支付；活动预占阻断商品/SKU 软删除 |
 | 用户提交订单后选择稍后支付或取消支付 | 保留待付款订单和库存预占，未过期时可从订单详情继续支付 |
 | Provider 创建支付意图返回未知 | 本地保持 `CREATING`，按稳定 `intent_no` 查询恢复；不得创建第二活动意图或向用户显示确定失败 |
@@ -1291,7 +1303,7 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 |---|---|---|
 | AC-ADM-001 | 创建、编辑、停用、重置代理 | 状态正确，关键前后值均审计，代理表单无独立佣金比例 |
 | AC-ADM-002 | 转移客户归属 | 仅影响转移后提交的新订单，既有候选、支付快照和历史数据不回写 |
-| AC-ADM-003 | 商品、库存、发货和售后操作 | 由总部完成，代理无接口权限；商品列表的 SKU 数及实物/锁定/可售摘要与 SKU 库存流水复算一致 |
+| AC-ADM-003 | 商品、库存、发货和售后操作 | 由总部完成，代理无接口权限；商品列表按 `published_at DESC NULLS LAST,id DESC`，无 ACTIVE SKU 时最低活动价为 null，SKU 数及实物/锁定/可售摘要与库存事实一致 |
 | AC-ADM-004 | 争抢最后一件库存 | 最多一个订单创建成功且库存非负 |
 | AC-ADM-005 | 看板、佣金和钱包汇总 | 与事实流水复算一致 |
 | AC-ADM-006 | 查看日/月销售及商品/客户排行 | 筛选、加载、空、错误和退款净值正确，无 Excel 导出入口 |
@@ -1304,11 +1316,11 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | AC-ADM-013 | 尝试提交代理专属、代理 × SKU、固定金额、阶梯或活动规则 | 页面无入口且接口拒绝，现有统一规则不受影响 |
 | AC-ADM-014 | 在 ADM-22 搜索当前继承的 SKU 并设置覆盖/0%/恢复继承 | 三种操作均可完成，要求原因、影响预览和二次确认，并分别生成不可覆盖的新版本 |
 | AC-ADM-015 | 启用/停用仍含在售商品的一级分类或品牌 | DRAFT/INACTIVE 启用走 preview-confirm；停用 preview 返回阻断商品，confirm 以 `ACTIVE_PRODUCT_DEPENDENCY` 422 阻断并提示先迁移或下架；历史订单和规则版本可继续查看 |
-| AC-ADM-016 | 排序、软删除和恢复品牌、分类、商品或 SKU | 品牌/分类按 `sort_order,id` 稳定排序；ACTIVE 不得直接软删，品牌/分类恢复原记录固定回 DRAFT；活动预占阻断商品/SKU 删除；默认列表隐藏归档，显式筛选/详情可恢复，历史引用不丢失 |
+| AC-ADM-016 | 排序、软删除和恢复品牌、分类、商品或 SKU | 品牌/分类按 `sort_order,id` 稳定；ACTIVE 不得直接软删，Product/SKU 分别恢复 DRAFT/INACTIVE 且不级联；Product 详情含按 `created_at,id` 排序的归档 SKU；ACTIVE SKU/活动预占分别返回 CH-010 的 422，历史 code 和引用不丢失 |
 | AC-ADM-017 | 执行任一 HR-01 至 HR-15 动作 | 原因、预览确认、TOTP/凭证仅按 13.4 对应行要求；版本、幂等和审计必需，不适用字段不得阻断 |
 | AC-ADM-018 | 存在任一活动售后占用时发货 | 整单被阻断并列出占用；占用解决后预览最终订单项，重复确认只创建一个包裹 |
 | AC-ADM-019 | 配置退货地址并处理退货验货 | 地址变更生成新版本；审核冻结快照；验货一次精确覆盖全部售后项，逐项实收、批准退款、通过/异常、证据、四类处置和回库流水均可追溯；PASS 可零证据、ABNORMAL 至少一份且两类清单均封存，数量等式与结论不可变；异常解决类型仅 `CONTINUE_REFUND/REJECT_AFTER_RETURN`，继续退款原因必填且只能解决一次 |
-| AC-ADM-020 | 商品下架与活动预占边界 | 下架阻止新加购/结算，既有合法预占可在期限内支付；有活动预占时软删除被阻断 |
+| AC-ADM-020 | 商品/SKU 启用、下架与活动预占边界 | Product/SKU 三动作均 preview-confirm；商品启用校验 ACTIVE 品牌/分类、公开主图和 ACTIVE SKU，首次写且不覆盖 `published_at`；下架不级联并阻止新加购/结算，既有合法预占可支付，活动预占阻断软删除 |
 | AC-ADM-021 | 看板指标抽样复算 | 今日创建/有效支付、客户总数/新增注册/新增绑定、活跃代理分别按第 2 节口径与事实一致 |
 | AC-ADM-022 | 首个管理员创建及 TOTP 绑定 | 无公开注册/默认账号；受控命令创建，TOTP ±1 窗口、重放阻断、恢复码一次展示和哈希保存可验证 |
 | AC-ADM-023 | 管理员密码/TOTP 重置与全丢失恢复 | 重置撤销全部旧会话；全丢失只走双人离线审批，所有审批和结果审计完整 |
@@ -1326,6 +1338,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 
 ### 18.1 单元测试
 
+- Product/SKU 固定创建状态、三动作状态矩阵、恢复目标、不级联规则、首次 `published_at` 和 nullable 最低活动价。
+- 8 图上限与 `sort_order,id`、全部 SKU 的 `created_at,id` 排序、不可变 SPU/SKU code 和四个 CH-010 422 错误映射。
 - `SKU > 一级分类 > 平台默认` 解析、空值继承、0% 明确无佣金、规则版本选择和 `0.0000-100.0000` 比例边界。
 - `基数 × 比例 / 100`、订单项 `HALF_UP`、多 SKU 汇总、部分退款、累计冲正和尾笔全退尾差清除。
 - SKU 购物车合并键、订单项快照、可发数量和未发货退款回库数量计算。
@@ -1337,6 +1351,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 
 ### 18.2 集成测试
 
+- Product/SKU CRUD、图集原子替换、SKU 创建同步零库存余额、归档查询/恢复、精确幂等和 `If-Match`。
+- Product/SKU preview 篡改、过期、重放、并发 confirm；ACTIVE 品牌/分类、公开主图、ACTIVE SKU 与活动预占在 confirm 事务中重查。
 - 订单提交与库存锁定、归因候选、待付款续付、稳定 intent_no、活动意图唯一、创建/关闭未知查询恢复、支付最终冻结和确认关闭后释放。
 - 主动取消、超时任务和支付确认并发；对账任务收敛悬挂 `CREATING/OPEN/CLOSE_PENDING` 与缺失回调。
 - 超时关单与迟到支付回调并发、自动原路退款、退款失败转财务异常且不恢复履约。
@@ -1356,7 +1372,7 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 
 - 小程序代理来源进入、并发绑定确认、手机号授权、不同 SKU 加购、待付款/续付/主动取消、支付确认中/超时/迟到异常、物流、收货、服务端售后试算、退货地址/物流/验货异常/退款失败和账号删除。
 - 代理登录错误/停用/限流、推广、客户到订单筛选、服务端脱敏资料、佣金、银行卡当次输入/掩码和提现一笔进行中/重复提交。
-- 总部首个管理员/TOTP、创建/停用代理、轮换邀请码、配置统一佣金规则/推广白名单、转移客户、商品生命周期/库存不变量、单包裹发货门禁、退货地址/验货/回库、销售指标复算、退款/金额补偿/失败重试、提现审核、短时查看收款账号和标记付款。
+- 总部首个管理员/TOTP、创建/停用代理、轮换邀请码、配置统一佣金规则/推广白名单、转移客户、商品/SKU 创建编辑与三动作生命周期、只读库存摘要、单包裹发货门禁、退货地址/验货/回库、销售指标复算、退款/金额补偿/失败重试、提现审核、短时查看收款账号和标记付款。
 - ADM-22 平台默认、分类继承、SKU 覆盖、0%、影响预览、版本与订单项解释流程。
 - 375/414、390、1024、1440 视口截图与溢出检查。
 - 原型交互自动化覆盖关键点击路径、动态记录绑定、状态转换、高风险表单校验、网络错误、权限拒绝、版本冲突和重复提交，而不只检查非空画面。
@@ -1379,7 +1395,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 
 ## 20. 发布与回滚原则
 
-- CH-006 已批准，B3.0 至 B3.3 的本地/一次性环境验收及 B2/B3 Supabase repository rollback-only 均已通过。CH-009 仅为单人维护者提供 development 独立 reviewer 例外，B3 development 已完成并允许后续 B4 开发；staging 前仍须外部独立复核，生产发布仍需微信、Supabase staging、恢复演练和合规门禁。
+- CH-010 已批准并进入 B4.0；只有契约/冻结数据库门禁和准确提交 SHA 的普通 CI 全绿后才可开始 B4.1。每个 B4 子批次 P0/P1 清零并暂停后才进入下一批；staging 前仍须外部独立复核，生产发布仍需微信、Supabase staging、恢复演练和合规门禁。
+- B4.1 尚未开始时可整体回滚 CH-010 文档、OpenAPI、生成 contracts 与原型同步；进入业务实现后只关闭 Product/SKU 模块路由和 ADM-03/04 导航，不执行数据库降级。
 - 未来开发环境必须明确区分 development、test、staging、production。
 - 数据库发布采用 PostgreSQL 向后兼容迁移；订单、归属、佣金和提现表禁止人工直接修改。
 - 发布前执行 migration、构建、单元、集成、E2E、权限与响应式检查。
@@ -1396,9 +1413,10 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 5. 2026-08-11 用户批准 CH-004：数据库由 MySQL 改为 Supabase 托管 PostgreSQL，Supabase 不承担认证、存储或客户端数据访问。
 6. 2026-08-11 用户批准 CH-005：单包裹门禁、服务端售后计价、可恢复支付意图、退款双状态轴、退货验货、并发裁决、TOTP 与高风险矩阵。
 7. 2026-08-13 产品负责人和技术负责人批准 CH-006：B3 品牌排序、DRAFT 创建、品牌/分类专用生命周期与恢复口径，以及文件 SHA-256、类型/大小、签名 TTL、对象可见性和完成幂等策略。
-8. `product-materials/docs/01-需求调研/MVP方案.md`。
-9. `product-materials/docs/01-需求调研/三端角色与代理需求确认.md`。
-10. `product-materials/docs/04-风控管理/需求变更记录.md` 中的 CH-001 至 CH-006。
+8. 2026-08-24 产品负责人和技术负责人批准 CH-010：Product/SKU 专用生命周期、固定创建状态、图集/价格/库存投影和四个 422 错误。
+9. `product-materials/docs/01-需求调研/MVP方案.md`。
+10. `product-materials/docs/01-需求调研/三端角色与代理需求确认.md`。
+11. `product-materials/docs/04-风控管理/需求变更记录.md` 中的 CH-001 至 CH-010。
 
 ### 21.2 已采用假设
 
@@ -1436,6 +1454,7 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 - `pay_expires_at` 的数据库固定 30 分钟不可变约束、typed 验货解决、证据封存、短时响应 no-store/一次展示和本人售后退货地址授权例外均有跨层验收；
 - 推广白名单仅控制推广、邀请码轮换/旧链接退化、可选账户手机号和账号删除均有页面、状态和验收；
 - 13.4 高风险操作唯一矩阵与页面、接口和验收一致，未把不适用的原因/TOTP/凭证强加给其他动作；
+- Product/SKU 固定创建状态、专用三动作 DTO、恢复目标、依赖阻断、首次 `published_at`、nullable 最低活动价、8 图、归档 SKU、零库存初值和不可变 code 在 PRD、原型、OpenAPI 与数据库说明一致；
 - 首个管理员创建、TOTP/恢复码、失败锁定、会话撤销和双人离线恢复具备可验证链路；
 - 关键页面覆盖默认、加载、空、错误、禁用和成功状态；
 - 小程序、代理工作台和总部后台基准视口通过截图检查；
@@ -1451,8 +1470,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | 验收场景 AC | 116 | 0 |
 | 用户故事 US | 24 | 0 |
 
-当前准入结论：CH-005 的历史准入证据继续保留；CH-006 B3.0 的新契约统计、Redocly、生成漂移、冻结数据库核对、权限与原型回归已经通过，v2.4.1 B3 契约重新冻结。B3.1 至 B3.3 和 B2/B3 Supabase repository rollback-only 已通过，远端证据登记在实现基准 SHA 的 Run `32678252828`。按 CH-009，B3 development 为 `GO`；该状态不替代 API + Redis/browser 云端端到端、staging 或 production 验收。
+当前准入结论：B0 至 B3 既有验收继续有效；CH-010 已启动 B4.0 并将产品/API 基线升级为 v2.4.2。B4.1 必须等待 Redocly、生成漂移、闭合 schema/统计、状态矩阵、冻结数据库和准确提交 SHA 的普通 CI 全绿；该状态不替代 API + Redis/browser 纵向、Supabase B4 rollback-only、staging 或 production 验收。
 
 ---
 
-PRD 状态：v2.4.1/CH-006 已重新冻结，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B3 development 和 B2/B3 Supabase repository rollback-only 已通过。CH-009 只修改单人 development 交付治理，不改变本 PRD 的产品范围；B3 development 为 `GO`，B4 等待明确启动指令。目标 staging/production 部署尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。
+PRD 状态：v2.4.2/CH-010 已登记，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B3 development 和 B2/B3 Supabase rollback-only 已通过。B4.0 正在实施，B4.1 等待本轮契约门禁及准确 SHA 的普通 CI 全绿。目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。

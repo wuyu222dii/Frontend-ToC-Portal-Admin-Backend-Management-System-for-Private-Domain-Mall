@@ -21,6 +21,10 @@ describe('application errors', () => {
     expect(getApplicationErrorHttpStatus('RESOURCE_VERSION_CONFLICT')).toBe(409);
     expect(getApplicationErrorHttpStatus('SOFT_DELETED_KEY_RESERVED')).toBe(409);
     expect(getApplicationErrorHttpStatus('ACTIVE_PRODUCT_DEPENDENCY')).toBe(422);
+    expect(getApplicationErrorHttpStatus('PRODUCT_PRIMARY_IMAGE_REQUIRED')).toBe(422);
+    expect(getApplicationErrorHttpStatus('PRODUCT_ACTIVE_SKU_REQUIRED')).toBe(422);
+    expect(getApplicationErrorHttpStatus('ACTIVE_SKU_DEPENDENCY')).toBe(422);
+    expect(getApplicationErrorHttpStatus('ACTIVE_INVENTORY_RESERVATION')).toBe(422);
     expect(getApplicationErrorHttpStatus('FILE_CONTENT_MISMATCH')).toBe(422);
     expect(error.toResponse('req_test')).toEqual({
       code: 'INVALID_ARGUMENT',
@@ -33,8 +37,12 @@ describe('application errors', () => {
   it.each([
     ['SOFT_DELETED_KEY_RESERVED', 'The archived business key is reserved'],
     ['ACTIVE_PRODUCT_DEPENDENCY', 'Active products must be deactivated or moved first'],
+    ['PRODUCT_PRIMARY_IMAGE_REQUIRED', 'A product requires at least one ready public image'],
+    ['PRODUCT_ACTIVE_SKU_REQUIRED', 'A product requires at least one active SKU'],
+    ['ACTIVE_SKU_DEPENDENCY', 'Active SKUs must be deactivated first'],
+    ['ACTIVE_INVENTORY_RESERVATION', 'Active inventory reservations must be released first'],
     ['FILE_CONTENT_MISMATCH', 'The uploaded file does not match its declaration'],
-  ] as const)('uses a fixed public message for CH-006 error %s', (code, message) => {
+  ] as const)('uses a fixed public message for catalog error %s', (code, message) => {
     expect(new ApplicationError(code, 'private implementation detail').toResponse('req_test')).toEqual({
       code,
       message,

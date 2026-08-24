@@ -12,29 +12,29 @@
 
 ## 验收脚本
 
-`verify-prototype.cjs` 使用 Playwright 和本机 Chrome 渲染三端核心画面，检查脚本错误、图片加载、横向溢出、响应式导航、看板图表、范围边界和关键业务交互。默认只验收、不改写 `exports/` 中的 PNG；设置 `UPDATE_PROTOTYPE_EXPORTS=1` 时才刷新截图。
+`verify-prototype.cjs` 使用根工程 `@playwright/test` 的 Chromium 渲染三端核心画面；macOS 已安装 Chrome 时优先使用本机 Chrome，其他环境使用 Playwright Chromium，也可通过 `CHROME_EXECUTABLE_PATH` 指定。脚本检查错误、图片加载、横向溢出、响应式导航、看板图表、范围边界和关键业务交互。默认只验收、不改写 `exports/` 中的 PNG；设置 `UPDATE_PROTOTYPE_EXPORTS=1` 时才刷新截图。
 
-当前 v2.4.1（CH-006）覆盖 21 个小程序页面、9 个代理页面/关键视图和 22 个总部页面/关键视图。验收脚本渲染 84 个桌面/移动组合，并执行 14 条小程序流程和 16 条总部/代理流程；ADM-05/06 固定覆盖 375、390、414、1024、1440 五种目标视口，关键异步门禁以可观察状态等待代替固定毫秒延迟。门禁包含 SKU 结算、公开目录 `ACTIVE`-only 与购物车失效项保留、本人地址列表掩码与编辑详情完整预填、固定 30 分钟支付超时及迟到退款、单包裹整单阻断、退货验货数量等式、PASS 零证据与 ABNORMAL 证据封存、`CONTINUE_REFUND / REJECT_AFTER_RETURN` 二阶段处置、SPU 库存汇总与 SKU 下钻、代理六类目标投影、不可变佣金快照、提现防重复和本人 TOTP 短时授权。
+当前 v2.4.2（CH-010）覆盖 21 个小程序页面、9 个代理页面/关键视图和 22 个总部页面/关键视图。验收脚本渲染 90 个桌面/移动组合，并执行 14 条小程序流程和 16 条总部/代理流程；ADM-03/04/05/06 固定覆盖 375、390、414、1024、1440 五种目标视口，关键异步门禁以可观察状态等待代替固定毫秒延迟。门禁包含 SKU 结算、公开目录 `ACTIVE`-only 与购物车失效项保留、本人地址列表掩码与编辑详情完整预填、固定 30 分钟支付超时及迟到退款、单包裹整单阻断、退货验货数量等式、PASS 零证据与 ABNORMAL 证据封存、`CONTINUE_REFUND / REJECT_AFTER_RETURN` 二阶段处置、商品/SKU 生命周期、只读库存汇总、代理六类目标投影、不可变佣金快照、提现防重复和本人 TOTP 短时授权。
 
 CH-006 同步了 ADM-05/06 的冻结契约参考：品牌与一级分类创建固定为 `DRAFT`，普通编辑只维护契约字段和非负整数排序，生命周期通过影响预览确认，显式 `ARCHIVED` 筛选可恢复为 `DRAFT`。活动商品依赖会在 preview 200 中展示，confirm 提交返回 `ACTIVE_PRODUCT_DEPENDENCY` 422 且记录不变。品牌/分类编码、分类说明、分类佣金、商品/SKU 数量和品牌故事完整度不再出现在这两个管理界面。
 
-本目录仍是纯静态交互参考，不单独证明 B3 文件、品牌或分类业务验收。当前 B3 development 已由实现、自动化门禁及 Supabase repository rollback-only 联合验收为 `GO`；CH-009 只允许后续 development，静态原型不能作为 staging/production 证据。
+CH-010 同步了 ADM-03/04 的冻结契约参考：商品创建固定为 `DRAFT`，SKU 创建固定为 `INACTIVE`；普通资料保存不改变生命周期。Product/SKU 的 `ACTIVATE / DEACTIVATE / SOFT_DELETE` 均先展示影响预览再确认，Product 恢复为 `DRAFT`，SKU 恢复为 `INACTIVE`。默认列表排除 `ARCHIVED`，详情保留归档 SKU；最低活动价在没有 `ACTIVE` SKU 时显示为空。商品编辑只展示库存快照，不提供库存调整或佣金字段，图集最多 8 张，`published_at` 只在首次启用时写入。
 
-本工作区可使用 Codex 内置 Node 运行：
+ADM-03/04 可直接演示四类 Product 422：缺少公开图片可进入图集上传，缺少已启用 SKU 可进入 SKU 管理，已启用 SKU 依赖可进入停用流程，活动库存预占按支付/售后来源定位只读订单或售后列表，不进入可写库存调整。主界面只显示中文业务原因，技术错误码和 HTTP 状态仅放在折叠诊断详情与 DOM data 属性。Product/SKU 409 会刷新当前版本、销毁旧 preview 并禁用旧确认；管理员必须返回最新记录后重新 preview/confirm，不会自动覆盖或复用。Product 启用时品牌或分类非已启用状态固定为 `STATE_CONFLICT` 409，不归入上述四类 422。
+
+本目录仍是纯静态交互参考，不单独证明 B3 或 B4 业务实现验收。当前原型仅证明 CH-010 的 ADM-03/04 交互契约可落地；静态原型不能作为 staging/production 证据。
+
+安装根工程依赖后运行：
 
 ```bash
-NODE_PATH=/Users/harry/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules \
-  /Users/harry/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node \
-  product-materials/prototype/verify-prototype.cjs
+node product-materials/prototype/verify-prototype.cjs
 ```
 
 需要显式刷新验收截图时：
 
 ```bash
 UPDATE_PROTOTYPE_EXPORTS=1 \
-  NODE_PATH=/Users/harry/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules \
-  /Users/harry/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node \
-  product-materials/prototype/verify-prototype.cjs
+  node product-materials/prototype/verify-prototype.cjs
 ```
 
 ## 交互范围

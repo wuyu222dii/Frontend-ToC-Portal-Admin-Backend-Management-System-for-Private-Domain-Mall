@@ -17,18 +17,18 @@ jobs:
   verify:
     name: Quality, contracts and database
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     services:
       postgres:
         image: postgres:18.3-alpine
         env:
-          POSTGRES_DB: mall_ci
+          POSTGRES_DB: mall_ci_test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d mall_ci"
+          --health-cmd "pg_isready -U postgres -d mall_ci_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
@@ -36,16 +36,16 @@ jobs:
       CI: "true"
       NODE_ENV: test
       ALLOW_CI_EPHEMERAL_POSTGRES: "1"
-      DATABASE_URL: postgresql://mall_runtime:ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}-runtime@127.0.0.1:5432/mall_ci
-      DIRECT_URL: postgresql://mall_migrator:ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}@127.0.0.1:5432/mall_ci
-      REPLAY_DATABASE_URL: postgresql://postgres:ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}@127.0.0.1:5432/mall_ci
+      DATABASE_URL: postgresql://mall_runtime:ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}-runtime@127.0.0.1:5432/mall_ci_test
+      DIRECT_URL: postgresql://mall_migrator:ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}@127.0.0.1:5432/mall_ci_test
+      REPLAY_DATABASE_URL: postgresql://postgres:ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}@127.0.0.1:5432/mall_ci_test
       REDIS_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
       REDIS_URL: redis://:ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}@127.0.0.1:6379/0
       MINIO_ROOT_USER: ci-${{ github.run_id }}
       MINIO_ROOT_PASSWORD: ci-minio-root-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
       S3_ENDPOINT: http://127.0.0.1:9000
-      S3_BUCKET: mall-ci
-      S3_PUBLIC_BASE_URL: http://127.0.0.1:9000/mall-ci
+      S3_BUCKET: mall-b3-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      S3_PUBLIC_BASE_URL: http://127.0.0.1:9000/mall-b3-ci-${{ github.run_id }}-${{ github.run_attempt }}
       S3_REGION: us-east-1
       S3_ACCESS_KEY: ci-access-${{ github.run_id }}-${{ github.run_attempt }}
       S3_SECRET_KEY: ci-s3-runtime-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
@@ -158,6 +158,11 @@ jobs:
       - name: Test permission gates with fault injection
         run: pnpm db:test-permissions
 
+      - name: Run B4 browser to Nest, PostgreSQL, Redis and MinIO vertical smoke
+        env:
+          B4_VERTICAL_TEST_MODE: full
+        run: pnpm e2e:b4:vertical
+
       - name: Test B1 persistence and worker concurrency
         env:
           B1_DATABASE_TEST_MODE: full
@@ -173,6 +178,37 @@ jobs:
           B2_DATABASE_TEST_MODE: full
         run: pnpm db:test-b2-api
 
+      - name: Test B3 file-asset transactions with PostgreSQL
+        env:
+          B3_FILE_DATABASE_TEST_MODE: full
+        run: pnpm db:test-b3-files
+
+      - name: Test B3 file API and worker with PostgreSQL, Redis and MinIO
+        env:
+          B3_FILE_API_TEST_MODE: full
+          B3_FILE_WORKER_TEST_MODE: full
+        run: pnpm db:test-b3-files-api
+
+      - name: Test B3 storage boundaries with real MinIO
+        env:
+          B3_MINIO_TEST_MODE: full
+        run: pnpm test:b3-files:minio
+
+      - name: Test B3 master-data transactions with PostgreSQL
+        env:
+          B3_MASTER_DATA_DATABASE_TEST_MODE: full
+        run: pnpm db:test-b3-master-data
+
+      - name: Test B3 catalog API with PostgreSQL, Redis and MinIO
+        env:
+          B3_CATALOG_API_TEST_MODE: full
+        run: pnpm db:test-b3-catalog-api
+
+      - name: Test B4 Product and SKU catalog with PostgreSQL
+        env:
+          B4_PRODUCT_CATALOG_DATABASE_TEST_MODE: full
+        run: pnpm db:test-b4-product-catalog
+
       - name: Verify Prisma migration drift
         run: pnpm db:diff
 
@@ -186,4 +222,13 @@ jobs:
         run: pnpm build:miniapp
 
       - name: Run B0 vertical browser E2E
-        run: pnpm e2e
+        run: pnpm exec playwright test --config playwright.config.ts b0-shells.spec.ts
+
+      - name: Run B2 administrator-authentication browser E2E
+        run: pnpm e2e:b2
+
+      - name: Run B3 catalog browser E2E
+        run: pnpm e2e:b3
+
+      - name: Run B4 Product and SKU browser E2E
+        run: pnpm e2e:b4

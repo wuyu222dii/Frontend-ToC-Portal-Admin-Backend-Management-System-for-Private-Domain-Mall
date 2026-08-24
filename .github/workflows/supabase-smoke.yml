@@ -24,16 +24,14 @@ concurrency:
 
 jobs:
   smoke:
-    if: inputs.confirmation == 'DEVELOPMENT_SMOKE_APPROVED'
+    if: github.ref == 'refs/heads/main' && inputs.confirmation == 'DEVELOPMENT_SMOKE_APPROVED'
     name: Protected rollback-only smoke
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     environment: supabase-development
     env:
       CI: "true"
       NODE_ENV: test
-      DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-      DIRECT_URL: ${{ secrets.SUPABASE_DIRECT_URL }}
       PGSSLROOTCERT: /tmp/supabase-prod-ca.crt
       SUPABASE_PROJECT_REF: ${{ inputs.project_ref }}
     steps:
@@ -65,27 +63,41 @@ jobs:
           --output "$PGSSLROOTCERT"
 
       - name: Validate Prisma schema
+        env:
+          DIRECT_URL: postgresql://mall_migrator:prisma-validate-only@127.0.0.1:5432/schema_validation
         run: pnpm prisma:validate
 
       - name: Run read-only Supabase checks
+        env:
+          DIRECT_URL: ${{ secrets.SUPABASE_DIRECT_URL }}
         run: scripts/ci/supabase-smoke.sh
 
       - name: Run rollback-only B1 runtime smoke
         env:
           B1_DATABASE_TEST_MODE: rollback
+          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
         run: pnpm db:test-b1
 
       - name: Run rollback-only B2 administrator-authentication smoke
         env:
           B2_DATABASE_TEST_MODE: rollback
+          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
         run: pnpm db:test-b2
 
       - name: Run rollback-only B3 file-assets smoke
         env:
           B3_FILE_DATABASE_TEST_MODE: rollback
+          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
         run: pnpm db:test-b3-files
 
       - name: Run rollback-only B3 master-data smoke
         env:
           B3_MASTER_DATA_DATABASE_TEST_MODE: rollback
+          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
         run: pnpm db:test-b3-master-data
+
+      - name: Run rollback-only B4 Product and SKU catalog smoke
+        env:
+          B4_PRODUCT_CATALOG_DATABASE_TEST_MODE: rollback
+          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
+        run: pnpm db:test-b4-product-catalog

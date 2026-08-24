@@ -121,7 +121,10 @@ test.describe('B2 admin authentication', () => {
     await expect(page.getByRole('button', { name: '完成验证' })).toBeDisabled();
     await expect(page).toHaveURL(/\/catalog\/brands$/);
     await expect(page.getByTestId('catalog-page')).toBeVisible();
-    await expect(page.getByText('商品管理')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: '商品管理', exact: true })).toHaveAttribute(
+      'href',
+      '/catalog/products',
+    );
     expect(calls.loginRequests).toBe(1);
     expect(calls.verifyRequests).toBe(1);
 

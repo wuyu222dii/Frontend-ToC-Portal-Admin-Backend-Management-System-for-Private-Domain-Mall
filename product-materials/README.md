@@ -2,7 +2,7 @@
 
 本目录集中管理三端商城的需求、方案、技术、风控、开发文档和可点击原型。
 
-当前交付状态：B3.0 契约解阻、B3.1 文件基础、B3.2 品牌分类和 B3.3 总部后台均已通过各自本地/一次性环境验收并暂停；B3.3 本地结论为 `GO`。扩展后的 CH-007 允许整个 B3 先完成本地/一次性环境开发，但 B2/B3 Supabase development rollback-only 与 GitHub 受保护运行证据仍是 B3 最终验收硬门禁，因此 B3 整体保持 `NO-GO`。
+当前交付状态：B3.0 契约解阻、B3.1 文件基础、B3.2 品牌分类、B3.3 总部后台及 B2/B3 Supabase repository rollback-only 均已通过。CH-009 对单人维护者的独立 reviewer 要求只作 development 例外；B3 development 总验收为 `GO`，可以在收到明确指令后进入 B4 开发。staging、production、真实客户数据及真实资金链路仍为 `NO-GO`，第一次进入 staging 前必须取得外部独立复核。
 
 ## 目录
 

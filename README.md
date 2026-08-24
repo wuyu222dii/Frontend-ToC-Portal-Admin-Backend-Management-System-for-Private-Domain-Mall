@@ -1,6 +1,6 @@
 # 青序生活三端私域商城
 
-本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。当前开发按 `B0` 至 `B19` 小批次推进；B0、B1 已验收通过，B2 总部安全入口已完成实现与本地/临时环境门禁，Supabase 远端证据按 CH-007 延期。B3.0 CH-006 契约解阻、B3.1 文件基础、B3.2 品牌分类和 B3.3 总部后台均已通过各自本地/一次性环境验收并暂停；B3.3 本地结论为 `GO`。远端证据补齐前 B3 整体仍为 `NO-GO`，不得进入 B4、staging 或 production。
+本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。当前开发按 `B0` 至 `B19` 小批次推进；B0、B1、B2 与 B3 已完成各自 development 验收。B3.0 CH-006 契约解阻、B3.1 文件基础、B3.2 品牌分类、B3.3 总部后台以及 B2/B3 Supabase repository rollback-only 均已通过。CH-009 对单人维护者的独立 reviewer 要求只作 development 例外，B3 development 为 `GO`，已解除进入 B4 开发的前置阻断；staging、production 和真实客户数据仍为 `NO-GO`，第一次进入 staging 前必须取得外部独立复核。
 
 ## 工程结构
 
@@ -61,4 +61,4 @@ pnpm db:diff
 
 Supabase 项目创建、连接分权和受保护烟测见 [B0 工程与 Supabase](product-materials/docs/05-开发管理/B0-工程与Supabase.md)，公共内核边界见 [B1 平台公共内核](product-materials/docs/05-开发管理/B1-平台公共内核.md)，总部认证实现与安全操作见 [B2 总部安全入口](product-materials/docs/05-开发管理/B2-总部安全入口.md)，CH-006 与 B3 分段门禁见 [B3 文件、品牌与分类](product-materials/docs/05-开发管理/B3-文件品牌与分类.md)。普通 PR 只使用 CI 的临时 PostgreSQL，不读取 Supabase 凭据。
 
-B3.1 已交付文件上传与清理闭环；B3.2 已交付品牌/分类 14 个管理端 operation、精确幂等重放、高风险预览确认和并发依赖保护；B3.3 已交付 ADM-05/06 的素材上传、CRUD、筛选、生命周期预览确认、归档恢复与受限导航。B2 E2E `45/45`、B3 E2E `26 passed / 4 designed skips`、全仓 `518 passed / 47 env-mode skipped`，安全复核 `P0=0 / P1=0`。用户已批准把 CH-007 扩展到整个 B3：B2/B3 Supabase development rollback-only 与 GitHub 受保护运行证据统一在 B3 最终验收前补齐，本地结果不能替代远端证据。
+B3.1 已交付文件上传与清理闭环；B3.2 已交付品牌/分类 14 个管理端 operation、精确幂等重放、高风险预览确认和并发依赖保护；B3.3 已交付 ADM-05/06 的素材上传、CRUD、筛选、生命周期预览确认、归档恢复与受限导航。B2 E2E `45/45`、B3 E2E `26 passed / 4 designed skips`、全仓 `518 passed / 47 env-mode skipped`，安全复核 `P0=0 / P1=0`。远端证据为 [`Supabase development smoke` Run 32678252828](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32678252828)，覆盖实现基准 SHA 上的只读检查及 B1/B2/B3 rollback-only；它不等同于 API + Redis/browser 云端端到端或 staging/production 验收。

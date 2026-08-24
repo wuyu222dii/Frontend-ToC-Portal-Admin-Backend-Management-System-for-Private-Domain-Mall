@@ -18,7 +18,7 @@
 
 CH-006 同步了 ADM-05/06 的冻结契约参考：品牌与一级分类创建固定为 `DRAFT`，普通编辑只维护契约字段和非负整数排序，生命周期通过影响预览确认，显式 `ARCHIVED` 筛选可恢复为 `DRAFT`。活动商品依赖会在 preview 200 中展示，confirm 提交返回 `ACTIVE_PRODUCT_DEPENDENCY` 422 且记录不变。品牌/分类编码、分类说明、分类佣金、商品/SKU 数量和品牌故事完整度不再出现在这两个管理界面。
 
-本目录仍是纯静态交互参考，不代表 B3 文件、品牌或分类业务已经实现。B3.0 契约验收后仍受 B2 Supabase development rollback-only hard gate 约束；该门禁未通过前不得据此进入 B3.1 业务开发。
+本目录仍是纯静态交互参考，不单独证明 B3 文件、品牌或分类业务验收。当前 B3 development 已由实现、自动化门禁及 Supabase repository rollback-only 联合验收为 `GO`；CH-009 只允许后续 development，静态原型不能作为 staging/production 证据。
 
 本工作区可使用 Codex 内置 Node 运行：
 

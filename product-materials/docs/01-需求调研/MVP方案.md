@@ -9,8 +9,8 @@
 | MVP 模式 | 三端标准 MVP |
 | 目标用户 | 终端消费者、一级代理、总部商城经营人员 |
 | 人员角色 | `SUPER_ADMIN`、`AGENT_ADMIN`、`CUSTOMER` |
-| 更新日期 | 2026-08-14 |
-| 文档状态 | B3.0 至 B3.3 均已通过各自本地/一次性环境验收并暂停；B3.3 本地 `GO`，B3 整体因 CH-007 远端门禁保持 `NO-GO` |
+| 更新日期 | 2026-08-24 |
+| 文档状态 | B3.0 至 B3.3 及 B2/B3 Supabase repository rollback-only 均已通过；CH-009 放行 B4 development，staging/production 仍为 `NO-GO` |
 
 ## 1. MVP 概述
 
@@ -323,7 +323,7 @@
 
 ## 7. 技术方案摘要
 
-CH-005 产品规则和数据库基线继续有效；CH-006 已对 B3 品牌、分类和文件契约完成 v2.4.1 补丁，不改变页面、FR、AC、operation 或数据库模型数量。B3.0 至 B3.3 均已完成各自本地/一次性环境验收并暂停，B3.3 本地结论为 `GO`。B0、B1 已验收通过；B2 总部安全入口已完成实现与本地/临时环境门禁，但 B2/B3 受保护 Supabase rollback-only 证据仍待补齐并阻塞 B3 整体、staging 和 production。
+CH-005 产品规则和数据库基线继续有效；CH-006 已对 B3 品牌、分类和文件契约完成 v2.4.1 补丁，不改变页面、FR、AC、operation 或数据库模型数量。B3.0 至 B3.3 均已完成各自本地/一次性环境验收；B2/B3 Supabase repository rollback-only 也已在 B3 实现基准 SHA 上通过。CH-009 对单人维护者的独立 reviewer 要求只作 development 例外，因此 B3 development 为 `GO`，允许继续 B4 开发；staging 和 production 仍关闭。
 
 | 层级 | 选型方向 |
 |---|---|
@@ -366,14 +366,14 @@ Supabase 在当前 MVP 中仅作为 PostgreSQL 托管服务。消费者小程序
 
 ## 9. 里程碑建议
 
-CH-006 已解除 B3 契约阻塞，v2.4.1 的 B3.0 契约与原型已重新冻结并通过验收；B3.1 至 B3.3 已完成各自本地/一次性环境验收并暂停。该结论不等同于 B3 整体完成或生产上线许可。
+CH-006 已解除 B3 契约阻塞，v2.4.1 的 B3.0 契约与原型已重新冻结并通过验收；B3.1 至 B3.3 和远端 repository rollback-only 已完成。CH-009 使 B3 development 总验收闭合，但该结论不等同于 staging 或生产上线许可。
 
 | 阶段 | 主要交付物 | 当前状态 |
 |---|---|---|
 | 需求确认 | MVP、三端角色确认、变更记录 | CH-006/B3.0 已完成并通过 |
 | 产品设计 | PRD、三端信息架构、可点击原型、Figma 重建规范 | CH-006 原型同步与 84 个响应式渲染/30 条交互流通过；页面仍为 21/9/22 |
 | 技术设计 | 系统架构、数据库 ERD、接口文档、OpenAPI、Prisma 草案与部署拓扑 | CH-006 契约、冻结数据库回放、权限与零漂移门禁通过；Prisma/首迁移未变 |
-| 开发与测试 | 三端工程、API、数据库、自动化测试 | B3.0 至 B3.3 已通过各自本地/一次性环境验收并暂停；B3 整体远端门禁未放行 |
+| 开发与测试 | 三端工程、API、数据库、自动化测试 | B3 development 已完成并 `GO`；B4 等待明确小批次启动指令 |
 | 上线准备 | 微信资质、真实支付退款、隐私合规、部署与验收 | 未开始 |
 
 ## 10. 风险与应对
@@ -433,6 +433,7 @@ CH-006 已解除 B3 契约阻塞，v2.4.1 的 B3.0 契约与原型已重新冻�
 - 2026-08-11 批准的 CH-004：数据库改为 Supabase 托管 PostgreSQL，且 Supabase 仅承担数据库托管；
 - 2026-08-11 批准的 CH-005：单包裹发货门禁、服务端售后计价、支付意图恢复、退款双状态轴、退货验货、并发裁决、TOTP 与高风险动作统一控制；
 - 2026-08-13 批准的 CH-006：品牌排序与 DRAFT 创建、品牌/分类专用生命周期与恢复口径、文件 SHA-256/MIME/大小/TTL/对象可见性和完成幂等策略；
+- 2026-08-24 批准的 CH-009：单人维护项目仅在脱敏 development 阶段以 main-only、环境 secrets、最终实现基准 SHA、成功 rollback-only run 和无残留断言补偿独立 reviewer 缺失；staging 前恢复外部独立复核；
 - 现有交易、库存、支付、物流和售后规则。
 
 ### 12.2 当前限制
@@ -443,11 +444,11 @@ CH-006 已解除 B3 契约阻塞，v2.4.1 的 B3.0 契约与原型已重新冻�
 
 ## 13. 后续建议
 
-1. 保持 B3.3 本地验收通过后的暂停状态，不自动进入 B4。
-2. 在 B3 最终验收前使用受控凭据补齐 B2/B3 Supabase development rollback-only、head SHA/审批人与 GitHub 受保护成功运行记录；本地或临时 PostgreSQL 结果不能替代。
-3. 远端证据通过后再标记 B3 整体完成并评估下一批次，仍不得自动进入 staging 或 production。
+1. B3 development 已完成；按既定小批次规则，在收到明确启动指令后规划并进入 B4，不能把本状态写成 B4 已自动开始。
+2. 后续每个 development 阶段继续登记实现基准 SHA、成功远端 run、rollback 结果和无残留证据；本地或临时 PostgreSQL 结果不能替代。
+3. 第一次进入 staging 前取得外部独立代码、安全、数据库和证据复核；CH-009 不得延伸到 staging 或 production。
 4. 上线前补充真实商品、代理协议、佣金税务、银行卡处理、隐私合规、微信资质和目标 Supabase staging 验收。
 
 ---
 
-项目状态：三端 MVP v2.4.1（CH-006）B3.0 至 B3.3 已通过各自本地/一次性环境验收并暂停，B3.3 本地结论为 `GO`。B0 工程底座、Supabase development 首迁移和 B1 公共内核已验收通过；B2 实现与本地/临时环境门禁已通过，但 B2/B3 Supabase development rollback-only 与 GitHub 受保护运行证据仍待补齐。B3 整体保持 `NO-GO`，目标 staging/production 部署尚未放行；生产上线须单独通过外部凭据、联调、恢复演练和合规门禁。
+项目状态：三端 MVP 产品/API 基线仍为 v2.4.1（CH-006）。B0 至 B3 的 development 验收及 B2/B3 Supabase repository rollback-only 已通过；CH-009 仅接受单人 development 独立 reviewer 风险，B3 development 为 `GO`，可在明确指令后进入 B4。目标 staging/production 部署尚未放行；进入 staging 前须外部独立复核，生产上线还须通过外部凭据、联调、恢复演练和合规门禁。

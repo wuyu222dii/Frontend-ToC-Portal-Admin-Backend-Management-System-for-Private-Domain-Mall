@@ -20,6 +20,14 @@ if (mode !== undefined && mode !== 'full' && mode !== 'rollback') {
 const databaseDescribe = mode === undefined ? describe.skip : describe;
 const fullIt = mode === 'full' ? it : it.skip;
 const rollbackIt = mode === 'rollback' ? it : it.skip;
+const remoteRollbackTransactionOptions = mode === 'rollback'
+  ? {
+      isolationLevel: 'Serializable' as const,
+      maxWait: 15_000,
+      timeout: 60_000,
+    }
+  : undefined;
+const remoteRollbackTestTimeoutMs = 90_000;
 const rollbackSentinel = Object.freeze({ code: 'B2_ROLLBACK_SENTINEL' });
 
 function requiredEnvironment(name: string): string {
@@ -147,11 +155,11 @@ databaseDescribe('B2 administrator authentication database integration', () => {
         expectedAccountVersion: 1,
       });
       throw rollbackSentinel;
-    })).rejects.toBe(rollbackSentinel);
+    }, remoteRollbackTransactionOptions)).rejects.toBe(rollbackSentinel);
 
     expect(await runtime.prisma.account.count({ where: { id: rollbackAccountId } })).toBe(0);
     expect(await runtime.prisma.totpFactor.count({ where: { id: rollbackFactorId } })).toBe(0);
-  }, 30_000);
+  }, remoteRollbackTestTimeoutMs);
 
   fullIt('allows exactly one concurrent bootstrap super administrator', async () => {
     const candidates = [

@@ -23,6 +23,14 @@ if (mode !== undefined && mode !== 'full' && mode !== 'rollback') {
 const databaseDescribe = mode === undefined ? describe.skip : describe;
 const fullIt = mode === 'full' ? it : it.skip;
 const rollbackIt = mode === 'rollback' ? it : it.skip;
+const atomicRollbackTransactionOptions = mode === 'rollback'
+  ? {
+      isolationLevel: 'Serializable' as const,
+      maxWait: 15_000,
+      timeout: 60_000,
+    }
+  : { isolationLevel: 'Serializable' as const };
+const remoteRollbackTestTimeoutMs = 90_000;
 const rollbackSentinel = Object.freeze({ code: 'B3_MASTER_DATA_ROLLBACK_SENTINEL' });
 const auditKey = Buffer.alloc(32, 0x71);
 const hashKeys: IdempotencyHashKeyRing = {
@@ -291,7 +299,7 @@ databaseDescribe('B3 master-data database integration', () => {
         storage: 'CACHEABLE',
       });
       throw rollbackSentinel;
-    }, { isolationLevel: 'Serializable' })).rejects.toBe(rollbackSentinel);
+    }, atomicRollbackTransactionOptions)).rejects.toBe(rollbackSentinel);
     await expect(Promise.all([
       runtime.prisma.account.count({ where: { id: actorId } }),
       runtime.prisma.brand.count({ where: { id: brandId } }),
@@ -302,7 +310,11 @@ databaseDescribe('B3 master-data database integration', () => {
     ])).resolves.toEqual([0, 0, 0, 0, 0, 0]);
   }
 
-  rollbackIt('rolls back master data, preview, audit and idempotency facts without residue', verifyAtomicRollback);
+  rollbackIt(
+    'rolls back master data, preview, audit and idempotency facts without residue',
+    verifyAtomicRollback,
+    remoteRollbackTestTimeoutMs,
+  );
   fullIt('rolls back master data, preview, audit and idempotency facts without residue', verifyAtomicRollback);
 
   fullIt('enforces file ownership, stable lists, optimistic locks, reserved names and restore-to-DRAFT', async () => {

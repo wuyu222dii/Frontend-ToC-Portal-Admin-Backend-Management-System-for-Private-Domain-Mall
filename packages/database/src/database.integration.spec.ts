@@ -24,6 +24,14 @@ if (mode !== undefined && mode !== 'full' && mode !== 'rollback') {
 const databaseDescribe = mode === undefined ? describe.skip : describe;
 const fullIt = mode === 'full' ? it : it.skip;
 const rollbackIt = mode === 'rollback' ? it : it.skip;
+const remoteRollbackTransactionOptions = mode === 'rollback'
+  ? {
+      isolationLevel: 'Serializable' as const,
+      maxWait: 15_000,
+      timeout: 60_000,
+    }
+  : undefined;
+const remoteRollbackTestTimeoutMs = 90_000;
 const auditKey = Buffer.alloc(32, 0x42);
 const idempotencyHashKey = Buffer.alloc(32, 0x43);
 const currentIdempotencyHashKey: IdempotencyHashKey = {
@@ -207,7 +215,7 @@ databaseDescribe('B1 database runtime integration', () => {
         storage: 'HASH_ONLY',
       });
       throw rollbackSentinel;
-    })).rejects.toBe(rollbackSentinel);
+    }, remoteRollbackTransactionOptions)).rejects.toBe(rollbackSentinel);
 
     const [recordCount, auditCount, callbackCount, outboxCount] = await Promise.all([
       runtime.prisma.idempotencyRecord.count({ where: { actor_id: actorId, idempotency_key: idempotencyKey } }),
@@ -220,7 +228,7 @@ databaseDescribe('B1 database runtime integration', () => {
 
   rollbackIt('writes all four B1 facts inside one transaction and leaves Supabase unchanged after rollback', async () => {
     await verifyAtomicRollback();
-  });
+  }, remoteRollbackTestTimeoutMs);
 
   fullIt('connects only as the runtime role and pings PostgreSQL', async () => {
     await runtime.ping();

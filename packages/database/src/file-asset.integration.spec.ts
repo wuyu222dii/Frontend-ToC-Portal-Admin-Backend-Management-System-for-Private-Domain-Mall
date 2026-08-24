@@ -21,6 +21,14 @@ if (mode !== undefined && mode !== 'full' && mode !== 'rollback') {
 const databaseDescribe = mode === undefined ? describe.skip : describe;
 const fullIt = mode === 'full' ? it : it.skip;
 const rollbackIt = mode === 'rollback' ? it : it.skip;
+const remoteRollbackTransactionOptions = mode === 'rollback'
+  ? {
+      isolationLevel: 'Serializable' as const,
+      maxWait: 15_000,
+      timeout: 60_000,
+    }
+  : undefined;
+const remoteRollbackTestTimeoutMs = 90_000;
 const rollbackSentinel = Object.freeze({ code: 'B3_FILE_ROLLBACK_SENTINEL' });
 const now = new Date('2026-08-14T12:00:00.000Z');
 const auditKey = Buffer.alloc(32, 0x62);
@@ -161,7 +169,7 @@ databaseDescribe('B3 file database integration', () => {
         storage: 'HASH_ONLY',
       });
       throw rollbackSentinel;
-    })).rejects.toBe(rollbackSentinel);
+    }, remoteRollbackTransactionOptions)).rejects.toBe(rollbackSentinel);
     await expect(Promise.all([
       runtime.prisma.fileAsset.count({ where: { id: fileId } }),
       runtime.prisma.auditLog.count({ where: { request_id: auditRequestId } }),
@@ -170,7 +178,11 @@ databaseDescribe('B3 file database integration', () => {
     ])).resolves.toEqual([0, 0, 0, 0]);
   }
 
-  rollbackIt('rolls back intent, audit, idempotency and actor facts without residue', verifyAtomicRollback);
+  rollbackIt(
+    'rolls back intent, audit, idempotency and actor facts without residue',
+    verifyAtomicRollback,
+    remoteRollbackTestTimeoutMs,
+  );
   fullIt('rolls back intent, audit, idempotency and actor facts without residue', verifyAtomicRollback);
 
   fullIt('commits one READY transition and exactly replays its completion response', async () => {

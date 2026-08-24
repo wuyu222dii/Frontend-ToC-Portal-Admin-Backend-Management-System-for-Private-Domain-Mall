@@ -64,6 +64,37 @@ describe('AuditRepository', () => {
   });
 
   it.each([
+    '上线',
+    '原'.repeat(500),
+  ])('stores a free lifecycle reason within the 2-500 character boundary', async (reason) => {
+    const transaction = transactionStub();
+    await new AuditRepository(ipHashKey).append(transaction, { ...baseInput, reason });
+    expect(transaction.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ reason }),
+    }));
+  });
+
+  it.each([
+    '',
+    '单',
+    '超'.repeat(501),
+    42,
+  ])('rejects an invalid free lifecycle reason: %j', async (reason) => {
+    await expect(new AuditRepository(ipHashKey).append(
+      transactionStub(),
+      { ...baseInput, reason } as never,
+    )).rejects.toThrow('reason');
+  });
+
+  it('rejects ambiguous reason and reasonCode metadata', async () => {
+    await expect(new AuditRepository(ipHashKey).append(transactionStub(), {
+      ...baseInput,
+      reason: '商品生命周期调整',
+      reasonCode: 'CATALOG.STATUS_CORRECTION',
+    })).rejects.toThrow('mutually exclusive');
+  });
+
+  it.each([
     'CATALOG.BRAND_ACTIVATE',
     'CATALOG.BRAND_DEACTIVATE',
     'CATALOG.BRAND_SOFT_DELETE',

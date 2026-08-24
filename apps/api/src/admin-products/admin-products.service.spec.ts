@@ -1,5 +1,6 @@
 import type { PlatformRuntimeConfig } from '@qingxu/config';
 import type {
+  CacheableCommandResponse,
   CacheableProductCatalogResponse,
   CacheableSkuView,
   DatabaseRuntime,
@@ -157,13 +158,41 @@ function product(overrides: Partial<ProductCatalogProductSnapshot> = {}): Produc
   };
 }
 
+function productLifecycleImpact() {
+  return {
+    activeImageCount: 1,
+    activeReservationCount: 0,
+    activeReservationIds: [],
+    activeReservationQuantity: 0,
+    activeSkuCount: 1,
+    activeSkuIds: [skuId],
+    brandStatus: 'ACTIVE' as const,
+    categoryStatus: 'ACTIVE' as const,
+    resource: { deletedAt: null, id: productId, status: 'DRAFT' as const, version: 1 },
+  };
+}
+
+function skuLifecycleImpact() {
+  return {
+    activeReservationCount: 0,
+    activeReservationIds: [],
+    activeReservationQuantity: 0,
+    parentProductStatus: 'DRAFT' as const,
+    resource: { deletedAt: null, id: skuId, status: 'INACTIVE' as const, version: 1 },
+  };
+}
+
 interface ServiceInternals {
   audit: { append: ReturnType<typeof vi.fn> };
   catalog: {
+    applyLifecycleInTransaction: ReturnType<typeof vi.fn>;
     createProductInTransaction: ReturnType<typeof vi.fn>;
     createSkuInTransaction: ReturnType<typeof vi.fn>;
     getProduct: ReturnType<typeof vi.fn>;
+    getLifecyclePreviewImpactInTransaction: ReturnType<typeof vi.fn>;
     listProducts: ReturnType<typeof vi.fn>;
+    restoreProductInTransaction: ReturnType<typeof vi.fn>;
+    restoreSkuInTransaction: ReturnType<typeof vi.fn>;
     updateProductInTransaction: ReturnType<typeof vi.fn>;
     updateSkuInTransaction: ReturnType<typeof vi.fn>;
   };
@@ -171,8 +200,14 @@ interface ServiceInternals {
   database: DatabaseRuntime;
   idempotency: {
     claim: ReturnType<typeof vi.fn>;
+    commandReplay: ReturnType<typeof vi.fn>;
     complete: ReturnType<typeof vi.fn>;
     productCatalogReplay: ReturnType<typeof vi.fn>;
+  };
+  outbox: { append: ReturnType<typeof vi.fn> };
+  previews: {
+    consumeInTransaction: ReturnType<typeof vi.fn>;
+    issueInTransaction: ReturnType<typeof vi.fn>;
   };
   storage: ObjectStoragePort;
 }
@@ -195,13 +230,36 @@ function fixture(claims: unknown[] = [{ kind: 'execute' }]) {
   internals.audit = { append: vi.fn().mockResolvedValue({}) };
   internals.idempotency = {
     claim,
+    commandReplay: vi.fn(),
     complete: vi.fn().mockResolvedValue({}),
     productCatalogReplay: vi.fn(),
   };
+  internals.outbox = { append: vi.fn().mockResolvedValue({}) };
+  internals.previews = {
+    consumeInTransaction: vi.fn().mockResolvedValue(undefined),
+    issueInTransaction: vi.fn().mockResolvedValue({
+      confirmationHash: 'a'.repeat(64),
+      expiresAt: new Date('2026-08-24T00:01:00.000Z'),
+    }),
+  };
   internals.catalog = {
+    applyLifecycleInTransaction: vi.fn().mockResolvedValue({
+      impact: productLifecycleImpact(),
+      resource: product({
+        status: 'ACTIVE',
+        updatedAt: new Date('2026-08-24T00:02:00.000Z'),
+        version: 2,
+      }),
+      targetType: 'PRODUCT',
+    }),
     createProductInTransaction: vi.fn().mockResolvedValue(product()),
     createSkuInTransaction: vi.fn().mockResolvedValue(sku()),
     getProduct: vi.fn().mockResolvedValue(product()),
+    getLifecyclePreviewImpactInTransaction: vi.fn().mockImplementation(
+      (_transaction: unknown, input: { targetType: 'PRODUCT' | 'SKU' }) => Promise.resolve(
+        input.targetType === 'PRODUCT' ? productLifecycleImpact() : skuLifecycleImpact(),
+      ),
+    ),
     listProducts: vi.fn().mockResolvedValue({
       items: [{
         activeSkuCount: 0,
@@ -215,6 +273,8 @@ function fixture(claims: unknown[] = [{ kind: 'execute' }]) {
       }],
       total: 1,
     }),
+    restoreProductInTransaction: vi.fn().mockResolvedValue(product({ status: 'DRAFT', version: 5 })),
+    restoreSkuInTransaction: vi.fn().mockResolvedValue(sku({ status: 'INACTIVE', version: 5 })),
     updateProductInTransaction: vi.fn().mockResolvedValue(product({ version: 2 })),
     updateSkuInTransaction: vi.fn().mockResolvedValue(sku({ version: 2 })),
   };
@@ -375,6 +435,205 @@ describe('AdminProductsService orchestration', () => {
     expect(firstClaim.request.body.expected_version).toBe(1);
     expect(secondClaim.request.body.expected_version).toBe(2);
   });
+
+  it('issues a bound Product preview and stores only a HASH_ONLY fact without the capability token', async () => {
+    const f = fixture();
+    const result = await f.service.previewProductLifecycle(
+      requestContext(), productId, { action: 'ACTIVATE', reason: 'Publish product' }, idempotencyKey,
+    );
+
+    expect(result).toMatchObject({
+      confirmation_hash: 'a'.repeat(64),
+      resource_etag: '"1"',
+    });
+    expect(result.preview_token).toMatch(/^pvw_[A-Za-z0-9_-]{43}$/);
+    expect(f.internals.previews.issueInTransaction).toHaveBeenCalledWith(f.transaction,
+      expect.objectContaining({
+        action: 'PRODUCT.ACTIVATE',
+        actorId: accountId,
+        request: { action: 'ACTIVATE', reason: 'Publish product' },
+        resourceVersion: 1,
+        sessionId,
+        targetId: productId,
+        targetType: 'PRODUCT',
+      }));
+    const completion = f.internals.idempotency.complete.mock.calls[0]?.[2] as Record<string, unknown>;
+    expect(completion).toMatchObject({ resourceId: productId, responseStatus: 200, storage: 'HASH_ONLY' });
+    expect(completion).not.toHaveProperty('responseBody');
+    expect(JSON.stringify(completion)).not.toContain(result.preview_token);
+  });
+
+  it('binds SKU previews to the SKU action and target domain', async () => {
+    const f = fixture();
+    await f.service.previewSkuLifecycle(
+      requestContext(), skuId, { action: 'SOFT_DELETE', reason: 'Retire SKU' }, idempotencyKey,
+    );
+    expect(f.internals.catalog.getLifecyclePreviewImpactInTransaction).toHaveBeenCalledWith(f.transaction, {
+      action: 'SOFT_DELETE', targetId: skuId, targetType: 'SKU',
+    });
+    expect(f.internals.previews.issueInTransaction).toHaveBeenCalledWith(f.transaction,
+      expect.objectContaining({ action: 'SKU.SOFT_DELETE', targetId: skuId, targetType: 'SKU' }));
+  });
+
+  it('does not require zero active SKUs when previewing Product deactivation', async () => {
+    const f = fixture();
+    f.internals.catalog.getLifecyclePreviewImpactInTransaction.mockResolvedValue({
+      ...productLifecycleImpact(),
+      resource: { deletedAt: null, id: productId, status: 'ACTIVE', version: 1 },
+    });
+
+    const result = await f.service.previewProductLifecycle(
+      requestContext(), productId, { action: 'DEACTIVATE', reason: 'Pause product sales' }, idempotencyKey,
+    );
+
+    expect(result.impact.metrics).toContainEqual({
+      after: 'UNCHANGED', before: '1', key: 'active_skus', label: 'Active SKUs',
+    });
+  });
+
+  it('never replays a preview capability from a repeated idempotency key', async () => {
+    const f = fixture([{ kind: 'replay', record: { response_body: null, response_status: 200 } }]);
+    await expect(f.service.previewProductLifecycle(
+      requestContext(), productId, { action: 'ACTIVATE', reason: 'Publish product' }, idempotencyKey,
+    )).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
+    expect(f.internals.catalog.getLifecyclePreviewImpactInTransaction).not.toHaveBeenCalled();
+    expect(f.internals.previews.issueInTransaction).not.toHaveBeenCalled();
+    expect(f.internals.idempotency.complete).not.toHaveBeenCalled();
+  });
+
+  it('consumes the bound preview before Product locks, then writes raw-reason audit, outbox and command fact', async () => {
+    const f = fixture();
+    const confirmation = {
+      action: 'ACTIVATE' as const,
+      confirmationHash: 'a'.repeat(64),
+      previewToken: `pvw_${'b'.repeat(43)}`,
+      reason: 'Publish product after review',
+    };
+    const result = await f.service.confirmProductLifecycle(
+      requestContext(), productId, confirmation, 1, idempotencyKey,
+    );
+
+    expect(f.internals.idempotency.claim).toHaveBeenCalledBefore(f.internals.previews.consumeInTransaction);
+    expect(f.internals.previews.consumeInTransaction)
+      .toHaveBeenCalledBefore(f.internals.catalog.applyLifecycleInTransaction);
+    expect(f.internals.catalog.applyLifecycleInTransaction).toHaveBeenCalledWith(f.transaction, {
+      action: 'ACTIVATE', expectedVersion: 1, targetId: productId, targetType: 'PRODUCT',
+    });
+    expect(f.internals.previews.consumeInTransaction).toHaveBeenCalledWith(f.transaction, {
+      action: 'PRODUCT.ACTIVATE',
+      actorId: accountId,
+      confirmationHash: confirmation.confirmationHash,
+      previewToken: confirmation.previewToken,
+      request: { action: 'ACTIVATE', reason: confirmation.reason },
+      resourceVersion: 1,
+      sessionId,
+      targetId: productId,
+      targetType: 'PRODUCT',
+    });
+    expect(f.internals.audit.append).toHaveBeenCalledWith(f.transaction, expect.objectContaining({
+      action: 'ENABLE', objectId: productId, objectType: 'product', reason: confirmation.reason,
+    }));
+    expect(f.internals.outbox.append).toHaveBeenCalledWith(f.transaction, expect.objectContaining({
+      aggregateId: productId,
+      aggregateType: 'product',
+      eventType: expect.any(String),
+      payload: {
+        event_version: 1,
+        resource_id: productId,
+        resource_type: 'product',
+        resource_version: 2,
+      },
+    }));
+    expect(f.internals.catalog.applyLifecycleInTransaction).toHaveBeenCalledBefore(f.internals.audit.append);
+    expect(f.internals.outbox.append).toHaveBeenCalledBefore(f.internals.idempotency.complete);
+    expect(f.internals.idempotency.complete).toHaveBeenCalledWith(f.transaction, expect.anything(),
+      expect.objectContaining({ policy: 'COMMAND_RESPONSE', responseStatus: 200, storage: 'CACHEABLE' }));
+    expect(result.envelope.data).toMatchObject({
+      resource_id: productId, resource_type: 'product', status: 'ACTIVE', version: 2,
+    });
+    const claim = f.internals.idempotency.claim.mock.calls[0]?.[1] as {
+      request: { body: Record<string, unknown>; pathParameters: Record<string, string>; route: string };
+    };
+    expect(claim.request).toMatchObject({
+      body: { ...confirmation, expected_version: 1 },
+      pathParameters: { product_id: productId },
+      route: '/admin/products/{product_id}/lifecycle-changes',
+    });
+  });
+
+  it('replays an exact SKU command without touching preview, catalog, audit or outbox state', async () => {
+    const response = commandResponse('sku', skuId, 'ACTIVE', 2);
+    const f = fixture([{
+      kind: 'replay',
+      record: { resource_id: skuId, response_body: response, response_status: 200 },
+    }]);
+    f.internals.idempotency.commandReplay.mockReturnValue(response);
+
+    const result = await f.service.confirmSkuLifecycle(requestContext(), skuId, {
+      action: 'ACTIVATE', confirmationHash: 'a'.repeat(64),
+      previewToken: `pvw_${'b'.repeat(43)}`, reason: 'Enable SKU',
+    }, 1, idempotencyKey);
+
+    expect(result.envelope).toEqual(response);
+    expect(f.internals.idempotency.commandReplay).toHaveBeenCalledOnce();
+    expect(f.internals.previews.consumeInTransaction).not.toHaveBeenCalled();
+    expect(f.internals.catalog.applyLifecycleInTransaction).not.toHaveBeenCalled();
+    expect(f.internals.audit.append).not.toHaveBeenCalled();
+    expect(f.internals.outbox.append).not.toHaveBeenCalled();
+    expect(f.internals.idempotency.complete).not.toHaveBeenCalled();
+  });
+
+  it('restores Product to DRAFT and SKU to INACTIVE without consuming a lifecycle preview', async () => {
+    const productFixture = fixture();
+    const restoredProduct = await productFixture.service.restoreProduct(
+      requestContext(), productId, { reason: 'Resume product preparation' }, 4, idempotencyKey,
+    );
+    expect(productFixture.internals.catalog.restoreProductInTransaction).toHaveBeenCalledWith(
+      productFixture.transaction, { expectedVersion: 4, id: productId },
+    );
+    expect(productFixture.internals.previews.consumeInTransaction).not.toHaveBeenCalled();
+    expect(productFixture.internals.audit.append).toHaveBeenCalledWith(
+      productFixture.transaction,
+      expect.objectContaining({ action: 'RESTORE', objectType: 'product', reason: 'Resume product preparation' }),
+    );
+    expect(restoredProduct.envelope.data).toMatchObject({ status: 'DRAFT', version: 5 });
+
+    const skuFixture = fixture();
+    const restoredSku = await skuFixture.service.restoreSku(
+      requestContext(), skuId, { reason: 'Resume SKU preparation' }, 4, idempotencyKey,
+    );
+    expect(skuFixture.internals.catalog.restoreSkuInTransaction).toHaveBeenCalledWith(
+      skuFixture.transaction, { expectedVersion: 4, id: skuId },
+    );
+    expect(skuFixture.internals.previews.consumeInTransaction).not.toHaveBeenCalled();
+    expect(skuFixture.internals.audit.append).toHaveBeenCalledWith(
+      skuFixture.transaction,
+      expect.objectContaining({ action: 'RESTORE', objectType: 'sku', reason: 'Resume SKU preparation' }),
+    );
+    expect(restoredSku.envelope.data).toMatchObject({ status: 'INACTIVE', version: 5 });
+    const skuClaim = skuFixture.internals.idempotency.claim.mock.calls[0]?.[1] as {
+      request: { body: Record<string, unknown>; pathParameters: Record<string, string> };
+    };
+    expect(skuClaim.request.body).toEqual({ expected_version: 4, reason: 'Resume SKU preparation' });
+    expect(skuClaim.request.pathParameters).toEqual({ sku_id: skuId });
+  });
+
+  it('does not audit, enqueue or complete a command after a confirm dependency failure', async () => {
+    const f = fixture();
+    f.internals.catalog.applyLifecycleInTransaction.mockRejectedValue(
+      new ApplicationError('ACTIVE_SKU_DEPENDENCY', 'Active SKUs must be deactivated first'),
+    );
+
+    await expect(f.service.confirmProductLifecycle(requestContext(), productId, {
+      action: 'SOFT_DELETE', confirmationHash: 'a'.repeat(64),
+      previewToken: `pvw_${'b'.repeat(43)}`, reason: 'Retire product',
+    }, 1, idempotencyKey)).rejects.toMatchObject({ code: 'ACTIVE_SKU_DEPENDENCY' });
+
+    expect(f.internals.previews.consumeInTransaction).toHaveBeenCalledOnce();
+    expect(f.internals.audit.append).not.toHaveBeenCalled();
+    expect(f.internals.outbox.append).not.toHaveBeenCalled();
+    expect(f.internals.idempotency.complete).not.toHaveBeenCalled();
+  });
 });
 
 function productResponse(): CacheableProductCatalogResponse {
@@ -443,6 +702,26 @@ function skuResponse(version = 1): CacheableProductCatalogResponse {
   return {
     code: 'OK',
     data: skuView(version),
+    message: 'success',
+    request_id: requestId,
+  };
+}
+
+function commandResponse(
+  resourceType: 'product' | 'sku',
+  resourceId: string,
+  status: 'ACTIVE' | 'ARCHIVED' | 'DRAFT' | 'INACTIVE',
+  version: number,
+): CacheableCommandResponse {
+  return {
+    code: 'OK',
+    data: {
+      occurred_at: '2026-08-24T00:02:00.000Z',
+      resource_id: resourceId,
+      resource_type: resourceType,
+      status,
+      version,
+    },
     message: 'success',
     request_id: requestId,
   };

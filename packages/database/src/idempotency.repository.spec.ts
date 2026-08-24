@@ -236,6 +236,60 @@ describe('IdempotencyRepository', () => {
     }));
   });
 
+  it.each(['product', 'sku'] as const)('exactly replays an integrity-checked %s CommandResponse', (resourceType) => {
+    const responseBody = commandResponse({
+      data: {
+        ...commandResponse().data,
+        resource_id: generateUlid(),
+        resource_type: resourceType,
+        status: resourceType === 'product' ? 'ACTIVE' : 'INACTIVE',
+      },
+    });
+    const record = {
+      ...recordContext(),
+      expires_at: new Date('2099-08-14T00:00:00.000Z'),
+      resource_id: responseBody.data.resource_id,
+      response_body: responseBody,
+      response_body_hash: responseHash(currentHashKey, responseBody),
+      response_status: 200,
+    };
+
+    expect(repository().commandReplay(record as never)).toEqual(responseBody);
+  });
+
+  it('rejects a CommandResponse replay with a mismatched identity, HMAC or status', () => {
+    const responseBody = commandResponse();
+    const record = {
+      ...recordContext(),
+      expires_at: new Date('2099-08-14T00:00:00.000Z'),
+      resource_id: responseBody.data.resource_id,
+      response_body: responseBody,
+      response_body_hash: responseHash(currentHashKey, responseBody),
+      response_status: 200,
+    };
+    for (const override of [
+      { resource_id: generateUlid() },
+      { response_body_hash: '0'.repeat(64) },
+      { response_status: 500 },
+    ]) {
+      expect(() => repository().commandReplay({ ...record, ...override } as never))
+        .toThrow('unexpected error');
+    }
+  });
+
+  it('rejects transplanting a valid CommandResponse into another idempotency record', () => {
+    const responseBody = commandResponse();
+    const sourceClaim = { ...baseClaim, idempotencyKey: randomUUID() };
+    expect(() => repository().commandReplay({
+      ...recordContext(currentHashKey, baseClaim),
+      expires_at: new Date('2099-08-14T00:00:00.000Z'),
+      resource_id: responseBody.data.resource_id,
+      response_body: responseBody,
+      response_body_hash: responseHash(currentHashKey, responseBody, sourceClaim),
+      response_status: 200,
+    } as never)).toThrow('unexpected error');
+  });
+
   it('stores and extracts the closed FILE_UPLOAD_COMPLETE response for exact replay', async () => {
     const transaction = transactionStub();
     const responseBody = fileCompleteResponse();

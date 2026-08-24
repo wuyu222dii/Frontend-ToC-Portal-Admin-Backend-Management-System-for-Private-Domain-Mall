@@ -106,6 +106,7 @@ interface ServiceInternals {
   idempotency: {
     catalogResourceReplay: ReturnType<typeof vi.fn>;
     claim: ReturnType<typeof vi.fn>;
+    commandReplay: ReturnType<typeof vi.fn>;
     complete: ReturnType<typeof vi.fn>;
   };
   master: {
@@ -145,6 +146,7 @@ function fixture(claims: unknown[] = [{ kind: 'execute' }]) {
   internals.idempotency = {
     catalogResourceReplay: vi.fn(),
     claim,
+    commandReplay: vi.fn((record: { response_body: CacheableCommandResponse }) => record.response_body),
     complete: vi.fn().mockResolvedValue({}),
   };
   internals.master = {
@@ -305,7 +307,7 @@ describe('AdminCatalogService orchestration', () => {
     expect(JSON.stringify(completed)).not.toContain(result.preview_token);
   });
 
-  it('applies then consumes the bound preview and caches a closed command response', async () => {
+  it('consumes the bound preview before catalog locks and caches a closed command response', async () => {
     const f = fixture();
     const changed = brand({ status: 'INACTIVE', updatedAt: new Date('2026-08-14T00:02:00.000Z'), version: 4 });
     f.internals.master.applyLifecycleInTransaction.mockResolvedValue({
@@ -323,8 +325,8 @@ describe('AdminCatalogService orchestration', () => {
       previewToken: `pvw_${'b'.repeat(43)}`,
       reason: 'Portfolio change',
     }, 3, idempotencyKey);
-    expect(f.internals.master.applyLifecycleInTransaction)
-      .toHaveBeenCalledBefore(f.internals.previews.consumeInTransaction);
+    expect(f.internals.previews.consumeInTransaction)
+      .toHaveBeenCalledBefore(f.internals.master.applyLifecycleInTransaction);
     expect(f.internals.previews.consumeInTransaction).toHaveBeenCalledWith(f.transaction, {
       action: 'BRAND.DEACTIVATE',
       actorId: accountId,
@@ -340,13 +342,13 @@ describe('AdminCatalogService orchestration', () => {
       resource_id: brandId, resource_type: 'brand', status: 'INACTIVE', version: 4,
     });
     expect(f.internals.audit.append).toHaveBeenCalledWith(f.transaction, expect.objectContaining({
-      action: 'DISABLE', reasonCode: 'CATALOG.BRAND_DEACTIVATE',
+      action: 'DISABLE', reason: 'Portfolio change',
     }));
     expect(f.internals.idempotency.complete).toHaveBeenCalledWith(f.transaction, expect.anything(),
       expect.objectContaining({ policy: 'COMMAND_RESPONSE', storage: 'CACHEABLE' }));
   });
 
-  it('keeps dependency blocking at confirm and never consumes the preview', async () => {
+  it('checks the preview before dependency blocking and leaves no later command facts', async () => {
     const f = fixture();
     f.internals.master.applyLifecycleInTransaction.mockRejectedValue(
       new ApplicationError('ACTIVE_PRODUCT_DEPENDENCY', 'Active product dependency'),
@@ -357,12 +359,14 @@ describe('AdminCatalogService orchestration', () => {
       previewToken: `pvw_${'b'.repeat(43)}`,
       reason: 'Retired',
     }, 2, idempotencyKey)).rejects.toMatchObject({ code: 'ACTIVE_PRODUCT_DEPENDENCY' });
-    expect(f.internals.previews.consumeInTransaction).not.toHaveBeenCalled();
+    expect(f.internals.previews.consumeInTransaction).toHaveBeenCalledOnce();
+    expect(f.internals.previews.consumeInTransaction)
+      .toHaveBeenCalledBefore(f.internals.master.applyLifecycleInTransaction);
     expect(f.internals.audit.append).not.toHaveBeenCalled();
     expect(f.internals.idempotency.complete).not.toHaveBeenCalled();
   });
 
-  it('restores archived data to DRAFT without a preview and records a closed reason code', async () => {
+  it('restores archived data to DRAFT without a preview and records the supplied reason', async () => {
     const f = fixture();
     f.internals.master.restoreCategoryInTransaction.mockResolvedValue(category({
       status: 'DRAFT', updatedAt: new Date('2026-08-14T00:03:00.000Z'), version: 5,
@@ -373,7 +377,7 @@ describe('AdminCatalogService orchestration', () => {
     expect(f.internals.previews.consumeInTransaction).not.toHaveBeenCalled();
     expect(result.envelope.data).toMatchObject({ status: 'DRAFT', version: 5 });
     expect(f.internals.audit.append).toHaveBeenCalledWith(f.transaction, expect.objectContaining({
-      action: 'RESTORE', reasonCode: 'CATALOG.CATEGORY_RESTORE',
+      action: 'RESTORE', reason: 'Resume',
     }));
   });
 

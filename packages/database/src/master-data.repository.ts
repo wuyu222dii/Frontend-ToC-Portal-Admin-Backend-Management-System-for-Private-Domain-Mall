@@ -127,7 +127,10 @@ export interface RestoreMasterDataInput {
 export interface MasterDataHierarchyLockInput {
   brandIds?: readonly string[];
   categoryIds?: readonly string[];
+  inventoryBalanceIds?: readonly string[];
   productIds?: readonly string[];
+  skuIds?: readonly string[];
+  reservationIds?: readonly string[];
 }
 
 type FileLink = {
@@ -178,7 +181,14 @@ const CATEGORY_PATCH_FIELDS = new Set(['iconFileId', 'name', 'sortOrder']);
 const LIFECYCLE_FIELDS = new Set(['action', 'expectedVersion', 'targetId', 'targetType']);
 const LIFECYCLE_PREVIEW_FIELDS = new Set(['action', 'targetId', 'targetType']);
 const RESTORE_FIELDS = new Set(['expectedVersion', 'id']);
-const HIERARCHY_FIELDS = new Set(['brandIds', 'categoryIds', 'productIds']);
+const HIERARCHY_FIELDS = new Set([
+  'brandIds',
+  'categoryIds',
+  'inventoryBalanceIds',
+  'productIds',
+  'reservationIds',
+  'skuIds',
+]);
 const FILE_SELECT = {
   deleted_at: true,
   id: true,
@@ -427,6 +437,9 @@ export async function acquireMasterDataHierarchyLocks(
     ['master-data-brand', uniqueSortedIds(input.brandIds, 'Brand lock ID')],
     ['master-data-category', uniqueSortedIds(input.categoryIds, 'Category lock ID')],
     ['master-data-product', uniqueSortedIds(input.productIds, 'Product lock ID')],
+    ['product-catalog-sku', uniqueSortedIds(input.skuIds, 'SKU lock ID')],
+    ['inventory-balance', uniqueSortedIds(input.inventoryBalanceIds, 'Inventory balance lock ID')],
+    ['inventory-reservation', uniqueSortedIds(input.reservationIds, 'Reservation lock ID')],
   ] as const;
   for (const [namespace, ids] of ordered) {
     for (const id of ids) await acquireTransactionLock(transaction, namespace, [id]);

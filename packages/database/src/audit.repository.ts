@@ -19,6 +19,7 @@ export interface AppendAuditLogInput {
   objectType: string;
   objectId: string;
   action: string;
+  reason?: string;
   reasonCode?: string;
   before?: unknown;
   after?: unknown;
@@ -207,6 +208,7 @@ const AUDIT_INPUT_FIELDS = new Set([
   'module',
   'objectId',
   'objectType',
+  'reason',
   'reasonCode',
   'requestId',
   'result',
@@ -239,6 +241,15 @@ function assertStructuredMetadata(input: AppendAuditLogInput): void {
     throw new TypeError('Audit object ID must be a ULID or UUID');
   }
   if (!AUDIT_ACTION.has(input.action)) throw new TypeError('Audit action is not registered');
+  if (input.reason !== undefined && input.reasonCode !== undefined) {
+    throw new TypeError('Audit reason and reason code are mutually exclusive');
+  }
+  if (input.reason !== undefined) {
+    const length = typeof input.reason === 'string' ? Array.from(input.reason).length : 0;
+    if (typeof input.reason !== 'string' || length < 2 || length > 500) {
+      throw new TypeError('Audit reason must contain 2 to 500 characters');
+    }
+  }
   if (input.reasonCode !== undefined && !AUDIT_REASON_CODE.has(input.reasonCode)) {
     throw new TypeError('Audit reason code is not registered');
   }
@@ -289,7 +300,7 @@ export class AuditRepository {
         object_type: input.objectType,
         object_id: input.objectId,
         action: input.action,
-        reason: input.reasonCode ?? null,
+        reason: input.reason ?? input.reasonCode ?? null,
         before_json: auditJson(input.before, input.summaryPolicy),
         after_json: auditJson(input.after, input.summaryPolicy),
         result: input.result,

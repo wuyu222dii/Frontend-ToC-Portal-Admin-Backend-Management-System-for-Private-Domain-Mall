@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import process from 'node:process';
+import { URL } from 'node:url';
 
 import { readConnection } from '../db/lib/connection.mjs';
 
@@ -50,10 +51,15 @@ if (mode === 'full') {
   if (!connection.sslrootcert) fail('rollback mode requires an explicit trusted CA');
 }
 
+process.env.B4_PRODUCT_CATALOG_API_TEST_MODE = mode;
+
 for (const command of [
   ['--filter', '@qingxu/platform-core', 'build'],
-  ['--filter', '@qingxu/database', 'generate'],
+  ['--filter', '@qingxu/config', 'build'],
+  ['--filter', '@qingxu/database', 'build'],
+  ['--filter', '@qingxu/storage', 'build'],
   ['--filter', '@qingxu/database', 'exec', 'vitest', 'run', 'src/product-catalog.integration.spec.ts'],
+  ['--filter', '@qingxu/api', 'exec', 'vitest', 'run', 'src/admin-products/admin-products.integration.spec.ts'],
 ]) {
   const child = spawnSync('pnpm', command, {
     cwd: process.cwd(),
@@ -63,4 +69,4 @@ for (const command of [
   if (child.error || child.status !== 0) fail(`command failed: pnpm ${command.join(' ')}`);
 }
 
-process.stdout.write('B4.1 product-catalog database checks passed.\n');
+process.stdout.write('B4.2 product-catalog database and API checks passed.\n');

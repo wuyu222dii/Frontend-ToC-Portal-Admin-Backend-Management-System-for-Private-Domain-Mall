@@ -744,6 +744,14 @@ export class IdempotencyRepository {
     return record.response_body;
   }
 
+  commandReplay(record: IdempotencyRecord): CacheableCommandResponse {
+    this.assertReplayIntegrity(record);
+    if (!isCacheableCommandResponse(record.response_body)) {
+      throw new ApplicationError('INTERNAL_ERROR', 'Idempotency record is not a command response');
+    }
+    return record.response_body;
+  }
+
   catalogResourceReplay(record: IdempotencyRecord): CacheableCatalogResourceResponse {
     this.assertReplayIntegrity(record);
     if (!isCacheableCatalogResourceResponse(record.response_body)) {

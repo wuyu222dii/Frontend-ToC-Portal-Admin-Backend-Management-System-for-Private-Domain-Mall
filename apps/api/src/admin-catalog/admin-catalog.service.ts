@@ -55,15 +55,6 @@ const ROUTES = {
 
 type CatalogSnapshot = BrandSnapshot | CategorySnapshot;
 type CatalogResourceType = 'brand' | 'category';
-type CatalogReasonCode =
-  | 'CATALOG.BRAND_ACTIVATE'
-  | 'CATALOG.BRAND_DEACTIVATE'
-  | 'CATALOG.BRAND_SOFT_DELETE'
-  | 'CATALOG.BRAND_RESTORE'
-  | 'CATALOG.CATEGORY_ACTIVATE'
-  | 'CATALOG.CATEGORY_DEACTIVATE'
-  | 'CATALOG.CATEGORY_SOFT_DELETE'
-  | 'CATALOG.CATEGORY_RESTORE';
 
 function routeFor(
   targetType: MasterDataTargetType,
@@ -104,13 +95,6 @@ function previewAction(
   action: MasterDataLifecycleAction,
 ): HighRiskPreviewAction {
   return `${targetType}.${action}`;
-}
-
-function catalogReasonCode(
-  targetType: MasterDataTargetType,
-  action: MasterDataLifecycleAction | 'RESTORE',
-): CatalogReasonCode {
-  return `CATALOG.${targetType}_${action}`;
 }
 
 function preEnvelopedCatalog(response: CacheableCatalogResourceResponse) {
@@ -378,12 +362,6 @@ export class AdminCatalogService {
         targetId,
       );
       if (replay !== null) return preEnvelopedResponse(replay);
-      const changed = await this.master.applyLifecycleInTransaction(transaction, {
-        action: input.action,
-        expectedVersion,
-        targetId,
-        targetType,
-      });
       await this.previews.consumeInTransaction(transaction, {
         action: previewAction(targetType, input.action),
         actorId: request.principal.accountId,
@@ -392,6 +370,12 @@ export class AdminCatalogService {
         request: { action: input.action, reason: input.reason },
         resourceVersion: expectedVersion,
         sessionId: request.accessSession.sessionId,
+        targetId,
+        targetType,
+      });
+      const changed = await this.master.applyLifecycleInTransaction(transaction, {
+        action: input.action,
+        expectedVersion,
         targetId,
         targetType,
       });
@@ -409,7 +393,7 @@ export class AdminCatalogService {
         targetId,
         changed.impact.resource,
         changed.resource,
-        catalogReasonCode(targetType, input.action),
+        input.reason,
       );
       await this.idempotency.complete(transaction, claim, {
         policy: 'COMMAND_RESPONSE',
@@ -458,7 +442,7 @@ export class AdminCatalogService {
         targetId,
         { status: 'ARCHIVED', version: expectedVersion },
         restored,
-        catalogReasonCode(targetType, 'RESTORE'),
+        input.reason,
       );
       await this.idempotency.complete(transaction, claim, {
         policy: 'COMMAND_RESPONSE',
@@ -571,10 +555,10 @@ export class AdminCatalogService {
     expectedResourceId: string,
   ): CacheableCommandResponse | null {
     if (claimed.kind !== 'replay') return null;
-    if (claimed.record.response_status !== 200 || claimed.record.response_body === null) {
+    if (claimed.record.response_status !== 200) {
       throw new ApplicationError('INTERNAL_ERROR', 'Catalog command replay is invalid');
     }
-    const response = claimed.record.response_body as unknown as CacheableCommandResponse;
+    const response = this.idempotency.commandReplay(claimed.record);
     if (response.data.resource_type !== expectedType || response.data.resource_id !== expectedResourceId) {
       throw new ApplicationError('INTERNAL_ERROR', 'Catalog command replay target is invalid');
     }
@@ -630,7 +614,7 @@ export class AdminCatalogService {
     objectId: string,
     before: Pick<CatalogSnapshot, 'status' | 'version'> | undefined,
     after: Pick<CatalogSnapshot, 'status' | 'version'>,
-    reasonCode?: CatalogReasonCode,
+    reason?: string,
   ): Promise<void> {
     const ipAddress = catalogRequestIp(request);
     await this.audit.append(transaction, {
@@ -645,7 +629,7 @@ export class AdminCatalogService {
       objectId,
       objectType: type,
       requestId: request.requestId,
-      ...(reasonCode === undefined ? {} : { reasonCode }),
+      ...(reason === undefined ? {} : { reason }),
       result: 'SUCCESS',
       resultCode: 'OK',
       summaryPolicy: 'STATUS_VERSION',

@@ -143,6 +143,100 @@ databaseDescribe('B4 product catalog database integration', () => {
     };
   }
 
+  async function createLifecycleFixture(options: { withImage?: boolean } = {}) {
+    const actorId = generateUlid();
+    const brandId = generateUlid();
+    const categoryId = generateUlid();
+    const productId = generateUlid();
+    const skuId = generateUlid();
+    const balanceId = generateUlid();
+    const fileId = generateUlid();
+    await runSerializableTransaction(runtime.prisma, async (transaction) => {
+      await createFoundation(transaction, actorId, brandId, categoryId, [fileId]);
+      await repository.createProductInTransaction(transaction, productInput(
+        actorId,
+        brandId,
+        categoryId,
+        productId,
+        `SPU-${productId}`,
+        options.withImage === false ? [] : [fileId],
+      ));
+      await repository.createSkuInTransaction(transaction, {
+        code: `SKU-${skuId}`,
+        id: skuId,
+        inventoryBalanceId: balanceId,
+        isRecommended: false,
+        name: `Lifecycle SKU ${skuId}`,
+        productId,
+        retailPrice: '8.80',
+        specification: null,
+      });
+    });
+    return { actorId, balanceId, brandId, categoryId, fileId, productId, skuId };
+  }
+
+  async function createReservation(
+    transaction: DatabaseTransaction,
+    skuId: string,
+    status: 'ACTIVE' | 'CONSUMED' | 'EXPIRED' | 'RELEASED',
+    expiresAt: Date,
+  ) {
+    const customerAccountId = generateUlid();
+    const customerId = generateUlid();
+    const orderId = generateUlid();
+    const reservationId = generateUlid();
+    await transaction.account.create({
+      data: {
+        created_at: now,
+        id: customerAccountId,
+        role: 'CUSTOMER',
+        status: 'ACTIVE',
+        updated_at: now,
+      },
+    });
+    await transaction.customerProfile.create({
+      data: {
+        account_id: customerAccountId,
+        created_at: now,
+        id: customerId,
+        registered_at: now,
+        updated_at: now,
+      },
+    });
+    await transaction.salesOrder.create({
+      data: {
+        created_at: now,
+        customer_id: customerId,
+        goods_amount: '8.80',
+        id: orderId,
+        order_no: `O${orderId}`,
+        pay_expires_at: new Date(now.getTime() + 30 * 60_000),
+        payable_amount: '8.80',
+        source: 'CART',
+        updated_at: now,
+      },
+    });
+    await transaction.inventoryReservation.create({
+      data: {
+        created_at: now,
+        expires_at: expiresAt,
+        id: reservationId,
+        order_id: orderId,
+        status,
+      },
+    });
+    await transaction.inventoryReservationItem.create({
+      data: {
+        created_at: now,
+        id: generateUlid(),
+        quantity: 2,
+        reservation_id: reservationId,
+        sku_id: skuId,
+      },
+    });
+    return reservationId;
+  }
+
   fullIt('persists CRUD, stable projections, zero inventory, gallery history, and reserved codes', async () => {
     const actorId = generateUlid();
     const brandId = generateUlid();
@@ -441,6 +535,180 @@ databaseDescribe('B4 product catalog database integration', () => {
     expect(attempts.find(({ status }) => status === 'rejected'))
       .toMatchObject({ reason: { code: 'RESOURCE_VERSION_CONFLICT' } });
     await expect(repository.getProduct(productId)).resolves.toMatchObject({ version: 2 });
+  });
+
+  fullIt('runs the complete Product/SKU lifecycle while preserving publication and parent-child independence', async () => {
+    const { productId, skuId } = await createLifecycleFixture();
+
+    await expect(runSerializableTransaction(runtime.prisma, (transaction) =>
+      repository.applyLifecycleInTransaction(transaction, {
+        action: 'ACTIVATE', expectedVersion: 1, targetId: skuId, targetType: 'SKU',
+      }))).resolves.toMatchObject({ resource: { status: 'ACTIVE', version: 2 }, targetType: 'SKU' });
+    const firstActivation = await runSerializableTransaction(runtime.prisma, (transaction) =>
+      repository.applyLifecycleInTransaction(transaction, {
+        action: 'ACTIVATE', expectedVersion: 1, targetId: productId, targetType: 'PRODUCT',
+      }));
+    if (firstActivation.targetType !== 'PRODUCT') throw new TypeError('Expected a Product lifecycle result');
+    expect(firstActivation).toMatchObject({ resource: { status: 'ACTIVE', version: 2 }, targetType: 'PRODUCT' });
+    expect(firstActivation.resource.publishedAt).toBeInstanceOf(Date);
+    const firstPublishedAt = firstActivation.resource.publishedAt;
+
+    await runSerializableTransaction(runtime.prisma, (transaction) => repository.applyLifecycleInTransaction(
+      transaction,
+      { action: 'DEACTIVATE', expectedVersion: 2, targetId: productId, targetType: 'PRODUCT' },
+    ));
+    await expect(runtime.prisma.sku.findUnique({ where: { id: skuId } }))
+      .resolves.toMatchObject({ status: 'ACTIVE', version: 2 });
+    const reactivated = await runSerializableTransaction(runtime.prisma, (transaction) =>
+      repository.applyLifecycleInTransaction(transaction, {
+        action: 'ACTIVATE', expectedVersion: 3, targetId: productId, targetType: 'PRODUCT',
+      }));
+    if (reactivated.targetType !== 'PRODUCT') throw new TypeError('Expected a Product lifecycle result');
+    expect(reactivated.resource).toMatchObject({ publishedAt: firstPublishedAt, status: 'ACTIVE', version: 4 });
+
+    await runSerializableTransaction(runtime.prisma, (transaction) => repository.applyLifecycleInTransaction(
+      transaction,
+      { action: 'DEACTIVATE', expectedVersion: 2, targetId: skuId, targetType: 'SKU' },
+    ));
+    await expect(runtime.prisma.product.findUnique({ where: { id: productId } }))
+      .resolves.toMatchObject({ status: 'ACTIVE', version: 4 });
+    await runSerializableTransaction(runtime.prisma, (transaction) => repository.applyLifecycleInTransaction(
+      transaction,
+      { action: 'DEACTIVATE', expectedVersion: 4, targetId: productId, targetType: 'PRODUCT' },
+    ));
+    const archivedProduct = await runSerializableTransaction(runtime.prisma, (transaction) =>
+      repository.applyLifecycleInTransaction(transaction, {
+        action: 'SOFT_DELETE', expectedVersion: 5, targetId: productId, targetType: 'PRODUCT',
+      }));
+    if (archivedProduct.targetType !== 'PRODUCT') throw new TypeError('Expected a Product lifecycle result');
+    expect(archivedProduct.resource).toMatchObject({ publishedAt: firstPublishedAt, status: 'ARCHIVED', version: 6 });
+    expect(archivedProduct.resource.deletedAt).toBeInstanceOf(Date);
+    await expect(runtime.prisma.sku.findUnique({ where: { id: skuId } }))
+      .resolves.toMatchObject({ deleted_at: null, status: 'INACTIVE', version: 3 });
+
+    const restoredProduct = await runSerializableTransaction(runtime.prisma, (transaction) =>
+      repository.restoreProductInTransaction(transaction, { expectedVersion: 6, id: productId }));
+    expect(restoredProduct).toMatchObject({
+      deletedAt: null,
+      publishedAt: firstPublishedAt,
+      status: 'DRAFT',
+      version: 7,
+    });
+    await runSerializableTransaction(runtime.prisma, (transaction) => repository.applyLifecycleInTransaction(
+      transaction,
+      { action: 'SOFT_DELETE', expectedVersion: 3, targetId: skuId, targetType: 'SKU' },
+    ));
+    await expect(runtime.prisma.product.findUnique({ where: { id: productId } }))
+      .resolves.toMatchObject({ deleted_at: null, status: 'DRAFT', version: 7 });
+    await expect(runSerializableTransaction(runtime.prisma, (transaction) =>
+      repository.restoreSkuInTransaction(transaction, { expectedVersion: 4, id: skuId })))
+      .resolves.toMatchObject({ deletedAt: null, status: 'INACTIVE', version: 5 });
+  });
+
+  fullIt('returns publication impact and rejects image, active-SKU, and SKU-dependency errors without writes', async () => {
+    const noImage = await createLifecycleFixture({ withImage: false });
+    await runSerializableTransaction(runtime.prisma, (transaction) => repository.applyLifecycleInTransaction(
+      transaction,
+      { action: 'ACTIVATE', expectedVersion: 1, targetId: noImage.skuId, targetType: 'SKU' },
+    ));
+    await expect(runSerializableTransaction(runtime.prisma, (transaction) =>
+      repository.applyLifecycleInTransaction(transaction, {
+        action: 'ACTIVATE', expectedVersion: 1, targetId: noImage.productId, targetType: 'PRODUCT',
+      }))).rejects.toMatchObject({ code: 'PRODUCT_PRIMARY_IMAGE_REQUIRED' });
+    await expect(runtime.prisma.product.findUnique({ where: { id: noImage.productId } }))
+      .resolves.toMatchObject({ published_at: null, status: 'DRAFT', version: 1 });
+
+    const noActiveSku = await createLifecycleFixture();
+    const preview = await runSerializableTransaction(runtime.prisma, (transaction) =>
+      repository.getLifecyclePreviewImpactInTransaction(transaction, {
+        action: 'ACTIVATE', targetId: noActiveSku.productId, targetType: 'PRODUCT',
+      }));
+    expect(preview).toMatchObject({
+      activeSkuCount: 0,
+      brandStatus: 'ACTIVE',
+      categoryStatus: 'ACTIVE',
+      validPublicImageCount: 1,
+    });
+    await expect(runSerializableTransaction(runtime.prisma, (transaction) =>
+      repository.applyLifecycleInTransaction(transaction, {
+        action: 'ACTIVATE', expectedVersion: 1, targetId: noActiveSku.productId, targetType: 'PRODUCT',
+      }))).rejects.toMatchObject({ code: 'PRODUCT_ACTIVE_SKU_REQUIRED' });
+
+    const activeSku = await createLifecycleFixture();
+    await runSerializableTransaction(runtime.prisma, (transaction) => repository.applyLifecycleInTransaction(
+      transaction,
+      { action: 'ACTIVATE', expectedVersion: 1, targetId: activeSku.skuId, targetType: 'SKU' },
+    ));
+    await expect(runSerializableTransaction(runtime.prisma, (transaction) =>
+      repository.applyLifecycleInTransaction(transaction, {
+        action: 'SOFT_DELETE', expectedVersion: 1, targetId: activeSku.productId, targetType: 'PRODUCT',
+      }))).rejects.toMatchObject({ code: 'ACTIVE_SKU_DEPENDENCY' });
+  });
+
+  fullIt('treats ACTIVE reservation state as authoritative and rolls back a blocked soft delete', async () => {
+    const fixture = await createLifecycleFixture();
+    let reservationId = '';
+    await runSerializableTransaction(runtime.prisma, async (transaction) => {
+      reservationId = await createReservation(
+        transaction,
+        fixture.skuId,
+        'ACTIVE',
+        new Date(now.getTime() - 24 * 60 * 60_000),
+      );
+    });
+
+    const impact = await runSerializableTransaction(runtime.prisma, (transaction) =>
+      repository.getLifecyclePreviewImpactInTransaction(transaction, {
+        action: 'SOFT_DELETE', targetId: fixture.productId, targetType: 'PRODUCT',
+      }));
+    expect(impact).toMatchObject({
+      activeReservationCount: 1,
+      activeReservationIds: [reservationId],
+      activeReservationQuantity: 2,
+    });
+    await expect(runSerializableTransaction(runtime.prisma, (transaction) =>
+      repository.applyLifecycleInTransaction(transaction, {
+        action: 'SOFT_DELETE', expectedVersion: 1, targetId: fixture.productId, targetType: 'PRODUCT',
+      }))).rejects.toMatchObject({ code: 'ACTIVE_INVENTORY_RESERVATION' });
+    await expect(runtime.prisma.product.findUnique({ where: { id: fixture.productId } }))
+      .resolves.toMatchObject({ deleted_at: null, published_at: null, status: 'DRAFT', version: 1 });
+
+    for (const status of ['CONSUMED', 'RELEASED', 'EXPIRED'] as const) {
+      await runtime.prisma.inventoryReservation.update({ data: { status }, where: { id: reservationId } });
+      await expect(runSerializableTransaction(runtime.prisma, (transaction) =>
+        repository.getLifecyclePreviewImpactInTransaction(transaction, {
+          action: 'SOFT_DELETE', targetId: fixture.productId, targetType: 'PRODUCT',
+        }))).resolves.toMatchObject({
+        activeReservationCount: 0,
+        activeReservationIds: [],
+        activeReservationQuantity: 0,
+      });
+    }
+    await expect(runSerializableTransaction(runtime.prisma, (transaction) =>
+      repository.applyLifecycleInTransaction(transaction, {
+        action: 'SOFT_DELETE', expectedVersion: 1, targetId: fixture.productId, targetType: 'PRODUCT',
+      }))).resolves.toMatchObject({ resource: { status: 'ARCHIVED', version: 2 } });
+  });
+
+  fullIt('rolls back Product lifecycle status, version, deletion, and first publication together', async () => {
+    const fixture = await createLifecycleFixture();
+    await runSerializableTransaction(runtime.prisma, (transaction) => repository.applyLifecycleInTransaction(
+      transaction,
+      { action: 'ACTIVATE', expectedVersion: 1, targetId: fixture.skuId, targetType: 'SKU' },
+    ));
+
+    await expect(runtime.withPrismaTransaction(async (transaction) => {
+      await repository.applyLifecycleInTransaction(transaction, {
+        action: 'ACTIVATE', expectedVersion: 1, targetId: fixture.productId, targetType: 'PRODUCT',
+      });
+      throw rollbackSentinel;
+    })).rejects.toBe(rollbackSentinel);
+    await expect(runtime.prisma.product.findUnique({ where: { id: fixture.productId } })).resolves.toMatchObject({
+      deleted_at: null,
+      published_at: null,
+      status: 'DRAFT',
+      version: 1,
+    });
   });
 
   rollbackIt('leaves no Product, SKU, inventory, image, or foundation facts outside rollback-only smoke', async () => {

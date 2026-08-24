@@ -170,6 +170,56 @@ export interface UpdateSkuInput {
   patch: UpdateSkuPatch;
 }
 
+export type ProductCatalogLifecycleTargetType = 'PRODUCT' | 'SKU';
+export type ProductCatalogLifecycleAction = 'ACTIVATE' | 'DEACTIVATE' | 'SOFT_DELETE';
+
+export interface ProductCatalogLifecyclePreviewInput {
+  targetType: ProductCatalogLifecycleTargetType;
+  targetId: string;
+  action: ProductCatalogLifecycleAction;
+}
+
+export interface ProductCatalogLifecycleInput extends ProductCatalogLifecyclePreviewInput {
+  expectedVersion: number;
+}
+
+export interface ProductCatalogLifecycleImpact {
+  resource: {
+    id: string;
+    status: EntityStatus | SkuStatus;
+    version: number;
+    deletedAt: Date | null;
+  };
+  activeReservationCount: number;
+  activeReservationQuantity: number;
+  activeReservationIds: string[];
+  activeImageCount?: number;
+  activeSkuCount?: number;
+  activeSkuIds?: string[];
+  brandStatus?: EntityStatus;
+  categoryStatus?: EntityStatus;
+  parentProductDeletedAt?: Date | null;
+  parentProductStatus?: EntityStatus;
+  validPublicImageCount?: number;
+}
+
+export type ProductCatalogLifecycleResult =
+  | {
+    targetType: 'PRODUCT';
+    resource: ProductCatalogProductSnapshot;
+    impact: ProductCatalogLifecycleImpact;
+  }
+  | {
+    targetType: 'SKU';
+    resource: ProductCatalogSkuSnapshot;
+    impact: ProductCatalogLifecycleImpact;
+  };
+
+export interface RestoreProductCatalogInput {
+  id: string;
+  expectedVersion: number;
+}
+
 const FILE_SELECT = {
   deleted_at: true,
   id: true,
@@ -248,6 +298,11 @@ const SKU_PATCH_FIELDS = new Set(['isRecommended', 'name', 'retailPrice', 'speci
 const SPECIFICATION_FIELDS = new Set(['attributes']);
 const ATTRIBUTE_FIELDS = new Set(['name', 'value']);
 const POSITIVE_MONEY = /^(?:0\.(?:0[1-9]|[1-9][0-9])|[1-9][0-9]{0,15}\.[0-9]{2})$/;
+const LIFECYCLE_ACTION = new Set<ProductCatalogLifecycleAction>(['ACTIVATE', 'DEACTIVATE', 'SOFT_DELETE']);
+const LIFECYCLE_TARGET_TYPE = new Set<ProductCatalogLifecycleTargetType>(['PRODUCT', 'SKU']);
+const LIFECYCLE_PREVIEW_FIELDS = new Set(['action', 'targetId', 'targetType']);
+const LIFECYCLE_FIELDS = new Set(['action', 'expectedVersion', 'targetId', 'targetType']);
+const RESTORE_FIELDS = new Set(['expectedVersion', 'id']);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value) &&
@@ -421,6 +476,29 @@ function validateUpdateSku(input: UpdateSkuInput): void {
   requireUlid(input.id, 'SKU ID');
   requireVersion(input.expectedVersion);
   validateSkuPatch(input.patch);
+}
+
+function validateLifecyclePreviewInput(input: ProductCatalogLifecyclePreviewInput): void {
+  requireExactFields(input, LIFECYCLE_PREVIEW_FIELDS, 'Product catalog lifecycle preview input');
+  if (!LIFECYCLE_TARGET_TYPE.has(input.targetType)) throw new TypeError('Lifecycle target type is invalid');
+  requireUlid(input.targetId, 'Lifecycle target ID');
+  if (!LIFECYCLE_ACTION.has(input.action)) throw new TypeError('Lifecycle action is invalid');
+}
+
+function validateLifecycleInput(input: ProductCatalogLifecycleInput): void {
+  requireExactFields(input, LIFECYCLE_FIELDS, 'Product catalog lifecycle input');
+  validateLifecyclePreviewInput({
+    action: input.action,
+    targetId: input.targetId,
+    targetType: input.targetType,
+  });
+  requireVersion(input.expectedVersion);
+}
+
+function validateRestoreInput(input: RestoreProductCatalogInput): void {
+  requireExactFields(input, RESTORE_FIELDS, 'Product catalog restore input');
+  requireUlid(input.id, 'Restore resource ID');
+  requireVersion(input.expectedVersion);
 }
 
 function listWhere(input: ProductCatalogListInput): Prisma.ProductWhereInput {
@@ -617,6 +695,48 @@ function archivedConflict(resource: 'Product' | 'SKU'): ApplicationError {
   return new ApplicationError('STATE_CONFLICT', `Archived ${resource} cannot be edited`);
 }
 
+function lifecycleConflict(resource: 'Product' | 'SKU'): ApplicationError {
+  return new ApplicationError('STATE_CONFLICT', `${resource} lifecycle transition is not allowed`);
+}
+
+function assertProductLifecycleTransition(
+  status: EntityStatus,
+  deletedAt: Date | null,
+  action: ProductCatalogLifecycleAction,
+): void {
+  const allowed = deletedAt === null && status !== 'ARCHIVED' && (
+    (action === 'ACTIVATE' && (status === 'DRAFT' || status === 'INACTIVE')) ||
+    (action === 'DEACTIVATE' && status === 'ACTIVE') ||
+    (action === 'SOFT_DELETE' && (status === 'DRAFT' || status === 'INACTIVE'))
+  );
+  if (!allowed) throw lifecycleConflict('Product');
+}
+
+function assertSkuLifecycleTransition(
+  status: SkuStatus,
+  deletedAt: Date | null,
+  action: ProductCatalogLifecycleAction,
+): void {
+  const allowed = deletedAt === null && status !== 'ARCHIVED' && (
+    (action === 'ACTIVATE' && status === 'INACTIVE') ||
+    (action === 'DEACTIVATE' && status === 'ACTIVE') ||
+    (action === 'SOFT_DELETE' && status === 'INACTIVE')
+  );
+  if (!allowed) throw lifecycleConflict('SKU');
+}
+
+function productNextStatus(action: ProductCatalogLifecycleAction): EntityStatus {
+  if (action === 'ACTIVATE') return 'ACTIVE';
+  if (action === 'DEACTIVATE') return 'INACTIVE';
+  return 'ARCHIVED';
+}
+
+function skuNextStatus(action: ProductCatalogLifecycleAction): SkuStatus {
+  if (action === 'ACTIVATE') return 'ACTIVE';
+  if (action === 'DEACTIVATE') return 'INACTIVE';
+  return 'ARCHIVED';
+}
+
 function specificationData(value: SkuSpecification | null): Prisma.InputJsonValue | typeof Prisma.DbNull {
   return value === null ? Prisma.DbNull : value as unknown as Prisma.InputJsonValue;
 }
@@ -635,6 +755,157 @@ export class ProductCatalogRepository {
       throw new TypeError('Product catalog repository clock must return a valid Date');
     }
     return value;
+  }
+
+  private async transactionTime(transaction: DatabaseTransaction): Promise<Date> {
+    const rows = await transaction.$queryRaw<Array<{ transaction_time: Date }>>(
+      Prisma.sql`SELECT transaction_timestamp() AS transaction_time`,
+    );
+    const occurredAt = rows[0]?.transaction_time;
+    if (!(occurredAt instanceof Date) || !Number.isFinite(occurredAt.getTime())) {
+      throw new ApplicationError('INTERNAL_ERROR', 'Database transaction clock is unavailable');
+    }
+    return occurredAt;
+  }
+
+  private async activeReservationImpact(
+    transaction: DatabaseTransaction,
+    skuIds: readonly string[],
+  ): Promise<Pick<ProductCatalogLifecycleImpact,
+    'activeReservationCount' | 'activeReservationIds' | 'activeReservationQuantity'>> {
+    if (skuIds.length === 0) {
+      return { activeReservationCount: 0, activeReservationIds: [], activeReservationQuantity: 0 };
+    }
+    const candidates = await transaction.inventoryReservation.findMany({
+      orderBy: [{ id: 'asc' }],
+      select: { id: true },
+      where: { items: { some: { sku_id: { in: [...skuIds] } } }, status: 'ACTIVE' },
+    });
+    const reservationIds = candidates.map(({ id }) => id);
+    await acquireMasterDataHierarchyLocks(transaction, { reservationIds });
+    if (reservationIds.length === 0) {
+      return { activeReservationCount: 0, activeReservationIds: [], activeReservationQuantity: 0 };
+    }
+    const active = await transaction.inventoryReservation.findMany({
+      orderBy: [{ id: 'asc' }],
+      select: {
+        id: true,
+        items: {
+          orderBy: [{ sku_id: 'asc' }],
+          select: { quantity: true, sku_id: true },
+          where: { sku_id: { in: [...skuIds] } },
+        },
+      },
+      where: { id: { in: reservationIds }, status: 'ACTIVE' },
+    });
+    return {
+      activeReservationCount: active.length,
+      activeReservationIds: active.map(({ id }) => id),
+      activeReservationQuantity: active.reduce(
+        (total, reservation) => total + reservation.items.reduce((sum, item) => sum + item.quantity, 0),
+        0,
+      ),
+    };
+  }
+
+  private async productLifecycleImpact(
+    transaction: DatabaseTransaction,
+    targetId: string,
+    action: ProductCatalogLifecycleAction,
+    expectedVersion?: number,
+  ): Promise<{ impact: ProductCatalogLifecycleImpact; resource: ProductCatalogProductSnapshot }> {
+    const initial = await transaction.product.findUnique({
+      select: { brand_id: true, category_id: true, id: true },
+      where: { id: targetId },
+    });
+    if (!initial) throw productNotFound();
+    await acquireMasterDataHierarchyLocks(transaction, {
+      brandIds: [initial.brand_id],
+      categoryIds: [initial.category_id],
+      productIds: [targetId],
+    });
+    const resource = await this.readProduct(transaction, targetId);
+    if (expectedVersion !== undefined && resource.version !== expectedVersion) throw versionConflict('Product');
+    if (resource.brandId !== initial.brand_id || resource.categoryId !== initial.category_id) {
+      throw new ApplicationError('STATE_CONFLICT', 'Product hierarchy changed; retry the lifecycle operation');
+    }
+    assertProductLifecycleTransition(resource.status, resource.deletedAt, action);
+    const skuIds = resource.skus.map(({ id }) => id).sort();
+    await acquireMasterDataHierarchyLocks(transaction, {
+      inventoryBalanceIds: resource.skus.map(({ inventory }) => inventory.id),
+      skuIds,
+    });
+    const reservations = await this.activeReservationImpact(transaction, skuIds);
+    return {
+      impact: {
+        ...reservations,
+        activeImageCount: resource.images.length,
+        activeSkuCount: resource.skus.filter((sku) => sku.deletedAt === null && sku.status === 'ACTIVE').length,
+        activeSkuIds: resource.skus
+          .filter((sku) => sku.deletedAt === null && sku.status === 'ACTIVE')
+          .map(({ id }) => id),
+        brandStatus: resource.brand.status,
+        categoryStatus: resource.category.status,
+        resource: {
+          deletedAt: resource.deletedAt,
+          id: resource.id,
+          status: resource.status,
+          version: resource.version,
+        },
+        validPublicImageCount: resource.images.length,
+      },
+      resource,
+    };
+  }
+
+  private async skuLifecycleImpact(
+    transaction: DatabaseTransaction,
+    targetId: string,
+    action: ProductCatalogLifecycleAction,
+    expectedVersion?: number,
+  ): Promise<{ impact: ProductCatalogLifecycleImpact; resource: ProductCatalogSkuSnapshot }> {
+    const initial = await transaction.sku.findUnique({
+      select: {
+        id: true,
+        product: { select: { brand_id: true, category_id: true, id: true } },
+        product_id: true,
+      },
+      where: { id: targetId },
+    });
+    if (!initial) throw skuNotFound();
+    await acquireMasterDataHierarchyLocks(transaction, {
+      brandIds: [initial.product.brand_id],
+      categoryIds: [initial.product.category_id],
+      productIds: [initial.product_id],
+      skuIds: [targetId],
+    });
+    const resource = await this.readSku(transaction, targetId);
+    if (expectedVersion !== undefined && resource.version !== expectedVersion) throw versionConflict('SKU');
+    await acquireMasterDataHierarchyLocks(transaction, { inventoryBalanceIds: [resource.inventory.id] });
+    const parent = await transaction.product.findUnique({
+      select: { brand_id: true, category_id: true, deleted_at: true, id: true, status: true },
+      where: { id: resource.productId },
+    });
+    if (!parent) throw productNotFound();
+    if (parent.brand_id !== initial.product.brand_id || parent.category_id !== initial.product.category_id) {
+      throw new ApplicationError('STATE_CONFLICT', 'Product hierarchy changed; retry the lifecycle operation');
+    }
+    assertSkuLifecycleTransition(resource.status, resource.deletedAt, action);
+    const reservations = await this.activeReservationImpact(transaction, [targetId]);
+    return {
+      impact: {
+        ...reservations,
+        parentProductDeletedAt: parent.deleted_at,
+        parentProductStatus: parent.status,
+        resource: {
+          deletedAt: resource.deletedAt,
+          id: resource.id,
+          status: resource.status,
+          version: resource.version,
+        },
+      },
+      resource,
+    };
   }
 
   async listProducts(input: ProductCatalogListInput): Promise<ProductCatalogListResult> {
@@ -945,6 +1216,170 @@ export class ProductCatalogRepository {
       where: { deleted_at: null, id: input.id, version: input.expectedVersion },
     });
     if (result.count !== 1) throw versionConflict('SKU');
+    return this.readSku(transaction, input.id);
+  }
+
+  async getLifecyclePreviewImpactInTransaction(
+    transaction: DatabaseTransaction,
+    input: ProductCatalogLifecyclePreviewInput,
+  ): Promise<ProductCatalogLifecycleImpact> {
+    validateLifecyclePreviewInput(input);
+    const context = input.targetType === 'PRODUCT'
+      ? await this.productLifecycleImpact(transaction, input.targetId, input.action)
+      : await this.skuLifecycleImpact(transaction, input.targetId, input.action);
+    return context.impact;
+  }
+
+  async applyLifecycleInTransaction(
+    transaction: DatabaseTransaction,
+    input: ProductCatalogLifecycleInput,
+  ): Promise<ProductCatalogLifecycleResult> {
+    validateLifecycleInput(input);
+    if (input.targetType === 'PRODUCT') {
+      const context = await this.productLifecycleImpact(
+        transaction, input.targetId, input.action, input.expectedVersion,
+      );
+      if (input.action === 'ACTIVATE') {
+        if (context.resource.brand.deletedAt !== null || context.resource.brand.status !== 'ACTIVE' ||
+          context.resource.category.deletedAt !== null || context.resource.category.status !== 'ACTIVE') {
+          throw new ApplicationError('STATE_CONFLICT', 'Product activation requires active brand and category');
+        }
+        if ((context.impact.validPublicImageCount ?? 0) < 1) {
+          throw new ApplicationError('PRODUCT_PRIMARY_IMAGE_REQUIRED', 'Product activation requires a public image');
+        }
+        if ((context.impact.activeSkuCount ?? 0) < 1) {
+          throw new ApplicationError('PRODUCT_ACTIVE_SKU_REQUIRED', 'Product activation requires an active SKU');
+        }
+      }
+      if (input.action === 'SOFT_DELETE') {
+        if ((context.impact.activeSkuCount ?? 0) > 0) {
+          throw new ApplicationError('ACTIVE_SKU_DEPENDENCY', 'Active SKUs must be deactivated first');
+        }
+        if (context.impact.activeReservationCount > 0) {
+          throw new ApplicationError(
+            'ACTIVE_INVENTORY_RESERVATION',
+            'Active inventory reservations must be released first',
+          );
+        }
+      }
+      const occurredAt = await this.transactionTime(transaction);
+      const updated = await transaction.product.updateMany({
+        data: {
+          ...(input.action !== 'SOFT_DELETE' ? {} : { deleted_at: occurredAt }),
+          ...(input.action === 'ACTIVATE' && context.resource.publishedAt === null
+            ? { published_at: occurredAt }
+            : {}),
+          status: productNextStatus(input.action),
+          updated_at: occurredAt,
+          version: { increment: 1 },
+        },
+        where: {
+          deleted_at: null,
+          id: input.targetId,
+          status: context.resource.status,
+          version: input.expectedVersion,
+        },
+      });
+      if (updated.count !== 1) throw versionConflict('Product');
+      return {
+        impact: context.impact,
+        resource: await this.readProduct(transaction, input.targetId),
+        targetType: 'PRODUCT',
+      };
+    }
+
+    const context = await this.skuLifecycleImpact(transaction, input.targetId, input.action, input.expectedVersion);
+    if (input.action === 'ACTIVATE' && (
+      (context.impact.parentProductDeletedAt !== undefined && context.impact.parentProductDeletedAt !== null) ||
+      context.impact.parentProductStatus === 'ARCHIVED'
+    )) {
+      throw new ApplicationError('STATE_CONFLICT', 'Archived product cannot have an active SKU');
+    }
+    if (input.action === 'SOFT_DELETE' && context.impact.activeReservationCount > 0) {
+      throw new ApplicationError(
+        'ACTIVE_INVENTORY_RESERVATION',
+        'Active inventory reservations must be released first',
+      );
+    }
+    const occurredAt = await this.transactionTime(transaction);
+    const updated = await transaction.sku.updateMany({
+      data: {
+        ...(input.action !== 'SOFT_DELETE' ? {} : { deleted_at: occurredAt }),
+        status: skuNextStatus(input.action),
+        updated_at: occurredAt,
+        version: { increment: 1 },
+      },
+      where: {
+        deleted_at: null,
+        id: input.targetId,
+        status: context.resource.status,
+        version: input.expectedVersion,
+      },
+    });
+    if (updated.count !== 1) throw versionConflict('SKU');
+    return {
+      impact: context.impact,
+      resource: await this.readSku(transaction, input.targetId),
+      targetType: 'SKU',
+    };
+  }
+
+  async restoreProductInTransaction(
+    transaction: DatabaseTransaction,
+    input: RestoreProductCatalogInput,
+  ): Promise<ProductCatalogProductSnapshot> {
+    validateRestoreInput(input);
+    const initial = await transaction.product.findUnique({
+      select: { brand_id: true, category_id: true, id: true },
+      where: { id: input.id },
+    });
+    if (!initial) throw productNotFound();
+    await acquireMasterDataHierarchyLocks(transaction, {
+      brandIds: [initial.brand_id],
+      categoryIds: [initial.category_id],
+      productIds: [input.id],
+    });
+    const current = await this.readProduct(transaction, input.id);
+    if (current.version !== input.expectedVersion) throw versionConflict('Product');
+    if (current.status !== 'ARCHIVED' || current.deletedAt === null) throw lifecycleConflict('Product');
+    const occurredAt = await this.transactionTime(transaction);
+    const updated = await transaction.product.updateMany({
+      data: { deleted_at: null, status: 'DRAFT', updated_at: occurredAt, version: { increment: 1 } },
+      where: { deleted_at: { not: null }, id: input.id, status: 'ARCHIVED', version: input.expectedVersion },
+    });
+    if (updated.count !== 1) throw versionConflict('Product');
+    return this.readProduct(transaction, input.id);
+  }
+
+  async restoreSkuInTransaction(
+    transaction: DatabaseTransaction,
+    input: RestoreProductCatalogInput,
+  ): Promise<ProductCatalogSkuSnapshot> {
+    validateRestoreInput(input);
+    const initial = await transaction.sku.findUnique({
+      select: {
+        id: true,
+        product: { select: { brand_id: true, category_id: true, id: true } },
+        product_id: true,
+      },
+      where: { id: input.id },
+    });
+    if (!initial) throw skuNotFound();
+    await acquireMasterDataHierarchyLocks(transaction, {
+      brandIds: [initial.product.brand_id],
+      categoryIds: [initial.product.category_id],
+      productIds: [initial.product_id],
+      skuIds: [input.id],
+    });
+    const current = await this.readSku(transaction, input.id);
+    if (current.version !== input.expectedVersion) throw versionConflict('SKU');
+    if (current.status !== 'ARCHIVED' || current.deletedAt === null) throw lifecycleConflict('SKU');
+    const occurredAt = await this.transactionTime(transaction);
+    const updated = await transaction.sku.updateMany({
+      data: { deleted_at: null, status: 'INACTIVE', updated_at: occurredAt, version: { increment: 1 } },
+      where: { deleted_at: { not: null }, id: input.id, status: 'ARCHIVED', version: input.expectedVersion },
+    });
+    if (updated.count !== 1) throw versionConflict('SKU');
     return this.readSku(transaction, input.id);
   }
 }

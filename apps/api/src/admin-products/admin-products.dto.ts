@@ -1,10 +1,12 @@
 import { ApplicationError, isValidUlid } from '@qingxu/platform-core';
 
 const ENTITY_STATUSES = ['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED'] as const;
+const LIFECYCLE_ACTIONS = ['ACTIVATE', 'DEACTIVATE', 'SOFT_DELETE'] as const;
 const POSTGRES_INTEGER_MAX = 2_147_483_647;
 const POSITIVE_MONEY = /^(?:0\.(?:0[1-9]|[1-9][0-9])|[1-9][0-9]{0,15}\.[0-9]{2})$/;
 
 export type ProductEntityStatus = (typeof ENTITY_STATUSES)[number];
+export type ProductLifecycleAction = (typeof LIFECYCLE_ACTIONS)[number];
 
 export interface ProductImageInput {
   fileId: string;
@@ -68,6 +70,24 @@ export interface SkuUpdateInput {
   retailPrice?: string;
   specJson?: SkuSpec | null;
 }
+
+export interface ProductLifecyclePreviewInput {
+  action: ProductLifecycleAction;
+  reason: string;
+}
+
+export interface ProductLifecycleConfirmationInput extends ProductLifecyclePreviewInput {
+  confirmationHash: string;
+  previewToken: string;
+}
+
+export interface ProductRestoreInput {
+  reason: string;
+}
+
+export type SkuLifecyclePreviewInput = ProductLifecyclePreviewInput;
+export type SkuLifecycleConfirmationInput = ProductLifecycleConfirmationInput;
+export type SkuRestoreInput = ProductRestoreInput;
 
 type PlainRecord = Record<string, unknown>;
 
@@ -190,6 +210,39 @@ function money(value: unknown): string {
   return value;
 }
 
+function lifecycleAction(value: unknown): ProductLifecycleAction {
+  if (typeof value !== 'string' || !(LIFECYCLE_ACTIONS as readonly string[]).includes(value)) {
+    return invalid('action is invalid');
+  }
+  return value as ProductLifecycleAction;
+}
+
+function lifecycleReason(value: unknown): string {
+  return boundedString(value, 'reason', 2, 500);
+}
+
+function parseLifecyclePreview(value: unknown): ProductLifecyclePreviewInput {
+  const body = closedBody(value, ['action', 'reason']);
+  return { action: lifecycleAction(body.action), reason: lifecycleReason(body.reason) };
+}
+
+function parseLifecycleConfirmation(value: unknown): ProductLifecycleConfirmationInput {
+  const body = closedBody(value, ['action', 'reason', 'preview_token', 'confirmation_hash']);
+  const confirmationHash = boundedString(body.confirmation_hash, 'confirmation_hash', 64, 64);
+  if (!/^[a-f0-9]{64}$/.test(confirmationHash)) return invalid('confirmation_hash is invalid');
+  return {
+    action: lifecycleAction(body.action),
+    confirmationHash,
+    previewToken: boundedString(body.preview_token, 'preview_token', 16, 512),
+    reason: lifecycleReason(body.reason),
+  };
+}
+
+function parseRestore(value: unknown): ProductRestoreInput {
+  const body = closedBody(value, ['reason']);
+  return { reason: lifecycleReason(body.reason) };
+}
+
 function assignOptional<T extends object, K extends keyof T>(
   output: T,
   key: K,
@@ -306,4 +359,28 @@ export function parseSkuUpdateBody(value: unknown): SkuUpdateInput {
   assignOptional(output, 'retailPrice', optionalField(body, 'retail_price', money));
   assignOptional(output, 'isRecommended', optionalField(body, 'is_recommended', (input) => booleanValue(input, 'is_recommended')));
   return output;
+}
+
+export function parseProductLifecyclePreviewBody(value: unknown): ProductLifecyclePreviewInput {
+  return parseLifecyclePreview(value);
+}
+
+export function parseProductLifecycleConfirmationBody(value: unknown): ProductLifecycleConfirmationInput {
+  return parseLifecycleConfirmation(value);
+}
+
+export function parseProductRestoreBody(value: unknown): ProductRestoreInput {
+  return parseRestore(value);
+}
+
+export function parseSkuLifecyclePreviewBody(value: unknown): SkuLifecyclePreviewInput {
+  return parseLifecyclePreview(value);
+}
+
+export function parseSkuLifecycleConfirmationBody(value: unknown): SkuLifecycleConfirmationInput {
+  return parseLifecycleConfirmation(value);
+}
+
+export function parseSkuRestoreBody(value: unknown): SkuRestoreInput {
+  return parseRestore(value);
 }

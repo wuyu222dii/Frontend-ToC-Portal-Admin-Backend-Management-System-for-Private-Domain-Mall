@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import type { PlatformRuntimeConfig } from '@qingxu/config';
 import {
@@ -5,6 +7,7 @@ import {
   type BrandSnapshot,
   type CacheableBrandView,
   type CacheableCategoryView,
+  type CacheableCommandResponse,
   type CacheableProductCatalogResponse,
   type CacheableProductDetailView,
   type CacheableSkuSpec,
@@ -12,14 +15,20 @@ import {
   type CategorySnapshot,
   type DatabaseRuntime,
   type DatabaseTransaction,
+  type HighRiskPreviewAction,
+  HighRiskPreviewRepository,
   IdempotencyRepository,
   type IdempotencyClaim,
+  OutboxRepository,
   ProductCatalogRepository,
+  type ProductCatalogLifecycleAction,
+  type ProductCatalogLifecycleImpact,
+  type ProductCatalogLifecycleTargetType,
   type ProductCatalogProductSnapshot,
   type ProductCatalogSkuSnapshot,
   runSerializableTransaction,
 } from '@qingxu/database';
-import { ApplicationError, generateUlid } from '@qingxu/platform-core';
+import { ApplicationError, formatVersionEtag, generateUlid } from '@qingxu/platform-core';
 import type { ObjectStoragePort } from '@qingxu/storage';
 
 import { catalogRequestIp, type AdminCatalogRequestContext } from '../admin-catalog/admin-catalog.request';
@@ -29,24 +38,87 @@ import { preEnvelopedResponse } from '../platform/http/success-envelope.intercep
 import { API_OBJECT_STORAGE } from '../platform/storage/api-object-storage';
 import type {
   ProductCreateInput,
+  ProductLifecycleConfirmationInput,
+  ProductLifecyclePreviewInput,
   ProductListInput,
+  ProductRestoreInput,
   ProductUpdateInput,
   SkuCreateInput,
+  SkuLifecycleConfirmationInput,
+  SkuLifecyclePreviewInput,
+  SkuRestoreInput,
   SkuSpec,
   SkuUpdateInput,
 } from './admin-products.dto';
 
 const ROUTES = {
   productCreate: '/admin/products',
+  productLifecycle: '/admin/products/{product_id}/lifecycle-changes',
+  productPreview: '/admin/products/{product_id}/lifecycle-preview',
+  productRestore: '/admin/products/{product_id}/restore',
   productUpdate: '/admin/products/{product_id}',
   skuCreate: '/admin/products/{product_id}/skus',
+  skuLifecycle: '/admin/skus/{sku_id}/lifecycle-changes',
+  skuPreview: '/admin/skus/{sku_id}/lifecycle-preview',
+  skuRestore: '/admin/skus/{sku_id}/restore',
   skuUpdate: '/admin/skus/{sku_id}',
 } as const;
 
 type ProductCatalogResourceType = 'product' | 'sku';
+type ProductCatalogSnapshot = ProductCatalogProductSnapshot | ProductCatalogSkuSnapshot;
 
 function preEnvelopedProductCatalog(response: CacheableProductCatalogResponse) {
   return preEnvelopedResponse<CacheableProductDetailView | CacheableSkuView>(response);
+}
+
+function lifecycleRoute(
+  targetType: ProductCatalogLifecycleTargetType,
+  operation: 'confirm' | 'preview' | 'restore',
+): string {
+  if (targetType === 'PRODUCT') {
+    if (operation === 'confirm') return ROUTES.productLifecycle;
+    if (operation === 'preview') return ROUTES.productPreview;
+    return ROUTES.productRestore;
+  }
+  if (operation === 'confirm') return ROUTES.skuLifecycle;
+  if (operation === 'preview') return ROUTES.skuPreview;
+  return ROUTES.skuRestore;
+}
+
+function lifecyclePath(
+  targetType: ProductCatalogLifecycleTargetType,
+  targetId: string,
+): Record<string, string> {
+  return targetType === 'PRODUCT' ? { product_id: targetId } : { sku_id: targetId };
+}
+
+function lifecycleResourceType(targetType: ProductCatalogLifecycleTargetType): ProductCatalogResourceType {
+  return targetType === 'PRODUCT' ? 'product' : 'sku';
+}
+
+function lifecyclePreviewAction(
+  targetType: ProductCatalogLifecycleTargetType,
+  action: ProductCatalogLifecycleAction,
+): HighRiskPreviewAction {
+  return `${targetType}.${action}`;
+}
+
+function lifecycleAuditAction(
+  action: ProductCatalogLifecycleAction,
+): 'ARCHIVE' | 'DISABLE' | 'ENABLE' {
+  if (action === 'ACTIVATE') return 'ENABLE';
+  if (action === 'DEACTIVATE') return 'DISABLE';
+  return 'ARCHIVE';
+}
+
+function lifecycleNextStatus(action: ProductCatalogLifecycleAction): 'ACTIVE' | 'ARCHIVED' | 'INACTIVE' {
+  if (action === 'ACTIVATE') return 'ACTIVE';
+  if (action === 'DEACTIVATE') return 'INACTIVE';
+  return 'ARCHIVED';
+}
+
+function preEnvelopedCommand(response: CacheableCommandResponse) {
+  return preEnvelopedResponse<CacheableCommandResponse['data']>(response);
 }
 
 @Injectable()
@@ -54,6 +126,8 @@ export class AdminProductsService {
   private readonly audit!: AuditRepository;
   private readonly catalog!: ProductCatalogRepository;
   private readonly idempotency!: IdempotencyRepository;
+  private readonly outbox!: OutboxRepository;
+  private readonly previews!: HighRiskPreviewRepository;
 
   constructor(
     @Optional() @Inject(API_RUNTIME_CONFIG) private readonly config?: PlatformRuntimeConfig,
@@ -64,6 +138,8 @@ export class AdminProductsService {
       this.audit = new AuditRepository(config.encryption.ipHashKey);
       this.catalog = new ProductCatalogRepository(database.prisma);
       this.idempotency = new IdempotencyRepository(config.encryption.idempotencyHashKeys);
+      this.outbox = new OutboxRepository(database);
+      this.previews = new HighRiskPreviewRepository(database.prisma, config.encryption.idempotencyHashKeys);
     }
   }
 
@@ -289,6 +365,239 @@ export class AdminProductsService {
     });
   }
 
+  previewProductLifecycle(
+    request: AdminCatalogRequestContext,
+    productId: string,
+    input: ProductLifecyclePreviewInput,
+    idempotencyKey: string,
+  ) {
+    return this.previewLifecycle(request, 'PRODUCT', productId, input, idempotencyKey);
+  }
+
+  previewSkuLifecycle(
+    request: AdminCatalogRequestContext,
+    skuId: string,
+    input: SkuLifecyclePreviewInput,
+    idempotencyKey: string,
+  ) {
+    return this.previewLifecycle(request, 'SKU', skuId, input, idempotencyKey);
+  }
+
+  confirmProductLifecycle(
+    request: AdminCatalogRequestContext,
+    productId: string,
+    input: ProductLifecycleConfirmationInput,
+    expectedVersion: number,
+    idempotencyKey: string,
+  ) {
+    return this.confirmLifecycle(request, 'PRODUCT', productId, input, expectedVersion, idempotencyKey);
+  }
+
+  confirmSkuLifecycle(
+    request: AdminCatalogRequestContext,
+    skuId: string,
+    input: SkuLifecycleConfirmationInput,
+    expectedVersion: number,
+    idempotencyKey: string,
+  ) {
+    return this.confirmLifecycle(request, 'SKU', skuId, input, expectedVersion, idempotencyKey);
+  }
+
+  restoreProduct(
+    request: AdminCatalogRequestContext,
+    productId: string,
+    input: ProductRestoreInput,
+    expectedVersion: number,
+    idempotencyKey: string,
+  ) {
+    return this.restoreLifecycle(request, 'PRODUCT', productId, input, expectedVersion, idempotencyKey);
+  }
+
+  restoreSku(
+    request: AdminCatalogRequestContext,
+    skuId: string,
+    input: SkuRestoreInput,
+    expectedVersion: number,
+    idempotencyKey: string,
+  ) {
+    return this.restoreLifecycle(request, 'SKU', skuId, input, expectedVersion, idempotencyKey);
+  }
+
+  private async previewLifecycle(
+    request: AdminCatalogRequestContext,
+    targetType: ProductCatalogLifecycleTargetType,
+    targetId: string,
+    input: ProductLifecyclePreviewInput | SkuLifecyclePreviewInput,
+    idempotencyKey: string,
+  ) {
+    const { database } = this.runtime();
+    const claim = this.claim(
+      request,
+      idempotencyKey,
+      'POST',
+      lifecycleRoute(targetType, 'preview'),
+      lifecyclePath(targetType, targetId),
+      input,
+    );
+    return runSerializableTransaction(database.prisma, async (transaction) => {
+      const claimed = await this.idempotency.claim(transaction, claim);
+      if (claimed.kind === 'replay') {
+        throw new ApplicationError('STATE_CONFLICT', 'Lifecycle preview must use a new idempotency key');
+      }
+      const impact = await this.catalog.getLifecyclePreviewImpactInTransaction(transaction, {
+        action: input.action,
+        targetId,
+        targetType,
+      });
+      const previewToken = `pvw_${randomBytes(32).toString('base64url')}`;
+      const issued = await this.previews.issueInTransaction(transaction, {
+        action: lifecyclePreviewAction(targetType, input.action),
+        actorId: request.principal.accountId,
+        previewToken,
+        request: { action: input.action, reason: input.reason },
+        resourceVersion: impact.resource.version,
+        sessionId: request.accessSession.sessionId,
+        targetId,
+        targetType,
+      });
+      const response = {
+        confirmation_hash: issued.confirmationHash,
+        expires_at: issued.expiresAt.toISOString(),
+        impact: this.lifecycleImpactView(targetType, input.action, impact),
+        preview_token: previewToken,
+        resource_etag: formatVersionEtag(impact.resource.version),
+      };
+      await this.idempotency.complete(transaction, claim, {
+        resourceId: targetId,
+        responseForHash: {
+          confirmation_hash: response.confirmation_hash,
+          expires_at: response.expires_at,
+          impact: response.impact,
+          resource_etag: response.resource_etag,
+        },
+        responseStatus: 200,
+        storage: 'HASH_ONLY',
+      });
+      return response;
+    });
+  }
+
+  private async confirmLifecycle(
+    request: AdminCatalogRequestContext,
+    targetType: ProductCatalogLifecycleTargetType,
+    targetId: string,
+    input: ProductLifecycleConfirmationInput | SkuLifecycleConfirmationInput,
+    expectedVersion: number,
+    idempotencyKey: string,
+  ) {
+    const { database } = this.runtime();
+    const claim = this.claim(
+      request,
+      idempotencyKey,
+      'POST',
+      lifecycleRoute(targetType, 'confirm'),
+      lifecyclePath(targetType, targetId),
+      { ...input, expected_version: expectedVersion },
+    );
+    return runSerializableTransaction(database.prisma, async (transaction) => {
+      const replay = this.commandReplay(
+        await this.idempotency.claim(transaction, claim),
+        lifecycleResourceType(targetType),
+        targetId,
+      );
+      if (replay !== null) return preEnvelopedCommand(replay);
+      await this.previews.consumeInTransaction(transaction, {
+        action: lifecyclePreviewAction(targetType, input.action),
+        actorId: request.principal.accountId,
+        confirmationHash: input.confirmationHash,
+        previewToken: input.previewToken,
+        request: { action: input.action, reason: input.reason },
+        resourceVersion: expectedVersion,
+        sessionId: request.accessSession.sessionId,
+        targetId,
+        targetType,
+      });
+      const changed = await this.catalog.applyLifecycleInTransaction(transaction, {
+        action: input.action,
+        expectedVersion,
+        targetId,
+        targetType,
+      });
+      const resourceType = lifecycleResourceType(targetType);
+      const response = this.commandResponse(request.requestId, resourceType, changed.resource);
+      await this.appendLifecycleAudit(
+        transaction,
+        request,
+        idempotencyKey,
+        lifecycleAuditAction(input.action),
+        resourceType,
+        targetId,
+        changed.impact.resource,
+        changed.resource,
+        input.reason,
+      );
+      await this.appendLifecycleOutbox(transaction, resourceType, changed.resource, 'lifecycle_changed');
+      await this.idempotency.complete(transaction, claim, {
+        policy: 'COMMAND_RESPONSE',
+        responseBody: response,
+        responseStatus: 200,
+        storage: 'CACHEABLE',
+      });
+      return preEnvelopedCommand(response);
+    });
+  }
+
+  private async restoreLifecycle(
+    request: AdminCatalogRequestContext,
+    targetType: ProductCatalogLifecycleTargetType,
+    targetId: string,
+    input: ProductRestoreInput | SkuRestoreInput,
+    expectedVersion: number,
+    idempotencyKey: string,
+  ) {
+    const { database } = this.runtime();
+    const claim = this.claim(
+      request,
+      idempotencyKey,
+      'POST',
+      lifecycleRoute(targetType, 'restore'),
+      lifecyclePath(targetType, targetId),
+      { ...input, expected_version: expectedVersion },
+    );
+    return runSerializableTransaction(database.prisma, async (transaction) => {
+      const resourceType = lifecycleResourceType(targetType);
+      const replay = this.commandReplay(
+        await this.idempotency.claim(transaction, claim),
+        resourceType,
+        targetId,
+      );
+      if (replay !== null) return preEnvelopedCommand(replay);
+      const restored = targetType === 'PRODUCT'
+        ? await this.catalog.restoreProductInTransaction(transaction, { expectedVersion, id: targetId })
+        : await this.catalog.restoreSkuInTransaction(transaction, { expectedVersion, id: targetId });
+      const response = this.commandResponse(request.requestId, resourceType, restored);
+      await this.appendLifecycleAudit(
+        transaction,
+        request,
+        idempotencyKey,
+        'RESTORE',
+        resourceType,
+        targetId,
+        { status: 'ARCHIVED', version: expectedVersion },
+        restored,
+        input.reason,
+      );
+      await this.appendLifecycleOutbox(transaction, resourceType, restored, 'restored');
+      await this.idempotency.complete(transaction, claim, {
+        policy: 'COMMAND_RESPONSE',
+        responseBody: response,
+        responseStatus: 200,
+        storage: 'CACHEABLE',
+      });
+      return preEnvelopedCommand(response);
+    });
+  }
+
   private runtime(): {
     config: PlatformRuntimeConfig;
     database: DatabaseRuntime;
@@ -418,6 +727,87 @@ export class AdminProductsService {
     };
   }
 
+  private lifecycleImpactView(
+    targetType: ProductCatalogLifecycleTargetType,
+    action: ProductCatalogLifecycleAction,
+    impact: ProductCatalogLifecycleImpact,
+  ) {
+    const warnings: string[] = [];
+    const metrics: Array<{ after: string; before: string; key: string; label: string }> = [{
+      after: lifecycleNextStatus(action),
+      before: impact.resource.status,
+      key: 'status',
+      label: 'Status',
+    }];
+    let affectedCount = 0;
+    if (targetType === 'PRODUCT') {
+      const imageCount = impact.validPublicImageCount ?? impact.activeImageCount ?? 0;
+      const activeSkuCount = impact.activeSkuCount ?? 0;
+      metrics.push(
+        {
+          after: action === 'ACTIVATE' ? 'ACTIVE_REQUIRED' : 'UNCHANGED',
+          before: impact.brandStatus ?? 'UNKNOWN',
+          key: 'brand_status',
+          label: 'Brand status',
+        },
+        {
+          after: action === 'ACTIVATE' ? 'ACTIVE_REQUIRED' : 'UNCHANGED',
+          before: impact.categoryStatus ?? 'UNKNOWN',
+          key: 'category_status',
+          label: 'Category status',
+        },
+        {
+          after: action === 'ACTIVATE' ? 'AT_LEAST_ONE_REQUIRED' : 'UNCHANGED',
+          before: String(imageCount),
+          key: 'public_images',
+          label: 'Public images',
+        },
+        {
+          after: action === 'ACTIVATE'
+            ? 'AT_LEAST_ONE_REQUIRED'
+            : action === 'SOFT_DELETE' ? 'ZERO_REQUIRED' : 'UNCHANGED',
+          before: String(activeSkuCount),
+          key: 'active_skus',
+          label: 'Active SKUs',
+        },
+      );
+      if (action === 'ACTIVATE') {
+        if (impact.brandStatus !== 'ACTIVE' || impact.categoryStatus !== 'ACTIVE') warnings.push('STATE_CONFLICT');
+        if (imageCount < 1) warnings.push('PRODUCT_PRIMARY_IMAGE_REQUIRED');
+        if (activeSkuCount < 1) warnings.push('PRODUCT_ACTIVE_SKU_REQUIRED');
+        affectedCount = warnings.length;
+      } else if (action === 'SOFT_DELETE') {
+        if (activeSkuCount > 0) warnings.push('ACTIVE_SKU_DEPENDENCY');
+        if (impact.activeReservationCount > 0) warnings.push('ACTIVE_INVENTORY_RESERVATION');
+        affectedCount = activeSkuCount + impact.activeReservationCount;
+      }
+    } else {
+      metrics.push({
+        after: action === 'ACTIVATE' ? 'NON_ARCHIVED_REQUIRED' : 'UNCHANGED',
+        before: impact.parentProductStatus ?? 'UNKNOWN',
+        key: 'parent_product_status',
+        label: 'Parent product status',
+      });
+      if (action === 'ACTIVATE' && (
+        (impact.parentProductDeletedAt !== undefined && impact.parentProductDeletedAt !== null) ||
+        impact.parentProductStatus === 'ARCHIVED'
+      )) {
+        warnings.push('STATE_CONFLICT');
+        affectedCount = 1;
+      } else if (action === 'SOFT_DELETE' && impact.activeReservationCount > 0) {
+        warnings.push('ACTIVE_INVENTORY_RESERVATION');
+        affectedCount = impact.activeReservationCount;
+      }
+    }
+    metrics.push({
+      after: action === 'SOFT_DELETE' ? 'ZERO_REQUIRED' : 'UNCHANGED',
+      before: String(impact.activeReservationCount),
+      key: 'active_reservations',
+      label: 'Active reservations',
+    });
+    return { affected_count: affectedCount, metrics, warnings };
+  }
+
   private claim(
     request: AdminCatalogRequestContext,
     idempotencyKey: string,
@@ -455,6 +845,22 @@ export class AdminProductsService {
     return response;
   }
 
+  private commandReplay(
+    claimed: Awaited<ReturnType<IdempotencyRepository['claim']>>,
+    expectedType: ProductCatalogResourceType,
+    expectedResourceId: string,
+  ): CacheableCommandResponse | null {
+    if (claimed.kind !== 'replay') return null;
+    if (claimed.record.response_status !== 200) {
+      throw new ApplicationError('INTERNAL_ERROR', 'Product lifecycle command replay is invalid');
+    }
+    const response = this.idempotency.commandReplay(claimed.record);
+    if (response.data.resource_type !== expectedType || response.data.resource_id !== expectedResourceId) {
+      throw new ApplicationError('INTERNAL_ERROR', 'Product lifecycle command replay target is invalid');
+    }
+    return response;
+  }
+
   private productCatalogResponse(
     requestId: string,
     data: CacheableProductDetailView | CacheableSkuView,
@@ -473,6 +879,75 @@ export class AdminProductsService {
       responseBody: response,
       responseStatus,
       storage: 'CACHEABLE',
+    });
+  }
+
+  private commandResponse(
+    requestId: string,
+    type: ProductCatalogResourceType,
+    resource: ProductCatalogSnapshot,
+  ): CacheableCommandResponse {
+    return {
+      code: 'OK',
+      data: {
+        occurred_at: resource.updatedAt.toISOString(),
+        resource_id: resource.id,
+        resource_type: type,
+        status: resource.status,
+        version: resource.version,
+      },
+      message: 'success',
+      request_id: requestId,
+    };
+  }
+
+  private async appendLifecycleAudit(
+    transaction: DatabaseTransaction,
+    request: AdminCatalogRequestContext,
+    idempotencyKey: string,
+    action: 'ARCHIVE' | 'DISABLE' | 'ENABLE' | 'RESTORE',
+    type: ProductCatalogResourceType,
+    objectId: string,
+    before: Pick<ProductCatalogSnapshot, 'status' | 'version'>,
+    after: Pick<ProductCatalogSnapshot, 'status' | 'version'>,
+    reason: string,
+  ): Promise<void> {
+    const ipAddress = catalogRequestIp(request);
+    await this.audit.append(transaction, {
+      action,
+      actorAccountId: request.principal.accountId,
+      actorRole: request.principal.role,
+      after: { status: after.status, version: after.version },
+      before: { status: before.status, version: before.version },
+      idempotencyKey,
+      ...(ipAddress === undefined ? {} : { ipAddress }),
+      module: 'catalog',
+      objectId,
+      objectType: type,
+      reason,
+      requestId: request.requestId,
+      result: 'SUCCESS',
+      resultCode: 'OK',
+      summaryPolicy: 'STATUS_VERSION',
+    });
+  }
+
+  private appendLifecycleOutbox(
+    transaction: DatabaseTransaction,
+    type: ProductCatalogResourceType,
+    resource: ProductCatalogSnapshot,
+    event: 'lifecycle_changed' | 'restored',
+  ) {
+    return this.outbox.append(transaction, {
+      aggregateId: resource.id,
+      aggregateType: type,
+      eventType: `${type}.${event}`,
+      payload: {
+        event_version: 1,
+        resource_id: resource.id,
+        resource_type: type,
+        resource_version: resource.version,
+      },
     });
   }
 

@@ -4,9 +4,15 @@ import { describe, expect, it } from 'vitest';
 import {
   parseProductCreateBody,
   parseProductId,
+  parseProductLifecycleConfirmationBody,
+  parseProductLifecyclePreviewBody,
   parseProductListQuery,
+  parseProductRestoreBody,
   parseProductUpdateBody,
   parseSkuCreateBody,
+  parseSkuLifecycleConfirmationBody,
+  parseSkuLifecyclePreviewBody,
+  parseSkuRestoreBody,
   parseSkuUpdateBody,
 } from './admin-products.dto';
 
@@ -83,6 +89,36 @@ describe('admin products request DTOs', () => {
   });
 
   it.each([
+    ['Product', parseProductLifecyclePreviewBody],
+    ['SKU', parseSkuLifecyclePreviewBody],
+  ] as const)('parses every closed %s lifecycle preview action', (_target, parse) => {
+    for (const action of ['ACTIVATE', 'DEACTIVATE', 'SOFT_DELETE'] as const) {
+      expect(parse({ action, reason: 'Approved catalog transition' }))
+        .toEqual({ action, reason: 'Approved catalog transition' });
+    }
+  });
+
+  it.each([
+    ['Product', parseProductLifecycleConfirmationBody, parseProductRestoreBody],
+    ['SKU', parseSkuLifecycleConfirmationBody, parseSkuRestoreBody],
+  ] as const)('parses %s lifecycle confirmation and restore as separate closed shapes',
+    (_target, parseConfirmation, parseRestore) => {
+      expect(parseConfirmation({
+        action: 'SOFT_DELETE',
+        confirmation_hash: 'a'.repeat(64),
+        preview_token: `pvw_${'b'.repeat(43)}`,
+        reason: 'Retire this catalog item',
+      })).toEqual({
+        action: 'SOFT_DELETE',
+        confirmationHash: 'a'.repeat(64),
+        previewToken: `pvw_${'b'.repeat(43)}`,
+        reason: 'Retire this catalog item',
+      });
+      expect(parseRestore({ reason: 'Resume catalog preparation' }))
+        .toEqual({ reason: 'Resume catalog preparation' });
+    });
+
+  it.each([
     () => parseProductCreateBody({
       brand_id: brandId, category_id: categoryId, images: [], initial_status: 'ACTIVE',
       name: 'Product', spu_code: 'SPU-1',
@@ -111,6 +147,28 @@ describe('admin products request DTOs', () => {
       spec_json: { attributes: [{ name: 'Size', value: 'L' }, { name: 'Size', value: 'L' }] },
     }),
     () => parseSkuUpdateBody({ code: 'NEW' }),
+    () => parseProductLifecyclePreviewBody({ action: 'DELETE', reason: 'Invalid action' }),
+    () => parseSkuLifecyclePreviewBody({ action: 'ACTIVATE', reason: 'x' }),
+    () => parseProductLifecyclePreviewBody({ action: 'ACTIVATE', reason: 'x'.repeat(501) }),
+    () => parseSkuLifecyclePreviewBody({ action: 'ACTIVATE', extra: true, reason: 'Publish product' }),
+    () => parseProductLifecycleConfirmationBody({
+      action: 'ACTIVATE', confirmation_hash: 'A'.repeat(64),
+      preview_token: `pvw_${'b'.repeat(43)}`, reason: 'Publish product',
+    }),
+    () => parseSkuLifecycleConfirmationBody({
+      action: 'ACTIVATE', confirmation_hash: 'a'.repeat(64),
+      preview_token: 'p'.repeat(15), reason: 'Publish product',
+    }),
+    () => parseProductLifecycleConfirmationBody({
+      action: 'ACTIVATE', confirmation_hash: 'a'.repeat(64),
+      preview_token: 'p'.repeat(513), reason: 'Publish product',
+    }),
+    () => parseSkuLifecycleConfirmationBody({
+      action: 'ACTIVATE', confirmation_hash: 'a'.repeat(64),
+      preview_token: `pvw_${'b'.repeat(43)}`, reason: 'Publish product', unexpected: 'field',
+    }),
+    () => parseProductRestoreBody({ reason: 'x' }),
+    () => parseSkuRestoreBody({ reason: 'Resume catalog item', status: 'INACTIVE' }),
   ])('rejects open, duplicate or contract-invalid input', (parse) => {
     expect(parse).toThrowError(ApplicationError);
   });

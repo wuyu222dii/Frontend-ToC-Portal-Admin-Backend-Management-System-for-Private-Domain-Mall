@@ -71,6 +71,49 @@ function harness(initialNow = NOW) {
 }
 
 describe('HighRiskPreviewRepository', () => {
+  it.each([
+    { action: 'PRODUCT.ACTIVATE', requestAction: 'ACTIVATE', targetType: 'PRODUCT' },
+    { action: 'PRODUCT.DEACTIVATE', requestAction: 'DEACTIVATE', targetType: 'PRODUCT' },
+    { action: 'PRODUCT.SOFT_DELETE', requestAction: 'SOFT_DELETE', targetType: 'PRODUCT' },
+    { action: 'SKU.ACTIVATE', requestAction: 'ACTIVATE', targetType: 'SKU' },
+    { action: 'SKU.DEACTIVATE', requestAction: 'DEACTIVATE', targetType: 'SKU' },
+    { action: 'SKU.SOFT_DELETE', requestAction: 'SOFT_DELETE', targetType: 'SKU' },
+  ] as const)('issues and consumes the closed $action preview binding', async ({
+    action,
+    requestAction,
+    targetType,
+  }) => {
+    const { getRecord, repository, transaction } = harness();
+    const previews = repository();
+    const boundInput = input({
+      action,
+      request: { action: requestAction, reason: 'Approved catalog lifecycle change' },
+      targetType,
+    });
+    const issued = await previews.issueInTransaction(transaction, boundInput);
+    expect(getRecord()).toMatchObject({ action, target_type: targetType });
+    await expect(previews.consumeInTransaction(transaction, {
+      ...boundInput,
+      confirmationHash: issued.confirmationHash,
+    })).resolves.toBeUndefined();
+  });
+
+  it.each([
+    { action: 'PRODUCT.RESTORE', targetType: 'PRODUCT' },
+    { action: 'PRODUCT.ACTIVATE', targetType: 'SKU' },
+    { action: 'SKU.ACTIVATE', targetType: 'PRODUCT' },
+  ])('rejects an unregistered or mismatched $action/$targetType preview binding', async ({
+    action,
+    targetType,
+  }) => {
+    const { delegate, repository, transaction } = harness();
+    await expect(repository().issueInTransaction(transaction, input({
+      action: action as never,
+      targetType: targetType as never,
+    }))).rejects.toThrow();
+    expect(delegate.create).not.toHaveBeenCalled();
+  });
+
   it('rejects unregistered preview metadata before writing', async () => {
     const { delegate, repository, transaction } = harness();
     await expect(repository().issueInTransaction(transaction, input({

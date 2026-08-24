@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { PrismaClient } from '../.generated/prisma/client';
 import type { DatabaseTransaction } from './idempotency.repository';
-import { MasterDataRepository } from './master-data.repository';
+import { acquireMasterDataHierarchyLocks, MasterDataRepository } from './master-data.repository';
 
 const NOW = new Date('2026-08-14T12:00:00.000Z');
 const actorId = generateUlid(NOW.getTime() - 9_000);
@@ -13,6 +13,10 @@ const categoryId = generateUlid(NOW.getTime() - 6_000);
 const fileId = generateUlid(NOW.getTime() - 5_000);
 const productA = generateUlid(NOW.getTime() - 4_000);
 const productB = generateUlid(NOW.getTime() - 3_000);
+const skuA = generateUlid(NOW.getTime() - 2_000);
+const skuB = generateUlid(NOW.getTime() - 1_000);
+const reservationA = generateUlid(NOW.getTime());
+const reservationB = generateUlid(NOW.getTime() + 1_000);
 
 function publicFile(purpose: 'BRAND_LOGO' | 'CATEGORY_ICON' = 'BRAND_LOGO') {
   return {
@@ -138,6 +142,31 @@ function harness() {
 }
 
 describe('MasterDataRepository', () => {
+  it('locks brand, category, product, SKU and reservation layers in stable ID order', async () => {
+    const transaction = {
+      $queryRawUnsafe: vi.fn(async () => [{ acquired: 1 }]),
+    } as unknown as DatabaseTransaction;
+
+    await acquireMasterDataHierarchyLocks(transaction, {
+      brandIds: [brandId, brandId],
+      categoryIds: [categoryId],
+      productIds: [productB, productA, productB],
+      reservationIds: [reservationB, reservationA, reservationA],
+      skuIds: [skuB, skuA, skuB],
+    });
+
+    expect(vi.mocked(transaction.$queryRawUnsafe).mock.calls.map((call) => call.at(-1))).toEqual([
+      JSON.stringify([brandId]),
+      JSON.stringify([categoryId]),
+      JSON.stringify([productA]),
+      JSON.stringify([productB]),
+      JSON.stringify([skuA]),
+      JSON.stringify([skuB]),
+      JSON.stringify([reservationA]),
+      JSON.stringify([reservationB]),
+    ]);
+  });
+
   it('uses stable list ordering and excludes archived records unless explicitly requested', async () => {
     const { brandDelegate, categoryDelegate, repository } = harness();
     await repository.listBrands({ page: 1, pageSize: 20 });

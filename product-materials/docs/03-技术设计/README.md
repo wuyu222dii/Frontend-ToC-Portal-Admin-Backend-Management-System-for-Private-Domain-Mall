@@ -1,6 +1,6 @@
 # 技术设计交付索引
 
-> 当前基线：MVP/PRD v2.4.2、线协议 CH-010（2026-08-24）。B0 至 B4 development 已通过；B4 实现基准 SHA 的普通 CI 与 Supabase rollback-only 均成功，staging/production `NO-GO`。
+> 当前基线：MVP/PRD v2.4.2、线协议 CH-010（2026-08-24）。CH-011 已放行 B5 development 治理；B5.0 审计完成但 CH-012 契约修订待批准，B5.1 与 staging/production 均为 `NO-GO`。
 
 | 文件 | 用途 |
 |---|---|
@@ -12,6 +12,7 @@
 | `prisma.config.ts` | 设计验证用 Prisma 7 config；CLI 读取 `DIRECT_URL` |
 | `migrations/0001_initial/migration.sql` | Prisma 基线 DDL + PostgreSQL 专属 partial unique/CHECK/触发器/角色/RLS 草案 |
 | `../05-开发管理/B4-商品与SKU.md` | B4.0 至 B4.4 串行批次、准入门禁、验收与回退边界 |
+| `../05-开发管理/B5-Banner与库存.md` | B5.0 审计、CH-011 门禁、CH-012 待批准契约及后续串行批次 |
 
 上游真相顺序为：已批准需求变更记录、PRD v2.4.2、MVP v2.4.2、原型设计方案。发生冲突时先更新上游基线和本目录契约，不由开发人员临时选择口径。
 
@@ -51,9 +52,9 @@
 
 B0 已在工程根建立 `prisma.config.ts`、`prisma/` 和五应用脚手架；根目录中的 schema 与首迁移必须和本目录冻结产物逐字节一致。CLI/migration 通过 `DIRECT_URL` 连接，后续 runtime 通过 `@prisma/adapter-pg` 读取 `DATABASE_URL`。三端只调用 NestJS HTTPS API，禁止使用 Supabase client、Data API 或 `service_role` 密钥访问业务表。
 
-## B4 开发入口
+## B5 开发入口
 
-B3.0 至 B3.3 历史交付见 `../05-开发管理/B3-文件品牌与分类.md`，B4 串行批次与最终证据见 `../05-开发管理/B4-商品与SKU.md`。B4 development 已 `GO`；CH-009 已在本阶段结束时耗尽，后续 development 若仍无独立复核须新变更批准，staging 前必须外部独立复核。
+B3.0 至 B3.3 历史交付见 `../05-开发管理/B3-文件品牌与分类.md`，B4 串行批次与最终证据见 `../05-开发管理/B4-商品与SKU.md`，B5 审计和待批准契约见 `../05-开发管理/B5-Banner与库存.md`。CH-011 只解决 B5 development 的单人 reviewer 门禁；当前三个契约 P0 尚待 CH-012 批准和实施，故 B5.1 不得开始。Prisma 与首迁移保持冻结，staging 前仍必须外部独立复核。
 
 ## 剩余上线门禁
 

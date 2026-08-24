@@ -10,7 +10,7 @@
 | 目标用户 | 终端消费者、一级代理、总部商城经营人员 |
 | 人员角色 | `SUPER_ADMIN`、`AGENT_ADMIN`、`CUSTOMER` |
 | 更新日期 | 2026-08-25 |
-| 文档状态 | CH-010 的 B4.0 至 B4.4 development 已完成；实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的普通 CI 与 Supabase rollback-only 均通过，development `GO`，staging/production 仍为 `NO-GO` |
+| 文档状态 | 产品/API 基线仍为 CH-010；B0 至 B4 development 已完成。CH-011 已放行 B5 development 治理，B5.0 审计完成但 CH-012 契约修订待批准，B5.1 与 staging/production 均为 `NO-GO` |
 
 ## 1. MVP 概述
 
@@ -325,7 +325,7 @@
 
 ## 7. 技术方案摘要
 
-CH-005/CH-006 产品规则和数据库基线继续有效；CH-010 将 Product/SKU 线协议升级为 v2.4.2，补齐重新启用、创建状态、图集、最低活动价和库存初值，不改变页面、FR、AC、operation 或数据库模型数量。B4.0 至 B4.4 已完成 development 验收，普通 CI Run `32721588213` 与 Supabase rollback-only Run `32722510890` 均在实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 上成功。CH-009 的单人 reviewer 例外已在 B4 development 结束时耗尽，staging 和 production 仍关闭。
+CH-005/CH-006 产品规则和数据库基线继续有效；CH-010 将 Product/SKU 线协议升级为 v2.4.2，补齐重新启用、创建状态、图集、最低活动价和库存初值，不改变页面、FR、AC、operation 或数据库模型数量。B4.0 至 B4.4 已完成 development 验收，普通 CI Run `32721588213` 与 Supabase rollback-only Run `32722510890` 均在实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 上成功。CH-011 仅把单人 reviewer 补偿控制延长到 B5.4；CH-012 尚待批准，故 Banner/库存业务实现尚未准入，staging 和 production 仍关闭。
 
 | 层级 | 选型方向 |
 |---|---|
@@ -447,11 +447,11 @@ CH-006 已解除并完成 B3 契约与交付门禁；CH-010 已解除 B4 商品/
 
 ## 13. 后续建议
 
-1. CH-009 已耗尽；后续 development 若仍无独立复核须新变更批准，第一次进入 staging 前必须取得外部独立代码、安全、数据库和证据复核。
-2. 关闭 GitHub Actions 引用固定与 CA 校验两项残余 P2，并在下一 development 阶段继续登记准确实现 SHA、成功远端 run、rollback 结果和无残留证据。
-3. 本地或临时 PostgreSQL 结果不能替代目标环境证据；后续业务批次仍须逐批保持 P0/P1 为 0。
-4. 上线前补充真实商品、代理协议、佣金税务、银行卡处理、隐私合规、微信资质和目标 Supabase staging 验收。
+1. 先明确批准或拒绝 CH-012；未批准前 B5.0 保持契约 `NO-GO`，不得开始 B5.1 Banner 业务代码。
+2. CH-012 若获批准，先同步产品、OpenAPI、生成 contracts 与原型，并通过冻结数据库、契约和一致性门禁后暂停。
+3. B5.1 至 B5.4 继续按小批次串行，最终登记同一实现 SHA 的普通 CI、Supabase rollback-only 和无残留证据；Mock 不替代目标环境证据。
+4. CH-011 在 B5.4 后失效；第一次进入 staging 前必须取得外部独立代码、安全、数据库和证据复核。
 
 ---
 
-项目状态：三端 MVP 产品/API 基线为 v2.4.2（CH-010）。B0 至 B4 development 已通过，B4 实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的普通 CI Run `32721588213` 与 Supabase rollback-only Run `32722510890` 均成功。目标 staging/production 尚未放行；进入 staging 前须外部独立复核，生产上线还须通过外部凭据、联调、恢复演练和合规门禁。
+项目状态：三端 MVP 产品/API 基线为 v2.4.2（CH-010）。B0 至 B4 development 已通过，B4 实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的普通 CI Run `32721588213` 与 Supabase rollback-only Run `32722510890` 均成功。CH-011 已放行 B5 development 治理；B5.0 审计发现三个 P0，CH-012 待批准，B5.1 未开始。目标 staging/production 尚未放行；进入 staging 前须外部独立复核，生产上线还须通过外部凭据、联调、恢复演练和合规门禁。

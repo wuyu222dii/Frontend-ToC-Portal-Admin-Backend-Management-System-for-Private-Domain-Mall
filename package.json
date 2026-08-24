@@ -23,7 +23,7 @@
     "dev:api": "pnpm --filter @qingxu/api dev",
     "dev:miniapp": "pnpm --filter @qingxu/miniapp dev:h5",
     "dev:worker": "pnpm --filter @qingxu/worker dev",
-    "lint": "eslint apps packages --config packages/config/eslint.config.mjs",
+    "lint": "eslint apps packages scripts/ci/test-b4-vertical.mjs --config packages/config/eslint.config.mjs",
     "prisma:validate": "prisma validate --config prisma.config.ts",
     "db:migrate:baseline": "node scripts/db/replay-ci.mjs",
     "db:test-permissions": "node scripts/ci/test-permission-gates.mjs",

@@ -9,7 +9,7 @@
 | 文档版本 | v2.4.2 |
 | 对应阶段 | 三端标准 MVP |
 | 更新日期 | 2026-08-25 |
-| 当前状态 | CH-010 的 B4.0 至 B4.4 development 已完成；同一实现 SHA 的普通 CI 与 Supabase rollback-only 均通过；staging/production `NO-GO` |
+| 当前状态 | 产品/API 基线仍为 CH-010；B0 至 B4 development 已完成。CH-011 已放行 B5 development 治理，B5.0 审计完成但 CH-012 待批准，B5.1 与 staging/production `NO-GO` |
 | 产品终端 | 消费者微信小程序、一级代理工作台、总部管理后台 |
 | 人员角色 | `CUSTOMER`、`AGENT_ADMIN`、`SUPER_ADMIN` |
 
@@ -1470,8 +1470,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | 验收场景 AC | 116 | 0 |
 | 用户故事 US | 24 | 0 |
 
-当前准入结论：B0 至 B4 development 已通过；CH-010 将产品/API 基线升级为 v2.4.2，Redocly、生成漂移、闭合 schema/统计、状态矩阵、冻结数据库、API + Redis/browser 纵向及五视口验收均已完成。实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的普通 CI Run `32721588213` 与 Supabase B4 rollback-only Run `32722510890` 均成功；该状态不替代 staging 或 production 验收。
+当前准入结论：B0 至 B4 development 已通过；CH-010 将产品/API 基线升级为 v2.4.2，Redocly、生成漂移、闭合 schema/统计、状态矩阵、冻结数据库、API + Redis/browser 纵向及五视口验收均已完成。实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的普通 CI Run `32721588213` 与 Supabase B4 rollback-only Run `32722510890` 均成功。CH-011 允许开展 B5 development 治理，但 B5.0 发现的 Banner/库存契约 P0 尚待 CH-012 批准，因此 B5.1 未准入；该状态不替代 staging 或 production 验收。
 
 ---
 
-PRD 状态：v2.4.2/CH-010 已登记，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B4 development 已通过，两个 B4 远端门禁绑定同一实现 SHA 并成功。CH-009 已在 B4 development 结束时耗尽，后续 development 若仍无独立复核须新变更批准；目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。
+PRD 状态：v2.4.2/CH-010 仍为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B4 development 已通过，两个 B4 远端门禁绑定同一实现 SHA 并成功。CH-011 已将单人维护补偿控制延长至 B5.4，但不批准 CH-012；B5.1 尚未准入。目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。

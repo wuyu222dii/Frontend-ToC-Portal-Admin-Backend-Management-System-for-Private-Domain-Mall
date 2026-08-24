@@ -158,7 +158,7 @@ B4.3 的 Playwright 使用受控 Mock API 验证前端状态与请求契约，�
 | Supabase development | [Run 32722510890](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32722510890) 在同一实现 SHA、`main` 分支完成只读前置与 B1/B2/B3/B4 repository/service rollback-only，事务外 synthetic 残留断言通过，结论 `success` |
 | 最终审查 | B4.4 `P0=0/P1=0`；RS-002 在 B3/B4 按 CH-009 记为已接受并缓解但未解决，该风险接受现已耗尽 |
 
-B4.4 已满足全部退出条件并暂停，B4 仅获得脱敏 development `GO`。真实 browser → Nest 纵向证据已由本批关闭，不再列为残余 P2。残余非阻断 P2 为无业务引用 READY/PUBLIC 素材回收、storage origin allowlist 配置化、GitHub Actions 引用按 commit 固定、Supabase CA 下载校验，以及根级 B4 纵向 runner 纳入 lint 范围。CH-009 的单人 reviewer 例外已在 B4 development 结束时耗尽；后续 development 若仍无独立复核须新变更批准，第一次进入 staging 前仍须取得外部独立代码、安全、数据库和验收证据复核。
+B4.4 已满足全部退出条件并暂停，B4 仅获得脱敏 development `GO`。真实 browser → Nest 纵向证据已由本批关闭，不再列为残余 P2。B4 收口时登记的 Actions commit 固定、Supabase CA 哈希校验和根级纵向 runner lint 已在后续 CH-011/B5.0 当前工作树实施，仍待新的准确 SHA 远端确认；其余非阻断 P2 为无业务引用 READY/PUBLIC 素材回收与 storage origin allowlist 配置化。CH-009 的单人 reviewer 例外确已在 B4 development 结束时耗尽，后续仅由 CH-011 接续到 B5.4；第一次进入 staging 前仍须取得外部独立代码、安全、数据库和验收证据复核。
 
 上述两次远端运行证明的技术基准固定为 `0929f2435e7f5b9ad745fd9cab60b066378e502e`。后续仅登记运行链接和状态的 docs-only 提交不扩张该实现 SHA 的技术证明范围；若后续修改应用、测试、workflow、契约或数据库产物，必须在新的准确 SHA 上重新执行对应门禁。
 

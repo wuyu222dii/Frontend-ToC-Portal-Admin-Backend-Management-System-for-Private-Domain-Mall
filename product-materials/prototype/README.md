@@ -10,6 +10,8 @@
 
 三个原型均为纯静态文件，可直接用浏览器打开，不需要安装依赖或启动服务。所有数据均为原型演示数据。
 
+当前产品/API 基线仍为 v2.4.2/CH-010。B5.0 已发现 ADM-07 Banner 与 ADM-08 库存原型相对冻结契约的漂移，CH-012 尚待批准；因此这些页面暂未按提案改写，也不能作为 B5.1 准入或业务实现证据。
+
 ## 验收脚本
 
 `verify-prototype.cjs` 使用根工程 `@playwright/test` 的 Chromium 渲染三端核心画面；macOS 已安装 Chrome 时优先使用本机 Chrome，其他环境使用 Playwright Chromium，也可通过 `CHROME_EXECUTABLE_PATH` 指定。脚本检查错误、图片加载、横向溢出、响应式导航、看板图表、范围边界和关键业务交互。默认只验收、不改写 `exports/` 中的 PNG；设置 `UPDATE_PROTOTYPE_EXPORTS=1` 时才刷新截图。

@@ -36,16 +36,16 @@ jobs:
       SUPABASE_PROJECT_REF: ${{ inputs.project_ref }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.34.5
           run_install: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -57,10 +57,12 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install Supabase production CA
-        run: >-
-          curl --fail --silent --show-error --location
-          https://supabase-downloads.s3-ap-southeast-1.amazonaws.com/prod/ssl/prod-ca-2021.crt
-          --output "$PGSSLROOTCERT"
+        run: |
+          curl --fail --silent --show-error --location \
+            https://supabase-downloads.s3-ap-southeast-1.amazonaws.com/prod/ssl/prod-ca-2021.crt \
+            --output "$PGSSLROOTCERT"
+          echo "700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7  $PGSSLROOTCERT" \
+            | sha256sum --check --strict
 
       - name: Validate Prisma schema
         env:

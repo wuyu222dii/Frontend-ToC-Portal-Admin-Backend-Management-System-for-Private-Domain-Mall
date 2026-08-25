@@ -2,7 +2,7 @@
 
 本目录集中管理三端商城的需求、方案、技术、风控、开发文档和可点击原型。
 
-当前交付状态：B0 至 B4 development 均已通过。B4 实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的普通 CI Run `32721588213` 与 Supabase rollback-only Run `32722510890` 均成功，但不证明 B5。CH-011 已放行 B5 development 治理，CH-012 已实施并将产品/API 基线升级为 v2.4.3/CH-012；B5.0 契约、B5.1 Banner API、B5.2 Inventory API 与 B5.3 ADM-07/08 后台工程均已分别验收暂停，B5.4 尚未开始。B5 最终 SHA 的普通 CI 与 Supabase rollback-only 双绿仍留待 B5.4；staging、production、真实客户数据及真实资金链路继续 `NO-GO`，第一次进入 staging 前必须取得外部独立复核。
+当前交付状态：B0 至 B5 development 均已通过。B5 实现基准 SHA `d97c43958142eaa0fa5a0a9954bb21d136944ba2` 的普通 CI Run `32822780209` 与 Supabase rollback-only Run `32823898006` 为同一 SHA 双绿，CH-011 已自动失效。CH-013 已批准仅适用于 B6 脱敏 development 的单人维护门禁例外，CH-014 已将产品/API 基线升级为 v2.4.4/CH-014。B6.0 契约与治理已完成并暂停，B6.1 Store 公开 API 尚未开始；staging、production、真实客户数据、真实微信身份及真实资金链路继续 `NO-GO`，第一次进入 staging 前必须取得外部独立复核。
 
 ## 目录
 
@@ -23,4 +23,5 @@
 - [B3 文件、品牌与分类](docs/05-开发管理/B3-文件品牌与分类.md)
 - [B4 商品与 SKU](docs/05-开发管理/B4-商品与SKU.md)
 - [B5 Banner 与库存](docs/05-开发管理/B5-Banner与库存.md)
+- [B6 消费者匿名商城目录](docs/05-开发管理/B6-消费者匿名商城目录.md)
 - [三端可点击原型](prototype/README.md)

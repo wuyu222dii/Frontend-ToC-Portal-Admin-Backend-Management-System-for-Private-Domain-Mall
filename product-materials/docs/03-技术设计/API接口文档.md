@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 |---|---|
-| 文档版本 | v2.4.3 |
-| 对应产品基线 | MVP/PRD v2.4.3、CH-001 至 CH-012 |
-| 接口阶段 | B5.1 Banner 5 个、B5.2 Inventory 4 个管理端 operation 已分别实现；B5.3 ADM-07/08 已接入并验收暂停，B5.4 尚未开始，staging/production 未批准 |
+| 文档版本 | v2.4.4 |
+| 对应产品基线 | MVP/PRD v2.4.4、CH-001 至 CH-014 |
+| 接口阶段 | B0-B5 development 已完成；B6.0 已冻结 5 个现有 Store 公开 GET 的 CH-014 契约，B6.1 repository/API 业务代码尚未开始，staging/production 未批准 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
 | 更新时间 | 2026-08-25 |
 
@@ -67,11 +67,11 @@ OpenAPI 与所有客户端只配置一个 server：`/api/v1`。下表及全文�
 - 分页默认 `page=1&page_size=20`，`page_size` 最大 100。
 - 删除业务实体默认是软删除或归档；历史订单、账本、规则版本和审计记录不可物理删除。
 
-列表查询使用端点专用参数，不向单资源 GET 注入分页。所有日期筛选均按 `Asia/Shanghai` 自然日包含 `date_to`，服务端转换为 UTC 半开区间 `[date_from 00:00, date_to+1day 00:00)`；金额上下限是两位 decimal string。未显式传 `sort` 时普通列表固定 `created_at DESC,id DESC`，品牌和分类固定 `sort_order ASC,id ASC`，商品列表固定 `published_at DESC NULLS LAST,id DESC`，流水固定 `occurred_at DESC,id DESC`，排行固定净值 DESC、资源 ID ASC，保证翻页稳定。
+列表查询使用端点专用参数，不向单资源 GET 注入分页。所有日期筛选均按 `Asia/Shanghai` 自然日包含 `date_to`，服务端转换为 UTC 半开区间 `[date_from 00:00, date_to+1day 00:00)`；金额上下限是两位 decimal string。未显式传 `sort` 时普通列表固定 `created_at DESC,id DESC`，品牌和分类固定 `sort_order ASC,id ASC`，后台商品列表固定 `published_at DESC NULLS LAST,id DESC`，Store 商品列表默认 `COMPREHENSIVE`，流水固定 `occurred_at DESC,id DESC`，排行固定净值 DESC、资源 ID ASC，保证翻页稳定。
 
 | 列表 | 专用 query（除 `page/page_size`） |
 |---|---|
-| `/store/products` | `keyword`、`brand_id`、`category_id`、`sort=HOT\|NEWEST\|PRICE_ASC\|PRICE_DESC` |
+| `/store/products` | `keyword`（trim 后 1-200，仅商品名大小写不敏感匹配）、`brand_id`、`category_id`、`sort=COMPREHENSIVE\|HOT\|NEWEST\|PRICE_ASC\|PRICE_DESC`；默认 COMPREHENSIVE |
 | `/store/orders` | `display_group=ALL\|PENDING_PAYMENT\|PENDING_SHIPMENT\|SHIPPING\|COMPLETED\|REFUND_AFTERSALE`，以及 `order_no`、四轴状态、`date_from/date_to`、`min_amount/max_amount`；Tab 由服务端映射，不由客户端拼状态 |
 | `/agent/orders` | 仅返回 `payment_status=PAID` 且支付快照 `final_agent_id` 为当前代理的订单；支持 `customer_id`、订单/退款/履约状态、`has_aftersale`、日期、金额和排序，不接受 `payment_status` 筛选 |
 | `/admin/orders` | `order_no`、订单/支付/退款/履约状态、`customer_id/agent_id`、`date_from/date_to`、`min_amount/max_amount` |
@@ -311,11 +311,11 @@ type DisplayStatus =
 
 | 方法 | 路径 | 身份 | 说明 |
 |---|---|---|---|
-| `GET` | `/store/home` | 公开 | Banner、分类、热销、新品聚合 |
-| `GET` | `/store/categories` | 公开 | 已启用一级分类 |
-| `GET` | `/store/brands` | 公开 | 已启用品牌 |
-| `GET` | `/store/products` | 公开 | 关键词、品牌、分类、排序和分页 |
-| `GET` | `/store/products/{product_id}` | 公开 | 商品详情及全部可售 SKU |
+| `GET` | `/store/home` | 公开 | Banner、分类、热销、新品聚合及四个分区状态 |
+| `GET` | `/store/categories` | 公开 | 全部 ACTIVE 一级分类，无分页，`sort_order,id` |
+| `GET` | `/store/brands` | 公开 | 全部 ACTIVE 品牌，无分页，`sort_order,id` |
+| `GET` | `/store/products` | 公开 | 商品名关键词、品牌、分类、五种排序和分页 |
+| `GET` | `/store/products/{product_id}` | 公开 | 商品详情及全部 ACTIVE SKU，包括零库存 |
 | `GET` | `/store/favorites` | CUSTOMER | 收藏列表 |
 | `PUT` | `/store/favorites/{product_id}` | CUSTOMER | 幂等收藏 |
 | `DELETE` | `/store/favorites/{product_id}` | CUSTOMER | 幂等取消收藏 |
@@ -336,9 +336,13 @@ type DisplayStatus =
 
 游客购物车只存在小程序本地，不创建服务端匿名 Cart 或 ownership token。登录合并请求为 `items[{sku_id,quantity}]`，每行 quantity 为 1..99、SKU 不重复；服务端重新校验商品/SKU 状态、当前零售价和库存后，按 SKU 幂等合入 CUSTOMER cart。响应由服务端补全 `product_id`、`sku_id`、规格、当前零售价、可售库存、上下架状态和价格/库存变化提示。同一商品不同 SKU 是不同购物车项。
 
-商品 `PRICE_ASC/PRICE_DESC` 使用当前可见 ACTIVE SKU 的最低 `retail_price` 作为 SPU 排序价，同价以 `product_id ASC` 打破平局；没有可见 ACTIVE SKU 的商品不进入公开列表。HOT 使用全生命周期净销量，即支付成功 SKU 数量减成功退款数量。`product.sales_count` 只是可由支付/退款事实重建的缓存，支付和退款结转事务更新投影，每日对账发现差异后重建，不作为不可变交易事实。
+商品 `PRICE_ASC/PRICE_DESC` 使用当前公开 ACTIVE SKU 的最低 `retail_price` 作为 SPU 排序价，同价以 `product_id ASC` 打破平局；没有 ACTIVE SKU 的商品不进入公开列表，但 ACTIVE SKU 全部零库存不会隐藏商品。HOT 使用全生命周期净销量，即支付成功 SKU 数量减成功退款数量；NEWEST 使用首次 `published_at DESC NULLS LAST,product_id ASC`。默认 COMPREHENSIVE 固定为 `is_hot DESC,is_new DESC,sales_count DESC,published_at DESC NULLS LAST,product_id ASC`。`product.sales_count` 只是可由支付/退款事实重建的缓存，支付和退款结转事务更新投影，每日对账发现差异后重建，不作为不可变交易事实。
 
-公开目录使用 `StoreCategoryView`、`StoreBrandView`、`StoreProductListItem`、`StoreProductDetailView` 与 `StoreSkuView`；首页和收藏也只能复用这些公开投影。只返回 ACTIVE 分类/品牌、ACTIVE 且至少有一个可售 SKU 的商品及可售 SKU，图片只给公开 URL；不得返回 `file_id`、管理 `status`、`version`、DRAFT/INACTIVE/ARCHIVED 记录、实物/锁定库存或其他后台字段。后台管理端继续使用独立管理 DTO。
+公开目录使用 `StoreCategoryView`、`StoreBrandView`、`StoreProductListItem`、`StoreProductDetailView` 与 `StoreSkuView`；首页和收藏也只能复用这些公开投影。只返回 ACTIVE 分类/品牌、ACTIVE 且至少有一个 ACTIVE SKU 的商品、以及全部 ACTIVE SKU。`StoreSkuView.is_salable` 与商品摘要 `is_salable` 均为布尔值；可售条件为当前 `available_stock > 0`，零库存仍返回且标记 false。图片必须 READY/PUBLIC 且 purpose 正确，响应只给公开 URL；不得返回 `file_id`、管理 `status`、`version`、DRAFT/INACTIVE/ARCHIVED 记录、实物/锁定库存或其他后台字段。后台管理端继续使用独立管理 DTO。
+
+`/store/home` 四区上限固定为 Banner 10、分类 8、热销 4、新品 4，并分别返回 `READY|UNAVAILABLE`。单区失败时对应数组为空且整体 200，四区全失败才返回 500。Banner PRODUCT target 必须仍能解析为公开商品，否则只从公开投影排除，不回写 Banner。公开品牌/分类无分页，返回全部 ACTIVE 记录并按 `sort_order ASC,id ASC`。
+
+5 个匿名 Store GET 共享 Redis 60 秒固定窗口，每个 HMAC 来源 IP 最多 120 次。服务端不保存原始 IP；超限通过 Store 专用 `StoreRateLimited` 响应返回 429 和准确整数秒 `Retry-After`，Redis 异常时 fail closed，不得绕过限流。通用 `RateLimited` 继续承载登录/MFA 等既有窗口，不被 60 秒上限收窄。
 
 ### 4.4 地址、试算、订单与支付
 
@@ -884,7 +888,7 @@ Provider 回调先写入回调收件箱，再由幂等处理器消费；领域�
 - 商城公开目录不出现 file ID、管理状态/版本或草稿归档记录；后台商品列表的 SPU/SKU 实物、锁定、可售库存同一快照守恒。
 - 代理客户列表只出现当前 `ACTIVE/BOUND` 客户；代理订单列表/详情只出现 `PAID` 且最终归因为当前代理的订单，不泄露客户电话或详细地址。
 - 候选查询/拒绝、文件完成确认等非首次响应不能重新返回 candidate token 或无关签名能力；所有短时能力响应均可机器校验禁止缓存头。
-- `pnpm contracts:check` 现行 CH-012 实测为 172 paths、196 operations、196 unique operationId、312 schemas、692 schema refs、2,578 local refs 和 0 dangling refs。Banner/库存专用 DTO 与既有 Product/SKU 三动作 DTO 均闭合并拒绝额外字段。
+- `pnpm contracts:check` 现行 CH-014 实测为 172 paths、196 operations、196 unique operationId、312 schemas、691 schema refs、2,577 local refs 和 0 dangling refs。B6 售罄投影、五种排序、搜索边界、无分页品牌/分类、首页分区状态与 Store 专用 429/Retry-After 均已形成可机器校验契约；CH-012 Banner/库存和 Product/SKU 专用 DTO 的历史闭合结论继续有效。
 - Product/SKU 固定创建状态、完整状态矩阵、恢复目标、不级联、首次 `published_at`、nullable 最低活动价、8 图、归档 SKU、零库存余额、不可变 code、201 SKU create 和四个新 422 均有契约及集成测试。
 - 非 `APPROVED` 提现无法请求完整银行卡号；短时授权不可跨提现单、跨会话或重复使用。
 - 所有关键回调和写操作在重复请求下只产生一次业务结果。

@@ -4,7 +4,7 @@
 
 ## 1. 当前结论
 
-用户已分别批准 CH-011 与 CH-012，并在 B5.0-B5.3 暂停点后逐批明确要求继续。B5.4 已完成真实 browser -> Nest -> PostgreSQL/Redis/MinIO 纵向链路、全量回归、同一实现 SHA 的普通 CI 与 Supabase rollback-only 双绿，以及最终独立只读复核；结论为 B5 development `GO`、`P0=0/P1=0`。该结论不放行消费者 `/store/home`、staging、production、真实客户数据、真实微信或真实资金链路。
+用户已分别批准 CH-011 与 CH-012，并在 B5.0-B5.3 暂停点后逐批明确要求继续。B5.4 已完成真实 browser -> Nest -> PostgreSQL/Redis/MinIO 纵向链路、全量回归、同一实现 SHA 的普通 CI 与 Supabase rollback-only 双绿，以及最终独立只读复核；结论为 B5 development `GO`、`P0=0/P1=0`。该结论不放行消费者 `/store/home`、staging、production、真实客户数据、真实微信或真实资金链路；后续 CH-013/CH-014 只允许独立的 B6 脱敏 development 契约与分批实施，不改写 B5 验收边界。
 
 B5.1 新增独立 `BannerRepository` 与 Nest `AdminBannersModule`，交付既有 5 个 operation、文件挂接、闭合 CRUD/启停/归档恢复、时间窗和 typed target 校验。写事务固定为幂等 claim 后按 Banner、旧/新 target、旧/新文件稳定锁序重查，并原子写 audit、outbox 和 `BANNER_RESOURCE_RESPONSE`；公开投影在 `REPEATABLE READ` 一致性快照内完成。没有修改 Prisma、首迁移、OpenAPI path/operation 或工程前端。
 
@@ -152,4 +152,4 @@ CH-011 只接受 B5 development 期间缺少独立 reviewer 的剩余风险；B5
 
 B5.0-B5.4 均已完成并通过各自门禁。最终实现基准固定为 `d97c43958142eaa0fa5a0a9954bb21d136944ba2`；普通 CI Run `32822780209` 与 Supabase rollback-only Run `32823898006` 均为 `completed/success` 且 `head_sha` 一致。真实 B5 纵向链路和所有本地回归通过，fixture 数据、MinIO 对象与精确 Redis file lease 均无残留；最终独立只读复核为 `P0=0/P1=0`。B5 development 因此标记 `GO`，CH-011 同时自动失效。
 
-当前仍保留 4 个不阻断 P2：B5.1 ACTIVATE/归档审计 `before_json` 尚不能区分 DRAFT 与 INACTIVE 来源状态；B5-C09 的 reservation SKU 前导索引与 ledger `business_id` 唯一性需要交易/订单域迁移，其中 sku-first 索引收益已有 100,000/500,000 行合成 EXPLAIN 证据；OpenAPI 的 Inventory `preview_token` 只声明最小 16 字符，而共享 DTO/repository 安全上限为 512；库存 keyword 尚未冻结最大长度与大小写规范。消费者 `/store/home` 未实现；staging/production、真实客户数据、真实微信和资金链路继续 `NO-GO`。第一次进入 staging 前仍须外部独立人员复核，当前自动化与内部独立只读复核不得替代该要求。
+当前仍保留 4 个不阻断 P2：B5.1 ACTIVATE/归档审计 `before_json` 尚不能区分 DRAFT 与 INACTIVE 来源状态；B5-C09 的 reservation SKU 前导索引与 ledger `business_id` 唯一性需要交易/订单域迁移，其中 sku-first 索引收益已有 100,000/500,000 行合成 EXPLAIN 证据；OpenAPI 的 Inventory `preview_token` 只声明最小 16 字符，而共享 DTO/repository 安全上限为 512；库存 keyword 尚未冻结最大长度与大小写规范。CH-013/CH-014 已开启 B6，当前仅完成 B6.0 契约与治理，`/store/home` 等公开 API 业务代码仍属 B6.1 未开始范围；staging/production、真实客户数据、真实微信和资金链路继续 `NO-GO`。第一次进入 staging 前仍须外部独立人员复核，当前自动化与内部独立只读复核不得替代该要求。

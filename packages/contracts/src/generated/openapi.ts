@@ -235,7 +235,7 @@ export interface paths {
         };
         /**
          * Banner、分类、热销、新品聚合
-         * @description Banner 仅投影 ACTIVE、未归档、文件仍为 READY/PUBLIC/BANNER、starts_at 为空或 starts_at <= now，且 ends_at 为空或 now < ends_at 的记录，并固定按 sort_order ASC,id ASC 排序；PRODUCT/CATEGORY 目标必须仍为 ACTIVE，URL origin 必须命中服务端 allowlist，否则从公开投影排除。
+         * @description 首页四分区在同一请求中独立装配：Banner 仅投影 ACTIVE、未归档、文件仍为 READY/PUBLIC/BANNER、starts_at 为空或 starts_at <= now，且 ends_at 为空或 now < ends_at 的记录，固定按 sort_order ASC,id ASC 取前 10 条；PRODUCT 目标必须仍能解析为公开商品，CATEGORY 目标必须仍为 ACTIVE，URL origin 必须命中服务端 allowlist，否则从公开投影排除。分类仅取 ACTIVE 记录，按 sort_order ASC,id ASC 取前 8 条；热销只取 is_hot=true 的公开商品，按 sales_count DESC,product_id ASC 取前 4 条；新品只取 is_new=true 的公开商品，按 published_at DESC NULLS LAST,product_id ASC 取前 4 条。任一分区失败时返回 200，对应数组为空且 section_status 为 UNAVAILABLE；四分区全部失败才返回 500。
          */
         get: operations["getStoreHome"];
         put?: never;
@@ -253,7 +253,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 已启用一级分类 */
+        /**
+         * 已启用一级分类
+         * @description 一次返回全部 ACTIVE 分类，不分页，固定按 sort_order ASC,id ASC 排序。
+         */
         get: operations["getStoreCategories"];
         put?: never;
         post?: never;
@@ -270,7 +273,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 已启用品牌 */
+        /**
+         * 已启用品牌
+         * @description 一次返回全部 ACTIVE 品牌，不分页，固定按 sort_order ASC,id ASC 排序。
+         */
         get: operations["getStoreBrands"];
         put?: never;
         post?: never;
@@ -287,7 +293,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 关键词、品牌、分类、排序和分页 */
+        /**
+         * 关键词、品牌、分类、排序和分页
+         * @description 仅返回 Product、Brand、Category 均为 ACTIVE，且至少存在一个 ACTIVE SKU 的公开商品；全部 ACTIVE SKU 零库存时商品仍可浏览并返回 is_salable=false。图片仅投影 READY/PUBLIC/PRODUCT_IMAGE 文件。
+         */
         get: operations["getStoreProducts"];
         put?: never;
         post?: never;
@@ -304,7 +313,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 商品详情及全部可售 SKU */
+        /**
+         * 商品详情及全部 ACTIVE SKU
+         * @description 仅当 Product、Brand、Category 均为 ACTIVE，且存在 ACTIVE SKU 时可公开读取。固定返回全部 ACTIVE SKU；零库存或缺失库存余额的 SKU 返回 available_stock=0 与 is_salable=false，不因售罄隐藏。图片仅投影 READY/PUBLIC/PRODUCT_IMAGE 文件并按 sort_order ASC,id ASC 排序。
+         */
         get: operations["getStoreProductsByProductId"];
         put?: never;
         post?: never;
@@ -4383,7 +4395,6 @@ export interface components {
             message: "success";
             data: {
                 items: components["schemas"]["StoreCategoryView"][];
-                pagination: components["schemas"]["PaginationView"];
             };
             request_id: string;
         };
@@ -4403,7 +4414,6 @@ export interface components {
             message: "success";
             data: {
                 items: components["schemas"]["StoreBrandView"][];
-                pagination: components["schemas"]["PaginationView"];
             };
             request_id: string;
         };
@@ -4413,7 +4423,7 @@ export interface components {
             sort_order: number;
             is_primary: boolean;
         };
-        /** @description 仅 ACTIVE 且可售 SKU；不返回实体状态、锁定/实物库存、管理版本或内部文件字段。 */
+        /** @description 投影全部 ACTIVE SKU；is_salable 仅当 available_stock > 0 时为 true，零库存或缺失库存余额时为 false。不返回实体状态、锁定/实物库存、管理版本或内部文件字段。 */
         StoreSkuView: {
             sku_id: string;
             code: string;
@@ -4422,10 +4432,9 @@ export interface components {
             retail_price: components["schemas"]["PositiveMoney"];
             is_recommended: boolean;
             available_stock: number;
-            /** @constant */
-            is_salable: true;
+            is_salable: boolean;
         };
-        /** @description 仅 ACTIVE 且至少存在一个可售 SKU 的公开商品摘要。 */
+        /** @description 仅 Product、Brand、Category 均为 ACTIVE，且至少存在一个 ACTIVE SKU 的公开商品摘要。is_salable 仅当至少一个 ACTIVE SKU 的 available_stock > 0 时为 true；全部 SKU 售罄时商品仍可浏览。minimum_active_price 取全部 ACTIVE SKU 最低价。 */
         StoreProductListItem: {
             product_id: string;
             spu_code: string;
@@ -4438,6 +4447,7 @@ export interface components {
             net_sales_count: number;
             is_hot: boolean;
             is_new: boolean;
+            is_salable: boolean;
         };
         StoreProductListResponse: {
             /** @constant */
@@ -4766,6 +4776,17 @@ export interface components {
                 categories: components["schemas"]["StoreCategoryView"][];
                 hot_products: components["schemas"]["StoreProductListItem"][];
                 new_products: components["schemas"]["StoreProductListItem"][];
+                /** @description 分区为 UNAVAILABLE 时对应数组必须为空；单区或部分分区失败仍返回 200，四分区全部失败返回 500。 */
+                section_status: {
+                    /** @enum {string} */
+                    banners: "READY" | "UNAVAILABLE";
+                    /** @enum {string} */
+                    categories: "READY" | "UNAVAILABLE";
+                    /** @enum {string} */
+                    hot_products: "READY" | "UNAVAILABLE";
+                    /** @enum {string} */
+                    new_products: "READY" | "UNAVAILABLE";
+                };
             };
             request_id: string;
         };
@@ -6912,6 +6933,17 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
+        /** @description 五个匿名目录 GET（/store/home、/store/categories、/store/brands、/store/products、/store/products/{product_id}）共享 Redis 固定窗口：仅保存 HMAC 后的来源 IP，每个来源每 60 秒最多 120 次；超限返回 429 及距当前窗口结束的准确 Retry-After 整数秒，Redis 计数不可用时不得绕过限流。 */
+        StoreRateLimited: {
+            headers: {
+                /** @description 距当前 60 秒固定窗口结束的准确剩余整数秒。 */
+                "Retry-After": number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
         /** @description 未预期错误；响应不暴露堆栈、SQL 或 Provider 原文 */
         InternalError: {
             headers: {
@@ -7406,7 +7438,7 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["StateConflict"];
             422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
+            429: components["responses"]["StoreRateLimited"];
             500: components["responses"]["InternalError"];
         };
     };
@@ -7434,7 +7466,7 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["StateConflict"];
             422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
+            429: components["responses"]["StoreRateLimited"];
             500: components["responses"]["InternalError"];
         };
     };
@@ -7462,7 +7494,7 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["StateConflict"];
             422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
+            429: components["responses"]["StoreRateLimited"];
             500: components["responses"]["InternalError"];
         };
     };
@@ -7471,14 +7503,14 @@ export interface operations {
             query?: {
                 page?: components["parameters"]["Page"];
                 page_size?: components["parameters"]["PageSize"];
-                /** @description 匹配商品名、SPU/SKU code */
+                /** @description 服务端先 trim，仅对商品名执行大小写不敏感匹配；trim 后长度必须为 1–200。 */
                 keyword?: string;
                 /** @description 品牌 ID */
                 brand_id?: string;
                 /** @description 一级分类 ID */
                 category_id?: string;
-                /** @description 默认 NEWEST；相同值按 product_id ASC */
-                sort?: "HOT" | "NEWEST" | "PRICE_ASC" | "PRICE_DESC";
+                /** @description COMPREHENSIVE 固定按 is_hot DESC,is_new DESC,sales_count DESC,published_at DESC NULLS LAST,product_id ASC，其中 sales_count 对外投影为 net_sales_count；HOT 按净销量 sales_count DESC,product_id ASC；NEWEST 按首次发布时间 published_at DESC NULLS LAST,product_id ASC；PRICE_ASC/PRICE_DESC 分别按 ACTIVE SKU 最低价升序/降序，均以 product_id ASC 稳定排序。 */
+                sort?: "COMPREHENSIVE" | "HOT" | "NEWEST" | "PRICE_ASC" | "PRICE_DESC";
             };
             header?: never;
             path?: never;
@@ -7501,7 +7533,7 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["StateConflict"];
             422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
+            429: components["responses"]["StoreRateLimited"];
             500: components["responses"]["InternalError"];
         };
     };
@@ -7531,7 +7563,7 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["StateConflict"];
             422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
+            429: components["responses"]["StoreRateLimited"];
             500: components["responses"]["InternalError"];
         };
     };

@@ -94,7 +94,7 @@
       label: "NEST",
       pack: "",
       category: "家庭清洁",
-      skus: [{ id: "SKU-LAU-30", name: "30颗 / 清新香", price: 49, stock: 309 }]
+      skus: [{ id: "SKU-LAU-30", name: "30颗 / 清新香", price: 49, stock: 0 }]
     }
   ];
 
@@ -161,9 +161,19 @@
     }
   };
 
+  const catalogSignals = {
+    serum: { isHot: true, isNew: true, publishedAt: "2026-08-20T08:00:00+08:00" },
+    shampoo: { isHot: true, isNew: false, publishedAt: "2026-07-18T08:00:00+08:00" },
+    cleanser: { isHot: false, isNew: true, publishedAt: "2026-08-23T08:00:00+08:00" },
+    bodywash: { isHot: false, isNew: false, publishedAt: "2026-06-12T08:00:00+08:00" },
+    sunscreen: { isHot: false, isNew: false, publishedAt: null },
+    laundry: { isHot: true, isNew: true, publishedAt: "2026-08-21T08:00:00+08:00" }
+  };
+
   products.forEach(product => {
     product.status = product.id === "sunscreen" ? "INACTIVE" : "ACTIVE";
     product.skus.forEach(sku => { sku.status = product.id === "sunscreen" ? "INACTIVE" : "ACTIVE"; });
+    Object.assign(product, catalogSignals[product.id]);
     product.sku = product.skus[0].name;
     product.details = productDetails[product.id];
   });
@@ -198,10 +208,10 @@
       interactions: ["切换八个一级分类", "场景筛选即时反馈", "商品卡片进入详情"]
     },
     search: {
-      canvasTitle: "搜索 · 品牌与商品检索",
+      canvasTitle: "搜索 · 商品名称检索",
       title: "搜索结果",
-      description: "支持商品名、品牌和分类关键词，并提供历史词与无结果状态。",
-      interactions: ["输入或点选热门关键词", "综合/销量/价格排序", "结果卡进入详情"]
+      description: "仅按 trim 后的商品名称进行大小写不敏感匹配，并提供历史词与无结果状态。",
+      interactions: ["输入或点选商品名称关键词", "综合/热销/最新/价格排序", "结果卡进入详情"]
     },
     product: {
       canvasTitle: "商品详情 · SKU 决策",
@@ -261,10 +271,21 @@
 
   const productById = id => products.find(product => product.id === id) || products[0];
   const skuById = id => products.flatMap(product => product.skus).find(sku => sku.id === id) || products[0].skus[0];
-  const publicSkusFor = product => product.skus.filter(sku => sku.status === "ACTIVE" && sku.stock > 0);
+  const publicSkusFor = product => product.skus.filter(sku => sku.status === "ACTIVE");
+  const isSkuSalable = sku => sku.status === "ACTIVE" && sku.stock > 0;
+  const isProductSalable = product => publicSkusFor(product).some(isSkuSalable);
   const isPublicProduct = product => product?.status === "ACTIVE" && publicSkusFor(product).length > 0;
   const publicProducts = () => products.filter(isPublicProduct);
   const publicProductById = id => products.find(product => product.id === id && isPublicProduct(product));
+  const preferredPublicSku = product => publicSkusFor(product).find(isSkuSalable) || publicSkusFor(product)[0];
+  const minimumActivePrice = product => Math.min(...publicSkusFor(product).map(sku => sku.price));
+  const publishedTime = product => product.publishedAt ? Date.parse(product.publishedAt) : Number.NEGATIVE_INFINITY;
+  const stableProductIdOrder = (left, right) => left.id.localeCompare(right.id);
+  const compareComprehensive = (left, right) => Number(right.isHot) - Number(left.isHot)
+    || Number(right.isNew) - Number(left.isNew)
+    || right.sales - left.sales
+    || publishedTime(right) - publishedTime(left)
+    || stableProductIdOrder(left, right);
   const lineProduct = line => productById(line.productId);
   const lineSku = line => skuById(line.skuId);
   const clone = value => JSON.parse(JSON.stringify(value));
@@ -371,6 +392,7 @@
     searchQuery: "",
     searchPerformed: false,
     searchSort: "综合",
+    homeSectionStatus: { banners: "READY", categories: "READY", hot_products: "READY", new_products: "READY" },
     product: products[0],
     detailTab: "亮点",
     favoriteProductIds: ["serum"],
@@ -457,10 +479,11 @@
   }
 
   function productCard(product) {
+    const isSalable = isProductSalable(product);
     return `
-      <button class="product-card" data-open-product="${product.id}">
+      <button class="product-card ${isSalable ? "" : "is-sold-out"}" data-open-product="${product.id}" data-salable="${isSalable}">
         <div class="product-card__media">
-          <span class="product-badge">${product.badge}</span>
+          <span class="product-badge">${isSalable ? product.badge : "暂时售罄"}</span>
           <div class="fallback-pack ${product.pack}" data-label="${product.label}"></div>
           <img src="${product.image}" alt="${product.name}" onerror="this.hidden=true" />
         </div>
@@ -468,8 +491,8 @@
           <span class="product-brand">${product.brand}</span>
           <div class="product-name">${product.name}</div>
           <div class="price-row">
-            <span class="price"><small>¥</small>${product.price}</span>
-            <span class="sales-note">已售${product.sales}</span>
+            <span class="price"><small>¥</small>${minimumActivePrice(product)}</span>
+            <span class="sales-note">${isSalable ? `已售${product.sales}` : "到货后可购买"}</span>
           </div>
         </div>
       </button>`;
@@ -487,6 +510,9 @@
 
   function renderHome() {
     const catalog = publicProducts();
+    const hotProducts = [...catalog].filter(product => product.isHot).sort((left, right) => right.sales - left.sales || stableProductIdOrder(left, right)).slice(0, 4);
+    const newProducts = [...catalog].filter(product => product.isNew).sort((left, right) => publishedTime(right) - publishedTime(left) || stableProductIdOrder(left, right)).slice(0, 4);
+    const sectionUnavailable = (title, section) => `<div class="home-section-unavailable" data-home-section="${section}" data-status="UNAVAILABLE"><strong>${title}暂时无法加载</strong><span>其他内容不受影响，请稍后重试。</span><button data-action="retry-home-section" data-home-section="${section}">重试</button></div>`;
     return `
       <section class="app-screen with-tabbar home-page">
         <div class="screen-scroll">
@@ -496,10 +522,10 @@
               <div class="mini-header__side"><strong class="app-brand">青序</strong></div>
               <div class="mini-header__side"><button class="icon-button" data-screen="profile" aria-label="消息">◦</button></div>
             </div>
-            <button class="search-trigger" data-screen="search"><span>⌕</span><span>搜索商品 / 品牌 / 分类</span></button>
+            <button class="search-trigger" data-screen="search"><span>⌕</span><span>搜索商品名称</span></button>
           </div>
 
-          <article class="hero-card">
+          ${state.homeSectionStatus.banners === "READY" ? `<article class="hero-card" data-home-section="banners" data-status="READY">
             <div class="hero-copy">
               <span class="hero-kicker">BOTANICAL DAILY</span>
               <h3>把自然，<br />带回日常</h3>
@@ -510,23 +536,23 @@
               <div class="hero-bottle"></div>
               <img class="hero-image" src="./assets/hero-banner.png" alt="植萃洗护与家庭清洁系列" onerror="this.hidden=true" />
             </div>
-          </article>
+          </article>` : sectionUnavailable("Banner", "banners")}
 
           <section class="section-block">
             <div class="section-heading"><div><h3>按需选购</h3><p>从每一种生活场景出发</p></div><button data-screen="category">全部分类 ›</button></div>
-            <div class="category-grid">
-              ${categories.map(([name, icon]) => `<button class="category-tile" data-category="${name}"><span class="category-icon">${icon}</span><span>${name}</span></button>`).join("")}
-            </div>
+            ${state.homeSectionStatus.categories === "READY" ? `<div class="category-grid" data-home-section="categories" data-status="READY">
+              ${categories.slice(0, 8).map(([name, icon]) => `<button class="category-tile" data-category="${name}"><span class="category-icon">${icon}</span><span>${name}</span></button>`).join("")}
+            </div>` : sectionUnavailable("分类", "categories")}
           </section>
 
           <section class="section-block">
             <div class="section-heading"><div><h3>本周热销</h3><p>大家正在回购的安心好物</p></div><button data-category="护肤品">查看更多 ›</button></div>
-            <div class="product-grid">${catalog.slice(0, 4).map(productCard).join("")}</div>
+            ${state.homeSectionStatus.hot_products === "READY" ? `<div class="product-grid" data-home-section="hot_products" data-status="READY">${hotProducts.map(productCard).join("")}</div>` : sectionUnavailable("热销", "hot_products")}
           </section>
 
           <section class="section-block" style="padding-bottom:22px">
             <div class="section-heading"><div><h3>新品上架</h3><p>为日常带来一点新鲜感</p></div></div>
-            <div class="product-grid">${catalog.slice(4).map(productCard).join("")}</div>
+            ${state.homeSectionStatus.new_products === "READY" ? `<div class="product-grid" data-home-section="new_products" data-status="READY">${newProducts.map(productCard).join("")}</div>` : sectionUnavailable("新品", "new_products")}
           </section>
         </div>
         ${tabbar("home")}
@@ -537,9 +563,11 @@
     const categoryProducts = publicProducts().filter(product => product.category === state.selectedCategory);
     const brands = ["全部", ...new Set(categoryProducts.map(product => product.brand))];
     let displayProducts = categoryProducts.filter(product => state.categoryBrand === "全部" || product.brand === state.categoryBrand);
-    if (state.filter === "热销") displayProducts = [...displayProducts].sort((a, b) => b.sales - a.sales);
-    if (state.filter === "新品") displayProducts = displayProducts.filter(product => product.badge.includes("新品"));
-    if (state.filter === "价格") displayProducts = [...displayProducts].sort((a, b) => a.price - b.price);
+    if (state.filter === "热销") displayProducts = [...displayProducts].sort((a, b) => b.sales - a.sales || stableProductIdOrder(a, b));
+    if (state.filter === "新品") displayProducts = displayProducts.filter(product => product.isNew)
+      .sort((a, b) => publishedTime(b) - publishedTime(a) || stableProductIdOrder(a, b));
+    if (state.filter === "价格") displayProducts = [...displayProducts]
+      .sort((a, b) => minimumActivePrice(a) - minimumActivePrice(b) || stableProductIdOrder(a, b));
     const posterCopy = {
       "护肤品": "以温和配方回应肌肤每日所需",
       "洗发水": "从头皮开始，找回轻盈发感",
@@ -554,7 +582,7 @@
       <section class="app-screen with-tabbar category-page">
         ${statusBar()}
         <div class="mini-header"><div class="mini-header__side"><strong>分类</strong></div><div class="mini-header__side"></div></div>
-        <div style="padding:0 12px 10px"><button class="search-trigger" data-screen="search"><span>⌕</span><span>搜索品牌或商品</span></button></div>
+        <div style="padding:0 12px 10px"><button class="search-trigger" data-screen="search"><span>⌕</span><span>搜索商品名称</span></button></div>
         <div class="category-layout">
           <nav class="category-rail">
             ${categories.map(([name]) => `<button class="${name === state.selectedCategory ? "is-active" : ""}" data-category-switch="${name}">${name}</button>`).join("")}
@@ -576,27 +604,30 @@
     const query = state.searchQuery.trim().toLowerCase();
     const catalog = publicProducts();
     if (!query) return catalog;
-    return catalog.filter(product => [product.name, product.brand, product.category, product.subtitle].join(" ").toLowerCase().includes(query));
+    return catalog.filter(product => product.name.toLowerCase().includes(query));
   }
 
   function renderSearch() {
     let matches = searchMatches();
-    if (state.searchSort === "销量") matches = [...matches].sort((a, b) => b.sales - a.sales);
-    if (state.searchSort === "价格") matches = [...matches].sort((a, b) => a.price - b.price);
+    if (state.searchSort === "综合") matches = [...matches].sort(compareComprehensive);
+    if (state.searchSort === "热销") matches = [...matches].sort((left, right) => right.sales - left.sales || stableProductIdOrder(left, right));
+    if (state.searchSort === "最新") matches = [...matches].sort((left, right) => publishedTime(right) - publishedTime(left) || stableProductIdOrder(left, right));
+    if (state.searchSort === "价格↑") matches = [...matches].sort((left, right) => minimumActivePrice(left) - minimumActivePrice(right) || stableProductIdOrder(left, right));
+    if (state.searchSort === "价格↓") matches = [...matches].sort((left, right) => minimumActivePrice(right) - minimumActivePrice(left) || stableProductIdOrder(left, right));
     const historyView = `
       <div class="search-history">
         <div class="history-head"><strong>最近搜索</strong><button data-action="clear-search-history" aria-label="清空历史">♲</button></div>
         <div class="keyword-wrap">
-          ${["氨基酸", "LUMIÈRE LAB", "防晒", "家庭清洁", "白茶香"].map(keyword => `<button data-keyword="${keyword}">${keyword}</button>`).join("")}
+          ${["氨基酸", "精华液", "白茶", "洗衣凝珠", "洁面乳"].map(keyword => `<button data-keyword="${keyword}">${keyword}</button>`).join("")}
         </div>
       </div>`;
     const resultView = matches.length ? `
-      <div class="result-summary"><span>找到 <strong>${matches.length}</strong> 件相关商品</span><div class="sort-control">${["综合", "销量", "价格"].map(item => `<button class="${state.searchSort === item ? "is-active" : ""}" data-sort="${item}">${item}</button>`).join("")}</div></div>
+      <div class="result-summary"><span>找到 <strong>${matches.length}</strong> 件相关商品</span><div class="sort-control">${["综合", "热销", "最新", "价格↑", "价格↓"].map(item => `<button class="${state.searchSort === item ? "is-active" : ""}" data-sort="${item}">${item}</button>`).join("")}</div></div>
       <div class="search-results">
         ${matches.map(product => `
           <button class="search-result" data-open-product="${product.id}">
             ${imageMedia(product, "result-thumb")}
-            <div class="result-info"><span class="product-brand">${product.brand}</span><h3>${product.name}</h3><p>${product.subtitle}</p><div class="price-row"><span class="price"><small>¥</small>${product.price}</span><span class="sales-note">已售${product.sales}</span></div></div>
+            <div class="result-info"><span class="product-brand">${product.brand}</span><h3>${product.name}</h3><p>${product.subtitle}</p><div class="price-row"><span class="price"><small>¥</small>${minimumActivePrice(product)}</span><span class="sales-note">${isProductSalable(product) ? `已售${product.sales}` : "暂时售罄"}</span></div></div>
           </button>`).join("")}
       </div>` : `<div class="empty-state"><i>⌕</i><strong>没有找到相关商品</strong><p>换个关键词试试，或浏览我们的热销分类</p><button class="secondary-button" data-screen="category" style="padding:0 18px">去分类看看</button></div>`;
     return `
@@ -605,7 +636,7 @@
           ${statusBar()}
           ${header("搜索", { bordered: false })}
           <form class="search-bar-wrap" id="searchForm">
-            <label class="search-field"><span>⌕</span><input id="searchInput" value="${state.searchQuery}" autocomplete="off" placeholder="搜索商品 / 品牌 / 分类" /><button type="button" data-action="clear-search">×</button></label>
+            <label class="search-field"><span>⌕</span><input id="searchInput" value="${state.searchQuery}" autocomplete="off" maxlength="200" placeholder="搜索商品名称" /><button type="button" data-action="clear-search">×</button></label>
             <button class="search-submit" type="submit">搜索</button>
           </form>
           ${state.searchPerformed ? resultView : historyView}
@@ -631,7 +662,7 @@
 
   function currentProductSku() {
     const activeSkus = publicSkusFor(state.product);
-    return activeSkus.find(sku => sku.id === state.selectedSkuId) || activeSkus[0];
+    return activeSkus.find(sku => sku.id === state.selectedSkuId) || preferredPublicSku(state.product);
   }
 
   function renderProduct() {
@@ -639,6 +670,7 @@
     const selectedSku = currentProductSku();
     const isFavorite = state.favoriteProductIds.includes(product.id);
     const detail = product.details;
+    const isSalable = isSkuSalable(selectedSku);
     const detailCopy = {
       "亮点": `<h3>${detail.highlightTitle}</h3><p>${detail.highlight}</p><div class="ingredient-list">${detail.ingredients.map(([name, effect]) => `<div><strong>${name}</strong><span>${effect}</span></div>`).join("")}</div>`,
       "成分": `<h3>配方公开透明</h3><p>${detail.ingredientText}</p><p>${detail.ingredientNote}</p>`,
@@ -657,7 +689,7 @@
             <div class="price-row"><span class="price-label">零售价</span><span class="price"><small>¥</small>${selectedSku.price}</span></div>
             <h1>${product.name}</h1>
             <p>${product.subtitle}。严选原料与温和配方，让护理回归简单有效。</p>
-            <div class="summary-meta"><span>${product.brand}</span><span>库存 ${selectedSku.stock}</span><span>已售 ${product.sales}</span></div>
+            <div class="summary-meta"><span>${product.brand}</span><span>${isSalable ? `库存 ${selectedSku.stock}` : "暂时售罄"}</span><span>已售 ${product.sales}</span></div>
           </div>
           <div class="info-list">
             <button class="info-row" data-action="open-sku"><span>规格</span><strong>${selectedSku.name}</strong><span>›</span></button>
@@ -671,8 +703,8 @@
         <div class="buybar">
           <button class="mini-action" data-action="service"><i>◉</i><span>客服</span></button>
           <button class="mini-action" data-screen="cart"><i>□</i><span>购物车</span></button>
-          <button class="secondary-button" data-sku-intent="cart">加入购物车</button>
-          <button class="primary-button is-coral" data-sku-intent="buy">立即购买</button>
+          <button class="secondary-button" data-sku-intent="cart" ${isSalable ? "" : "disabled"}>${isSalable ? "加入购物车" : "暂时售罄"}</button>
+          <button class="primary-button is-coral" data-sku-intent="buy" ${isSalable ? "" : "disabled"}>${isSalable ? "立即购买" : "到货后可购买"}</button>
         </div>
       </section>`;
   }
@@ -1126,9 +1158,9 @@
     const selectedSku = currentProductSku();
     return `
       <div class="sheet-handle"></div><div class="sheet-head">${imageMedia(product, "sheet-thumb product-card__media")}<div><span class="product-brand">${product.brand}</span><h3>${product.name}</h3><span class="price"><small>¥</small>${selectedSku.price}</span></div><button class="sheet-close" data-action="close-sheet" aria-label="关闭">×</button></div>
-      <div class="sheet-section"><div class="sheet-section__head"><span>选择规格</span><span>库存 ${selectedSku.stock} 件</span></div><div class="option-row">${publicSkusFor(product).map(sku => `<button class="option-button ${state.selectedSkuId === sku.id ? "is-active" : ""}" data-sku-id="${sku.id}">${sku.name}<small>${money(sku.price)}</small></button>`).join("")}</div></div>
-      <div class="sheet-section"><div class="sheet-section__head"><span>购买数量</span><div class="quantity-stepper"><button data-sku-delta="-1">−</button><span>${state.quantity}</span><button data-sku-delta="1">＋</button></div></div></div>
-      <div class="sheet-footer"><button class="secondary-button" data-action="close-sheet">取消</button><button class="primary-button ${state.skuIntent === "buy" ? "is-coral" : ""}" data-action="confirm-sku">${state.skuIntent === "buy" ? "确认并结算" : "确认加入购物车"}</button></div>`;
+      <div class="sheet-section"><div class="sheet-section__head"><span>选择规格</span><span>${isSkuSalable(selectedSku) ? `库存 ${selectedSku.stock} 件` : "暂时售罄"}</span></div><div class="option-row">${publicSkusFor(product).map(sku => `<button class="option-button ${state.selectedSkuId === sku.id ? "is-active" : ""}" data-sku-id="${sku.id}">${sku.name}<small>${isSkuSalable(sku) ? money(sku.price) : `${money(sku.price)} · 售罄`}</small></button>`).join("")}</div></div>
+      <div class="sheet-section"><div class="sheet-section__head"><span>购买数量</span><div class="quantity-stepper"><button data-sku-delta="-1" ${isSkuSalable(selectedSku) ? "" : "disabled"}>−</button><span>${isSkuSalable(selectedSku) ? state.quantity : 0}</span><button data-sku-delta="1" ${isSkuSalable(selectedSku) ? "" : "disabled"}>＋</button></div></div></div>
+      <div class="sheet-footer"><button class="secondary-button" data-action="close-sheet">取消</button><button class="primary-button ${state.skuIntent === "buy" ? "is-coral" : ""}" data-action="confirm-sku" ${isSkuSalable(selectedSku) ? "" : "disabled"}>${isSkuSalable(selectedSku) ? (state.skuIntent === "buy" ? "确认并结算" : "确认加入购物车") : "当前规格售罄"}</button></div>`;
   }
 
   function paymentSheet(order) {
@@ -1163,6 +1195,7 @@
 
   function handleSkuConfirm() {
     const sku = currentProductSku();
+    if (!isSkuSalable(sku)) return showToast("当前规格暂时售罄");
     const quantity = Math.min(state.quantity, sku.stock);
     if (state.skuIntent === "cart") {
       const existing = state.cart.find(item => item.skuId === sku.id);
@@ -1385,7 +1418,7 @@
       const product = publicProductById(target.dataset.openProduct);
       if (!product) return showToast("商品已下架或暂无可售规格");
       state.product = product;
-      state.selectedSkuId = publicSkusFor(product)[0].id;
+      state.selectedSkuId = preferredPublicSku(product).id;
       state.quantity = 1;
       return navigate("product");
     }
@@ -1492,6 +1525,7 @@
     if (action === "confirm-account-deletion") { state.deletionRequested = true; closeSheet(); render(); return showToast("账号删除申请已提交"); }
     if (action === "recover-ui") { state.uiRecovered = true; render(); return showToast("网络已恢复，原上下文仍保留"); }
     if (action === "refresh-conflict") return showToast("已刷新最新价格和库存，请重新确认");
+    if (action === "retry-home-section") { state.homeSectionStatus[target.dataset.homeSection] = "READY"; render(); return showToast("该区块已恢复"); }
     if (action === "clear-search") { state.searchQuery = ""; state.searchPerformed = false; return render(); }
     if (action === "clear-search-history") return showToast("搜索记录已清空");
     if (action === "manage-cart") { state.cartManaging = !state.cartManaging; render(); return showToast(state.cartManaging ? "已进入管理模式，可按 SKU 删除" : "已退出管理模式"); }
@@ -1511,6 +1545,7 @@
     event.preventDefault();
     if (event.target.id === "searchForm") {
       state.searchQuery = event.target.querySelector("#searchInput").value.trim();
+      if (!state.searchQuery) { state.searchPerformed = false; render(); return showToast("请输入商品名称"); }
       state.searchPerformed = true;
       return render();
     }
@@ -1551,6 +1586,7 @@
   const requestedBinding = prototypeParams.get("binding");
   const requestedAuth = prototypeParams.get("auth");
   const requestedAfterSale = prototypeParams.get("aftersale");
+  const requestedHomeState = prototypeParams.get("home");
   let inviteNotice = "";
   if (requestedAuth === "guest") state.loggedIn = false;
   if (requestedBinding === "unbound") state.agentBindingStatus = "unbound";
@@ -1564,6 +1600,7 @@
     } else inviteNotice = `您已绑定 ${state.serviceAgent.name}，本次邀请不改变归属`;
   }
   if (requestedAfterSale === "failed") state.currentAfterSaleId = "AS202608030006";
+  if (requestedHomeState === "partial") state.homeSectionStatus.categories = "UNAVAILABLE";
   if (requestedScreen && renderers[requestedScreen]) {
     if (!state.loggedIn && protectedScreens.has(requestedScreen)) { state.authReturn = { screen: requestedScreen, action: null }; state.screen = "login"; }
     else state.screen = requestedScreen;

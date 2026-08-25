@@ -481,7 +481,7 @@ async function runMiniInteractionChecks(browser) {
     await page.click('[data-category-switch="护肤品"]');
     await page.click('[data-filter="价格"]');
     const order = await page.locator(".category-content [data-open-product]").evaluateAll((nodes) => nodes.map((node) => node.dataset.openProduct));
-    expect(order.join(",") === "cleanser,serum", "分类价格排序未按实际商品价格生效");
+    expect(order.join(",") === "serum,cleanser", "分类价格排序未按 ACTIVE SKU 最低价和稳定商品 ID 生效");
     await page.click('[data-category-switch="洗发水"]');
     await page.click('.category-content [data-open-product="shampoo"]');
     await page.click('[data-detail-tab="成分"]');
@@ -489,6 +489,18 @@ async function runMiniInteractionChecks(browser) {
     await page.click('[data-detail-tab="使用方法"]');
     const usageDetail = await page.locator(".detail-content").innerText();
     expect(ingredientDetail.includes("迷迭香叶提取物") && usageDetail.includes("重点清洁头皮"), "商品成分或用法未按当前商品动态绑定");
+    await page.goto(miniUrl({ screen: "search", device: "375" }), { waitUntil: "load" });
+    expect(await page.locator("#searchInput").getAttribute("maxlength") === "200", "商品名称搜索未锁定 200 字符上限");
+    await page.fill("#searchInput", "氨基酸");
+    await page.locator("#searchForm").evaluate((form) => form.requestSubmit());
+    let searchOrder = await page.locator(".search-results [data-open-product]").evaluateAll((nodes) => nodes.map((node) => node.dataset.openProduct));
+    expect(searchOrder.join(",") === "shampoo,cleanser", "COMPREHENSIVE 未按 hot/new/sales/published/id 固定顺序返回");
+    await page.click('[data-sort="价格↑"]');
+    searchOrder = await page.locator(".search-results [data-open-product]").evaluateAll((nodes) => nodes.map((node) => node.dataset.openProduct));
+    expect(searchOrder.join(",") === "cleanser,shampoo", "ACTIVE SKU 最低价升序未生效");
+    await page.fill("#searchInput", "MORI NATURE");
+    await page.locator("#searchForm").evaluate((form) => form.requestSubmit());
+    expect(await page.locator(".search-results [data-open-product]").count() === 0, "搜索错误匹配了品牌字段");
   });
 
   await run("mini-interaction-cart-invalid-and-note-boundary", async (page) => {
@@ -503,6 +515,18 @@ async function runMiniInteractionChecks(browser) {
   await run("mini-interaction-active-public-catalog", async (page) => {
     await page.goto(miniUrl({ screen: "home", device: "375" }), { waitUntil: "load" });
     expect(await page.locator('[data-open-product="sunscreen"]').count() === 0, "INACTIVE 防晒商品仍在首页公开目录出现");
+    expect(await page.locator('[data-open-product="laundry"][data-salable="false"]').count() >= 1, "ACTIVE 零库存商品未以售罄状态保留在公开目录");
+    await page.locator('[data-open-product="laundry"]').first().click();
+    expect((await page.locator(".product-summary").innerText()).includes("暂时售罄"), "ACTIVE 零库存商品详情未展示售罄状态");
+    expect(await page.locator('[data-sku-intent="cart"]').isDisabled() && await page.locator('[data-sku-intent="buy"]').isDisabled(), "售罄商品仍允许加购或立即购买");
+    await page.click('[data-action="open-sku"]');
+    expect(await page.locator('[data-action="confirm-sku"]').isDisabled(), "售罄 ACTIVE SKU 仍允许确认选择");
+    await page.goto(miniUrl({ screen: "home", device: "375", home: "partial" }), { waitUntil: "load" });
+    expect(await page.locator('[data-home-section="categories"][data-status="UNAVAILABLE"]').isVisible(), "首页单区失败未返回 UNAVAILABLE 可见状态");
+    expect(await page.locator('[data-home-section="hot_products"][data-status="READY"] .product-card').count() > 0, "首页单区失败错误阻断了 READY 热销区");
+    await page.click('[data-action="retry-home-section"]');
+    expect(await page.locator('[data-home-section="categories"][data-status="READY"] .category-tile').count() === 8, "首页失败区重试后未恢复全部 ACTIVE 分类");
+    await page.goto(miniUrl({ screen: "home", device: "375" }), { waitUntil: "load" });
     await page.click('[data-category="防晒产品"]');
     expect(await page.locator(".category-empty").isVisible() && await page.locator('[data-open-product="sunscreen"]').count() === 0, "INACTIVE 商品仍在分类可发现");
     await page.click('.category-page [data-screen="search"]');

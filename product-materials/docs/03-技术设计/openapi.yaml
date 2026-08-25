@@ -1,8 +1,8 @@
 openapi: "3.1.0"
 info:
   title: "洗化产品私域商城 API"
-  version: "2.4.3-ch012"
-  description: "CH-012 单一线协议，继承 CH-006、CH-008 与 CH-010，并闭合 Banner 和人工库存调整语义。所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
+  version: "2.4.4-ch014"
+  description: "CH-014 单一线协议，继承 CH-006、CH-008、CH-010 与 CH-012，并闭合 B6 消费者匿名商城目录语义。所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
   license:
     name: "Proprietary"
     identifier: "LicenseRef-Proprietary"
@@ -559,7 +559,7 @@ paths:
       tags:
         - "Store"
       summary: "Banner、分类、热销、新品聚合"
-      description: "Banner 仅投影 ACTIVE、未归档、文件仍为 READY/PUBLIC/BANNER、starts_at 为空或 starts_at <= now，且 ends_at 为空或 now < ends_at 的记录，并固定按 sort_order ASC,id ASC 排序；PRODUCT/CATEGORY 目标必须仍为 ACTIVE，URL origin 必须命中服务端 allowlist，否则从公开投影排除。"
+      description: "首页四分区在同一请求中独立装配：Banner 仅投影 ACTIVE、未归档、文件仍为 READY/PUBLIC/BANNER、starts_at 为空或 starts_at <= now，且 ends_at 为空或 now < ends_at 的记录，固定按 sort_order ASC,id ASC 取前 10 条；PRODUCT 目标必须仍能解析为公开商品，CATEGORY 目标必须仍为 ACTIVE，URL origin 必须命中服务端 allowlist，否则从公开投影排除。分类仅取 ACTIVE 记录，按 sort_order ASC,id ASC 取前 8 条；热销只取 is_hot=true 的公开商品，按 sales_count DESC,product_id ASC 取前 4 条；新品只取 is_new=true 的公开商品，按 published_at DESC NULLS LAST,product_id ASC 取前 4 条。任一分区失败时返回 200，对应数组为空且 section_status 为 UNAVAILABLE；四分区全部失败才返回 500。"
       operationId: "getStoreHome"
       security: []
       parameters: []
@@ -583,7 +583,7 @@ paths:
         422:
           "$ref": "#/components/responses/BusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreRateLimited"
         500:
           "$ref": "#/components/responses/InternalError"
   /store/categories:
@@ -591,6 +591,7 @@ paths:
       tags:
         - "Store"
       summary: "已启用一级分类"
+      description: "一次返回全部 ACTIVE 分类，不分页，固定按 sort_order ASC,id ASC 排序。"
       operationId: "getStoreCategories"
       security: []
       parameters: []
@@ -614,7 +615,7 @@ paths:
         422:
           "$ref": "#/components/responses/BusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreRateLimited"
         500:
           "$ref": "#/components/responses/InternalError"
   /store/brands:
@@ -622,6 +623,7 @@ paths:
       tags:
         - "Store"
       summary: "已启用品牌"
+      description: "一次返回全部 ACTIVE 品牌，不分页，固定按 sort_order ASC,id ASC 排序。"
       operationId: "getStoreBrands"
       security: []
       parameters: []
@@ -645,7 +647,7 @@ paths:
         422:
           "$ref": "#/components/responses/BusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreRateLimited"
         500:
           "$ref": "#/components/responses/InternalError"
   /store/products:
@@ -653,6 +655,7 @@ paths:
       tags:
         - "Store"
       summary: "关键词、品牌、分类、排序和分页"
+      description: "仅返回 Product、Brand、Category 均为 ACTIVE，且至少存在一个 ACTIVE SKU 的公开商品；全部 ACTIVE SKU 零库存时商品仍可浏览并返回 is_salable=false。图片仅投影 READY/PUBLIC/PRODUCT_IMAGE 文件。"
       operationId: "getStoreProducts"
       security: []
       parameters:
@@ -667,14 +670,15 @@ paths:
           schema:
             type: "string"
             minLength: 1
-          description: "匹配商品名、SPU/SKU code"
+            maxLength: 200
+          description: "服务端先 trim，仅对商品名执行大小写不敏感匹配；trim 后长度必须为 1–200。"
         -
           name: "brand_id"
           in: "query"
           required: false
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
           description: "品牌 ID"
         -
           name: "category_id"
@@ -682,7 +686,7 @@ paths:
           required: false
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
           description: "一级分类 ID"
         -
           name: "sort"
@@ -691,11 +695,13 @@ paths:
           schema:
             type: "string"
             enum:
+              - "COMPREHENSIVE"
               - "HOT"
               - "NEWEST"
               - "PRICE_ASC"
               - "PRICE_DESC"
-          description: "默认 NEWEST；相同值按 product_id ASC"
+            default: "COMPREHENSIVE"
+          description: "COMPREHENSIVE 固定按 is_hot DESC,is_new DESC,sales_count DESC,published_at DESC NULLS LAST,product_id ASC，其中 sales_count 对外投影为 net_sales_count；HOT 按净销量 sales_count DESC,product_id ASC；NEWEST 按首次发布时间 published_at DESC NULLS LAST,product_id ASC；PRICE_ASC/PRICE_DESC 分别按 ACTIVE SKU 最低价升序/降序，均以 product_id ASC 稳定排序。"
       responses:
         200:
           description: "成功"
@@ -716,14 +722,15 @@ paths:
         422:
           "$ref": "#/components/responses/BusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreRateLimited"
         500:
           "$ref": "#/components/responses/InternalError"
   /store/products/{product_id}:
     get:
       tags:
         - "Store"
-      summary: "商品详情及全部可售 SKU"
+      summary: "商品详情及全部 ACTIVE SKU"
+      description: "仅当 Product、Brand、Category 均为 ACTIVE，且存在 ACTIVE SKU 时可公开读取。固定返回全部 ACTIVE SKU；零库存或缺失库存余额的 SKU 返回 available_stock=0 与 is_salable=false，不因售罄隐藏。图片仅投影 READY/PUBLIC/PRODUCT_IMAGE 文件并按 sort_order ASC,id ASC 排序。"
       operationId: "getStoreProductsByProductId"
       security: []
       parameters:
@@ -733,7 +740,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
       responses:
         200:
           description: "成功"
@@ -754,7 +761,7 @@ paths:
         422:
           "$ref": "#/components/responses/BusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreRateLimited"
         500:
           "$ref": "#/components/responses/InternalError"
   /store/favorites:
@@ -10355,6 +10362,20 @@ components:
         application/json:
           schema:
             "$ref": "#/components/schemas/ErrorResponse"
+    StoreRateLimited:
+      description: "五个匿名目录 GET（/store/home、/store/categories、/store/brands、/store/products、/store/products/{product_id}）共享 Redis 固定窗口：仅保存 HMAC 后的来源 IP，每个来源每 60 秒最多 120 次；超限返回 429 及距当前窗口结束的准确 Retry-After 整数秒，Redis 计数不可用时不得绕过限流。"
+      headers:
+        Retry-After:
+          description: "距当前 60 秒固定窗口结束的准确剩余整数秒。"
+          required: true
+          schema:
+            type: "integer"
+            minimum: 1
+            maximum: 60
+      content:
+        application/json:
+          schema:
+            "$ref": "#/components/schemas/ErrorResponse"
     InternalError:
       description: "未预期错误；响应不暴露堆栈、SQL 或 Provider 原文"
       content:
@@ -14076,14 +14097,12 @@ components:
         data:
           type: "object"
           additionalProperties: false
-          required: ["items", "pagination"]
+          required: ["items"]
           properties:
             items:
               type: "array"
               items:
                 "$ref": "#/components/schemas/StoreCategoryView"
-            pagination:
-              "$ref": "#/components/schemas/PaginationView"
         request_id:
           type: "string"
     StoreBrandView:
@@ -14116,14 +14135,12 @@ components:
         data:
           type: "object"
           additionalProperties: false
-          required: ["items", "pagination"]
+          required: ["items"]
           properties:
             items:
               type: "array"
               items:
                 "$ref": "#/components/schemas/StoreBrandView"
-            pagination:
-              "$ref": "#/components/schemas/PaginationView"
         request_id:
           type: "string"
     StoreProductImageView:
@@ -14162,12 +14179,12 @@ components:
           type: "integer"
           minimum: 0
         is_salable:
-          const: true
-      description: "仅 ACTIVE 且可售 SKU；不返回实体状态、锁定/实物库存、管理版本或内部文件字段。"
+          type: "boolean"
+      description: "投影全部 ACTIVE SKU；is_salable 仅当 available_stock > 0 时为 true，零库存或缺失库存余额时为 false。不返回实体状态、锁定/实物库存、管理版本或内部文件字段。"
     StoreProductListItem:
       type: "object"
       additionalProperties: false
-      required: ["product_id", "spu_code", "name", "subtitle", "brand", "category", "primary_image", "minimum_active_price", "net_sales_count", "is_hot", "is_new"]
+      required: ["product_id", "spu_code", "name", "subtitle", "brand", "category", "primary_image", "minimum_active_price", "net_sales_count", "is_hot", "is_new", "is_salable"]
       properties:
         product_id:
           type: "string"
@@ -14194,7 +14211,9 @@ components:
           type: "boolean"
         is_new:
           type: "boolean"
-      description: "仅 ACTIVE 且至少存在一个可售 SKU 的公开商品摘要。"
+        is_salable:
+          type: "boolean"
+      description: "仅 Product、Brand、Category 均为 ACTIVE，且至少存在一个 ACTIVE SKU 的公开商品摘要。is_salable 仅当至少一个 ACTIVE SKU 的 available_stock > 0 时为 true；全部 SKU 售罄时商品仍可浏览。minimum_active_price 取全部 ACTIVE SKU 最低价。"
     StoreProductListResponse:
       type: "object"
       additionalProperties: false
@@ -15092,23 +15111,46 @@ components:
             - "categories"
             - "hot_products"
             - "new_products"
+            - "section_status"
           properties:
             banners:
               type: "array"
+              maxItems: 10
               items:
                 "$ref": "#/components/schemas/StoreBannerView"
             categories:
               type: "array"
+              maxItems: 8
               items:
                 "$ref": "#/components/schemas/StoreCategoryView"
             hot_products:
               type: "array"
+              maxItems: 4
               items:
                 "$ref": "#/components/schemas/StoreProductListItem"
             new_products:
               type: "array"
+              maxItems: 4
               items:
                 "$ref": "#/components/schemas/StoreProductListItem"
+            section_status:
+              type: "object"
+              additionalProperties: false
+              required: ["banners", "categories", "hot_products", "new_products"]
+              properties:
+                banners:
+                  type: "string"
+                  enum: ["READY", "UNAVAILABLE"]
+                categories:
+                  type: "string"
+                  enum: ["READY", "UNAVAILABLE"]
+                hot_products:
+                  type: "string"
+                  enum: ["READY", "UNAVAILABLE"]
+                new_products:
+                  type: "string"
+                  enum: ["READY", "UNAVAILABLE"]
+              description: "分区为 UNAVAILABLE 时对应数组必须为空；单区或部分分区失败仍返回 200，四分区全部失败返回 500。"
         request_id:
           type: "string"
     FavoriteView:

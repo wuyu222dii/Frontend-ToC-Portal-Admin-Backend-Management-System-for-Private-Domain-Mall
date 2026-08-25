@@ -10,7 +10,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, '..', '..');
 const specificationPath = join(repositoryRoot, 'product-materials/docs/03-技术设计/openapi.yaml');
 const redoclyCli = join(repositoryRoot, 'node_modules/@redocly/cli/bin/cli.js');
-const temporaryDirectory = mkdtempSync(join(tmpdir(), 'qingxu-ch012-contract-'));
+const temporaryDirectory = mkdtempSync(join(tmpdir(), 'qingxu-ch014-contract-'));
 const bundledPath = join(temporaryDirectory, 'openapi.json');
 
 const HTTP_METHODS = new Set(['delete', 'get', 'head', 'options', 'patch', 'post', 'put', 'trace']);
@@ -38,6 +38,14 @@ const PRODUCT_SKU_RESTORE_PATHS = [
   '/admin/products/{product_id}/restore',
   '/admin/skus/{sku_id}/restore',
 ];
+const PUBLIC_STORE_CATALOG_PATHS = [
+  '/store/home',
+  '/store/categories',
+  '/store/brands',
+  '/store/products',
+  '/store/products/{product_id}',
+];
+const ULID_PATTERN = '^[0-9A-HJKMNP-TV-Z]{26}$';
 
 function collectReferences(value, references = []) {
   if (Array.isArray(value)) {
@@ -178,7 +186,7 @@ try {
   }
 
   const document = JSON.parse(readFileSync(bundledPath, 'utf8'));
-  assert.equal(document.info.version, '2.4.3-ch012');
+  assert.equal(document.info.version, '2.4.4-ch014');
 
   const pathCount = Object.keys(document.paths).length;
   const operations = Object.values(document.paths).flatMap((pathItem) =>
@@ -201,6 +209,131 @@ try {
 
   const schemas = document.components.schemas;
   assert.equal(Object.keys(schemas).length, 312, 'OpenAPI schema count drifted');
+
+  for (const path of PUBLIC_STORE_CATALOG_PATHS) {
+    const pathItem = document.paths[path];
+    assert.ok(pathItem, `public Store catalog path is missing: ${path}`);
+    assert.deepEqual(
+      Object.keys(pathItem).filter((key) => HTTP_METHODS.has(key)),
+      ['get'],
+      `public Store catalog path must remain read-only: ${path}`,
+    );
+    assert.deepEqual(pathItem.get.security, [], `public Store catalog GET must remain anonymous: ${path}`);
+    assert.equal(pathItem.get.responses['429']?.$ref, '#/components/responses/StoreRateLimited',
+      `public Store catalog GET must expose the shared 429 response: ${path}`);
+  }
+  for (const protectedPath of ['/store/favorites', '/store/cart']) {
+    assert.deepEqual(document.paths[protectedPath].get.security, [{ bearerAuth: [] }],
+      `${protectedPath} must remain outside the anonymous B6 catalog scope`);
+  }
+
+  const sharedRateLimited = document.components.responses.RateLimited;
+  assert.equal(sharedRateLimited.description, '\u8bbf\u95ee\u3001\u767b\u5f55\u6216 MFA \u5931\u8d25\u6b21\u6570\u53d7\u9650');
+  assert.equal(sharedRateLimited.headers, undefined,
+    'CH-014 Store Retry-After bounds must not narrow the shared login/MFA response');
+  const rateLimited = document.components.responses.StoreRateLimited;
+  assert.match(rateLimited.description, /\u4e94\u4e2a\u533f\u540d\u76ee\u5f55 GET/);
+  assert.match(rateLimited.description, /Redis \u56fa\u5b9a\u7a97\u53e3/);
+  assert.match(rateLimited.description, /HMAC \u540e\u7684\u6765\u6e90 IP/);
+  assert.match(rateLimited.description, /\u6bcf 60 \u79d2\u6700\u591a 120 \u6b21/);
+  assert.match(rateLimited.description, /\u4e0d\u5f97\u7ed5\u8fc7\u9650\u6d41/);
+  assert.deepEqual(rateLimited.headers?.['Retry-After'], {
+    description: rateLimited.headers['Retry-After'].description,
+    required: true,
+    schema: { type: 'integer', minimum: 1, maximum: 60 },
+  });
+  assert.match(rateLimited.headers['Retry-After'].description, /\u51c6\u786e\u5269\u4f59\u6574\u6570\u79d2/);
+
+  const storeProductParameters = document.paths['/store/products'].get.parameters;
+  const storeProductParameter = (name) => storeProductParameters.find((parameter) => parameter.name === name);
+  const storeKeyword = storeProductParameter('keyword');
+  assert.deepEqual(storeKeyword.schema, { type: 'string', minLength: 1, maxLength: 200 });
+  assert.match(storeKeyword.description, /trim/);
+  assert.match(storeKeyword.description, /\u4ec5\u5bf9\u5546\u54c1\u540d/);
+  assert.match(storeKeyword.description, /\u5927\u5c0f\u5199\u4e0d\u654f\u611f/);
+  assert.doesNotMatch(storeKeyword.description, /SPU|SKU code/);
+  for (const parameterName of ['brand_id', 'category_id']) {
+    assert.deepEqual(storeProductParameter(parameterName).schema, {
+      type: 'string', pattern: ULID_PATTERN,
+    });
+  }
+  const storeProductId = document.paths['/store/products/{product_id}'].get.parameters
+    .find((parameter) => parameter.name === 'product_id');
+  assert.deepEqual(storeProductId.schema, { type: 'string', pattern: ULID_PATTERN });
+
+  const storeSort = storeProductParameter('sort');
+  assert.deepEqual(storeSort.schema, {
+    type: 'string',
+    enum: ['COMPREHENSIVE', 'HOT', 'NEWEST', 'PRICE_ASC', 'PRICE_DESC'],
+    default: 'COMPREHENSIVE',
+  });
+  assert.match(storeSort.description,
+    /is_hot DESC,is_new DESC,sales_count DESC,published_at DESC NULLS LAST,product_id ASC/);
+  assert.match(storeSort.description, /HOT.+sales_count DESC,product_id ASC/);
+  assert.match(storeSort.description, /NEWEST.+published_at DESC NULLS LAST,product_id ASC/);
+  assert.match(storeSort.description, /PRICE_ASC\/PRICE_DESC.+ACTIVE SKU \u6700\u4f4e\u4ef7/);
+
+  for (const [path, responseName, entity] of [
+    ['/store/categories', 'StoreCategoryListResponse', '\u5206\u7c7b'],
+    ['/store/brands', 'StoreBrandListResponse', '\u54c1\u724c'],
+  ]) {
+    assert.deepEqual(document.paths[path].get.parameters, [], `${path} must not accept pagination`);
+    assert.match(document.paths[path].get.description, new RegExp(`\u5168\u90e8 ACTIVE ${entity}`));
+    assert.match(document.paths[path].get.description, /\u4e0d\u5206\u9875/);
+    assert.match(document.paths[path].get.description, /sort_order ASC,id ASC/);
+    const data = schemas[responseName].properties.data;
+    assert.equal(data.additionalProperties, false);
+    assert.deepEqual(data.required, ['items']);
+    assert.deepEqual(Object.keys(data.properties), ['items']);
+  }
+
+  const storeSku = schemas.StoreSkuView;
+  assert.ok(storeSku.required.includes('is_salable'));
+  assert.deepEqual(storeSku.properties.is_salable, { type: 'boolean' });
+  assert.match(storeSku.description, /\u5168\u90e8 ACTIVE SKU/);
+  assert.match(storeSku.description, /available_stock > 0.+true/);
+  assert.match(storeSku.description, /\u96f6\u5e93\u5b58.+false/);
+  const storeProductSummary = schemas.StoreProductListItem;
+  assert.ok(storeProductSummary.required.includes('is_salable'));
+  assert.deepEqual(storeProductSummary.properties.is_salable, { type: 'boolean' });
+  assert.match(storeProductSummary.description, /\u81f3\u5c11\u5b58\u5728\u4e00\u4e2a ACTIVE SKU/);
+  assert.match(storeProductSummary.description, /\u5168\u90e8 SKU \u552e\u7f44\u65f6\u5546\u54c1\u4ecd\u53ef\u6d4f\u89c8/);
+  assert.match(storeProductSummary.description, /minimum_active_price.+ACTIVE SKU \u6700\u4f4e\u4ef7/);
+  assert.match(document.paths['/store/products'].get.description, /is_salable=false/);
+  assert.match(document.paths['/store/products/{product_id}'].get.description,
+    /\u56fa\u5b9a\u8fd4\u56de\u5168\u90e8 ACTIVE SKU/);
+
+  const homeData = schemas.HomeResponse.properties.data;
+  assert.equal(homeData.additionalProperties, false);
+  assert.deepEqual(homeData.required,
+    ['banners', 'categories', 'hot_products', 'new_products', 'section_status']);
+  assert.equal(homeData.properties.banners.maxItems, 10);
+  assert.equal(homeData.properties.categories.maxItems, 8);
+  assert.equal(homeData.properties.hot_products.maxItems, 4);
+  assert.equal(homeData.properties.new_products.maxItems, 4);
+  const sectionStatus = homeData.properties.section_status;
+  const sectionNames = ['banners', 'categories', 'hot_products', 'new_products'];
+  assert.equal(sectionStatus.type, 'object');
+  assert.equal(sectionStatus.additionalProperties, false);
+  assert.deepEqual(sectionStatus.required, sectionNames);
+  assert.deepEqual(Object.keys(sectionStatus.properties), sectionNames);
+  for (const sectionName of sectionNames) {
+    assert.deepEqual(sectionStatus.properties[sectionName], {
+      type: 'string', enum: ['READY', 'UNAVAILABLE'],
+    });
+  }
+  assert.match(sectionStatus.description, /UNAVAILABLE.+\u5bf9\u5e94\u6570\u7ec4\u5fc5\u987b\u4e3a\u7a7a/);
+  assert.match(sectionStatus.description, /\u90e8\u5206\u5206\u533a\u5931\u8d25\u4ecd\u8fd4\u56de 200/);
+  assert.match(sectionStatus.description, /\u56db\u5206\u533a\u5168\u90e8\u5931\u8d25\u8fd4\u56de 500/);
+  const ch014StoreHomeDescription = document.paths['/store/home'].get.description ?? '';
+  assert.match(ch014StoreHomeDescription, /sort_order ASC,id ASC \u53d6\u524d 10 \u6761/);
+  assert.match(ch014StoreHomeDescription, /sort_order ASC,id ASC \u53d6\u524d 8 \u6761/);
+  assert.match(ch014StoreHomeDescription, /sales_count DESC,product_id ASC \u53d6\u524d 4 \u6761/);
+  assert.match(ch014StoreHomeDescription, /published_at DESC NULLS LAST,product_id ASC \u53d6\u524d 4 \u6761/);
+  assert.match(ch014StoreHomeDescription, /PRODUCT \u76ee\u6807.+\u516c\u5f00\u5546\u54c1/);
+  assert.match(ch014StoreHomeDescription, /\u4efb\u4e00\u5206\u533a\u5931\u8d25\u65f6\u8fd4\u56de 200/);
+  assert.match(ch014StoreHomeDescription, /\u56db\u5206\u533a\u5168\u90e8\u5931\u8d25\u624d\u8fd4\u56de 500/);
+
   assert.equal(
     schemas.PositiveMoney.pattern,
     '^(?:0\\.(?:0[1-9]|[1-9][0-9])|[1-9][0-9]{0,15}\\.[0-9]{2})$',
@@ -607,7 +740,7 @@ try {
   for (const reference of references) resolveLocalReference(document, reference);
   const schemaReferences = references.filter((reference) =>
     reference.startsWith('#/components/schemas/')).length;
-  assert.equal(schemaReferences, 692, 'OpenAPI schema reference count drifted');
+  assert.equal(schemaReferences, 691, 'OpenAPI schema reference count drifted');
 
   process.stdout.write(JSON.stringify({
     status: 'passed',

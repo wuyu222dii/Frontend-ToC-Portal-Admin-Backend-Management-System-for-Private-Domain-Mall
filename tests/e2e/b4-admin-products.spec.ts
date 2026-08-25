@@ -906,7 +906,9 @@ async function expectWithinViewport(page: Page, locator: Locator): Promise<void>
 }
 
 async function selectElementPlusOption(page: Page, label: string, option: string): Promise<void> {
-  await page.getByRole('combobox', { name: label, exact: true }).click({ force: true });
+  const combobox = page.getByRole('combobox', { name: label, exact: true });
+  await combobox.evaluate((element) => element.scrollIntoView({ block: 'center' }));
+  await combobox.click({ force: true });
   await page.getByRole('option', { name: option, exact: true }).click();
 }
 
@@ -972,8 +974,9 @@ test.describe('B4.3 admin Product and SKU management', () => {
     await expect(page.getByRole('link', { name: '商品管理', exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: '品牌管理', exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: '分类管理', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: '库存管理', exact: true })).toBeVisible();
+    await expect(page.locator('a[href="/content/banners"]')).toBeVisible();
     await expect(page.getByRole('link', { name: '账户安全', exact: true })).toBeVisible();
-    await expect(page.getByText('Banner 管理', { exact: true })).toHaveCount(0);
     await expect(page.getByText('库存调整', { exact: true })).toHaveCount(0);
     await page.screenshot({ fullPage: true, path: testInfo.outputPath('products-list.png') });
 

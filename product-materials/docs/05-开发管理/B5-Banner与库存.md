@@ -1,10 +1,10 @@
 # B5 Banner 与库存
 
-> 批次：B5；当前产品/API 基线：v2.4.3 / CH-012；交付门禁：CH-011；更新日期：2026-08-25；当前状态：B5.1 Banner 与 B5.2 Inventory repository/API 已分别验收暂停，B5.3 尚未开始；数据范围：仅脱敏 development；staging/production：`NO-GO`。
+> 批次：B5；当前产品/API 基线：v2.4.3 / CH-012；交付门禁：CH-011；更新日期：2026-08-25；当前状态：B5.1 Banner API、B5.2 Inventory API 与 B5.3 ADM-07/08 后台工程已分别验收暂停，B5.4 尚未开始；数据范围：仅脱敏 development；staging/production：`NO-GO`。
 
 ## 1. 当前结论
 
-用户已分别批准 CH-011 与 CH-012，并在 B5.0、B5.1 暂停点后逐批明确要求继续下一阶段。B5.1/B5.2 已按批准后的 CH-012 分别实现并验收；该结论只放行进入 B5.3 的评估，不自动实施后台工程、`/store/home`、staging、production 或真实数据。
+用户已分别批准 CH-011 与 CH-012，并在 B5.0、B5.1、B5.2 暂停点后逐批明确要求继续下一阶段。B5.1/B5.2 已按批准后的 CH-012 分别实现后端并验收，B5.3 已实现 ADM-07/08 后台并验收暂停；该结论只放行进入 B5.4 的评估，不自动执行真实纵向链路、远端 workflow、`/store/home`、staging、production 或真实数据。
 
 B5.1 新增独立 `BannerRepository` 与 Nest `AdminBannersModule`，交付既有 5 个 operation、文件挂接、闭合 CRUD/启停/归档恢复、时间窗和 typed target 校验。写事务固定为幂等 claim 后按 Banner、旧/新 target、旧/新文件稳定锁序重查，并原子写 audit、outbox 和 `BANNER_RESOURCE_RESPONSE`；公开投影在 `REPEATABLE READ` 一致性快照内完成。没有修改 Prisma、首迁移、OpenAPI path/operation 或工程前端。
 
@@ -31,6 +31,9 @@ B5.2 新增独立 `InventoryRepository` 与 Nest `AdminInventoryModule`，交付
 | B5.2 PostgreSQL full | PostgreSQL 18.3 空库回放后 repository 3 passed / 1 rollback skip，API 6 passed / 1 rollback skip（含并发预占竞态） | 通过；一次性容器已删除 |
 | B5.2 Supabase rollback-only | 受控 development `mall_runtime`：repository 1 passed / 3 full skips，API 1 passed / 6 full skips；事务外逐表归零 | 通过；不是 B5.4 workflow 双绿 |
 | B5.2 工程门禁 | lint 0 error、typecheck/build、Redocly、生成漂移、敏感扫描、Prisma validate、migration diff=0、冻结字节检查 | 通过 |
+| B5.3 ADM-07/08 | Banner 上传/CRUD/生命周期与库存列表/preview-confirm/流水已接入路由和导航 | 通过；仅 development |
+| B5.3 浏览器验收 | B5 Playwright 30 passed / 20 designed skips；B3 回归 26/4，B4 回归 27/8；覆盖 375/390/414/1024/1440 | 通过；mock 不替代 B5.4 纵向证据 |
+| B5.3 工程与复核 | 全仓 855 passed / 79 环境跳过；lint 0 error、typecheck/build、契约/冻结/敏感扫描通过；独立复核 P0=0/P1=0 | 通过并暂停 |
 
 ## 2. B5 范围
 
@@ -135,4 +138,4 @@ CH-011 只接受 B5 development 期间缺少独立 reviewer 的剩余风险，�
 
 ## 9. 当前暂停点
 
-CH-011 与 CH-012 均已登记。B5.0 历史契约/原型门禁继续有效；B5.1 已完成 Banner repository/API，B5.2 已完成 Inventory repository/API、列表、HR-07 preview-confirm、并发预占裁决和只追加流水，两批均经独立复核收敛为 `P0=0/P1=0` 后暂停。实测契约仍为 172 paths / 196 operations / 196 unique operationId / 312 schemas / 692 schema refs / 2,578 local refs / 0 dangling refs；全仓为 855 passed / 79 个环境模式跳过，lint 为 0 error，typecheck/build、敏感扫描、Prisma validate、migration diff、生成漂移和冻结字节检查均通过。一次性 PostgreSQL 18.3 空库上的 B5.2 full 为 repository 3 passed、API 6 passed；当前工作树的受控 Supabase development rollback-only 为 repository 1 passed、API 1 passed，事务外无残留。B5.2 runner 已加入根命令和 lint，但未接入普通 CI/Supabase workflow；最终准确 SHA 的远端双绿仍属于 B5.4。当前保留 4 个不阻断 P2：B5.1 ACTIVATE/归档审计 `before_json` 尚不能区分 DRAFT 与 INACTIVE 来源状态；B5-C09 的 reservation SKU 前导索引/ledger business ID 风险仍待 B5.4 真实规模 EXPLAIN；OpenAPI 的 Inventory `preview_token` 只声明最小 16 字符，而共享 DTO/repository 安全上限为 512；库存 keyword 尚未冻结最大长度与大小写规范。B5.3、B5.4 均未开始，staging/production 继续 `NO-GO`。
+CH-011 与 CH-012 均已登记。B5.0 历史契约/原型门禁继续有效；B5.1 已完成 Banner repository/API，B5.2 已完成 Inventory repository/API、HR-07 preview-confirm、并发预占裁决和只追加流水；B5.3 已完成 ADM-07/08 路由导航、Banner 文件上传/资料与生命周期、库存查询/调整预览确认/流水，以及五视口错误态和安全重试验收，三批均在独立复核 `P0=0/P1=0` 后暂停。实测契约仍为 172 paths / 196 operations / 196 unique operationId / 312 schemas / 692 schema refs / 2,578 local refs / 0 dangling refs；全仓为 855 passed / 79 个环境模式跳过，B5 浏览器为 30 passed / 20 个设计跳过，B3/B4 回归分别为 26/4 与 27/8；lint 为 0 error，typecheck/build、敏感扫描、Prisma validate、生成漂移和冻结字节检查均通过。一次性 PostgreSQL 18.3 空库上的 B5.2 full 为 repository 3 passed、API 6 passed；当前工作树的受控 Supabase development rollback-only 为 repository 1 passed、API 1 passed，事务外无残留。浏览器 mock 不替代真实 Nest/PostgreSQL/Redis/MinIO 纵向链路；最终准确 SHA 的普通 CI 与 Supabase rollback-only 双绿仍属于 B5.4。当前保留 4 个不阻断 P2：B5.1 ACTIVATE/归档审计 `before_json` 尚不能区分 DRAFT 与 INACTIVE 来源状态；B5-C09 的 reservation SKU 前导索引/ledger business ID 风险仍待 B5.4 真实规模 EXPLAIN；OpenAPI 的 Inventory `preview_token` 只声明最小 16 字符，而共享 DTO/repository 安全上限为 512；库存 keyword 尚未冻结最大长度与大小写规范。当前暂停在 B5.4 之前，staging/production 继续 `NO-GO`。

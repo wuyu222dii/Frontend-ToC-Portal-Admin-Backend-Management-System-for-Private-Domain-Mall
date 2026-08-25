@@ -27,6 +27,7 @@ function guard(to: RouteLocationNormalized): true | string {
 
 export const router = createRouter({
   history: createWebHistory(),
+  scrollBehavior: () => ({ left: 0, top: 0 }),
   routes: [
     { path: '/', redirect: () => requiredRoute() },
     { component: LoginView, meta: { access: 'anonymous', title: '登录' }, name: 'login', path: '/login' },
@@ -77,6 +78,18 @@ export const router = createRouter({
       meta: { access: 'session', title: '商品编辑' },
       name: 'product-detail',
       path: '/catalog/products/:product_id',
+    },
+    {
+      component: () => import('../views/inventory/InventoryListView.vue'),
+      meta: { access: 'session', title: '库存管理' },
+      name: 'inventory',
+      path: '/catalog/inventory',
+    },
+    {
+      component: () => import('../views/banners/BannerListView.vue'),
+      meta: { access: 'session', title: 'Banner 管理' },
+      name: 'banners',
+      path: '/content/banners',
     },
     {
       component: () => import('../views/security/SecurityHomeView.vue'),

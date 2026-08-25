@@ -6,7 +6,7 @@
 |---|---|
 | 文档版本 | v2.4.3 |
 | 对应产品基线 | MVP/PRD v2.4.3、CH-001 至 CH-012 |
-| 接口阶段 | B5.1 Banner 5 个、B5.2 Inventory 4 个管理端 operation 已分别实现并验收暂停；B5.3 尚未开始，staging/production 未批准 |
+| 接口阶段 | B5.1 Banner 5 个、B5.2 Inventory 4 个管理端 operation 已分别实现；B5.3 ADM-07/08 已接入并验收暂停，B5.4 尚未开始，staging/production 未批准 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
 | 更新时间 | 2026-08-25 |
 
@@ -631,7 +631,7 @@ Banner 默认列表排除 ARCHIVED，仅显式 `status=ARCHIVED` 返回归档，
 
 库存 preview 使用 `HASH_ONLY`，绑定 actor/session/`INVENTORY.ADJUST`/`INVENTORY`/sku/规范化 body/余额 version，TTL 60 秒；ARCHIVED SKU 返回 `STATE_CONFLICT` 409 且不签发 preview，调整后实物低于 locked 时仍返回 200 warning。confirm 需要一致业务字段、token/确认哈希、新幂等键和 `If-Match`；ARCHIVED SKU 返回 409，低于 locked 返回 `STOCK_INSUFFICIENT` 422，整数越界返回 `INVENTORY_QUANTITY_OUT_OF_RANGE` 422，失败不消费 preview。成功使用 `COMMAND_RESPONSE` 精确重放，固定 `resource_type=inventory`、`resource_id=sku_id`、`status=SUCCEEDED` 和新余额 version，并在同一事务写一条人工流水、审计、幂等和 outbox。流水类型使用闭合枚举并按 `occurred_at DESC,id DESC`。
 
-B5.2 已实现上述 4 个库存 operation。专项覆盖 repository 19 项、API DTO/service/HTTP 79 项；一次性 PostgreSQL 18.3 full 为 repository 3 passed、API 6 passed，受控 Supabase development rollback-only 为两套各 1 passed 且事务外归零。该证据只标记 B5.2 验收暂停，不替代 B5.3 前端或 B5.4 最终准确 SHA 的 workflow 双绿。
+B5.2 已实现上述 4 个库存 operation。专项覆盖 repository 19 项、API DTO/service/HTTP 79 项；一次性 PostgreSQL 18.3 full 为 repository 3 passed、API 6 passed，受控 Supabase development rollback-only 为两套各 1 passed 且事务外归零。B5.3 已接入工程前端并完成五视口 mock 验收；这些证据仍不替代 B5.4 最终准确 SHA 的真实纵向链路和 workflow 双绿。
 
 品牌/分类创建的 `initial_status` 固定为 `DRAFT`。非删除状态只允许 `DRAFT/INACTIVE -> ACTIVATE -> ACTIVE`、`ACTIVE -> DEACTIVATE -> INACTIVE`、`DRAFT/INACTIVE -> SOFT_DELETE -> ARCHIVED + deleted_at`；ACTIVE 不得直接软删除，非法或同状态的新幂等请求返回 409。默认列表排除软删除记录，只有显式 `status=ARCHIVED` 才返回归档记录，详情允许读取归档。restore 只接受软删除 ARCHIVED，不走 preview，要求原因、幂等键和 `If-Match`，成功后清除 `deleted_at`、固定恢复为 DRAFT 并递增版本；若需启用必须重新 preview。
 

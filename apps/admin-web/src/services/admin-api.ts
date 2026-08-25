@@ -3,7 +3,7 @@ import type { components } from '@qingxu/contracts';
 import { authSession } from '../stores/auth-session';
 import type { AdminAuthSession, ErrorResponse } from '../types/auth';
 
-export type AdminApiMethod = 'GET' | 'POST' | 'PATCH';
+export type AdminApiMethod = 'DELETE' | 'GET' | 'POST' | 'PATCH';
 
 export interface AdminApiRequestOptions {
   method?: AdminApiMethod;

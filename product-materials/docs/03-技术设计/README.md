@@ -1,6 +1,6 @@
 # 技术设计交付索引
 
-> 当前基线：MVP/PRD v2.4.3、线协议 CH-012（2026-08-25）。CH-011 已放行 B5 development 治理；B5.1 Banner 与 B5.2 Inventory repository/API 已分别验收暂停，B5.3 尚未开始，staging/production 均为 `NO-GO`。
+> 当前基线：MVP/PRD v2.4.3、线协议 CH-012（2026-08-25）。CH-011 已放行 B5 development 治理；B5.1 Banner API、B5.2 Inventory API 与 B5.3 ADM-07/08 后台工程已分别验收暂停，B5.4 尚未开始，staging/production 均为 `NO-GO`。
 
 | 文件 | 用途 |
 |---|---|
@@ -61,7 +61,7 @@ B0 已在工程根建立 `prisma.config.ts`、`prisma/` 和五应用脚手架；
 
 ## B5 开发入口
 
-B3.0 至 B3.3 历史交付见 `../05-开发管理/B3-文件品牌与分类.md`，B4 串行批次与最终证据见 `../05-开发管理/B4-商品与SKU.md`，B5 契约与批次见 `../05-开发管理/B5-Banner与库存.md`。CH-011 只解决 B5 development 的单人 reviewer 门禁；CH-012/B5.0、B5.1 与 B5.2 已分别验收暂停，当前等待 B5.3 明确批准。Prisma 与首迁移保持冻结，staging 前仍必须外部独立复核。
+B3.0 至 B3.3 历史交付见 `../05-开发管理/B3-文件品牌与分类.md`，B4 串行批次与最终证据见 `../05-开发管理/B4-商品与SKU.md`，B5 契约与批次见 `../05-开发管理/B5-Banner与库存.md`。CH-011 只解决 B5 development 的单人 reviewer 门禁；CH-012/B5.0、B5.1、B5.2 与 B5.3 已分别验收暂停，当前等待 B5.4 明确批准。Prisma 与首迁移保持冻结，staging 前仍必须外部独立复核。
 
 ## 剩余上线门禁
 

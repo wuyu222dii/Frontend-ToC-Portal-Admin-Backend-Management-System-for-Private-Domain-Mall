@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { CollectionTag, Goods, Lock, PriceTag, SwitchButton, User } from '@element-plus/icons-vue';
+import {
+  Box,
+  CollectionTag,
+  Goods,
+  Lock,
+  PictureFilled,
+  PriceTag,
+  SwitchButton,
+  User,
+} from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import { ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -56,12 +65,28 @@ async function endCurrentSession(): Promise<void> {
           <span>品牌管理</span>
         </RouterLink>
         <RouterLink
+          to="/catalog/inventory"
+          :class="{ active: route.name === 'inventory' }"
+          title="库存管理"
+        >
+          <el-icon><Box /></el-icon>
+          <span>库存管理</span>
+        </RouterLink>
+        <RouterLink
           to="/catalog/categories"
           :class="{ active: route.name === 'categories' }"
           title="分类管理"
         >
           <el-icon><CollectionTag /></el-icon>
           <span>分类管理</span>
+        </RouterLink>
+        <RouterLink
+          to="/content/banners"
+          :class="{ active: route.name === 'banners' }"
+          title="Banner 管理"
+        >
+          <el-icon><PictureFilled /></el-icon>
+          <span>Banner</span>
         </RouterLink>
         <RouterLink
           to="/settings/account/security"

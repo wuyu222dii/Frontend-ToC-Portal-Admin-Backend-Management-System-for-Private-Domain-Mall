@@ -233,7 +233,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Banner、分类、热销、新品聚合 */
+        /**
+         * Banner、分类、热销、新品聚合
+         * @description Banner 仅投影 ACTIVE、未归档、文件仍为 READY/PUBLIC/BANNER、starts_at 为空或 starts_at <= now，且 ends_at 为空或 now < ends_at 的记录，并固定按 sort_order ASC,id ASC 排序；PRODUCT/CATEGORY 目标必须仍为 ACTIVE，URL origin 必须命中服务端 allowlist，否则从公开投影排除。
+         */
         get: operations["getStoreHome"];
         put?: never;
         post?: never;
@@ -1895,10 +1898,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Banner 列表、新建 */
+        /**
+         * Banner 列表
+         * @description 默认排除 ARCHIVED，仅显式 status=ARCHIVED 返回归档记录；固定按 sort_order ASC,id ASC 排序。
+         */
         get: operations["getAdminBanners"];
         put?: never;
-        /** Banner 列表、新建 */
+        /**
+         * 新建草稿 Banner
+         * @description 固定创建 DRAFT；服务端生成 ID，不接受人工编码。starts_at 与 ends_at 均非空时 ends_at 必须晚于 starts_at。文件必须为 READY/PUBLIC/BANNER；PRODUCT/CATEGORY 目标必须存在且 ACTIVE，URL 仅允许 HTTPS 且 origin 命中服务端 allowlist，allowlist 为空时拒绝 URL target。使用闭合 BANNER_RESOURCE_RESPONSE 幂等策略，同 Idempotency-Key 同请求精确重放。
+         */
         post: operations["postAdminBanners"];
         delete?: never;
         options?: never;
@@ -1916,11 +1925,17 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** 修改、启停、归档 */
+        /**
+         * 软归档 Banner
+         * @description DELETE 是唯一归档入口，仅允许 DRAFT/INACTIVE 进入 ARCHIVED 并设置 deleted_at；ACTIVE 不得直接归档。要求 2-500 字符原因、新 Idempotency-Key 与 If-Match，并使用闭合 BANNER_RESOURCE_RESPONSE 幂等策略精确重放。
+         */
         delete: operations["deleteAdminBannersByBannerId"];
         options?: never;
         head?: never;
-        /** 修改、启停、归档 */
+        /**
+         * 修改资料或启停 Banner
+         * @description 资料更新使用不含状态的 BannerUpdateRequest；启停使用 BannerStatusAction。资料更新后的 starts_at 与 ends_at 均非空时 ends_at 必须晚于 starts_at。状态机固定为 DRAFT/INACTIVE 经 ACTIVATE 进入 ACTIVE、ACTIVE 经 DEACTIVATE 进入 INACTIVE；ACTIVATE 必须重新校验文件与 target，当前仍为 ACTIVE 的资料更新也必须按相同规则重查 READY/PUBLIC/BANNER 文件和有效 target。不得通过 PATCH 归档或恢复。使用闭合 BANNER_RESOURCE_RESPONSE 幂等策略精确重放。
+         */
         patch: operations["patchAdminBannersByBannerId"];
         trace?: never;
     };
@@ -1933,7 +1948,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 恢复原 Banner */
+        /**
+         * 恢复原 Banner
+         * @description 仅允许 ARCHIVED 恢复为 DRAFT 并清空 deleted_at；恢复后若需启用必须重新 ACTIVATE。要求 2-500 字符原因、新 Idempotency-Key 与 If-Match，并使用闭合 BANNER_RESOURCE_RESPONSE 幂等策略精确重放。
+         */
         post: operations["postAdminBannersByBannerIdRestore"];
         delete?: never;
         options?: never;
@@ -1948,7 +1966,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 实物、锁定、可售和预占明细 */
+        /**
+         * 实物、锁定、可售和预占明细
+         * @description available_qty 固定为 physical_qty-locked_qty，active_reservation_qty 只用于复核锁定事实，不重复扣减；固定按 product_name ASC,sku_id ASC 排序。ARCHIVED SKU 允许只读和查看流水，但不得人工调整。
+         */
         get: operations["getAdminInventory"];
         put?: never;
         post?: never;
@@ -1967,7 +1988,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 预览库存调整和负库存风险 */
+        /**
+         * 预览库存调整和负库存风险
+         * @description ARCHIVED SKU 返回 409 STATE_CONFLICT 且不签发 preview。其他记录的 HASH_ONLY 预览绑定 actor、session、INVENTORY.ADJUST、INVENTORY、sku_id、规范化请求体和余额 version，TTL 固定 60 秒；不得缓存 preview token 或响应体。返回 physical/locked/available 调整前后指标；physical_after < locked_qty 时仍返回 200 warning，结果超 PostgreSQL INTEGER 时返回 422 INVENTORY_QUANTITY_OUT_OF_RANGE。
+         */
         post: operations["postAdminInventoryBySkuIdAdjustmentPreview"];
         delete?: never;
         options?: never;
@@ -1984,7 +2008,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 填写原因后调整实物库存 */
+        /**
+         * 填写原因后调整实物库存
+         * @description 使用相同业务字段、未过期 preview_token/confirmation_hash、新 Idempotency-Key 与 If-Match；ARCHIVED SKU 返回 409 STATE_CONFLICT 且不消费 preview。physical_after < locked_qty 返回 422 STOCK_INSUFFICIENT，结果超 PostgreSQL INTEGER 返回 422 INVENTORY_QUANTITY_OUT_OF_RANGE，失败不消费 preview。成功只修改 physical_qty，并原子写余额/version、MANUAL_INCREASE 或 MANUAL_DECREASE 流水、审计、幂等与 outbox；COMMAND_RESPONSE 精确重放固定返回 resource_type=inventory、resource_id=sku_id、status=SUCCEEDED、version=新余额版本。
+         */
         post: operations["postAdminInventoryBySkuIdAdjustments"];
         delete?: never;
         options?: never;
@@ -1999,7 +2026,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** SKU 库存流水 */
+        /**
+         * SKU 库存流水
+         * @description 只追加流水固定按 occurred_at DESC,id DESC 排序；before 值由 after-change 复算。INITIAL 只保留给未来受控导入，B4 创建的零余额不补写 INITIAL。
+         */
         get: operations["getAdminInventoryBySkuIdLedger"];
         put?: never;
         post?: never;
@@ -3078,6 +3108,25 @@ export interface components {
             };
             request_id: string;
         };
+        InventoryAdjustmentCommandResponse: {
+            /** @constant */
+            code: "OK";
+            /** @constant */
+            message: "success";
+            data: {
+                /** @constant */
+                resource_type: "inventory";
+                /** @description 与路径 sku_id 相同。 */
+                resource_id: string;
+                /** @constant */
+                status: "SUCCEEDED";
+                /** @description 调整成功后的 inventory_balance.version。 */
+                version: number;
+                /** Format: date-time */
+                occurred_at: string;
+            };
+            request_id: string;
+        };
         PositiveMoney: string;
         NonNegativeMoney: string;
         SignedMoney: string;
@@ -3438,10 +3487,17 @@ export interface components {
             expires_at?: string | null;
             reason: string;
         };
+        /** @description 库存人工调整业务字段；operation 组合层使用 unevaluatedProperties=false 闭合请求。 */
         InventoryAdjustmentAction: {
+            /**
+             * Format: int32
+             * @description 非零实物库存变化量；服务端还必须校验调整后的余额处于 PostgreSQL INTEGER 范围。
+             */
             physical_delta: number;
             reason: string;
         };
+        /** @enum {string} */
+        InventoryLedgerType: "INITIAL" | "MANUAL_INCREASE" | "MANUAL_DECREASE" | "ORDER_PAID_DEDUCT" | "ORDER_RESERVE" | "ORDER_RELEASE" | "REFUND_RESTOCK" | "RETURN_RESTOCK" | "RETURN_DAMAGED" | "COMPENSATION";
         /** @description 商品高风险生命周期动作；operation 组合层使用 unevaluatedProperties=false 闭合请求。 */
         ProductLifecycleAction: {
             /** @enum {string} */
@@ -3667,18 +3723,64 @@ export interface components {
             retail_price?: components["schemas"]["PositiveMoney"];
             is_recommended?: boolean;
         };
+        /** @description Banner 创建和资料更新共享的非状态字段；由外层请求 Schema 闭合。 */
         BannerBaseFields: {
-            title: string;
-            file_id: string;
+            title?: string;
+            file_id?: string;
             /** Format: date-time */
             starts_at?: string | null;
             /** Format: date-time */
             ends_at?: string | null;
-            sort_order: number;
-            /** @enum {string} */
-            status: "DRAFT" | "ACTIVE" | "INACTIVE" | "ARCHIVED";
+            sort_order?: number;
         };
-        BannerWriteRequest: (components["schemas"]["BannerBaseFields"] & {
+        /** @description 固定创建 DRAFT；target_type 决定且闭合 target_id/target_url。starts_at 与 ends_at 均非空时 ends_at 必须晚于 starts_at。 */
+        BannerCreateRequest: (components["schemas"]["BannerBaseFields"] & {
+            title: string;
+            file_id: string;
+            sort_order: number;
+            /** @constant */
+            initial_status: "DRAFT";
+            /** @constant */
+            target_type: "NONE";
+        }) | (components["schemas"]["BannerBaseFields"] & {
+            title: string;
+            file_id: string;
+            sort_order: number;
+            /** @constant */
+            initial_status: "DRAFT";
+            /** @constant */
+            target_type: "PRODUCT";
+            target_id: string;
+        }) | (components["schemas"]["BannerBaseFields"] & {
+            title: string;
+            file_id: string;
+            sort_order: number;
+            /** @constant */
+            initial_status: "DRAFT";
+            /** @constant */
+            target_type: "CATEGORY";
+            target_id: string;
+        }) | (components["schemas"]["BannerBaseFields"] & {
+            title: string;
+            file_id: string;
+            sort_order: number;
+            /** @constant */
+            initial_status: "DRAFT";
+            /** @constant */
+            target_type: "URL";
+            /** Format: uri */
+            target_url: string;
+        });
+        /** @description 不含状态；未修改 target 时可只提交至少一个资料字段，修改 target 时必须提交完整闭合 target 组合。更新后的 starts_at 与 ends_at 均非空时 ends_at 必须晚于 starts_at。 */
+        BannerUpdateRequest: {
+            title?: string;
+            file_id?: string;
+            /** Format: date-time */
+            starts_at?: string | null;
+            /** Format: date-time */
+            ends_at?: string | null;
+            sort_order?: number;
+        } | (components["schemas"]["BannerBaseFields"] & {
             /** @constant */
             target_type: "NONE";
         }) | (components["schemas"]["BannerBaseFields"] & {
@@ -3695,6 +3797,11 @@ export interface components {
             /** Format: uri */
             target_url: string;
         });
+        /** @description Banner 普通启停动作；归档只允许 DELETE，恢复只允许 restore。 */
+        BannerStatusAction: {
+            /** @enum {string} */
+            action: "ACTIVATE" | "DEACTIVATE";
+        };
         AgentCreateRequest: {
             login_name: string;
             name: string;
@@ -3748,6 +3855,44 @@ export interface components {
                 impact: {
                     affected_count: number;
                     metrics: components["schemas"]["ImpactMetric"][];
+                    warnings: string[];
+                };
+            };
+            request_id: string;
+        };
+        InventoryAdjustmentPreviewResponse: {
+            /** @constant */
+            code: "OK";
+            /** @constant */
+            message: "success";
+            data: {
+                preview_token: string;
+                confirmation_hash: string;
+                resource_etag: string;
+                /**
+                 * Format: date-time
+                 * @description 签发后 60 秒。
+                 */
+                expires_at: string;
+                impact: {
+                    /** @constant */
+                    affected_count: 1;
+                    /** Format: int32 */
+                    physical_before: number;
+                    /** Format: int32 */
+                    physical_after: number;
+                    /** Format: int32 */
+                    locked_before: number;
+                    /**
+                     * Format: int32
+                     * @description 人工调整不改变锁定量，必须等于 locked_before。
+                     */
+                    locked_after: number;
+                    /** Format: int32 */
+                    available_before: number;
+                    /** Format: int32 */
+                    available_after: number;
+                    /** @description physical_after < locked_before 时必须包含阻断提示，但 preview 仍返回 200。 */
                     warnings: string[];
                 };
             };
@@ -4200,13 +4345,29 @@ export interface components {
             title: string;
             /** Format: uri */
             image_url: string;
-            /** @enum {string} */
-            target_type: "NONE" | "PRODUCT" | "CATEGORY" | "URL";
-            target_id: string | null;
-            /** Format: uri */
-            target_url: string | null;
             sort_order: number;
-        };
+        } & ({
+            /** @constant */
+            target_type: "NONE";
+            target_id: null;
+            target_url: null;
+        } | {
+            /** @constant */
+            target_type: "PRODUCT";
+            target_id: string;
+            target_url: null;
+        } | {
+            /** @constant */
+            target_type: "CATEGORY";
+            target_id: string;
+            target_url: null;
+        } | {
+            /** @constant */
+            target_type: "URL";
+            target_id: null;
+            /** Format: uri */
+            target_url: string;
+        });
         /** @description 仅 ACTIVE 分类的公开展示投影；不返回 file_id、状态或版本。 */
         StoreCategoryView: {
             category_id: string;
@@ -4542,20 +4703,36 @@ export interface components {
             file_id: string;
             /** Format: uri */
             image_url: string;
-            /** @enum {string} */
-            target_type: "NONE" | "PRODUCT" | "CATEGORY" | "URL";
-            target_id?: string | null;
-            /** Format: uri */
-            target_url?: string | null;
             sort_order: number;
             /** Format: date-time */
-            starts_at?: string | null;
+            starts_at: string | null;
             /** Format: date-time */
-            ends_at?: string | null;
+            ends_at: string | null;
             /** @enum {string} */
             status: "DRAFT" | "ACTIVE" | "INACTIVE" | "ARCHIVED";
             version: number;
-        };
+        } & ({
+            /** @constant */
+            target_type: "NONE";
+            target_id: null;
+            target_url: null;
+        } | {
+            /** @constant */
+            target_type: "PRODUCT";
+            target_id: string;
+            target_url: null;
+        } | {
+            /** @constant */
+            target_type: "CATEGORY";
+            target_id: string;
+            target_url: null;
+        } | {
+            /** @constant */
+            target_type: "URL";
+            target_id: null;
+            /** Format: uri */
+            target_url: string;
+        });
         BannerResponse: {
             /** @constant */
             code: "OK";
@@ -5229,6 +5406,9 @@ export interface components {
         InventoryView: {
             sku_id: string;
             sku_code: string;
+            sku_name: string;
+            /** @enum {string} */
+            sku_status: "ACTIVE" | "INACTIVE" | "ARCHIVED";
             product_name: string;
             physical_qty: number;
             locked_qty: number;
@@ -5253,7 +5433,7 @@ export interface components {
         };
         InventoryLedgerView: {
             ledger_id: string;
-            ledger_type: string;
+            ledger_type: components["schemas"]["InventoryLedgerType"];
             physical_change: number;
             locked_change: number;
             physical_before: number;
@@ -6714,7 +6894,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
-        /** @description 库存、售后额度、金额分配或业务前置校验失败；固定业务码包括 ACTIVE_PRODUCT_DEPENDENCY、FILE_CONTENT_MISMATCH，以及 CH-010 的 PRODUCT_PRIMARY_IMAGE_REQUIRED、PRODUCT_ACTIVE_SKU_REQUIRED、ACTIVE_SKU_DEPENDENCY、ACTIVE_INVENTORY_RESERVATION（均为 422）。 */
+        /** @description 库存、售后额度、金额分配或业务前置校验失败；固定业务码包括 ACTIVE_PRODUCT_DEPENDENCY、FILE_CONTENT_MISMATCH，CH-010 的 PRODUCT_PRIMARY_IMAGE_REQUIRED、PRODUCT_ACTIVE_SKU_REQUIRED、ACTIVE_SKU_DEPENDENCY、ACTIVE_INVENTORY_RESERVATION，以及 CH-012 的 INVENTORY_QUANTITY_OUT_OF_RANGE；库存确认低于锁定量继续使用 STOCK_INSUFFICIENT（均为 422）。 */
         BusinessError: {
             headers: {
                 [name: string]: unknown;
@@ -11059,13 +11239,15 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["BannerWriteRequest"];
+                "application/json": components["schemas"]["BannerCreateRequest"];
             };
         };
         responses: {
             /** @description 成功 */
             201: {
                 headers: {
+                    "Cache-Control": components["headers"]["CacheControlNoStore"];
+                    Pragma: components["headers"]["PragmaNoCache"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -11103,6 +11285,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["CacheControlNoStore"];
+                    Pragma: components["headers"]["PragmaNoCache"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -11133,13 +11317,15 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["BannerWriteRequest"];
+                "application/json": components["schemas"]["BannerUpdateRequest"] | components["schemas"]["BannerStatusAction"];
             };
         };
         responses: {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["CacheControlNoStore"];
+                    Pragma: components["headers"]["PragmaNoCache"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -11177,6 +11363,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["CacheControlNoStore"];
+                    Pragma: components["headers"]["PragmaNoCache"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -11202,8 +11390,6 @@ export interface operations {
                 keyword?: string;
                 /** @description 一级分类 ID */
                 category_id?: string;
-                /** @description 仅低库存 */
-                low_stock?: boolean;
             };
             header?: never;
             path?: never;
@@ -11255,7 +11441,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HighRiskPreviewResponse"];
+                    "application/json": components["schemas"]["InventoryAdjustmentPreviewResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -11289,10 +11475,12 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["CacheControlNoStore"];
+                    Pragma: components["headers"]["PragmaNoCache"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CommandResponse"];
+                    "application/json": components["schemas"]["InventoryAdjustmentCommandResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -11311,7 +11499,7 @@ export interface operations {
                 page?: components["parameters"]["Page"];
                 page_size?: components["parameters"]["PageSize"];
                 /** @description 库存流水类型 */
-                ledger_type?: "INITIAL" | "MANUAL_INCREASE" | "MANUAL_DECREASE" | "ORDER_PAID_DEDUCT" | "ORDER_RESERVE" | "ORDER_RELEASE" | "REFUND_RESTOCK" | "RETURN_RESTOCK" | "RETURN_DAMAGED" | "COMPENSATION";
+                ledger_type?: components["schemas"]["InventoryLedgerType"];
                 /** @description Asia/Shanghai 自然日；date_to 包含当日 */
                 date_from?: string;
                 /** @description Asia/Shanghai 自然日；date_to 包含当日 */

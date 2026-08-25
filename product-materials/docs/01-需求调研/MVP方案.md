@@ -5,12 +5,12 @@
 | 项目 | 内容 |
 |---|---|
 | 产品名称 | 洗化产品私域商城（工作名） |
-| 文档版本 | v2.4.2 |
+| 文档版本 | v2.4.3 |
 | MVP 模式 | 三端标准 MVP |
 | 目标用户 | 终端消费者、一级代理、总部商城经营人员 |
 | 人员角色 | `SUPER_ADMIN`、`AGENT_ADMIN`、`CUSTOMER` |
 | 更新日期 | 2026-08-25 |
-| 文档状态 | 产品/API 基线仍为 CH-010；B0 至 B4 development 已完成。CH-011 已放行 B5 development 治理，B5.0 审计完成但 CH-012 契约修订待批准，B5.1 与 staging/production 均为 `NO-GO` |
+| 文档状态 | CH-012 已实施并升级产品/API 基线；B0 至 B4 development 已完成，B5.0 契约已通过本地验收并暂停，B5.1 尚未开始，staging/production 均为 `NO-GO` |
 
 ## 1. MVP 概述
 
@@ -325,7 +325,11 @@
 
 ## 7. 技术方案摘要
 
-CH-005/CH-006 产品规则和数据库基线继续有效；CH-010 将 Product/SKU 线协议升级为 v2.4.2，补齐重新启用、创建状态、图集、最低活动价和库存初值，不改变页面、FR、AC、operation 或数据库模型数量。B4.0 至 B4.4 已完成 development 验收，普通 CI Run `32721588213` 与 Supabase rollback-only Run `32722510890` 均在实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 上成功。CH-011 仅把单人 reviewer 补偿控制延长到 B5.4；CH-012 尚待批准，故 Banner/库存业务实现尚未准入，staging 和 production 仍关闭。
+CH-005/CH-006/CH-010 产品规则和冻结数据库继续有效；CH-012 将产品/API 基线升级为 v2.4.3，闭合既有 ADM-07/08，不改变页面、FR、AC、US、HR、operation 或数据库模型数量。B4.0 至 B4.4 已完成 development 验收，普通 CI Run `32721588213` 与 Supabase rollback-only Run `32722510890` 均在实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 上成功。CH-011 仅把单人 reviewer 补偿控制延长到 B5.4；B5.0 已完成 CH-012 契约、公共内核和原型验收并暂停，B5.1 业务代码尚未开始，staging 和 production 仍关闭。
+
+Banner 创建固定为 DRAFT，资料编辑不改变状态；`DRAFT/INACTIVE -> ACTIVE -> INACTIVE`，DRAFT/INACTIVE 才能归档，恢复固定回 DRAFT。默认列表排除归档并按 `sort_order,id` 排序；公开展示仅包含处于 ACTIVE、位于 `[starts_at,ends_at)` 有效窗口、使用 READY/PUBLIC/BANNER 文件且目标仍有效的记录。PRODUCT/CATEGORY 目标必须 ACTIVE；URL 只接受 HTTPS 且命中服务端 origin allowlist，allowlist 为空时不开放 URL 目标。
+
+库存统一展示 `实物、锁定、可售=实物-锁定、活动预占复核值`，不提供 `low_stock`、每 SKU 预警值、售后占用二次扣减或独立备注。人工调整只接收非零 int32 `physical_delta` 和 2-500 字符原因；ARCHIVED SKU 只读。preview 即使发现调整后实物低于锁定仍返回影响警告，confirm 才以 422 阻断且不消费 preview；成功确认原子写余额版本、单条人工库存流水、审计、幂等和 outbox。
 
 | 层级 | 选型方向 |
 |---|---|
@@ -372,10 +376,10 @@ CH-006 已解除并完成 B3 契约与交付门禁；CH-010 已解除 B4 商品/
 
 | 阶段 | 主要交付物 | 当前状态 |
 |---|---|---|
-| 需求确认 | MVP、三端角色确认、变更记录 | CH-010 已批准，v2.4.2 基线已登记 |
-| 产品设计 | PRD、三端信息架构、可点击原型、Figma 重建规范 | ADM-03/04 商品/SKU 交互已完成；页面仍为 21/9/22 |
-| 技术设计 | 系统架构、数据库 ERD、接口文档、OpenAPI、Prisma 草案与部署拓扑 | CH-010 契约门禁通过；Prisma/首迁移逐字节不变 |
-| 开发与测试 | 三端工程、API、数据库、自动化测试 | B4.0 至 B4.4 development 完成；普通 CI 与 Supabase rollback-only 在同一实现 SHA 上通过 |
+| 需求确认 | MVP、三端角色确认、变更记录 | CH-012 已批准并实施，v2.4.3 基线已登记 |
+| 产品设计 | PRD、三端信息架构、可点击原型、Figma 重建规范 | ADM-07/08 CH-012 交互已完成；页面仍为 21/9/22 |
+| 技术设计 | 系统架构、数据库 ERD、接口文档、OpenAPI、Prisma 草案与部署拓扑 | CH-012/B5.0 契约门禁通过；Prisma/首迁移逐字节不变 |
+| 开发与测试 | 三端工程、API、数据库、自动化测试 | B5.0 公共内核与契约已本地验收暂停；B5.1 业务代码未开始，B4 双远端证据继续有效但不证明 B5 |
 | 上线准备 | 微信资质、真实支付退款、隐私合规、部署与验收 | 未开始 |
 
 ## 10. 风险与应对
@@ -447,11 +451,11 @@ CH-006 已解除并完成 B3 契约与交付门禁；CH-010 已解除 B4 商品/
 
 ## 13. 后续建议
 
-1. 先明确批准或拒绝 CH-012；未批准前 B5.0 保持契约 `NO-GO`，不得开始 B5.1 Banner 业务代码。
-2. CH-012 若获批准，先同步产品、OpenAPI、生成 contracts 与原型，并通过冻结数据库、契约和一致性门禁后暂停。
-3. B5.1 至 B5.4 继续按小批次串行，最终登记同一实现 SHA 的普通 CI、Supabase rollback-only 和无残留证据；Mock 不替代目标环境证据。
+1. 保持 B5.0 暂停，不把公共内核、生成 contracts 或静态原型标记为 Banner/库存业务实现。
+2. 取得下一批明确批准后再按 B5.1-B5.4 串行实施 Banner、库存和后台工程。
+3. B5.4 最终登记同一实现 SHA 的普通 CI、Supabase rollback-only 和无残留证据；Mock 不替代目标环境证据。
 4. CH-011 在 B5.4 后失效；第一次进入 staging 前必须取得外部独立代码、安全、数据库和证据复核。
 
 ---
 
-项目状态：三端 MVP 产品/API 基线为 v2.4.2（CH-010）。B0 至 B4 development 已通过，B4 实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的普通 CI Run `32721588213` 与 Supabase rollback-only Run `32722510890` 均成功。CH-011 已放行 B5 development 治理；B5.0 审计发现三个 P0，CH-012 待批准，B5.1 未开始。目标 staging/production 尚未放行；进入 staging 前须外部独立复核，生产上线还须通过外部凭据、联调、恢复演练和合规门禁。
+项目状态：三端 MVP 产品/API 基线为 v2.4.3（CH-012）。B0 至 B4 development 已通过，B4 实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的普通 CI Run `32721588213` 与 Supabase rollback-only Run `32722510890` 均成功。CH-011 已放行 B5 development 治理，CH-012/B5.0 已通过本地验收并暂停，B5.1 未开始。目标 staging/production 尚未放行；进入 staging 前须外部独立复核，生产上线还须通过外部凭据、联调、恢复演练和合规门禁。

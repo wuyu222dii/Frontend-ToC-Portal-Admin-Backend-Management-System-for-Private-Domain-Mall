@@ -20,8 +20,9 @@ function adminExpectedTerms(view) {
   if (view === "product-edit") return ["SKU 与价格", "创建后为停用状态", "最多 8 张", "保存资料不会改变状态"];
   if (view === "brands") return ["ADM-05", "排序", "草稿", "已归档"];
   if (view === "categories") return ["ADM-06", "活动商品依赖", "排序", "版本"];
+  if (view === "banners") return ["ADM-07", "公开图片", "默认（不含已归档）", "sort_order ASC"];
   if (view === "commission-rules") return ["平台默认", "分类规则", "SKU", "全部一级代理"];
-  if (view === "inventory") return ["实物库存", "支付预占", "售后占用", "可售"];
+  if (view === "inventory") return ["实物库存", "锁定库存", "活动预占", "available_qty = physical_qty - locked_qty"];
   if (view === "business-rules") return ["最低提现", "售后申请", "迟到支付"];
   if (view === "audit-logs") return ["审计日志", "操作人", "结果"];
   return [];
@@ -97,6 +98,14 @@ const cases = [
     expectedTerms: adminExpectedTerms(view)
   }))),
   ...[375, 390, 414].flatMap((width) => ["products", "product-edit"].map((view) => ({
+    name: `admin-${view}-${width}`,
+    file: "admin.html",
+    query: { autologin: "1", view },
+    viewport: { width, height: width === 375 ? 812 : width === 390 ? 844 : 896 },
+    kind: "admin",
+    expectedTerms: adminExpectedTerms(view)
+  }))),
+  ...[375, 390, 414].flatMap((width) => ["banners", "inventory"].map((view) => ({
     name: `admin-${view}-${width}`,
     file: "admin.html",
     query: { autologin: "1", view },
@@ -185,7 +194,7 @@ function buildUrl(testCase) {
 }
 
 async function inspectPage(page, testCase) {
-  const result = await page.evaluate(({ kind, viewport, deferredTerms, forbiddenPrototypeTerms, expectedTerms }) => {
+  const result = await page.evaluate(({ kind, view, viewport, deferredTerms, forbiddenPrototypeTerms, expectedTerms }) => {
     const bodyText = document.body.innerText;
     const brokenImages = [...document.images]
       .filter((image) => getComputedStyle(image).display !== "none" && !image.hidden && image.complete && image.naturalWidth === 0)
@@ -236,9 +245,24 @@ async function inspectPage(page, testCase) {
       ));
     }
 
+    if (kind === "admin" && view === "inventory" && viewport.width <= 680) {
+      const summary = document.querySelector("#inventoryRows .inventory-mobile-summary");
+      const rect = summary?.getBoundingClientRect();
+      checks.inventoryMobileSummaryVisible = Boolean(
+        summary &&
+        getComputedStyle(summary).display !== "none" &&
+        rect &&
+        rect.width > 0 &&
+        rect.left >= 0 &&
+        rect.right <= window.innerWidth + 1 &&
+        ["实物", "锁定", "预占", "可售"].every((term) => summary.textContent.includes(term))
+      );
+    }
+
     return checks;
   }, {
     kind: testCase.kind,
+    view: testCase.query.view,
     viewport: testCase.viewport,
     deferredTerms,
     forbiddenPrototypeTerms,
@@ -267,6 +291,7 @@ async function inspectPage(page, testCase) {
     failures.push("运营端暴露完整银行卡号");
   }
   if (testCase.kind === "agent-mobile" && !result.agentMobileNavFits) failures.push("代理端移动导航超出视口或点击区过窄");
+  if (testCase.query.view === "inventory" && testCase.viewport.width <= 680 && !result.inventoryMobileSummaryVisible) failures.push("ADM-08 移动端首屏缺少可见库存摘要");
   return failures;
 }
 
@@ -313,6 +338,25 @@ async function runSurfaceContractChecks(browser) {
   if (productProjection.hasEditableStock || productProjection.hasProductStockAction) failures.push("ADM-03/04 库存摘要仍可直接调整");
   if (["有效佣金", "规则来源"].some((term) => productProjection.editor.includes(term) || productProjection.skuHeaders.includes(term))) failures.push("ADM-04 仍暴露佣金字段");
   if (!["最多 8 张", "创建后为停用状态", "保存资料不会改变状态"].every((term) => productProjection.editor.includes(term))) failures.push("ADM-04 未完整声明图集、SKU 创建或普通保存契约");
+  const b5Projection = await adminPage.evaluate(() => ({
+    bannerStatuses: [...document.querySelectorAll("#bannerStatus option")].map((option) => option.value),
+    bannerTargetTypes: [...document.querySelectorAll("#entityTargetType option")].map((option) => option.value),
+    bannerImages: document.querySelectorAll("#bannerManageGrid img").length,
+    inventoryHeaders: document.querySelector('[data-view="inventory"] table thead')?.textContent || "",
+    inventoryText: document.querySelector('[data-view="inventory"]')?.textContent || "",
+    hasWarningInput: Boolean(document.querySelector("#stockWarning")),
+    hasStockNote: Boolean(document.querySelector("#stockNote")),
+    deltaStep: document.querySelector("#stockDelta")?.step
+  }));
+  if (b5Projection.bannerStatuses.join(",") !== ",DRAFT,ACTIVE,INACTIVE,ARCHIVED") failures.push("ADM-07 状态筛选未锁定 DRAFT/ACTIVE/INACTIVE/ARCHIVED");
+  if (b5Projection.bannerTargetTypes.join(",") !== "NONE,PRODUCT,CATEGORY,URL") failures.push("ADM-07 跳转目标未锁定 NONE/PRODUCT/CATEGORY/URL");
+  if (b5Projection.bannerImages < 3) failures.push("ADM-07 未使用 READY/PUBLIC Banner 图片信号");
+  const adminSource = fs.readFileSync(path.join(prototypeDir, "admin.js"), "utf8");
+  if (/data-banner-action=["']SOFT_DELETE/.test(adminSource) || /bannerLifecycle\([^\n]+SOFT_DELETE/.test(adminSource)) failures.push("ADM-07 仍将 Banner DELETE 表达为 SOFT_DELETE");
+  if (["FILE_STATE_CONFLICT", "BANNER_TARGET_INVALID"].some((code) => adminSource.includes(code))) failures.push("ADM-07 仍包含 OpenAPI 未登记的 Banner 专用错误码");
+  if (!["SKU 状态", "实物", "锁定", "活动预占", "可售", "版本"].every((term) => b5Projection.inventoryHeaders.includes(term))) failures.push("ADM-08 库存投影字段不完整");
+  if (["预警值", "售后占用", "低库存"].some((term) => b5Projection.inventoryText.includes(term)) || b5Projection.hasWarningInput || b5Projection.hasStockNote) failures.push("ADM-08 仍暴露预警值、售后占用或独立备注");
+  if (b5Projection.deltaStep !== "1") failures.push("ADM-08 physical_delta 未锁定整数步长");
   await adminContext.close();
 
   const agentContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
@@ -1083,26 +1127,103 @@ async function runOpsInteractionChecks(browser) {
     const restoredCategory = page.locator('#categoryManageRows tr[data-category-id="CAT-MEN"]');
     expect((await restoredCategory.innerText()).includes("DRAFT") && await restoredCategory.locator('[data-lifecycle-action="ACTIVATE"]').count() === 1, "分类恢复后未回到 DRAFT 或缺少独立 ACTIVATE");
 
-    await page.click('[data-page="banners"]');
-    await page.click("#openCreateBanner");
-    await page.fill("#entityCode", "BN-AUTO"); await page.fill("#entityName", "自动化 Banner"); await page.fill("#entityDetail", "CAT-SKIN");
-    await page.click("#saveEntity");
-    expect(await page.locator('[data-banner-id="BN-AUTO"]').count() === 1, "Banner 新增或日期校验未生效");
-
-    await page.click('[data-page="inventory"]');
-    await page.click('tr[data-inventory-id="CLEAN-120"] .inventory-adjust');
-    await page.fill("#newStock", "287"); await page.fill("#stockWarning", "31"); await page.selectOption("#stockReason", { label: "盘点修正" }); await page.fill("#stockNote", "自动化库存调整");
-    await page.click("#confirmStock");
-    expect((await page.locator('tr[data-inventory-id="CLEAN-120"] td').nth(1).innerText()) === "287", "SKU 库存调整未写回");
-    await page.click('tr[data-inventory-id="CLEAN-120"] .inventory-flow');
-    expect((await page.locator("#stockLedger").innerText()).includes("自动化库存调整"), "库存流水未记录调整原因");
-
-    await page.locator("#stockModal .modal-heading .modal-close").click();
     await page.click('[data-page="business-rules"]');
     await page.click('.edit-business-rule[data-rule-key="MIN_WITHDRAWAL"]');
     await page.fill("#businessRuleValue", "120"); await page.fill("#businessRuleReason", "自动化规则版本验收"); await page.check("#businessRuleConfirm");
     await page.click("#saveBusinessRule");
     expect((await page.locator("#minimumWithdrawalValue").innerText()) === "120" && (await page.locator("#withdrawalRuleVersion").innerText()).includes("04"), "业务规则未生成新版本");
+  });
+
+  await run("admin-interaction-banner-contract", "admin.html", async (page) => {
+    await page.click('[data-page="banners"]');
+    expect(await page.locator("#bannerManageGrid .banner-manage-card").count() === 3 && await page.locator('[data-banner-status="ARCHIVED"]').count() === 0, "Banner 默认列表未排除 ARCHIVED");
+    await page.click("#openCreateBanner");
+    expect(await page.locator("#entityCodeField").isHidden() && await page.locator("#entityStatusField").isHidden(), "Banner 创建仍暴露人工编码或状态下拉");
+    expect((await page.locator("#entityDraftNotice").innerText()).includes("固定为草稿"), "Banner 创建未声明固定 DRAFT");
+    await page.fill("#entityName", "自动化 Banner"); await page.fill("#entitySort", "0");
+    await page.selectOption("#entityTargetType", "PRODUCT"); await page.selectOption("#entityTargetId", "QY-CLEAN-001");
+    await page.click("#saveEntity");
+    expect((await page.locator("#entityError").innerText()).includes("READY / PUBLIC / BANNER"), "Banner 未阻止缺少公开文件的创建");
+    await page.click("#uploadBannerImage");
+    await page.evaluate(() => { const button = document.querySelector("#saveEntity"); button.click(); button.click(); });
+    const created = page.locator("#bannerManageGrid .banner-manage-card", { hasText: "自动化 Banner" });
+    expect(await created.count() === 1 && (await created.getAttribute("data-banner-status")) === "DRAFT", "Banner 重复创建或未固定为 DRAFT");
+    expect((await created.innerText()).includes("PRODUCT") && (await created.innerText()).includes("READY/PUBLIC"), "Banner typed target 或文件状态未写回");
+    await page.waitForFunction(() => !window.__ADMIN_PROTOTYPE__.getState().state.entitySubmitting);
+
+    await created.locator(".edit-banner").click();
+    await page.click("#simulateEntityConflict");
+    await page.fill("#entitySort", "1"); await page.click("#saveEntity");
+    await waitForToast(page, "RESOURCE_VERSION_CONFLICT（409）", "Banner 资料 If-Match 冲突");
+    expect((await created.getAttribute("data-banner-status")) === "DRAFT" && (await created.innerText()).includes("v2"), "Banner 409 后错误改变状态或未刷新版本");
+
+    await created.locator('[data-banner-action="ACTIVATE"]').click();
+    expect(await page.locator("#highRiskReasonField").isHidden() && (await page.locator("#highRiskSubtitle").innerText()).includes("If-Match"), "Banner ACTIVATE 错误要求高风险原因或缺少 If-Match");
+    await page.locator("#highRiskDiagnostics summary").click(); await page.click("#simulateHighRiskConflict"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    expect((await page.locator("#highRiskError").getAttribute("data-error-code")) === "RESOURCE_VERSION_CONFLICT" && (await page.locator("#highRiskError").getAttribute("data-http-status")) === "409", "Banner 生命周期并发未返回 409");
+    expect(await page.evaluate(() => window.__ADMIN_PROTOTYPE__.getState().state.pendingHighRiskAction === null), "Banner 409 后旧确认仍可复用");
+    await page.click("#highRiskRepair");
+    await page.locator("#entityModal .modal-heading .modal-close").click();
+
+    await created.locator('[data-banner-action="ACTIVATE"]').click();
+    await page.check("#highRiskConfirm");
+    await page.evaluate(() => { const button = document.querySelector("#confirmHighRisk"); button.click(); button.click(); });
+    await page.waitForFunction(() => !window.__ADMIN_PROTOTYPE__.getState().state.highRiskSubmitting);
+    expect((await created.getAttribute("data-banner-status")) === "ACTIVE" && await created.locator('[data-banner-action="DEACTIVATE"]').count() === 1 && await created.locator('[data-banner-action="DELETE"]').count() === 0, "Banner ACTIVATE 重复执行或 ACTIVE 错误开放直接归档");
+    await created.locator('[data-banner-action="DEACTIVATE"]').click(); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    await page.waitForFunction(() => !window.__ADMIN_PROTOTYPE__.getState().state.highRiskSubmitting);
+    expect((await created.getAttribute("data-banner-status")) === "INACTIVE", "Banner DEACTIVATE 未进入 INACTIVE");
+    await created.locator('[data-banner-action="DELETE"]').click();
+    expect(!`${await page.locator("#highRiskSubtitle").innerText()} ${await page.locator("#highRiskDiagnostics").innerText()}`.includes("preview") && await page.locator("#highRiskReasonField").isVisible(), "Banner DELETE 错误暗示 preview 或未要求原因");
+    await page.fill("#highRiskReason", "结束自动化 Banner 投放"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    await page.waitForFunction(() => !window.__ADMIN_PROTOTYPE__.getState().state.highRiskSubmitting);
+    expect(await created.count() === 0, "ARCHIVED Banner 仍出现在默认列表");
+    await page.selectOption("#bannerStatus", "ARCHIVED");
+    const archived = page.locator("#bannerManageGrid .banner-manage-card", { hasText: "自动化 Banner" });
+    expect(await archived.count() === 1, "显式 ARCHIVED 筛选未返回 Banner");
+    await archived.locator(".restore-banner").click(); await page.fill("#restoreEntityReason", "恢复 Banner 资料"); await page.click("#confirmRestoreEntity");
+    await page.selectOption("#bannerStatus", "DRAFT");
+    expect(await page.locator("#bannerManageGrid .banner-manage-card", { hasText: "自动化 Banner" }).getAttribute("data-banner-status") === "DRAFT", "Banner restore 未固定回到 DRAFT");
+  });
+
+  await run("admin-interaction-inventory-preview", "admin.html", async (page) => {
+    await page.click('[data-page="inventory"]');
+    const row = page.locator('tr[data-inventory-id="CLEAN-120"]');
+    expect((await row.locator("td").nth(2).innerText()) === "286" && (await row.locator("td").nth(3).innerText()) === "10" && (await row.locator("td").nth(5).innerText()) === "276", "库存 physical/locked/available 初始公式错误");
+    await row.locator(".inventory-adjust").click();
+    expect((await page.locator("#stockVersion").innerText()) === "v4", "库存调整缺少 If-Match 版本");
+    await page.fill("#stockDelta", "1"); await page.fill("#stockReason", "自动化盘点差异修正"); await page.click("#confirmStock");
+    expect((await page.locator("#highRiskImpact").innerText()).includes("physical 286 → 287") && (await page.locator("#highRiskImpact").innerText()).includes("available 276 → 277"), "库存 preview 未展示完整前后值");
+    await page.locator("#highRiskDiagnostics summary").click(); await page.click("#simulateHighRiskConflict"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    expect((await page.locator("#highRiskError").getAttribute("data-error-code")) === "RESOURCE_VERSION_CONFLICT", "库存 If-Match 冲突未返回 409");
+    await page.click("#highRiskRepair");
+    await page.fill("#stockDelta", "1"); await page.fill("#stockReason", "自动化盘点差异修正"); await page.click("#confirmStock"); await page.check("#highRiskConfirm");
+    await page.evaluate(() => { const button = document.querySelector("#confirmHighRisk"); button.click(); button.click(); });
+    await page.waitForFunction(() => !window.__ADMIN_PROTOTYPE__.getState().state.highRiskSubmitting);
+    expect((await row.locator("td").nth(2).innerText()) === "287" && (await row.locator("td").nth(5).innerText()) === "277", "库存重复确认产生多次调整或公式错误");
+    const ledgerCount = await page.evaluate(() => window.__ADMIN_PROTOTYPE__.getState().inventoryLedger["CLEAN-120"].filter((entry) => entry.reason === "自动化盘点差异修正").length);
+    expect(ledgerCount === 1, "库存重复确认追加了第二条流水");
+    await row.locator(".inventory-flow").click();
+    expect((await page.locator("#stockLedger").innerText()).includes("MANUAL_INCREASE") && (await page.locator("#stockLedger").innerText()).includes("自动化盘点差异修正"), "库存流水未使用闭合类型或缺少原因");
+    await page.locator("#stockModal .modal-heading .modal-close").click();
+
+    const insufficientRow = page.locator('tr[data-inventory-id="SUN-050"]');
+    await insufficientRow.locator(".inventory-adjust").click(); await page.fill("#stockDelta", "-1"); await page.fill("#stockReason", "验证锁定库存阻断");
+    expect((await page.locator("#stockPreview").innerText()).includes("STOCK_INSUFFICIENT 422"), "库存不足 warning 未在 preview 前展示");
+    await page.click("#confirmStock");
+    expect((await page.locator("#highRiskImpact").innerText()).includes("预览仍为 200"), "physical_after < locked 时 preview 未保持 200");
+    await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
+    expect((await page.locator("#highRiskError").getAttribute("data-error-code")) === "STOCK_INSUFFICIENT" && (await page.locator("#highRiskError").getAttribute("data-http-status")) === "422", "库存不足 confirm 未以 422 阻断");
+    expect(await page.evaluate(() => window.__ADMIN_PROTOTYPE__.getState().inventorySkus.find((item) => item.id === "SUN-050").physical) === 1, "库存 422 后错误写入余额");
+    await page.click("#highRiskRepair"); await page.fill("#stockDelta", "2147483647"); await page.fill("#stockReason", "验证整数范围"); await page.click("#confirmStock");
+    expect((await page.locator("#stockError").getAttribute("data-error-code")) === "INVENTORY_QUANTITY_OUT_OF_RANGE" && (await page.locator("#stockError").getAttribute("data-http-status")) === "422", "库存 int32 越界未以 422 阻断");
+    await page.locator("#stockModal .modal-heading .modal-close").click();
+
+    await page.selectOption("#inventoryStatus", "ARCHIVED");
+    const archived = page.locator('tr[data-inventory-id="HOME-OLD"]');
+    expect(await archived.count() === 1 && await archived.locator(".inventory-adjust").count() === 0 && (await archived.innerText()).includes("归档只读"), "ARCHIVED SKU 未保持只读或不可查询");
+    await archived.locator(".inventory-flow").click();
+    expect(await page.locator("#confirmStock").isHidden() && (await page.locator("#stockProductName").innerText()).includes("已归档"), "ARCHIVED SKU 流水弹窗错误开放调整");
   });
 
   await run("admin-interaction-product-readonly-inventory", "admin.html", async (page) => {
@@ -1169,7 +1290,7 @@ async function runOpsInteractionChecks(browser) {
     const axes = await page.locator("#detailOrderInfo").innerText();
     expect(["CLOSED", "FULL", "CANCELLED", "FULL_REFUND_BEFORE_SHIPMENT"].every((term) => axes.includes(term)), "未发货全额退款未关单、终止履约或更新退款轴");
     await page.click('[data-page="inventory"]');
-    expect((await page.locator('tr[data-inventory-id="SERUM-030"] td').nth(1).innerText()) === "9", "未发货退款成功未自动回补对应 SKU");
+    expect((await page.locator('tr[data-inventory-id="SERUM-030"] td').nth(2).innerText()) === "9", "未发货退款成功未自动回补对应 SKU");
 
     await page.click('[data-page="aftersales"]'); await page.fill("#aftersaleSearch", "AS202608050012"); await page.click("#aftersaleRows .review-aftersale");
     expect(await page.locator("#inspectionFields").isVisible(), "WAITING_INSPECTION 未展示验货数量与处置表单");
@@ -1192,7 +1313,7 @@ async function runOpsInteractionChecks(browser) {
     expect(await page.evaluate(() => window.__ADMIN_PROTOTYPE__.inspectionIsSealed("AS202608050012")), "PASS 验货事实未深度封存");
     await page.locator("#aftersaleModal .modal-close").first().click();
     await page.click('[data-page="inventory"]');
-    expect((await page.locator('tr[data-inventory-id="HOME-030"] td').nth(1).innerText()) === "240", "PASS 未仅按 restock 数量回库");
+    expect((await page.locator('tr[data-inventory-id="HOME-030"] td').nth(2).innerText()) === "240", "PASS 未仅按 restock 数量回库");
 
     await page.click('[data-page="aftersales"]'); await page.fill("#aftersaleSearch", "AS202608060002"); await page.click("#aftersaleRows .review-aftersale");
     await page.fill("#reviewNote", "同意退货并提供总部退货地址"); await page.click("#approveAftersale"); await page.check("#highRiskConfirm"); await page.click("#confirmHighRisk");
@@ -1473,7 +1594,7 @@ async function main() {
   } else if (flowFilter) {
     console.log(`PASS filtered flow: ${flowFilter}`);
   } else {
-    console.log(`PASS all ${cases.length} responsive renders, 21/9/22 surface contracts, 14 miniapp flows and 16 admin/agent flows${updateExports ? " (exports updated)" : ""}`);
+    console.log(`PASS all ${cases.length} responsive renders, 21/9/22 surface contracts, 14 miniapp flows and 18 admin/agent flows${updateExports ? " (exports updated)" : ""}`);
   }
 }
 

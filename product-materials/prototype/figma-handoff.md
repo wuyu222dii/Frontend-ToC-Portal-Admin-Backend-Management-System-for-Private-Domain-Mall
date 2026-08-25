@@ -2,8 +2,8 @@
 
 ## 1. 交付信息
 
-- 原型版本：v1.7（CH-010 / 产品基线 v2.4.2）
-- 设计日期：2026-08-24
+- 原型版本：v1.8（CH-012 / 产品基线 v2.4.3）
+- 设计日期：2026-08-25
 - 目标终端：PC 管理后台
 - 基准画板：1440 × 1024、1024 × 768
 - 可交互参考：`product-materials/prototype/admin.html`
@@ -13,7 +13,7 @@
 
 本规范用于在 Figma 中重建设计源文件。HTML 原型提供完整视觉和交互参考，Figma 文件负责组件化、标注和评审流转，两者应保持相同命名和状态。
 
-CH-005 的 v1.5 当时未新增页面，在原视图内补齐验货证据封存、typed 二阶段处置与代理六类目标下钻；v1.6 同步 ADM-05/06。当前 v1.7 继续保持 22 个总部页面/关键视图，并同步 ADM-03/04 的 CH-010 商品与 SKU 生命周期。所有详情、弹层和抽屉绑定当前选中记录。
+CH-005 的 v1.5 当时未新增页面，在原视图内补齐验货证据封存、typed 二阶段处置与代理六类目标下钻；v1.6 同步 ADM-05/06，v1.7 同步 ADM-03/04。当前 v1.8 继续保持 22 个总部页面/关键视图，并同步 ADM-07/08 的 CH-012 Banner 与库存契约。所有详情、弹层和抽屉绑定当前选中记录。
 
 ## 2. Figma 文件结构
 
@@ -44,8 +44,8 @@ CH-005 的 v1.5 当时未新增页面，在原视图内补齐验货证据封存�
 | `Admin/Products/Lifecycle-Preview` | 1440 × 1024 | 启用、停用、归档的影响预览与确认 |
 | `Admin/Brands/List` | 1440 × 1024 | 品牌档案、状态与商品关联 |
 | `Admin/Categories/List` | 1440 × 1024 | 一级分类、商城入口与停用保护 |
-| `Admin/Banners/List` | 1440 × 1024 | 首页广告位、投放周期与跳转目标 |
-| `Admin/Inventory/List` | 1440 × 1024 | SKU 可售、支付预占、售后占用与预警 |
+| `Admin/Banners/List` | 1440 × 1024 | 公开图片、typed target、投放周期、生命周期与版本 |
+| `Admin/Inventory/List` | 1440 × 1024 | SKU 实物、锁定、活动预占、可售公式、版本与流水 |
 | `Admin/Orders/List` | 1440 × 1024 | 全部订单 |
 | `Admin/Orders/List-ToShip` | 1440 × 1024 | 待发货筛选 |
 | `Admin/Orders/Detail` | 1440 × 1024 | 待发货订单详情 |
@@ -282,13 +282,15 @@ CH-005 的 v1.5 当时未新增页面，在原视图内补齐验货证据封存�
 - 品牌页只展示名称、描述、排序、`DRAFT / ACTIVE / INACTIVE / ARCHIVED` 和版本；编码、商品数量与故事完整度不属于 ADM-05 投影。
 - 分类页只展示名称、排序、生命周期状态与版本；分类编码、说明、佣金及商品/SKU 数量不属于 ADM-06 投影。
 - 品牌与分类创建固定为 `DRAFT`，排序为大于等于 0 的整数；普通编辑不提供状态选择。
-- `ACTIVATE / DEACTIVATE / SOFT_DELETE` 均先进入影响预览再确认；活动商品依赖在 preview 200 中展示，confirm 提交返回 `ACTIVE_PRODUCT_DEPENDENCY` 422，记录与版本不变。
+- 品牌与分类的 `ACTIVATE / DEACTIVATE / SOFT_DELETE` 均先进入影响预览再确认；活动商品依赖在 preview 200 中展示，confirm 提交返回 `ACTIVE_PRODUCT_DEPENDENCY` 422，记录与版本不变。
 - 默认列表排除归档，显式 `ARCHIVED` 筛选提供恢复入口；恢复只要求原因与版本校验，结果固定为 `DRAFT`，之后须单独执行 `ACTIVATE`。
-- Banner 页展示顺序、真实投放内容、时间范围、跳转目标和启停状态；首页顺序使用稳定编号。
-- 库存页以 SKU 为最小单位，同时展示可售、支付预占、售后占用、可发货、预警值和库存状态。
-- 可发货数量按 `可售 - 支付预占 - 售后占用` 展示；待处理售后数量不得进入发货单。
-- 品牌、分类和 Banner 的新增/编辑须完成必填与冲突校验，保存后写回当前行；品牌与分类归档为软删除并保留历史引用，不能仅显示成功 Toast。
-- 库存调整绑定当前 SKU，要求调整原因和备注，提交后同步余额、预警并追加库存流水；“查看流水”展示同一 SKU 的只追加记录。
+- Banner 图片只接受既有上传流程的 `READY / PUBLIC / BANNER` 文件信号；不设计人工编码或自由 target 文本。target_type 闭合为 `NONE / PRODUCT / CATEGORY / URL`，URL 仅允许商城 HTTPS 同源地址。
+- Banner 创建固定为 `DRAFT`，普通编辑不改变状态。`DRAFT/INACTIVE` 可启用或 `DELETE`，`ACTIVE` 只可停用且不能直接归档；显式 `ARCHIVED` 筛选可恢复为 `DRAFT`。ACTIVATE/DEACTIVATE 无原因，DELETE/restore 原因必填。
+- Banner DELETE 可复用确认 Modal，但不得出现 preview token 或伪装成 BannerStatusAction preview；图片/目标在启用前失效统一显示 `STATE_CONFLICT` 409 并返回编辑。列表固定 `sort_order ASC,id ASC`，同时校验非负整数排序、开始早于结束和 typed target 值域。
+- 品牌、分类和 Banner 的新增/编辑须完成必填与冲突校验，保存后写回当前行；普通资料保存不改变生命周期，不能只显示成功 Toast。
+- 库存页以 SKU 为最小单位，只展示 SKU 状态、`physical_qty`、`locked_qty`、活动预占、`available_qty = physical_qty - locked_qty` 和版本；不展示 low_stock、预警值、售后占用或独立备注。
+- 库存调整绑定当前 SKU，要求非零整数 `physical_delta` 与原因，先展示 physical/locked/available/版本前后值再确认；If-Match 409、数量不足/整数越界 422、重复提交只记一次均有代表状态，ARCHIVED SKU 保持只读。
+- “查看流水”展示同一 SKU 的只追加记录，类型闭合为 `INITIAL / MANUAL_INCREASE / MANUAL_DECREASE / ORDER_PAID_DEDUCT / ORDER_RESERVE / ORDER_RELEASE / REFUND_RESTOCK / RETURN_RESTOCK / RETURN_DAMAGED / COMPENSATION`。
 
 ### 5.5 订单列表与详情
 
@@ -437,9 +439,9 @@ SKU 分支：切换 SKU 例外 → 搜索/分类筛选 → `CommissionRules/Edit
 
 商品分支：`Products/List` → 新增/普通资料编辑 → `Product/Edit` → 图集与 SKU 管理；状态变化 → `Catalog/Lifecycle-Preview` → 无阻断时确认。四类 422 从当前弹窗进入对应修复路径；409 刷新最新记录、销毁旧 preview 后返回列表或 SKU 编辑，由管理员重新发起预览。
 
-内容分支：`Brands/List` 或 `Categories/List` → 新增固定草稿 / 普通资料编辑；生命周期分支 → `Lifecycle/Preview` → 无阻断时确认；归档列表 → 原因 + If-Match 恢复为草稿 → 单独 `ACTIVATE`。`Banners/List` 保持广告位启停流程。
+内容分支：`Brands/List` 或 `Categories/List` → 新增固定草稿 / 普通资料编辑；生命周期分支 → `Lifecycle/Preview` → 无阻断时确认；归档列表 → 原因 + If-Match 恢复为草稿 → 单独 `ACTIVATE`。Banner 分支：选择公开图片与 typed target → 固定 DRAFT 创建 / 普通资料编辑 → ACTIVATE/DEACTIVATE；DELETE 要求原因且无 preview token → 显式 ARCHIVED → 原因 + If-Match 恢复 DRAFT。
 
-库存分支：`Inventory/List` → 选择 SKU → 查看可售/预占/售后占用 → 调整或查看流水。
+库存分支：`Inventory/List` → 选择非归档 SKU → 输入非零 physical_delta 与原因 → preview 前后余额/版本 → If-Match confirm → 刷新可售与只追加流水；409/422 返回最新状态或修正输入，归档 SKU 仅查看流水。
 
 治理分支：高风险操作 → `Common/High-Risk-Confirm` → 按操作矩阵填写原因/凭证/TOTP + 影响 + 确认 → `AuditLogs/List`；版本冲突进入 `States/409`。
 
@@ -496,6 +498,9 @@ SKU 分支：切换 SKU 例外 → 搜索/分类筛选 → `CommissionRules/Edit
 - [ ] 商品以草稿创建、SKU 以已停用创建；普通保存不改状态，货号/SKU 编码不可变，图集最多 8 张且库存仅只读。
 - [ ] 四类 Product 422 均可演示中文原因、折叠 typed 诊断和可执行修复入口；库存预占只导向相关订单/售后，不导向库存调整。
 - [ ] Product/SKU 409 后资源版本已刷新、旧 preview 已销毁、旧确认已禁用，必须从最新记录重新 preview/confirm。
+- [ ] Banner 不出现人工编码或自由 target；公开图片、四类 typed target、固定 DRAFT、资料/状态分离、ACTIVE 禁止直接归档、显式 ARCHIVED 和恢复 DRAFT 均可演示。
+- [ ] Banner ACTIVATE/DEACTIVATE 不要求原因，DELETE/restore 要求原因；DELETE 的确认与审计不出现 preview token，文件/目标失效和 If-Match 冲突统一使用现有 409 语义。
+- [ ] 库存按 `available = physical - locked` 展示，调整只收非零 physical_delta 与原因；preview-confirm、版本、重复提交、409/422、归档 SKU 只读和闭合流水类型均可演示，且无低库存/预警值/售后占用/独立备注。
 - [ ] 代理新增、编辑、停用、白名单选择、邀请码轮换/停用/有效期、一次性密码重置和客户归属调整可点击演示。
 - [ ] 所有代理页面均无个人佣金比例；统一规则入口可到达 `CommissionRules/Category-Default`。
 - [ ] 分类规则与全部 SKU 可切换；继承状态 SKU 可直接新建例外，编辑、明确 0%、恢复继承、原因和确认校验均可点击。

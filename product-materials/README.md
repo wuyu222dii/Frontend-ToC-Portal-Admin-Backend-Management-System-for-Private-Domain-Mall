@@ -2,7 +2,7 @@
 
 本目录集中管理三端商城的需求、方案、技术、风控、开发文档和可点击原型。
 
-当前交付状态：B0 至 B4 development 均已通过。B4 实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的普通 CI Run `32721588213` 与 Supabase rollback-only Run `32722510890` 均成功。CH-011 已批准单人维护者在补偿控制下推进 B5 development；B5.0 审计完成，但 CH-012 契约修订待批准，B5.1 尚未准入。产品/API 基线仍为 v2.4.2/CH-010；staging、production、真实客户数据及真实资金链路继续 `NO-GO`，第一次进入 staging 前必须取得外部独立复核。
+当前交付状态：B0 至 B4 development 均已通过。B4 实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的普通 CI Run `32721588213` 与 Supabase rollback-only Run `32722510890` 均成功，但不证明 B5。CH-011 已放行 B5 development 治理，CH-012 已实施并将产品/API 基线升级为 v2.4.3/CH-012；B5.0 契约已通过本地验收并暂停，B5.1 尚未开始。staging、production、真实客户数据及真实资金链路继续 `NO-GO`，第一次进入 staging 前必须取得外部独立复核。
 
 ## 目录
 

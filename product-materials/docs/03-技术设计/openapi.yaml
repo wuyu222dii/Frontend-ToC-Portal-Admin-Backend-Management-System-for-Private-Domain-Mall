@@ -1,8 +1,8 @@
 openapi: "3.1.0"
 info:
   title: "洗化产品私域商城 API"
-  version: "2.4.2-ch010"
-  description: "CH-010 单一线协议，继承 CH-006 与 CH-008，并闭合商品、SKU 创建和生命周期语义。所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
+  version: "2.4.3-ch012"
+  description: "CH-012 单一线协议，继承 CH-006、CH-008 与 CH-010，并闭合 Banner 和人工库存调整语义。所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
   license:
     name: "Proprietary"
     identifier: "LicenseRef-Proprietary"
@@ -559,6 +559,7 @@ paths:
       tags:
         - "Store"
       summary: "Banner、分类、热销、新品聚合"
+      description: "Banner 仅投影 ACTIVE、未归档、文件仍为 READY/PUBLIC/BANNER、starts_at 为空或 starts_at <= now，且 ends_at 为空或 now < ends_at 的记录，并固定按 sort_order ASC,id ASC 排序；PRODUCT/CATEGORY 目标必须仍为 ACTIVE，URL origin 必须命中服务端 allowlist，否则从公开投影排除。"
       operationId: "getStoreHome"
       security: []
       parameters: []
@@ -6075,7 +6076,8 @@ paths:
     get:
       tags:
         - "Admin"
-      summary: "Banner 列表、新建"
+      summary: "Banner 列表"
+      description: "默认排除 ARCHIVED，仅显式 status=ARCHIVED 返回归档记录；固定按 sort_order ASC,id ASC 排序。"
       operationId: "getAdminBanners"
       security:
         -
@@ -6131,7 +6133,8 @@ paths:
     post:
       tags:
         - "Admin"
-      summary: "Banner 列表、新建"
+      summary: "新建草稿 Banner"
+      description: "固定创建 DRAFT；服务端生成 ID，不接受人工编码。starts_at 与 ends_at 均非空时 ends_at 必须晚于 starts_at。文件必须为 READY/PUBLIC/BANNER；PRODUCT/CATEGORY 目标必须存在且 ACTIVE，URL 仅允许 HTTPS 且 origin 命中服务端 allowlist，allowlist 为空时拒绝 URL target。使用闭合 BANNER_RESOURCE_RESPONSE 幂等策略，同 Idempotency-Key 同请求精确重放。"
       operationId: "postAdminBanners"
       security:
         -
@@ -6144,10 +6147,15 @@ paths:
         content:
           application/json:
             schema:
-              "$ref": "#/components/schemas/BannerWriteRequest"
+              "$ref": "#/components/schemas/BannerCreateRequest"
       responses:
         201:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/CacheControlNoStore"
+            Pragma:
+              "$ref": "#/components/headers/PragmaNoCache"
           content:
             application/json:
               schema:
@@ -6172,7 +6180,8 @@ paths:
     patch:
       tags:
         - "Admin"
-      summary: "修改、启停、归档"
+      summary: "修改资料或启停 Banner"
+      description: "资料更新使用不含状态的 BannerUpdateRequest；启停使用 BannerStatusAction。资料更新后的 starts_at 与 ends_at 均非空时 ends_at 必须晚于 starts_at。状态机固定为 DRAFT/INACTIVE 经 ACTIVATE 进入 ACTIVE、ACTIVE 经 DEACTIVATE 进入 INACTIVE；ACTIVATE 必须重新校验文件与 target，当前仍为 ACTIVE 的资料更新也必须按相同规则重查 READY/PUBLIC/BANNER 文件和有效 target。不得通过 PATCH 归档或恢复。使用闭合 BANNER_RESOURCE_RESPONSE 幂等策略精确重放。"
       operationId: "patchAdminBannersByBannerId"
       security:
         -
@@ -6194,10 +6203,19 @@ paths:
         content:
           application/json:
             schema:
-              "$ref": "#/components/schemas/BannerWriteRequest"
+              oneOf:
+                -
+                  "$ref": "#/components/schemas/BannerUpdateRequest"
+                -
+                  "$ref": "#/components/schemas/BannerStatusAction"
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/CacheControlNoStore"
+            Pragma:
+              "$ref": "#/components/headers/PragmaNoCache"
           content:
             application/json:
               schema:
@@ -6221,7 +6239,8 @@ paths:
     delete:
       tags:
         - "Admin"
-      summary: "修改、启停、归档"
+      summary: "软归档 Banner"
+      description: "DELETE 是唯一归档入口，仅允许 DRAFT/INACTIVE 进入 ARCHIVED 并设置 deleted_at；ACTIVE 不得直接归档。要求 2-500 字符原因、新 Idempotency-Key 与 If-Match，并使用闭合 BANNER_RESOURCE_RESPONSE 幂等策略精确重放。"
       operationId: "deleteAdminBannersByBannerId"
       security:
         -
@@ -6247,6 +6266,11 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/CacheControlNoStore"
+            Pragma:
+              "$ref": "#/components/headers/PragmaNoCache"
           content:
             application/json:
               schema:
@@ -6272,6 +6296,7 @@ paths:
       tags:
         - "Admin"
       summary: "恢复原 Banner"
+      description: "仅允许 ARCHIVED 恢复为 DRAFT 并清空 deleted_at；恢复后若需启用必须重新 ACTIVATE。要求 2-500 字符原因、新 Idempotency-Key 与 If-Match，并使用闭合 BANNER_RESOURCE_RESPONSE 幂等策略精确重放。"
       operationId: "postAdminBannersByBannerIdRestore"
       security:
         -
@@ -6297,6 +6322,11 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/CacheControlNoStore"
+            Pragma:
+              "$ref": "#/components/headers/PragmaNoCache"
           content:
             application/json:
               schema:
@@ -6322,6 +6352,7 @@ paths:
       tags:
         - "Admin"
       summary: "实物、锁定、可售和预占明细"
+      description: "available_qty 固定为 physical_qty-locked_qty，active_reservation_qty 只用于复核锁定事实，不重复扣减；固定按 product_name ASC,sku_id ASC 排序。ARCHIVED SKU 允许只读和查看流水，但不得人工调整。"
       operationId: "getAdminInventory"
       security:
         -
@@ -6347,13 +6378,6 @@ paths:
             type: "string"
             minLength: 1
           description: "一级分类 ID"
-        -
-          name: "low_stock"
-          in: "query"
-          required: false
-          schema:
-            type: "boolean"
-          description: "仅低库存"
       responses:
         200:
           description: "成功"
@@ -6382,6 +6406,7 @@ paths:
       tags:
         - "Admin"
       summary: "预览库存调整和负库存风险"
+      description: "ARCHIVED SKU 返回 409 STATE_CONFLICT 且不签发 preview。其他记录的 HASH_ONLY 预览绑定 actor、session、INVENTORY.ADJUST、INVENTORY、sku_id、规范化请求体和余额 version，TTL 固定 60 秒；不得缓存 preview token 或响应体。返回 physical/locked/available 调整前后指标；physical_after < locked_qty 时仍返回 200 warning，结果超 PostgreSQL INTEGER 时返回 422 INVENTORY_QUANTITY_OUT_OF_RANGE。"
       operationId: "postAdminInventoryBySkuIdAdjustmentPreview"
       security:
         -
@@ -6416,7 +6441,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/HighRiskPreviewResponse"
+                "$ref": "#/components/schemas/InventoryAdjustmentPreviewResponse"
         400:
           "$ref": "#/components/responses/BadRequest"
         401:
@@ -6438,6 +6463,7 @@ paths:
       tags:
         - "Admin"
       summary: "填写原因后调整实物库存"
+      description: "使用相同业务字段、未过期 preview_token/confirmation_hash、新 Idempotency-Key 与 If-Match；ARCHIVED SKU 返回 409 STATE_CONFLICT 且不消费 preview。physical_after < locked_qty 返回 422 STOCK_INSUFFICIENT，结果超 PostgreSQL INTEGER 返回 422 INVENTORY_QUANTITY_OUT_OF_RANGE，失败不消费 preview。成功只修改 physical_qty，并原子写余额/version、MANUAL_INCREASE 或 MANUAL_DECREASE 流水、审计、幂等与 outbox；COMMAND_RESPONSE 精确重放固定返回 resource_type=inventory、resource_id=sku_id、status=SUCCEEDED、version=新余额版本。"
       operationId: "postAdminInventoryBySkuIdAdjustments"
       security:
         -
@@ -6468,10 +6494,15 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/CacheControlNoStore"
+            Pragma:
+              "$ref": "#/components/headers/PragmaNoCache"
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/CommandResponse"
+                "$ref": "#/components/schemas/InventoryAdjustmentCommandResponse"
         400:
           "$ref": "#/components/responses/BadRequest"
         401:
@@ -6493,6 +6524,7 @@ paths:
       tags:
         - "Admin"
       summary: "SKU 库存流水"
+      description: "只追加流水固定按 occurred_at DESC,id DESC 排序；before 值由 after-change 复算。INITIAL 只保留给未来受控导入，B4 创建的零余额不补写 INITIAL。"
       operationId: "getAdminInventoryBySkuIdLedger"
       security:
         -
@@ -6514,18 +6546,7 @@ paths:
           in: "query"
           required: false
           schema:
-            type: "string"
-            enum:
-              - "INITIAL"
-              - "MANUAL_INCREASE"
-              - "MANUAL_DECREASE"
-              - "ORDER_PAID_DEDUCT"
-              - "ORDER_RESERVE"
-              - "ORDER_RELEASE"
-              - "REFUND_RESTOCK"
-              - "RETURN_RESTOCK"
-              - "RETURN_DAMAGED"
-              - "COMPENSATION"
+            "$ref": "#/components/schemas/InventoryLedgerType"
           description: "库存流水类型"
         -
           name: "date_from"
@@ -10323,7 +10344,7 @@ components:
           schema:
             "$ref": "#/components/schemas/ErrorResponse"
     BusinessError:
-      description: "库存、售后额度、金额分配或业务前置校验失败；固定业务码包括 ACTIVE_PRODUCT_DEPENDENCY、FILE_CONTENT_MISMATCH，以及 CH-010 的 PRODUCT_PRIMARY_IMAGE_REQUIRED、PRODUCT_ACTIVE_SKU_REQUIRED、ACTIVE_SKU_DEPENDENCY、ACTIVE_INVENTORY_RESERVATION（均为 422）。"
+      description: "库存、售后额度、金额分配或业务前置校验失败；固定业务码包括 ACTIVE_PRODUCT_DEPENDENCY、FILE_CONTENT_MISMATCH，CH-010 的 PRODUCT_PRIMARY_IMAGE_REQUIRED、PRODUCT_ACTIVE_SKU_REQUIRED、ACTIVE_SKU_DEPENDENCY、ACTIVE_INVENTORY_RESERVATION，以及 CH-012 的 INVENTORY_QUANTITY_OUT_OF_RANGE；库存确认低于锁定量继续使用 STOCK_INSUFFICIENT（均为 422）。"
       content:
         application/json:
           schema:
@@ -10408,6 +10429,45 @@ components:
             version:
               type: "integer"
               minimum: 1
+            occurred_at:
+              type: "string"
+              format: "date-time"
+        request_id:
+          type: "string"
+    InventoryAdjustmentCommandResponse:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "code"
+        - "message"
+        - "data"
+        - "request_id"
+      properties:
+        code:
+          const: "OK"
+        message:
+          const: "success"
+        data:
+          type: "object"
+          additionalProperties: false
+          required:
+            - "resource_type"
+            - "resource_id"
+            - "status"
+            - "version"
+            - "occurred_at"
+          properties:
+            resource_type:
+              const: "inventory"
+            resource_id:
+              type: "string"
+              description: "与路径 sku_id 相同。"
+            status:
+              const: "SUCCEEDED"
+            version:
+              type: "integer"
+              minimum: 1
+              description: "调整成功后的 inventory_balance.version。"
             occurred_at:
               type: "string"
               format: "date-time"
@@ -11447,12 +11507,30 @@ components:
       properties:
         physical_delta:
           type: "integer"
+          format: "int32"
+          minimum: -2147483648
+          maximum: 2147483647
           not:
             const: 0
+          description: "非零实物库存变化量；服务端还必须校验调整后的余额处于 PostgreSQL INTEGER 范围。"
         reason:
           type: "string"
           minLength: 2
           maxLength: 500
+      description: "库存人工调整业务字段；operation 组合层使用 unevaluatedProperties=false 闭合请求。"
+    InventoryLedgerType:
+      type: "string"
+      enum:
+        - "INITIAL"
+        - "MANUAL_INCREASE"
+        - "MANUAL_DECREASE"
+        - "ORDER_PAID_DEDUCT"
+        - "ORDER_RESERVE"
+        - "ORDER_RELEASE"
+        - "REFUND_RESTOCK"
+        - "RETURN_RESTOCK"
+        - "RETURN_DAMAGED"
+        - "COMPENSATION"
     ProductLifecycleAction:
       type: "object"
       required:
@@ -12190,11 +12268,6 @@ components:
           type: "boolean"
     BannerBaseFields:
       type: "object"
-      required:
-        - "title"
-        - "file_id"
-        - "sort_order"
-        - "status"
       properties:
         title:
           type: "string"
@@ -12215,15 +12288,156 @@ components:
         sort_order:
           type: "integer"
           minimum: 0
-        status:
-          type: "string"
-          enum:
-            - "DRAFT"
-            - "ACTIVE"
-            - "INACTIVE"
-            - "ARCHIVED"
-    BannerWriteRequest:
+      description: "Banner 创建和资料更新共享的非状态字段；由外层请求 Schema 闭合。"
+    BannerCreateRequest:
       oneOf:
+        -
+          allOf:
+            -
+              "$ref": "#/components/schemas/BannerBaseFields"
+            -
+              type: "object"
+              required:
+                - "title"
+                - "file_id"
+                - "sort_order"
+                - "initial_status"
+                - "target_type"
+              properties:
+                title:
+                  type: "string"
+                  minLength: 1
+                  maxLength: 160
+                file_id:
+                  type: "string"
+                sort_order:
+                  type: "integer"
+                  minimum: 0
+                initial_status:
+                  const: "DRAFT"
+                target_type:
+                  const: "NONE"
+          unevaluatedProperties: false
+        -
+          allOf:
+            -
+              "$ref": "#/components/schemas/BannerBaseFields"
+            -
+              type: "object"
+              required:
+                - "title"
+                - "file_id"
+                - "sort_order"
+                - "initial_status"
+                - "target_type"
+                - "target_id"
+              properties:
+                title:
+                  type: "string"
+                  minLength: 1
+                  maxLength: 160
+                file_id:
+                  type: "string"
+                sort_order:
+                  type: "integer"
+                  minimum: 0
+                initial_status:
+                  const: "DRAFT"
+                target_type:
+                  const: "PRODUCT"
+                target_id:
+                  type: "string"
+          unevaluatedProperties: false
+        -
+          allOf:
+            -
+              "$ref": "#/components/schemas/BannerBaseFields"
+            -
+              type: "object"
+              required:
+                - "title"
+                - "file_id"
+                - "sort_order"
+                - "initial_status"
+                - "target_type"
+                - "target_id"
+              properties:
+                title:
+                  type: "string"
+                  minLength: 1
+                  maxLength: 160
+                file_id:
+                  type: "string"
+                sort_order:
+                  type: "integer"
+                  minimum: 0
+                initial_status:
+                  const: "DRAFT"
+                target_type:
+                  const: "CATEGORY"
+                target_id:
+                  type: "string"
+          unevaluatedProperties: false
+        -
+          allOf:
+            -
+              "$ref": "#/components/schemas/BannerBaseFields"
+            -
+              type: "object"
+              required:
+                - "title"
+                - "file_id"
+                - "sort_order"
+                - "initial_status"
+                - "target_type"
+                - "target_url"
+              properties:
+                title:
+                  type: "string"
+                  minLength: 1
+                  maxLength: 160
+                file_id:
+                  type: "string"
+                sort_order:
+                  type: "integer"
+                  minimum: 0
+                initial_status:
+                  const: "DRAFT"
+                target_type:
+                  const: "URL"
+                target_url:
+                  type: "string"
+                  format: "uri"
+                  pattern: "^https://"
+                  maxLength: 500
+          unevaluatedProperties: false
+      description: "固定创建 DRAFT；target_type 决定且闭合 target_id/target_url。starts_at 与 ends_at 均非空时 ends_at 必须晚于 starts_at。"
+    BannerUpdateRequest:
+      oneOf:
+        -
+          type: "object"
+          additionalProperties: false
+          minProperties: 1
+          properties:
+            title:
+              type: "string"
+              minLength: 1
+              maxLength: 160
+            file_id:
+              type: "string"
+            starts_at:
+              type:
+                - "string"
+                - "null"
+              format: "date-time"
+            ends_at:
+              type:
+                - "string"
+                - "null"
+              format: "date-time"
+            sort_order:
+              type: "integer"
+              minimum: 0
         -
           allOf:
             -
@@ -12282,7 +12496,21 @@ components:
                   type: "string"
                   format: "uri"
                   pattern: "^https://"
+                  maxLength: 500
           unevaluatedProperties: false
+      description: "不含状态；未修改 target 时可只提交至少一个资料字段，修改 target 时必须提交完整闭合 target 组合。更新后的 starts_at 与 ends_at 均非空时 ends_at 必须晚于 starts_at。"
+    BannerStatusAction:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "action"
+      properties:
+        action:
+          type: "string"
+          enum:
+            - "ACTIVATE"
+            - "DEACTIVATE"
+      description: "Banner 普通启停动作；归档只允许 DELETE，恢复只允许 restore。"
     AgentCreateRequest:
       type: "object"
       additionalProperties: false
@@ -12463,6 +12691,91 @@ components:
                   type: "array"
                   items:
                     type: "string"
+        request_id:
+          type: "string"
+    InventoryAdjustmentPreviewResponse:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "code"
+        - "message"
+        - "data"
+        - "request_id"
+      properties:
+        code:
+          const: "OK"
+        message:
+          const: "success"
+        data:
+          type: "object"
+          additionalProperties: false
+          required:
+            - "preview_token"
+            - "confirmation_hash"
+            - "resource_etag"
+            - "expires_at"
+            - "impact"
+          properties:
+            preview_token:
+              type: "string"
+              minLength: 16
+            confirmation_hash:
+              type: "string"
+              pattern: "^[a-f0-9]{64}$"
+            resource_etag:
+              type: "string"
+              pattern: "^\\\"[1-9][0-9]*\\\"$"
+            expires_at:
+              type: "string"
+              format: "date-time"
+              description: "签发后 60 秒。"
+            impact:
+              type: "object"
+              additionalProperties: false
+              required:
+                - "affected_count"
+                - "physical_before"
+                - "physical_after"
+                - "locked_before"
+                - "locked_after"
+                - "available_before"
+                - "available_after"
+                - "warnings"
+              properties:
+                affected_count:
+                  const: 1
+                physical_before:
+                  type: "integer"
+                  format: "int32"
+                  minimum: 0
+                physical_after:
+                  type: "integer"
+                  format: "int32"
+                  minimum: -2147483648
+                  maximum: 2147483647
+                locked_before:
+                  type: "integer"
+                  format: "int32"
+                  minimum: 0
+                locked_after:
+                  type: "integer"
+                  format: "int32"
+                  minimum: 0
+                  description: "人工调整不改变锁定量，必须等于 locked_before。"
+                available_before:
+                  type: "integer"
+                  format: "int32"
+                  minimum: 0
+                available_after:
+                  type: "integer"
+                  format: "int32"
+                  minimum: -2147483648
+                  maximum: 2147483647
+                warnings:
+                  type: "array"
+                  items:
+                    type: "string"
+                  description: "physical_after < locked_before 时必须包含阻断提示，但 preview 仍返回 200。"
         request_id:
           type: "string"
     OrderItemView:
@@ -13671,27 +13984,69 @@ components:
           type: "string"
     StoreBannerView:
       type: "object"
-      additionalProperties: false
-      required: ["banner_id", "title", "image_url", "target_type", "target_id", "target_url", "sort_order"]
-      properties:
-        banner_id:
-          type: "string"
-        title:
-          type: "string"
-        image_url:
-          type: "string"
-          format: "uri"
-        target_type:
-          type: "string"
-          enum: ["NONE", "PRODUCT", "CATEGORY", "URL"]
-        target_id:
-          type: ["string", "null"]
-        target_url:
-          type: ["string", "null"]
-          format: "uri"
-        sort_order:
-          type: "integer"
-          minimum: 0
+      allOf:
+        -
+          type: "object"
+          required: ["banner_id", "title", "image_url", "sort_order"]
+          properties:
+            banner_id:
+              type: "string"
+            title:
+              type: "string"
+              minLength: 1
+              maxLength: 160
+            image_url:
+              type: "string"
+              format: "uri"
+            sort_order:
+              type: "integer"
+              minimum: 0
+        -
+          oneOf:
+            -
+              type: "object"
+              required: ["target_type", "target_id", "target_url"]
+              properties:
+                target_type:
+                  const: "NONE"
+                target_id:
+                  type: "null"
+                target_url:
+                  type: "null"
+            -
+              type: "object"
+              required: ["target_type", "target_id", "target_url"]
+              properties:
+                target_type:
+                  const: "PRODUCT"
+                target_id:
+                  type: "string"
+                target_url:
+                  type: "null"
+            -
+              type: "object"
+              required: ["target_type", "target_id", "target_url"]
+              properties:
+                target_type:
+                  const: "CATEGORY"
+                target_id:
+                  type: "string"
+                target_url:
+                  type: "null"
+            -
+              type: "object"
+              required: ["target_type", "target_id", "target_url"]
+              properties:
+                target_type:
+                  const: "URL"
+                target_id:
+                  type: "null"
+                target_url:
+                  type: "string"
+                  format: "uri"
+                  pattern: "^https://"
+                  maxLength: 500
+      unevaluatedProperties: false
       description: "仅投影当前生效且处于展示时段内的 Banner；不返回文件 ID、管理状态或版本。"
     StoreCategoryView:
       type: "object"
@@ -14561,65 +14916,100 @@ components:
           type: "string"
     BannerView:
       type: "object"
-      additionalProperties: false
-      required:
-        - "banner_id"
-        - "title"
-        - "file_id"
-        - "image_url"
-        - "target_type"
-        - "sort_order"
-        - "status"
-        - "version"
-      properties:
-        banner_id:
-          type: "string"
-        title:
-          type: "string"
-        file_id:
-          type: "string"
-        image_url:
-          type: "string"
-          format: "uri"
-        target_type:
-          type: "string"
-          enum:
-            - "NONE"
-            - "PRODUCT"
-            - "CATEGORY"
-            - "URL"
-        target_id:
-          type:
-            - "string"
-            - "null"
-        target_url:
-          type:
-            - "string"
-            - "null"
-          format: "uri"
-        sort_order:
-          type: "integer"
-          minimum: 0
-        starts_at:
-          type:
-            - "string"
-            - "null"
-          format: "date-time"
-        ends_at:
-          type:
-            - "string"
-            - "null"
-          format: "date-time"
-        status:
-          type: "string"
-          enum:
-            - "DRAFT"
-            - "ACTIVE"
-            - "INACTIVE"
-            - "ARCHIVED"
-        version:
-          type: "integer"
-          minimum: 1
+      allOf:
+        -
+          type: "object"
+          required:
+            - "banner_id"
+            - "title"
+            - "file_id"
+            - "image_url"
+            - "sort_order"
+            - "starts_at"
+            - "ends_at"
+            - "status"
+            - "version"
+          properties:
+            banner_id:
+              type: "string"
+            title:
+              type: "string"
+              minLength: 1
+              maxLength: 160
+            file_id:
+              type: "string"
+            image_url:
+              type: "string"
+              format: "uri"
+            sort_order:
+              type: "integer"
+              minimum: 0
+            starts_at:
+              type:
+                - "string"
+                - "null"
+              format: "date-time"
+            ends_at:
+              type:
+                - "string"
+                - "null"
+              format: "date-time"
+            status:
+              type: "string"
+              enum:
+                - "DRAFT"
+                - "ACTIVE"
+                - "INACTIVE"
+                - "ARCHIVED"
+            version:
+              type: "integer"
+              minimum: 1
+        -
+          oneOf:
+            -
+              type: "object"
+              required: ["target_type", "target_id", "target_url"]
+              properties:
+                target_type:
+                  const: "NONE"
+                target_id:
+                  type: "null"
+                target_url:
+                  type: "null"
+            -
+              type: "object"
+              required: ["target_type", "target_id", "target_url"]
+              properties:
+                target_type:
+                  const: "PRODUCT"
+                target_id:
+                  type: "string"
+                target_url:
+                  type: "null"
+            -
+              type: "object"
+              required: ["target_type", "target_id", "target_url"]
+              properties:
+                target_type:
+                  const: "CATEGORY"
+                target_id:
+                  type: "string"
+                target_url:
+                  type: "null"
+            -
+              type: "object"
+              required: ["target_type", "target_id", "target_url"]
+              properties:
+                target_type:
+                  const: "URL"
+                target_id:
+                  type: "null"
+                target_url:
+                  type: "string"
+                  format: "uri"
+                  pattern: "^https://"
+                  maxLength: 500
+      unevaluatedProperties: false
     BannerResponse:
       type: "object"
       additionalProperties: false
@@ -16387,6 +16777,8 @@ components:
       required:
         - "sku_id"
         - "sku_code"
+        - "sku_name"
+        - "sku_status"
         - "product_name"
         - "physical_qty"
         - "locked_qty"
@@ -16398,6 +16790,14 @@ components:
           type: "string"
         sku_code:
           type: "string"
+        sku_name:
+          type: "string"
+        sku_status:
+          type: "string"
+          enum:
+            - "ACTIVE"
+            - "INACTIVE"
+            - "ARCHIVED"
         product_name:
           type: "string"
         physical_qty:
@@ -16477,7 +16877,7 @@ components:
         ledger_id:
           type: "string"
         ledger_type:
-          type: "string"
+          "$ref": "#/components/schemas/InventoryLedgerType"
         physical_change:
           type: "integer"
         locked_change:

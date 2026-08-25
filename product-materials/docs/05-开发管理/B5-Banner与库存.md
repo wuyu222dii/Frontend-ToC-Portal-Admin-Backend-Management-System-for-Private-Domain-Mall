@@ -1,12 +1,12 @@
 # B5 Banner 与库存
 
-> 批次：B5；当前产品/API 基线：v2.4.2 / CH-010；交付门禁：CH-011；契约解阻申请：CH-012（待批准）；更新日期：2026-08-25；当前状态：B5.0 审计完成但契约 `NO-GO`，B5.1 尚未准入；数据范围：仅脱敏 development；staging/production：`NO-GO`。
+> 批次：B5；当前产品/API 基线：v2.4.3 / CH-012；交付门禁：CH-011；更新日期：2026-08-25；当前状态：CH-012/B5.0 已通过本地验收并暂停，B5.1 尚未开始；数据范围：仅脱敏 development；staging/production：`NO-GO`。
 
 ## 1. 当前结论
 
-用户已批准 CH-011，允许单人维护者在补偿控制下进入 B5 development。该批准只解决独立 reviewer 的组织门禁，不代表 Banner/库存契约已获批准，也不放行 staging、production 或真实数据。
+用户已分别批准 CH-011 与 CH-012：CH-011 只解决独立 reviewer 的组织门禁，CH-012 授权实施 B5.0 Banner/库存契约解阻。B5.0 已完成验收并暂停；两者都不自动放行 B5.1 业务代码、staging、production 或真实数据。
 
-B5.0 三路审计确认：ADM-07 Banner 与 ADM-08 库存人工调整/流水属于既有 MVP，现有冻结数据库足以零迁移实现；但 OpenAPI、公共内核和静态原型存在 3 个 P0 与若干 P1 漂移。CH-011 已登记，不依赖产品选择的 CI 加固已在当前工作树实施并通过本地检查，仍须由后续准确 SHA 的远端运行确认；不得开始 B5.1 repository、API 或工程前端。契约修订已登记为 CH-012 待批准申请。
+B5.0 三路审计确认：ADM-07 Banner 与 ADM-08 库存人工调整/流水属于既有 MVP，现有冻结数据库足以零迁移实现；OpenAPI、公共内核和静态原型发现的 3 个 P0 与若干 P1 已按 CH-012 闭合。不依赖产品选择的 CI 加固已在当前工作树实施并通过本地检查，仍须由后续准确 SHA 的远端运行确认；本轮没有创建 B5.1 repository、API 或工程前端。
 
 | 门禁 | 当前证据 | 结论 |
 |---|---|---|
@@ -14,10 +14,11 @@ B5.0 三路审计确认：ADM-07 Banner 与 ADM-08 库存人工调整/流水属�
 | B5 产品范围 | PRD 已冻结 ADM-07/08，库存人工调整为 HR-07 | 通过 |
 | CH-011 单人开发门禁 | 用户于 2026-08-25 明确批准，仅适用于 B5 development | 通过 |
 | 冻结数据库可承载性 | Banner、InventoryBalance、Reservation、Ledger、preview/idempotency/audit 均已有模型与权限 | 通过，无迁移 |
-| Banner 契约 | 创建/更新共用可写 ARCHIVED 的 DTO，可绕过软删除/恢复 | P0 阻塞 |
-| 库存低库存口径 | API 暴露 `low_stock`，原型可写预警值，数据库无阈值 | P0 阻塞 |
-| 库存 preview 内核 | 公共高风险预览白名单没有 `INVENTORY.ADJUST` | P0 阻塞 |
-| 现行 OpenAPI 健康度 | `2.4.2-ch010`，172 paths / 196 operations / 196 unique operationId / 307 schemas / 0 dangling refs | 通过，但不等于 B5 契约可实施 |
+| CH-012 契约授权 | 用户于 2026-08-25 明确批准产品负责人 + 技术负责人立即执行 | 通过 |
+| Banner 契约 | 创建/更新拆分、闭合启停、DELETE 唯一归档与 restore-to-DRAFT | 通过 |
+| 库存低库存口径 | 无迁移删除 `low_stock` 和原型预警值 | 通过 |
+| 库存 preview 内核 | 注册 `INVENTORY.ADJUST/INVENTORY` 并补齐失败语义 | 通过 |
+| OpenAPI 契约 | `2.4.3-ch012`；172 paths / 196 operations / 196 unique operationId / 312 schemas / 692 schema refs / 2,578 local refs / 0 dangling refs | 通过 |
 
 ## 2. B5 范围
 
@@ -55,7 +56,7 @@ B5.0 三路审计确认：ADM-07 Banner 与 ADM-08 库存人工调整/流水属�
 | B5-C04 | P1 | `physical_delta` 未声明 PostgreSQL INTEGER 边界，失败不消费 preview 的语义未写明 | CH-012 闭合输入、preview warning 与 confirm 422 |
 | B5-C05 | P1 | Inventory confirm 的 CommandResponse resource/status 未固定 | 固定 `resource_type=inventory`、`resource_id=sku_id`、`status=SUCCEEDED`、新余额 version |
 | B5-C06 | P1 | 流水查询参数是枚举，响应 `ledger_type` 却退化为任意 string | CH-012 复用闭合库存流水枚举 |
-| B5-C07 | P1 | Banner 响应没有可用的闭合幂等缓存策略 | B5.1 代码层新增 `BANNER_RESOURCE_RESPONSE`，不改数据库 |
+| B5-C07 | P1 | Banner 响应没有可用的闭合幂等缓存策略 | CH-012/B5.0 公共内核新增 `BANNER_RESOURCE_RESPONSE`，不改数据库 |
 | B5-C08 | P1 | 静态原型使用色块、人工编码/自由文本 target，并重复扣减售后占用 | CH-012 获批后同步真实文件、typed target、正确库存公式与 preview-confirm |
 | B5-C09 | P2 | `inventory_reservation_item` 缺 sku-first 索引，ledger `business_id` 非唯一 | 先以真实规模 EXPLAIN 和幂等/preview 保证正确性，不在 B5.0 迁移 |
 
@@ -70,9 +71,9 @@ CH-011 只接受 B5 development 期间缺少独立 reviewer 的剩余风险，�
 5. CH-011 不批准 CH-012，不放宽冻结数据库、契约、并发、权限、安全或测试标准，也不适用于 staging/production。
 6. 第一次进入 staging 前仍须外部独立人员复核代码、安全、数据库权限/迁移和验收证据，并保存可追溯记录。
 
-## 6. CH-012 待批准契约方案
+## 6. CH-012 已批准契约
 
-以下只是 B5.0 审计形成的变更申请；在产品负责人和技术负责人明确批准前，不修改 OpenAPI、生成 contracts、原型业务语义或应用代码。
+以下契约已由产品负责人和技术负责人批准，立即用于 B5.0 产品、OpenAPI、生成 contracts、公共内核和静态原型修订；不授权提前实施 B5.1 业务模块。
 
 ### 6.1 Banner
 
@@ -81,8 +82,8 @@ CH-011 只接受 B5 development 期间缺少独立 reviewer 的剩余风险，�
 - 资料更新改用不含状态的闭合 `BannerUpdateRequest`；启停改用同一 PATCH operation 的闭合 `BannerStatusAction(action=ACTIVATE|DEACTIVATE)` 分支。Banner 不属于 HR-01 至 HR-15，不新增 preview。
 - 状态机固定为 `DRAFT/INACTIVE -> ACTIVATE -> ACTIVE`、`ACTIVE -> DEACTIVATE -> INACTIVE`、`DRAFT/INACTIVE -> DELETE -> ARCHIVED + deleted_at`；ACTIVE 不得直接归档；restore 固定 `ARCHIVED -> DRAFT + deleted_at=null`。
 - POST 需要新幂等键；PATCH/DELETE/restore 需要新幂等键和 `If-Match`。DELETE/restore 继续要求 2-500 字符原因，启停不虚构高风险原因。
-- 默认列表排除 ARCHIVED，仅显式 `status=ARCHIVED` 返回归档；固定 `sort_order ASC,id ASC`。公开投影仅返回 ACTIVE、未归档、`starts_at <= now < ends_at` 的记录并使用同一稳定排序。
-- ACTIVE/ACTIVATE 必须重查 `READY/PUBLIC/BANNER` 文件；PRODUCT/CATEGORY target 必须存在且 ACTIVE，目标失效后公开投影自动排除。URL 仅允许 HTTPS 且 origin 命中服务端 allowlist；allowlist 为空时不开放 URL target。
+- 默认列表排除 ARCHIVED，仅显式 `status=ARCHIVED` 返回归档；固定 `sort_order ASC,id ASC`。公开投影仅返回 ACTIVE、未归档，且满足 `(starts_at IS NULL OR starts_at <= now) AND (ends_at IS NULL OR now < ends_at)` 的记录并使用同一稳定排序；起止均非空时 `ends_at > starts_at`。
+- ACTIVE 资料更新与 ACTIVATE 必须重查 `READY/PUBLIC/BANNER` 文件；PRODUCT/CATEGORY target 必须存在且 ACTIVE，目标失效后公开投影自动排除。URL 最长 500 字符，仅允许 HTTPS 且 origin 命中服务端 allowlist；allowlist 为空时不开放 URL target。
 - 新增闭合 `BANNER_RESOURCE_RESPONSE` 幂等缓存策略，用于 POST/PATCH/DELETE/restore 精确重放；策略只在代码层扩展。
 
 ### 6.2 库存
@@ -98,7 +99,7 @@ CH-011 只接受 B5 development 期间缺少独立 reviewer 的剩余风险，�
 
 ### 6.3 不变项
 
-- 产品/OpenAPI 目标版本拟升级为 `v2.4.3 / 2.4.3-ch012`；172 paths / 196 operations / 196 unique operationId 保持不变，schemas 与 refs 以实施后的解析脚本实测为准。
+- 产品/OpenAPI 版本升级为 `v2.4.3 / 2.4.3-ch012`；实测保持 172 paths / 196 operations / 196 unique operationId，并得到 312 schemas / 692 schema refs / 2,578 local refs / 0 dangling refs。
 - Prisma、`0001_initial`、76 models / 59 enums 和冻结哈希逐字节不变，migration diff 必须为 0。
 - 页面仍为 21 MP / 9 AGT / 22 ADM，FR/AC/US/HR 数量不增加；只闭合 ADM-07/08 的既有要求。
 
@@ -122,4 +123,4 @@ CH-011 只接受 B5 development 期间缺少独立 reviewer 的剩余风险，�
 
 ## 9. 当前暂停点
 
-CH-011 已登记，不依赖产品决策的 CI 加固已在当前工作树实施。现行 CH-010 的 Redocly、契约统计、生成漂移、冻结数据库、Prisma validate、lint、敏感扫描和 workflow YAML 解析均通过；lint 保留 308 个既有 warning、0 error。加固后的 workflow 尚未在新的准确提交 SHA 上执行，不能用历史 run 替代。CH-012 尚未获批准，因此 B5.0 只能标记“审计完成、契约待批准”，不能标记验收通过；B5.1、B5.2、B5.3、B5.4 均保持未开始。
+CH-011 与 CH-012 均已登记。B5.0 已通过 Redocly、专项契约/生成漂移、公共内核、全仓 lint/typecheck/test/build、静态原型五视口、敏感扫描、Prisma/首迁移冻结、PostgreSQL 空库回放/权限故障注入/migration diff=0 和独立复核，结论为 `P0=0/P1=0`，现已暂停。实测契约统计为 172 paths / 196 operations / 196 unique operationId / 312 schemas / 692 schema refs / 2,578 local refs / 0 dangling refs；全仓测试为 650 passed / 60 个环境模式跳过，原型为 96 个响应式渲染、21/9/22 页面契约、14 条小程序流程和 18 条后台/代理流程。B5.1、B5.2、B5.3、B5.4 均未开始；加固后的 workflow 尚未在新的准确提交 SHA 上执行，不能用历史 run 替代，最终 B5 远端双绿仍属于 B5.4。

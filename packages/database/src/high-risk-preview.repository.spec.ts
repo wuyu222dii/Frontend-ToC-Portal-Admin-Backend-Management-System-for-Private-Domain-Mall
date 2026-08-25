@@ -98,8 +98,26 @@ describe('HighRiskPreviewRepository', () => {
     })).resolves.toBeUndefined();
   });
 
+  it('issues and consumes an INVENTORY.ADJUST preview with its normalized adjustment body', async () => {
+    const { getRecord, repository, transaction } = harness();
+    const previews = repository();
+    const boundInput = input({
+      action: 'INVENTORY.ADJUST',
+      request: { physical_delta: 5, reason: 'Approved stock count correction' },
+      targetType: 'INVENTORY',
+    });
+    const issued = await previews.issueInTransaction(transaction, boundInput);
+    expect(getRecord()).toMatchObject({ action: 'INVENTORY.ADJUST', target_type: 'INVENTORY' });
+    await expect(previews.consumeInTransaction(transaction, {
+      ...boundInput,
+      confirmationHash: issued.confirmationHash,
+    })).resolves.toBeUndefined();
+  });
+
   it.each([
     { action: 'PRODUCT.RESTORE', targetType: 'PRODUCT' },
+    { action: 'INVENTORY.ADJUST', targetType: 'SKU' },
+    { action: 'SKU.ACTIVATE', targetType: 'INVENTORY' },
     { action: 'PRODUCT.ACTIVATE', targetType: 'SKU' },
     { action: 'SKU.ACTIVATE', targetType: 'PRODUCT' },
   ])('rejects an unregistered or mismatched $action/$targetType preview binding', async ({

@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 |---|---|
-| 文档版本 | v2.4.2 |
-| 对应产品基线 | MVP/PRD v2.4.2、CH-001 至 CH-010 |
-| 接口阶段 | CH-010 B4.0 至 B4.4 development 已完成；实现基准 SHA 的普通 CI 与 Supabase rollback-only 均通过，staging/production 未批准 |
+| 文档版本 | v2.4.3 |
+| 对应产品基线 | MVP/PRD v2.4.3、CH-001 至 CH-012 |
+| 接口阶段 | CH-012/B5.0 契约已通过本地验收并暂停；B5.1 业务代码尚未开始，staging/production 未批准 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
 | 更新时间 | 2026-08-25 |
 
@@ -83,7 +83,7 @@ OpenAPI 与所有客户端只配置一个 server：`/api/v1`。下表及全文�
 | `/admin/brands`、`/admin/categories` | `keyword`、`status`；默认排除 ARCHIVED，显式 `status=ARCHIVED` 只返回软删除归档记录；排序固定 `sort_order ASC,id ASC` |
 | 三端 `/withdrawals` | `withdrawal_no`、`status`、`date_from/date_to`、`min_amount/max_amount` |
 | `/agent/commissions` | `state`、`ledger_type`、`order_no`、`date_from/date_to` |
-| `/admin/inventory` 与流水 | `keyword`、`category_id`、`low_stock`；流水另有 `ledger_type`、`date_from/date_to` |
+| `/admin/inventory` 与流水 | `keyword`、`category_id`；流水另有闭合 `ledger_type`、`date_from/date_to`，不提供无持久口径的 `low_stock` |
 | `/admin/audit-logs` | `actor_id`、`module`、`action`、`result_code`、`target_type/target_id`、`date_from/date_to` |
 | `/admin/agents/{agent_id}/commissions`、`/wallet-ledger` | 只读分页；前者支持 position/流水类型与日期，后者支持钱包流水类型与日期 |
 | 支付对账、佣金 SKU/版本 | 分别支持 `status/last_error_code/due_before` 与 `keyword/category_id/source/status/date_from/date_to` |
@@ -124,7 +124,7 @@ OpenAPI 与所有客户端只配置一个 server：`/api/v1`。下表及全文�
 | 403 | `PERMISSION_DENIED`、`REAUTH_REQUIRED` | 角色、数据范围或二次验证不足 |
 | 404 | `RESOURCE_NOT_FOUND` | 不存在或无权查看时统一返回 |
 | 409 | `RESOURCE_VERSION_CONFLICT`、`STATE_CONFLICT`、`SOFT_DELETED_KEY_RESERVED` | 乐观锁、非法/同状态转换或软删除业务键保留冲突 |
-| 422 | `STOCK_INSUFFICIENT`、`AFTERSALE_QUOTA_EXCEEDED`、`ACTIVE_PRODUCT_DEPENDENCY`、`FILE_CONTENT_MISMATCH`、`PRODUCT_PRIMARY_IMAGE_REQUIRED`、`PRODUCT_ACTIVE_SKU_REQUIRED`、`ACTIVE_SKU_DEPENDENCY`、`ACTIVE_INVENTORY_RESERVATION` | 业务依赖、活动预占或文件实测内容校验不通过 |
+| 422 | `STOCK_INSUFFICIENT`、`AFTERSALE_QUOTA_EXCEEDED`、`ACTIVE_PRODUCT_DEPENDENCY`、`FILE_CONTENT_MISMATCH`、`PRODUCT_PRIMARY_IMAGE_REQUIRED`、`PRODUCT_ACTIVE_SKU_REQUIRED`、`ACTIVE_SKU_DEPENDENCY`、`ACTIVE_INVENTORY_RESERVATION`、`INVENTORY_QUANTITY_OUT_OF_RANGE` | 业务依赖、活动预占、库存整数边界或文件实测内容校验不通过 |
 | 429 | `RATE_LIMITED`、`REAUTH_LOCKED` | 访问或验证次数受限 |
 | 500 | `INTERNAL_ERROR` | 未预期错误，不暴露堆栈和敏感值 |
 
@@ -623,6 +623,14 @@ HR-15 预览只提交 `reason/reset_password/reset_totp`，不得提交 TOTP、�
 
 品牌、分类、商品、SKU 和 Banner 使用软删除。品牌/分类继续使用闭合 `MasterDataLifecycleAction`；CH-010 删除旧共享 `LifecycleAction`，商品与 SKU 分别使用闭合 `ProductLifecycleAction`、`SkuLifecycleAction`。三个 DTO 都只接受 `action=ACTIVATE|DEACTIVATE|SOFT_DELETE + reason`。三类动作均经过影响预览/二次确认，确认携带新 `Idempotency-Key`、预览 token/确认哈希和 `If-Match`；原因最终写入 `audit_log.reason`。
 
+CH-012 将 Banner 创建、资料更新和启停拆为闭合请求：创建显式固定 `initial_status=DRAFT`，资料更新不包含状态，启停只接受 `ACTIVATE|DEACTIVATE`。DELETE 是唯一软归档入口，ACTIVE 不得直接归档，restore 固定回 DRAFT；Banner 不属于 HR-01 至 HR-15，不新增 preview。POST 使用新幂等键；PATCH/DELETE/restore 使用新幂等键和 `If-Match`，DELETE/restore 继续要求 2-500 字符原因。写响应使用 `BANNER_RESOURCE_RESPONSE` 精确重放。
+
+Banner 默认列表排除 ARCHIVED，仅显式 `status=ARCHIVED` 返回归档，固定 `sort_order ASC,id ASC`。公开投影只返回 ACTIVE、未归档，且满足 `(starts_at IS NULL OR starts_at <= now) AND (ends_at IS NULL OR now < ends_at)` 的记录；起止均非空时 `ends_at > starts_at`。启用、ACTIVE 资料更新和公开读取重查 `READY/PUBLIC/BANNER` 文件及 ACTIVE PRODUCT/CATEGORY target。URL 最长 500 字符，只允许 HTTPS 且 origin 命中服务端 allowlist；allowlist 为空时不开放 URL target。
+
+库存列表固定 `available_qty=physical_qty-locked_qty`，`active_reservation_qty` 只用于复核 locked，不二次扣减；无 `low_stock`、预警值、售后占用或独立备注。列表补齐 SKU 名称和生命周期状态，按 `product_name ASC,sku_id ASC`；ARCHIVED SKU 只读。`InventoryAdjustmentAction.physical_delta` 为非零 int32，只改变 physical，原因 2-500 字符。
+
+库存 preview 使用 `HASH_ONLY`，绑定 actor/session/`INVENTORY.ADJUST`/`INVENTORY`/sku/规范化 body/余额 version，TTL 60 秒；ARCHIVED SKU 返回 `STATE_CONFLICT` 409 且不签发 preview，调整后实物低于 locked 时仍返回 200 warning。confirm 需要一致业务字段、token/确认哈希、新幂等键和 `If-Match`；ARCHIVED SKU 返回 409，低于 locked 返回 `STOCK_INSUFFICIENT` 422，整数越界返回 `INVENTORY_QUANTITY_OUT_OF_RANGE` 422，失败不消费 preview。成功使用 `COMMAND_RESPONSE` 精确重放，固定 `resource_type=inventory`、`resource_id=sku_id`、`status=SUCCEEDED` 和新余额 version，并在同一事务写一条人工流水、审计、幂等和 outbox。流水类型使用闭合枚举并按 `occurred_at DESC,id DESC`。
+
 品牌/分类创建的 `initial_status` 固定为 `DRAFT`。非删除状态只允许 `DRAFT/INACTIVE -> ACTIVATE -> ACTIVE`、`ACTIVE -> DEACTIVATE -> INACTIVE`、`DRAFT/INACTIVE -> SOFT_DELETE -> ARCHIVED + deleted_at`；ACTIVE 不得直接软删除，非法或同状态的新幂等请求返回 409。默认列表排除软删除记录，只有显式 `status=ARCHIVED` 才返回归档记录，详情允许读取归档。restore 只接受软删除 ARCHIVED，不走 preview，要求原因、幂等键和 `If-Match`，成功后清除 `deleted_at`、固定恢复为 DRAFT 并递增版本；若需启用必须重新 preview。
 
 品牌 `BrandCreateRequest.sort_order` 为必填非负整数，`BrandUpdateRequest.sort_order` 为可选非负整数；分类保持同样的创建必填/更新可选约束。两类列表固定按 `sort_order ASC,id ASC`。名称/业务 code 在软删除后仍全局保留，只能恢复原记录，再次创建返回 `SOFT_DELETED_KEY_RESERVED` 409。存在 ACTIVE 商品时，DEACTIVATE/SOFT_DELETE preview 仍以 200 返回影响，confirm 返回 `ACTIVE_PRODUCT_DEPENDENCY` 422；历史引用不丢失。商品/SKU 存在活动预占时不得软删除，已产生订单或库存流水的 SKU 编码不可修改、不可复用。
@@ -845,6 +853,7 @@ Provider 回调先写入回调收件箱，再由幂等处理器消费；领域�
 3. 服务端校验 token 绑定的管理员、会话、动作、目标、请求哈希和版本，成功写入时单次消费；
 4. token 过期/已消费、确认哈希不匹配或资源版本变化分别返回 `PREVIEW_EXPIRED`、`CONFIRMATION_MISMATCH`、`RESOURCE_VERSION_CONFLICT`，不得静默重新预览或继续写入；
 5. 原因与额外凭证严格按矩阵：HR-09 不要求 TOTP，HR-11/12 不要求原因，HR-12 要求付款凭证，HR-13 不走业务影响预览且只接受本人 TOTP，HR-15 已登录重置接受当前 TOTP/恢复码、全丢失只走双人离线流程。
+6. HR-07 库存 preview 发现 `physical_after < locked_qty` 时必须返回 200 影响警告，confirm 才返回 `STOCK_INSUFFICIENT` 422；失败事务不消费 preview，不写余额、流水、审计成功事实或幂等结果。
 
 ## 9. 安全与审计
 
@@ -873,7 +882,7 @@ Provider 回调先写入回调收件箱，再由幂等处理器消费；领域�
 - 商城公开目录不出现 file ID、管理状态/版本或草稿归档记录；后台商品列表的 SPU/SKU 实物、锁定、可售库存同一快照守恒。
 - 代理客户列表只出现当前 `ACTIVE/BOUND` 客户；代理订单列表/详情只出现 `PAID` 且最终归因为当前代理的订单，不泄露客户电话或详细地址。
 - 候选查询/拒绝、文件完成确认等非首次响应不能重新返回 candidate token 或无关签名能力；所有短时能力响应均可机器校验禁止缓存头。
-- `pnpm contracts:check` 本轮实测 172 paths、196 operations、196 unique operationId、307 schemas、685 schema refs 和 0 dangling refs。旧 `LifecycleAction` 不再存在，Product/SKU 专用三动作 DTO 均闭合并拒绝额外字段。
+- `pnpm contracts:check` 现行 CH-012 实测为 172 paths、196 operations、196 unique operationId、312 schemas、692 schema refs、2,578 local refs 和 0 dangling refs。Banner/库存专用 DTO 与既有 Product/SKU 三动作 DTO 均闭合并拒绝额外字段。
 - Product/SKU 固定创建状态、完整状态矩阵、恢复目标、不级联、首次 `published_at`、nullable 最低活动价、8 图、归档 SKU、零库存余额、不可变 code、201 SKU create 和四个新 422 均有契约及集成测试。
 - 非 `APPROVED` 提现无法请求完整银行卡号；短时授权不可跨提现单、跨会话或重复使用。
 - 所有关键回调和写操作在重复请求下只产生一次业务结果。

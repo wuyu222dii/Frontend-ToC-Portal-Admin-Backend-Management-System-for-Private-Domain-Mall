@@ -12,7 +12,7 @@ import type {
 
 export const HIGH_RISK_PREVIEW_TTL_MS = 60_000;
 
-export type HighRiskPreviewTargetType = 'BRAND' | 'CATEGORY' | 'PRODUCT' | 'SKU';
+export type HighRiskPreviewTargetType = 'BRAND' | 'CATEGORY' | 'INVENTORY' | 'PRODUCT' | 'SKU';
 export type HighRiskPreviewAction =
   | 'BRAND.ACTIVATE'
   | 'BRAND.DEACTIVATE'
@@ -20,6 +20,7 @@ export type HighRiskPreviewAction =
   | 'CATEGORY.ACTIVATE'
   | 'CATEGORY.DEACTIVATE'
   | 'CATEGORY.SOFT_DELETE'
+  | 'INVENTORY.ADJUST'
   | 'PRODUCT.ACTIVATE'
   | 'PRODUCT.DEACTIVATE'
   | 'PRODUCT.SOFT_DELETE'
@@ -78,6 +79,7 @@ const PREVIEW_ACTION = new Set<HighRiskPreviewAction>([
   'CATEGORY.ACTIVATE',
   'CATEGORY.DEACTIVATE',
   'CATEGORY.SOFT_DELETE',
+  'INVENTORY.ADJUST',
   'PRODUCT.ACTIVATE',
   'PRODUCT.DEACTIVATE',
   'PRODUCT.SOFT_DELETE',
@@ -85,7 +87,13 @@ const PREVIEW_ACTION = new Set<HighRiskPreviewAction>([
   'SKU.DEACTIVATE',
   'SKU.SOFT_DELETE',
 ]);
-const PREVIEW_TARGET_TYPE = new Set<HighRiskPreviewTargetType>(['BRAND', 'CATEGORY', 'PRODUCT', 'SKU']);
+const PREVIEW_TARGET_TYPE = new Set<HighRiskPreviewTargetType>([
+  'BRAND',
+  'CATEGORY',
+  'INVENTORY',
+  'PRODUCT',
+  'SKU',
+]);
 
 function isExactPlainObject(value: unknown, fields: ReadonlySet<string>): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value) ||

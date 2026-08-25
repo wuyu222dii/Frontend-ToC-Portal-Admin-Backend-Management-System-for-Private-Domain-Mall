@@ -25,6 +25,7 @@ describe('application errors', () => {
     expect(getApplicationErrorHttpStatus('PRODUCT_ACTIVE_SKU_REQUIRED')).toBe(422);
     expect(getApplicationErrorHttpStatus('ACTIVE_SKU_DEPENDENCY')).toBe(422);
     expect(getApplicationErrorHttpStatus('ACTIVE_INVENTORY_RESERVATION')).toBe(422);
+    expect(getApplicationErrorHttpStatus('INVENTORY_QUANTITY_OUT_OF_RANGE')).toBe(422);
     expect(getApplicationErrorHttpStatus('FILE_CONTENT_MISMATCH')).toBe(422);
     expect(error.toResponse('req_test')).toEqual({
       code: 'INVALID_ARGUMENT',
@@ -41,6 +42,7 @@ describe('application errors', () => {
     ['PRODUCT_ACTIVE_SKU_REQUIRED', 'A product requires at least one active SKU'],
     ['ACTIVE_SKU_DEPENDENCY', 'Active SKUs must be deactivated first'],
     ['ACTIVE_INVENTORY_RESERVATION', 'Active inventory reservations must be released first'],
+    ['INVENTORY_QUANTITY_OUT_OF_RANGE', 'The resulting inventory quantity is outside the supported range'],
     ['FILE_CONTENT_MISMATCH', 'The uploaded file does not match its declaration'],
   ] as const)('uses a fixed public message for catalog error %s', (code, message) => {
     expect(new ApplicationError(code, 'private implementation detail').toResponse('req_test')).toEqual({

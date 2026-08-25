@@ -6,10 +6,10 @@
 |---|---|
 | 产品名称 | 洗化产品私域商城（工作名） |
 | 文档类型 | Product Requirements Document |
-| 文档版本 | v2.4.2 |
+| 文档版本 | v2.4.3 |
 | 对应阶段 | 三端标准 MVP |
 | 更新日期 | 2026-08-25 |
-| 当前状态 | 产品/API 基线仍为 CH-010；B0 至 B4 development 已完成。CH-011 已放行 B5 development 治理，B5.0 审计完成但 CH-012 待批准，B5.1 与 staging/production `NO-GO` |
+| 当前状态 | CH-012 已实施并升级产品/API 基线；B0 至 B4 development 已完成，B5.0 契约已通过本地验收并暂停，B5.1 尚未开始，staging/production `NO-GO` |
 | 产品终端 | 消费者微信小程序、一级代理工作台、总部管理后台 |
 | 人员角色 | `CUSTOMER`、`AGENT_ADMIN`、`SUPER_ADMIN` |
 
@@ -24,7 +24,8 @@
 | v2.3 | 2026-08-11 | 落实 CH-004：数据库改为 Supabase 托管 PostgreSQL；不改变业务功能、页面、FR、AC 或 US 范围 | 已归档 |
 | v2.4 | 2026-08-11 | 落实 CH-005：单包裹发货门禁、服务端售后计价、可恢复支付意图、退款双状态轴、退货验货、并发裁决、TOTP 与高风险操作唯一矩阵 | 已归档 |
 | v2.4.1 | 2026-08-13 | 落实 CH-006：品牌排序、品牌/分类 DRAFT 创建与专用生命周期、恢复草稿、文件内容完整性、签名 TTL、对象可见性和完成幂等策略 | 已归档；B3 development 已按 CH-009 闭合交付门禁 |
-| v2.4.2 | 2026-08-24 | 落实 CH-010：Product/SKU 专用三动作生命周期、固定创建状态、首次发布时间、nullable 最低活动价、归档 SKU、8 图、零库存初值和不可变 code | 当前产品版本；B4.0 至 B4.4 development 已完成 |
+| v2.4.2 | 2026-08-24 | 落实 CH-010：Product/SKU 专用三动作生命周期、固定创建状态、首次发布时间、nullable 最低活动价、归档 SKU、8 图、零库存初值和不可变 code | 已归档；B4.0 至 B4.4 development 已完成 |
+| v2.4.3 | 2026-08-25 | 落实 CH-012：Banner 闭合生命周期/幂等、有效投影与安全目标，库存统一公式、HR-07 preview-confirm、整数边界和闭合流水类型 | 当前产品版本；B5.0 已验收暂停 |
 
 ### 文档使用约定
 
@@ -605,9 +606,9 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | FR-ADM-PROD-003 | 品牌、分类、商品和 SKU 采用软删除 | P0 | ACTIVE 不得直接软删除；Product/SKU 分别恢复为 DRAFT/INACTIVE，不级联恢复；SPU/SKU code 永不可改或复用，历史事实仍可追溯 |
 | FR-ADM-PROD-004 | 分类或品牌存在在售商品时禁止停用或软删除 | P0 | preview 返回影响清单，confirm 以 422 阻断；须先迁移或下架商品后重试 |
 | FR-ADM-PROD-005 | 商品/SKU 生命周期与活动预占一致 | P0 | 三动作均 preview-confirm；商品启用要求 ACTIVE 品牌/分类、公开主图和 ACTIVE SKU；ACTIVE SKU/活动预占按对象阻断软删除，下架不级联且已有合法预占可在到期前支付 |
-| FR-ADM-CONTENT-001 | 管理 Banner、热销和新品推荐 | P0 | 有效期、排序和启停生效 |
-| FR-ADM-INV-001 | 查看实物、锁定和可售库存 | P0 | 商品列表按 SPU 汇总 SKU 数及实物/锁定/可售库存，支持下钻每个 SKU 与流水；可售库存计算一致 |
-| FR-ADM-INV-002 | 库存调整必须填写原因并生成流水 | P0 | 调整后始终满足 `实物库存 >= 锁定库存 >= 0`，展示结果预览并用条件更新防并发越界 |
+| FR-ADM-CONTENT-001 | 管理 Banner、热销和新品推荐 | P0 | Banner 创建固定 DRAFT，资料编辑不改状态；启停闭合、ACTIVE 不可直接归档、恢复回 DRAFT，有效期、目标校验与 `sort_order,id` 排序生效 |
+| FR-ADM-INV-001 | 查看实物、锁定和可售库存 | P0 | 商品列表按 SPU 汇总 SKU 数及实物/锁定/可售库存，支持下钻每个 SKU 与流水；固定 `可售=实物-锁定`，不提供无持久口径的低库存阈值 |
+| FR-ADM-INV-002 | 库存调整必须填写原因并生成流水 | P0 | 只接收非零 int32 实物增量；preview 展示前后值与警告，confirm 条件更新并原子生成一条闭合类型流水，始终满足 `实物库存 >= 锁定库存 >= 0` |
 
 ### 9.3 订单、履约与售后 ADM-09 至 ADM-13
 
@@ -775,6 +776,11 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 - ACTIVE Product/SKU 不得直接软删除。Product 存在 ACTIVE SKU 时 confirm 返回 `ACTIVE_SKU_DEPENDENCY` 422；Product 任一 SKU 或目标 SKU 存在活动库存预占时返回 `ACTIVE_INVENTORY_RESERVATION` 422。preview 仍以 200 返回影响，失败 confirm 不消费 preview。
 - Product 列表固定 `published_at DESC NULLS LAST,id DESC`；无 ACTIVE SKU 时 `minimum_active_price=null`。Product 详情返回全部 SKU，包括 ARCHIVED，固定按 `created_at ASC,id ASC`；活动图集最多 8 张，固定按 `sort_order ASC,id ASC`。
 - SPU/SKU code 创建后永不可改且软删除后继续保留。SKU 创建与零值 `inventory_balance` 同事务完成，初始物理/锁定/可售库存均为 0；B4 商品编辑只读展示库存摘要，不提供库存调整入口。
+- Banner 创建固定 DRAFT，普通资料更新不接收状态。状态机固定为 `DRAFT/INACTIVE -> ACTIVATE -> ACTIVE`、`ACTIVE -> DEACTIVATE -> INACTIVE`、`DRAFT/INACTIVE -> DELETE -> ARCHIVED + deleted_at`；ACTIVE 不得直接归档，restore 固定回 DRAFT 并清空 `deleted_at`。POST 使用新幂等键，PATCH/DELETE/restore 使用新幂等键与 `If-Match`；DELETE/restore 原因 2-500 字符，Banner 不纳入高风险 preview。
+- Banner 默认列表排除 ARCHIVED，仅显式归档筛选返回；固定按 `sort_order ASC,id ASC`。公开投影只返回 ACTIVE、未归档，且满足 `(starts_at 为空或 starts_at <= now) AND (ends_at 为空或 now < ends_at)` 的记录；起止均非空时 `ends_at > starts_at`。启用及公开读取重查 `READY/PUBLIC/BANNER` 文件；PRODUCT/CATEGORY 目标必须存在且 ACTIVE，目标失效后自动排除；URL 最长 500 字符，必须为 HTTPS 且命中服务端 origin allowlist，allowlist 为空时不开放 URL。
+- 库存列表不提供 `low_stock` 或每 SKU 预警值。统一公式为 `available_qty=physical_qty-locked_qty`；`active_reservation_qty` 只复核锁定事实，不再二次扣减售后占用。ARCHIVED SKU 只读和可查流水，恢复为 INACTIVE 后才可调整。
+- 库存人工调整只修改 physical，接收非零 PostgreSQL INTEGER 范围 `physical_delta` 与 2-500 字符原因。preview 绑定 actor、session、`INVENTORY.ADJUST`、`INVENTORY`、SKU、规范化请求和余额版本；即使调整后实物低于 locked 仍返回 200 warning，confirm 以 `STOCK_INSUFFICIENT` 422 阻断且不消费 preview；整数溢出返回 `INVENTORY_QUANTITY_OUT_OF_RANGE` 422。
+- 库存 confirm 需要相同业务字段、未过期 token/确认哈希、新幂等键和 `If-Match`；成功原子消费 preview、递增余额版本、插入一条 `MANUAL_INCREASE/MANUAL_DECREASE` 流水、写审计/幂等/outbox。同 token 换键、并发确认或同键重放不得产生第二条流水；流水按 `occurred_at DESC,id DESC`，B4 零余额不补写 INITIAL。
 - 七类文件 purpose 只接受 `image/jpeg`、`image/png` 且最大 5 MiB。上传意图声明 64 位小写 SHA-256，完成请求的 SHA-256/size 必须与 intent 及服务端 MIME、魔数、大小、哈希实测一致；不一致返回 `FILE_CONTENT_MISMATCH` 422。
 - 上传签名有效 15 分钟，私有下载签名有效 5 分钟；PENDING/staging 满 24 小时仅成为清理候选，删除前仍须复核无 READY 和业务引用。bucket 默认私有，仅 `public/*` 可匿名 GET；售后、提现、推广 QR 等私有素材只能位于 `private/*`。
 - 品牌、一级分类、商品和 SKU 只允许软删除。已被订单、库存流水、售后或佣金规则引用的记录必须永久保留历史可读性。
@@ -1023,7 +1029,7 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | HR-04 | 客户归属转移/转直营 | 必需 | 必需 | 不要求 TOTP | 展示目标代理与未来订单影响；与订单提交按绑定版本串行 |
 | HR-05 | 平台/分类/SKU 佣金规则设置、0% 或恢复继承 | 必需 | 必需 | 不要求 TOTP | 展示受影响 SKU 和未来支付边界；只追加规则版本 |
 | HR-06 | 品牌、分类、商品或 SKU 启用、停用或软删除 | 必需 | 必需 | 不要求 TOTP | 绑定版本与请求哈希；展示在售引用、图片、ACTIVE SKU 和活动预占影响；历史快照保留，恢复不走 preview |
-| HR-07 | 库存人工调整 | 必需 | 必需 | 不要求 TOTP | 展示调整前后和不变量；生成库存流水 |
+| HR-07 | 库存人工调整 | 必需 | 必需 | 不要求 TOTP | 绑定 SKU 与余额版本，展示 physical/locked/available 前后值；越过 locked 下界时 preview 警告、confirm 422；成功只生成一条人工库存流水 |
 | HR-08 | 售后初审拒绝或验货后拒绝 | 必需 | 必需 | 异常证据按验货场景必需 | 展示释放额度与消费者影响；保留验货事实 |
 | HR-09 | 发起退款、金额补偿或失败重试 | 必需 | 必需 | 不要求 TOTP | 展示金额、库存与佣金影响；稳定退款号、尝试幂等 |
 | HR-10 | 拒绝提现 | 必需 | 必需 | 不要求 TOTP | 展示解冻金额；写钱包流水 |
@@ -1470,8 +1476,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | 验收场景 AC | 116 | 0 |
 | 用户故事 US | 24 | 0 |
 
-当前准入结论：B0 至 B4 development 已通过；CH-010 将产品/API 基线升级为 v2.4.2，Redocly、生成漂移、闭合 schema/统计、状态矩阵、冻结数据库、API + Redis/browser 纵向及五视口验收均已完成。实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的普通 CI Run `32721588213` 与 Supabase B4 rollback-only Run `32722510890` 均成功。CH-011 允许开展 B5 development 治理，但 B5.0 发现的 Banner/库存契约 P0 尚待 CH-012 批准，因此 B5.1 未准入；该状态不替代 staging 或 production 验收。
+当前准入结论：B0 至 B4 development 已通过；CH-012 将产品/API 基线升级为 v2.4.3，并保持既有编号规模和冻结数据库。实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的普通 CI Run `32721588213` 与 Supabase B4 rollback-only Run `32722510890` 继续只证明 B4。CH-011 允许开展 B5 development 治理，CH-012/B5.0 已通过本地契约验收并暂停，B5.1 尚未开始；该状态不替代 staging 或 production 验收。
 
 ---
 
-PRD 状态：v2.4.2/CH-010 仍为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B4 development 已通过，两个 B4 远端门禁绑定同一实现 SHA 并成功。CH-011 已将单人维护补偿控制延长至 B5.4，但不批准 CH-012；B5.1 尚未准入。目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。
+PRD 状态：v2.4.3/CH-012 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B4 development 已通过，两个 B4 远端门禁绑定同一实现 SHA 并成功。B5.0 已通过本地契约验收并暂停，B5.1 尚未开始。目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。

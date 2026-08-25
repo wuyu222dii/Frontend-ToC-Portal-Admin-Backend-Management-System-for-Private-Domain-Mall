@@ -110,26 +110,28 @@
   ];
 
   const inventorySkus = [
-    { id: "CLEAN-120", product: "植萃研氨基酸净澈洁面乳", spec: "120g 单支", art: "art-green", available: 286, paymentReserved: 8, aftersaleReserved: 2, warning: 30 },
-    { id: "CLEAN-120X2", product: "植萃研氨基酸净澈洁面乳", spec: "120g 两支装", art: "art-green", available: 96, paymentReserved: 3, aftersaleReserved: 0, paymentReservationOrderId: "QY202608060028", warning: 20 },
-    { id: "HAIR-500", product: "沐光无硅油蓬松洗发水", spec: "500ml 正装", art: "art-blue", available: 16, paymentReserved: 6, aftersaleReserved: 1, warning: 20 },
-    { id: "HAIR-500R", product: "沐光无硅油蓬松洗发水", spec: "500ml 补充装", art: "art-blue", available: 52, paymentReserved: 4, aftersaleReserved: 0, warning: 15 },
-    { id: "CLEAN-030", product: "植萃研氨基酸净澈洁面乳", spec: "30g 旅行装", art: "art-green", available: 42, paymentReserved: 0, aftersaleReserved: 0, warning: 10 },
-    { id: "BODY-500", product: "沐光白茶香氛沐浴露", spec: "500ml 正装", art: "art-coral", available: 120, paymentReserved: 10, aftersaleReserved: 3, warning: 30 },
-    { id: "BODY-1000", product: "沐光白茶香氛沐浴露", spec: "500ml × 2", art: "art-coral", available: 46, paymentReserved: 2, aftersaleReserved: 0, warning: 15 },
-    { id: "BODY-REFILL", product: "沐光白茶香氛沐浴露", spec: "400ml 补充装", art: "art-coral", available: 20, paymentReserved: 1, aftersaleReserved: 0, warning: 10 },
-    { id: "SKIN-050", product: "青木序积雪草舒缓修护霜", spec: "50g 正装", art: "art-coral", available: 16, paymentReserved: 4, aftersaleReserved: 1, warning: 15 },
-    { id: "SERUM-030", product: "植萃研烟酰胺焕亮精华液", spec: "30ml 正装", art: "art-purple", available: 8, paymentReserved: 1, aftersaleReserved: 1, warning: 12 },
-    { id: "HOME-030", product: "净简酵素浓缩洗衣凝珠", spec: "30 颗", art: "art-amber", available: 238, paymentReserved: 7, aftersaleReserved: 0, warning: 40 },
-    { id: "HOME-060", product: "净简酵素浓缩洗衣凝珠", spec: "60 颗", art: "art-amber", available: 80, paymentReserved: 2, aftersaleReserved: 0, warning: 20 },
-    { id: "SUN-050", product: "青木序轻透倍护防晒乳", spec: "50ml 正装", art: "art-blue", available: 1, paymentReserved: 1, aftersaleReserved: 0, warning: 20 },
-    { id: "HOME-021", product: "净简柑橘厨房重油污清洁剂", spec: "500ml", art: "art-green", available: 0, paymentReserved: 0, aftersaleReserved: 0, warning: 12 }
+    { id: "CLEAN-120", product: "植萃研氨基酸净澈洁面乳", spec: "120g 单支", art: "art-green", physical: 286, locked: 10, activeReservationQty: 10, version: 4 },
+    { id: "CLEAN-120X2", product: "植萃研氨基酸净澈洁面乳", spec: "120g 两支装", art: "art-green", physical: 96, locked: 3, activeReservationQty: 3, version: 3, paymentReservationOrderId: "QY202608060028" },
+    { id: "HAIR-500", product: "沐光无硅油蓬松洗发水", spec: "500ml 正装", art: "art-blue", physical: 16, locked: 7, activeReservationQty: 7, version: 5 },
+    { id: "HAIR-500R", product: "沐光无硅油蓬松洗发水", spec: "500ml 补充装", art: "art-blue", physical: 52, locked: 4, activeReservationQty: 4, version: 2 },
+    { id: "CLEAN-030", product: "植萃研氨基酸净澈洁面乳", spec: "30g 旅行装", art: "art-green", physical: 42, locked: 0, activeReservationQty: 0, version: 2 },
+    { id: "BODY-500", product: "沐光白茶香氛沐浴露", spec: "500ml 正装", art: "art-coral", physical: 120, locked: 13, activeReservationQty: 13, version: 6 },
+    { id: "BODY-1000", product: "沐光白茶香氛沐浴露", spec: "500ml × 2", art: "art-coral", physical: 46, locked: 2, activeReservationQty: 2, version: 3 },
+    { id: "BODY-REFILL", product: "沐光白茶香氛沐浴露", spec: "400ml 补充装", art: "art-coral", physical: 20, locked: 1, activeReservationQty: 1, version: 2 },
+    { id: "SKIN-050", product: "青木序积雪草舒缓修护霜", spec: "50g 正装", art: "art-coral", physical: 16, locked: 5, activeReservationQty: 5, version: 4 },
+    { id: "SERUM-030", product: "植萃研烟酰胺焕亮精华液", spec: "30ml 正装", art: "art-purple", physical: 8, locked: 2, activeReservationQty: 2, version: 4 },
+    { id: "HOME-030", product: "净简酵素浓缩洗衣凝珠", spec: "30 颗", art: "art-amber", physical: 238, locked: 7, activeReservationQty: 7, version: 5 },
+    { id: "HOME-060", product: "净简酵素浓缩洗衣凝珠", spec: "60 颗", art: "art-amber", physical: 80, locked: 2, activeReservationQty: 2, version: 2 },
+    { id: "SUN-050", product: "青木序轻透倍护防晒乳", spec: "50ml 正装", art: "art-blue", physical: 1, locked: 1, activeReservationQty: 1, version: 3 },
+    { id: "HOME-021", product: "净简柑橘厨房重油污清洁剂", spec: "500ml", art: "art-green", physical: 0, locked: 0, activeReservationQty: 0, version: 1 },
+    { id: "HOME-OLD", product: "净简柑橘厨房重油污清洁剂", spec: "旧包装 500ml", art: "art-green", physical: 12, locked: 0, activeReservationQty: 0, version: 3 }
   ];
 
   const banners = [
-    { id: "BN-01", name: "植萃修护季", detail: "SPU-202608-001", start: "2026-08-01", end: "2026-08-31", sort: 1, status: "已启用", tone: "green-banner" },
-    { id: "BN-02", name: "盛夏清爽洗护", detail: "CAT-HAIR", start: "2026-08-10", end: "2026-09-10", sort: 2, status: "已启用", tone: "blue-banner" },
-    { id: "BN-03", name: "家庭清洁焕新", detail: "CAT-HOME", start: "2026-08-01", end: "2026-12-31", sort: 3, status: "已停用", tone: "coral-banner" }
+    { id: "BN-01", name: "植萃修护季", fileId: "FILE-BANNER-001", imageUrl: "assets/hero-banner.png", fileStatus: "READY", visibility: "PUBLIC", purpose: "BANNER", targetType: "PRODUCT", targetId: "QY-CLEAN-001", targetUrl: null, start: "2026-08-01T00:00", end: "2026-08-31T23:59", sort: 1, status: "ACTIVE", version: 4 },
+    { id: "BN-02", name: "盛夏清爽洗护", fileId: "FILE-BANNER-002", imageUrl: "assets/product-sheet.png", fileStatus: "READY", visibility: "PUBLIC", purpose: "BANNER", targetType: "CATEGORY", targetId: "CAT-HAIR", targetUrl: null, start: "2026-08-10T00:00", end: "2026-09-10T23:59", sort: 2, status: "ACTIVE", version: 3 },
+    { id: "BN-03", name: "家庭清洁焕新", fileId: "FILE-BANNER-003", imageUrl: "assets/hero-banner.png", fileStatus: "READY", visibility: "PUBLIC", purpose: "BANNER", targetType: "NONE", targetId: null, targetUrl: null, start: null, end: null, sort: 3, status: "INACTIVE", version: 2 },
+    { id: "BN-04", name: "品牌内容指引", fileId: "FILE-BANNER-004", imageUrl: "assets/product-sheet.png", fileStatus: "READY", visibility: "PUBLIC", purpose: "BANNER", targetType: "URL", targetId: null, targetUrl: "https://mall.qingxu.example/content/guide", start: null, end: null, sort: 4, status: "ARCHIVED", version: 2, deletedAt: "2026-08-20T10:20" }
   ];
 
   const productDetails = Object.fromEntries(products.map((product) => [product.id, {
@@ -148,7 +150,7 @@
     5: [{ spec: "30ml 正装", id: "SERUM-030", price: 159, status: "ACTIVE", version: 2, isRecommended: true }],
     6: [{ spec: "500ml 正装", id: "BODY-500", price: 79, status: "ACTIVE", version: 2, isRecommended: true }, { spec: "500ml × 2", id: "BODY-1000", price: 139, status: "ACTIVE", version: 2, isRecommended: false }, { spec: "400ml 补充装", id: "BODY-REFILL", price: 59, status: "ACTIVE", version: 2, isRecommended: false }],
     7: [{ spec: "50ml 正装", id: "SUN-050", price: 119, status: "INACTIVE", version: 3, isRecommended: false }],
-    8: [{ spec: "500ml", id: "HOME-021", price: 39, status: "INACTIVE", version: 1, isRecommended: false }]
+    8: [{ spec: "500ml", id: "HOME-021", price: 39, status: "INACTIVE", version: 1, isRecommended: false }, { spec: "旧包装 500ml", id: "HOME-OLD", price: 35, status: "ARCHIVED", version: 3, isRecommended: false }]
   };
 
   function inventoryForProduct(productId) {
@@ -157,8 +159,7 @@
   }
 
   function inventorySnapshot(item) {
-    const locked = item.paymentReserved + item.aftersaleReserved;
-    return { physical: item.available, locked, available: Math.max(0, item.available - locked) };
+    return { physical: item.physical, locked: item.locked, available: item.physical - item.locked };
   }
 
   function productInventorySnapshot(productId) {
@@ -173,8 +174,8 @@
   }
 
   const inventoryLedger = {
-    "CLEAN-120": [{ time: "08-10 16:20", delta: 40, result: 286, reason: "采购入库", actor: "林老板" }],
-    "HAIR-500": [{ time: "08-11 09:12", delta: -2, result: 16, reason: "盘点修正", actor: "仓库管理员" }]
+    "CLEAN-120": [{ id: "IL-20260810-001", occurredAt: "08-10 16:20", type: "MANUAL_INCREASE", delta: 40, after: 286, reason: "采购到货复核入库", actor: "林老板" }],
+    "HAIR-500": [{ id: "IL-20260811-002", occurredAt: "08-11 09:12", type: "MANUAL_DECREASE", delta: -2, after: 16, reason: "盘点差异修正", actor: "仓库管理员" }]
   };
 
   const businessRules = {
@@ -281,6 +282,8 @@
     loginFailures: 0,
     loginLockedUntil: 0,
     activeEntity: null,
+    bannerFileDraft: null,
+    entitySubmitting: false,
     activeInventorySku: null,
     inventoryViewOnly: false,
     activeAgentDrilldown: "customers",
@@ -330,8 +333,6 @@
       "已打款": "success",
       "成功": "success",
       "冲突": "danger",
-      "正常": "success",
-      "低库存": "warning",
       "缺货": "danger"
     }[status] || "neutral";
   }
@@ -432,14 +433,13 @@
     $("#productCount").textContent = `共 ${filtered.length} 件商品`;
     $("#productRows").innerHTML = filtered.length ? filtered.map((product) => {
       const inventory = productInventorySnapshot(product.id);
-      const low = inventory.available <= 20;
       const skuCount = (productSkus[product.id] || []).length;
       const activeSkuCount = activeProductSkus(product.id).length;
       const activePrice = minimumActivePrice(product.id);
       return `<tr data-product-id="${product.id}">
         <td><div class="product-cell">${renderProductArt(product.art, product.brand)}<div class="product-cell-copy"><strong title="${product.name}">${product.name}</strong><span>${product.code} · v${product.version}</span></div></div></td>
         <td><span class="cell-main product-minimum-price">${activePrice === null ? "暂无活动价" : money(activePrice)}</span><span class="cell-sub">${activePrice === null ? "无已启用 SKU" : "已启用 SKU 最低价"}</span></td>
-        <td><div class="product-inventory-summary ${low ? "low" : ""}" aria-label="SKU 与库存只读摘要"><strong>${skuCount} SKU · ${activeSkuCount} 个已启用</strong><span>实物 ${inventory.physical} · 锁定 ${inventory.locked}</span><em>可售 ${inventory.available}</em></div></td>
+        <td><div class="product-inventory-summary" aria-label="SKU 与库存只读摘要"><strong>${skuCount} SKU · ${activeSkuCount} 个已启用</strong><span>实物 ${inventory.physical} · 锁定 ${inventory.locked}</span><em>可售 ${inventory.available}</em></div></td>
         <td class="optional-wide"><span class="cell-main">${product.sales.toLocaleString("zh-CN")}</span><span class="cell-sub">累计销量</span></td>
         <td><span class="tag product-status ${statusClass(product.status)}" data-status-code="${product.status}">${catalogStatusLabel(product.status)}</span><span class="cell-sub product-published-at">${product.publishedAt ? `首次 ${product.publishedAt}` : "尚未发布"}</span></td>
         <td class="optional-wide"><span class="tag ${product.isHot ? "success" : "neutral"}">${product.isHot ? "HOT" : "非热销"}</span><span class="cell-sub">${product.isNew ? "NEW" : "常规"}</span></td>
@@ -478,26 +478,91 @@
     return `<button class="icon-button ${editClass}" type="button" title="编辑${type === "brand" ? "品牌" : "分类"}">${icon("edit")}</button>${lifecycle.join("")}`;
   }
 
-  function renderBanners() {
-    $("#bannerManageGrid").innerHTML = banners.slice().sort((a, b) => a.sort - b.sort).map((banner) => `<article class="banner-manage-card" data-banner-id="${banner.id}"><div class="banner-preview ${banner.tone}"><span>${String(banner.sort).padStart(2, "0")} · 首页广告位</span><strong>${banner.name}</strong><small>跳转目标：${banner.detail}</small></div><dl><div><dt>投放时间</dt><dd>${banner.start.slice(5)} 至 ${banner.end.slice(5)}</dd></div><div><dt>跳转目标</dt><dd>${banner.detail}</dd></div><div><dt>状态</dt><dd><span class="tag ${statusClass(banner.status)}">${banner.status === "已启用" ? "投放中" : "已暂停"}</span></dd></div></dl><div><button class="button secondary small edit-banner" type="button">编辑</button><button class="switch banner-toggle ${banner.status === "已启用" ? "active" : ""}" type="button" aria-pressed="${banner.status === "已启用"}"><i></i></button></div></article>`).join("");
+  function bannerTargetLabel(banner) {
+    if (banner.targetType === "NONE") return "NONE · 不跳转";
+    if (banner.targetType === "PRODUCT") {
+      const product = products.find((item) => item.code === banner.targetId);
+      return `PRODUCT · ${product?.name || banner.targetId}`;
+    }
+    if (banner.targetType === "CATEGORY") {
+      const category = commissionCategories.find((item) => item.id === banner.targetId);
+      return `CATEGORY · ${category?.name || banner.targetId}`;
+    }
+    return `URL · ${banner.targetUrl}`;
   }
 
-  function inventoryState(item) {
-    if (item.available === 0) return "缺货";
-    if (item.available <= item.warning) return "低库存";
-    return "正常";
+  function bannerTargetIsValid(banner) {
+    if (banner.targetType === "NONE") return true;
+    if (banner.targetType === "PRODUCT") return products.some((item) => item.code === banner.targetId && item.status === "ACTIVE");
+    if (banner.targetType === "CATEGORY") return commissionCategories.some((item) => item.id === banner.targetId && item.status === "ACTIVE");
+    if (banner.targetType !== "URL") return false;
+    try {
+      const url = new URL(banner.targetUrl);
+      return url.protocol === "https:" && url.origin === "https://mall.qingxu.example";
+    } catch {
+      return false;
+    }
+  }
+
+  function bannerFileIsValid(banner) {
+    return Boolean(banner.fileId && banner.imageUrl && banner.fileStatus === "READY" && banner.visibility === "PUBLIC" && banner.purpose === "BANNER");
+  }
+
+  function bannerActions(banner) {
+    if (banner.status === "ARCHIVED") return `<button class="button text restore-banner" type="button">恢复为草稿</button>`;
+    const actions = [`<button class="button secondary small edit-banner" type="button">编辑资料</button>`];
+    if (["DRAFT", "INACTIVE"].includes(banner.status)) actions.push(`<button class="button text banner-lifecycle" type="button" data-banner-action="ACTIVATE">启用</button>`);
+    if (banner.status === "ACTIVE") actions.push(`<button class="button text banner-lifecycle" type="button" data-banner-action="DEACTIVATE">停用</button>`);
+    if (["DRAFT", "INACTIVE"].includes(banner.status)) actions.push(`<button class="icon-button danger banner-lifecycle" type="button" data-banner-action="DELETE" title="归档 Banner">${icon("trash")}</button>`);
+    return actions.join("");
+  }
+
+  function renderBanners() {
+    const status = $("#bannerStatus").value;
+    const filtered = banners
+      .filter((banner) => status ? banner.status === status : banner.status !== "ARCHIVED")
+      .sort((a, b) => a.sort - b.sort || a.id.localeCompare(b.id));
+    $("#bannerManageGrid").innerHTML = filtered.length ? filtered.map((banner) => {
+      const timeRange = banner.start || banner.end ? `${banner.start ? banner.start.replace("T", " ") : "不限"} 至 ${banner.end ? banner.end.replace("T", " ") : "不限"}` : "长期有效";
+      return `<article class="banner-manage-card" data-banner-id="${banner.id}" data-banner-status="${banner.status}"><div class="banner-preview"><img src="${banner.imageUrl}" alt="${banner.name} Banner 图片"><span>${String(banner.sort).padStart(2, "0")} · 首页广告位</span></div><div class="banner-card-title"><strong>${banner.name}</strong><span class="tag ${statusClass(banner.status)}" data-status-code="${banner.status}">${catalogStatusLabel(banner.status)}</span></div><dl><div><dt>投放时间</dt><dd>${timeRange}</dd></div><div><dt>跳转目标</dt><dd>${bannerTargetLabel(banner)}</dd></div><div><dt>公开文件</dt><dd>${banner.fileId} · READY/PUBLIC</dd></div><div><dt>版本</dt><dd>v${banner.version}</dd></div></dl><div class="banner-card-actions">${bannerActions(banner)}</div></article>`;
+    }).join("") : `<article class="panel empty-state banner-empty">${icon("eye")}<strong>没有匹配的 Banner</strong><span>默认列表不返回已归档记录</span></article>`;
+  }
+
+  function skuCatalogRecord(skuId) {
+    return Object.values(productSkus).flat().find((sku) => sku.id === skuId);
   }
 
   function renderInventory() {
     const keyword = $("#inventorySearch").value.trim().toLowerCase();
     const status = $("#inventoryStatus").value;
-    const filtered = inventorySkus.filter((item) => (!keyword || `${item.product}${item.spec}${item.id}`.toLowerCase().includes(keyword)) && (!status || inventoryState(item) === status));
+    const filtered = inventorySkus
+      .filter((item) => {
+        const skuStatus = skuCatalogRecord(item.id)?.status || "INACTIVE";
+        return (!keyword || `${item.product}${item.spec}${item.id}`.toLowerCase().includes(keyword)) && (!status || skuStatus === status);
+      })
+      .sort((a, b) => a.product.localeCompare(b.product, "zh-CN") || a.id.localeCompare(b.id));
+    const totals = filtered.reduce((sum, item) => {
+      const snapshot = inventorySnapshot(item);
+      sum.physical += snapshot.physical;
+      sum.locked += snapshot.locked;
+      sum.available += snapshot.available;
+      if (skuCatalogRecord(item.id)?.status === "ARCHIVED") sum.archived += 1;
+      return sum;
+    }, { physical: 0, locked: 0, available: 0, archived: 0 });
+    $("#inventoryPhysicalTotal").textContent = totals.physical.toLocaleString("zh-CN");
+    $("#inventoryLockedTotal").textContent = totals.locked.toLocaleString("zh-CN");
+    $("#inventoryAvailableTotal").textContent = totals.available.toLocaleString("zh-CN");
+    $("#inventoryArchivedTotal").textContent = totals.archived;
     $("#inventoryCount").textContent = `共 ${filtered.length} 个 SKU`;
     $("#inventoryRows").innerHTML = filtered.length ? filtered.map((item) => {
-      const shippable = Math.max(0, item.available - item.paymentReserved - item.aftersaleReserved);
-      const stockStatus = inventoryState(item);
-      return `<tr data-inventory-id="${item.id}"><td><div class="product-cell">${renderProductArt(item.art, "")}<div class="product-cell-copy"><strong>${item.product}</strong><span>${item.spec} · ${item.id}</span></div></div></td><td><span class="cell-main">${item.available}</span></td><td>${item.paymentReserved}</td><td><span class="${item.aftersaleReserved ? "coral-text" : ""}">${item.aftersaleReserved}</span></td><td><strong>${shippable}</strong></td><td>${item.warning}</td><td><span class="tag ${statusClass(stockStatus)}">${stockStatus}</span></td><td><div class="row-actions"><button class="button text inventory-adjust" type="button">调整</button><button class="icon-button inventory-flow" type="button" title="查看库存流水">${icon("eye")}</button></div></td></tr>`;
-    }).join("") : `<tr><td colspan="8"><div class="empty-state">${icon("package")}<strong>没有匹配库存记录</strong><span>请调整 SKU 关键词或状态</span></div></td></tr>`;
+      const snapshot = inventorySnapshot(item);
+      const skuStatus = skuCatalogRecord(item.id)?.status || "INACTIVE";
+      const reservationCheck = item.activeReservationQty === item.locked ? "已核对" : "待复核";
+      const actions = skuStatus === "ARCHIVED"
+        ? `<span class="cell-sub">归档只读</span><button class="icon-button inventory-flow" type="button" title="查看库存流水">${icon("eye")}</button>`
+        : `<button class="button text inventory-adjust" type="button">调整</button><button class="icon-button inventory-flow" type="button" title="查看库存流水">${icon("eye")}</button>`;
+      return `<tr data-inventory-id="${item.id}" data-sku-status="${skuStatus}"><td><div class="product-cell">${renderProductArt(item.art, "")}<div class="product-cell-copy"><strong>${item.product}</strong><span>${item.spec} · ${item.id} · ${catalogStatusLabel(skuStatus)} · v${item.version}</span><div class="inventory-mobile-summary" aria-label="移动端库存摘要"><span><b>实物</b>${snapshot.physical}</span><span><b>锁定</b>${snapshot.locked}</span><span><b>预占</b>${item.activeReservationQty}</span><span><b>可售</b>${snapshot.available}</span></div></div></div></td><td><span class="tag ${statusClass(skuStatus)}" data-status-code="${skuStatus}">${catalogStatusLabel(skuStatus)}</span></td><td><span class="cell-main">${snapshot.physical}</span></td><td>${snapshot.locked}</td><td><span class="cell-main">${item.activeReservationQty}</span><span class="cell-sub">${reservationCheck}</span></td><td><strong>${snapshot.available}</strong></td><td>v${item.version}</td><td><div class="row-actions">${actions}</div></td></tr>`;
+    }).join("") : `<tr><td colspan="8"><div class="empty-state">${icon("package")}<strong>没有匹配库存记录</strong><span>请调整 SKU 关键词或生命周期筛选</span></div></td></tr>`;
   }
 
   function renderAuditLogs() {
@@ -847,6 +912,29 @@
     state.highRiskRepairAction = config.repairAction || null;
   }
 
+  function renderHighRiskContext(context) {
+    if (!context) return;
+    if (context.type === "banner") return renderBanners();
+    if (context.type === "inventory") return renderInventory();
+    renderProducts();
+    if (context.type === "sku" && state.activeProductId === context.product.id) renderProductEditorSkus(productSkus[context.product.id]);
+  }
+
+  function highRiskContextLabel(context) {
+    return { product: "商品", sku: "SKU", banner: "Banner", inventory: "库存" }[context?.type] || "记录";
+  }
+
+  function reopenHighRiskContext(context) {
+    if (context.type === "banner") return openEntityEditor("banner", context.target.id);
+    if (context.type === "inventory") return openInventoryEditor(context.target.id);
+    if (context.type === "product") {
+      renderProducts();
+      return showPage("products");
+    }
+    openProductEditor(context.product.id);
+    selectProductEditorTab("sku");
+  }
+
   function clearBankReveal() {
     clearTimeout(state.bankRevealTimer);
     state.bankRevealTimer = null;
@@ -1030,35 +1118,69 @@
     }));
   }
 
+  function renderBannerAssetDraft() {
+    const file = state.bannerFileDraft;
+    $("#entityBannerPreview").src = file?.imageUrl || "assets/hero-banner.png";
+    $("#entityBannerFileState").textContent = file ? "图片已就绪" : "尚未选择公开图片";
+    $("#entityBannerFileMeta").textContent = file ? `${file.fileId} · READY / PUBLIC / BANNER` : "仅接受 READY / PUBLIC / BANNER 文件";
+    $("#uploadBannerImage").classList.toggle("is-ready", Boolean(file));
+  }
+
+  function renderBannerTargetFields(preferredId = "") {
+    const targetType = $("#entityTargetType").value;
+    const requiresId = ["PRODUCT", "CATEGORY"].includes(targetType);
+    $("#entityTargetIdField").hidden = !requiresId;
+    $("#entityTargetUrlField").hidden = targetType !== "URL";
+    if (!requiresId) return;
+    const choices = targetType === "PRODUCT"
+      ? products.filter((item) => item.status === "ACTIVE").map((item) => ({ id: item.code, label: `${item.name} · ${item.code}` }))
+      : commissionCategories.filter((item) => item.status === "ACTIVE").map((item) => ({ id: item.id, label: `${item.name} · ${item.id}` }));
+    $("#entityTargetId").innerHTML = `<option value="">请选择已启用目标</option>${choices.map((item) => `<option value="${item.id}">${item.label}</option>`).join("")}`;
+    $("#entityTargetId").value = choices.some((item) => item.id === preferredId) ? preferredId : "";
+  }
+
   function openEntityEditor(type, id = null) {
     let item;
     if (type === "brand") item = brands.find((entry) => entry.id === id);
     if (type === "category") item = commissionCategories.find((entry) => entry.id === id);
     if (type === "banner") item = banners.find((entry) => entry.id === id);
-    state.activeEntity = { type, id, item };
+    state.activeEntity = { type, id, item, expectedVersion: item?.version ?? null };
     const labels = { brand: "品牌", category: "一级分类", banner: "Banner" };
     const isMasterData = type === "brand" || type === "category";
+    const isBanner = type === "banner";
     $("#entityModalTitle").textContent = `${item ? "编辑" : "新增"}${labels[type]}`;
     $("#entityModalSubtitle").textContent = isMasterData
       ? item ? `v${item.version} · 普通编辑不改变 ${item.status} 状态` : "initial_status 固定为 DRAFT"
-      : item ? `${item.id} · 软删除保留历史引用` : "保存前校验编码、名称与关联范围";
+      : item ? `If-Match \"v${item.version}\" · 资料保存不改变 ${item.status}` : "服务端生成 ID · initial_status 固定为 DRAFT";
     $("#entityCode").value = item ? item.id : "";
     $("#entityCode").disabled = Boolean(item);
     $("#entityName").value = item ? item.name : "";
     $("#entityDetail").value = item ? (type === "brand" ? item.description || "" : item.detail || "") : "";
-    $("#entityDetailLabel").textContent = type === "brand" ? "品牌描述" : "跳转目标 *";
+    $("#entityDetailLabel").textContent = "品牌描述";
     $("#entitySort").value = item ? item.sort ?? 0 : 0;
-    $("#entityStatus").value = item ? item.status : "已启用";
-    $("#entityDraftNotice").hidden = !isMasterData || Boolean(item);
-    $("#entityCodeField").hidden = isMasterData;
-    $("#entityDetailField").hidden = type === "category";
-    $("#entityStatusField").hidden = isMasterData;
-    $("#entityStartField").hidden = type !== "banner";
-    $("#entityEndField").hidden = type !== "banner";
-    $("#entityStart").value = item && type === "banner" ? item.start : "2026-08-11";
-    $("#entityEnd").value = item && type === "banner" ? item.end : "2026-09-11";
-    $("#archiveEntity").hidden = isMasterData || !item;
+    $("#entityStatus").value = "已停用";
+    $("#entityDraftNotice").hidden = Boolean(item) || (!isMasterData && !isBanner);
+    $("#entityCodeField").hidden = isMasterData || isBanner;
+    $("#entityDetailField").hidden = type === "category" || isBanner;
+    $("#entityStatusField").hidden = true;
+    $("#entityBannerAssetField").hidden = !isBanner;
+    $("#entityTargetTypeField").hidden = !isBanner;
+    $("#entityStartField").hidden = !isBanner;
+    $("#entityEndField").hidden = !isBanner;
+    $("#entityStart").value = item?.start || "";
+    $("#entityEnd").value = item?.end || "";
+    $("#entityTargetType").value = item?.targetType || "NONE";
+    $("#entityTargetUrl").value = item?.targetUrl || "";
+    renderBannerTargetFields(item?.targetId || "");
+    state.bannerFileDraft = isBanner && item ? { fileId: item.fileId, imageUrl: item.imageUrl, fileStatus: item.fileStatus, visibility: item.visibility, purpose: item.purpose } : null;
+    renderBannerAssetDraft();
+    $("#archiveEntity").hidden = true;
+    $("#entityVersionNotice").hidden = !item;
+    $("#entityVersionText").textContent = item ? `If-Match \"v${item.version}\"` : "";
+    $("#simulateEntityConflict").disabled = false;
     $("#entityError").hidden = true;
+    $("#entityError").dataset.errorCode = "";
+    $("#entityError").dataset.httpStatus = "";
     openModal("#entityModal");
   }
 
@@ -1094,6 +1216,42 @@
         renderMasterData(type);
         renderAuditLogs();
         showToast(`${item.name} 已${labels[action]}`);
+      }
+    });
+  }
+
+  function bannerLifecycle(banner, action) {
+    const labels = { ACTIVATE: "启用", DEACTIVATE: "停用", DELETE: "归档" };
+    const targetStatus = { ACTIVATE: "ACTIVE", DEACTIVATE: "INACTIVE", DELETE: "ARCHIVED" }[action];
+    const allowed = (action === "ACTIVATE" && ["DRAFT", "INACTIVE"].includes(banner.status))
+      || (action === "DEACTIVATE" && banner.status === "ACTIVE")
+      || (action === "DELETE" && ["DRAFT", "INACTIVE"].includes(banner.status));
+    if (!allowed) return showToast("STATE_CONFLICT（409）：请刷新 Banner 最新状态后重试");
+    let confirmError = null;
+    if (action === "ACTIVATE" && !bannerFileIsValid(banner)) {
+      confirmError = { code: "STATE_CONFLICT", status: 409, message: "Banner 图片必须为 READY / PUBLIC / BANNER", businessMessage: "公开图片状态已变化，请返回编辑并刷新资料。" };
+    } else if (action === "ACTIVATE" && !bannerTargetIsValid(banner)) {
+      confirmError = { code: "STATE_CONFLICT", status: 409, message: "关联目标必须有效且已启用，URL 必须命中 HTTPS allowlist", businessMessage: "跳转目标状态已变化，请返回编辑并刷新资料。" };
+    }
+    requestHighRiskAction({
+      title: `确认${labels[action]} Banner · ${banner.name}`,
+      subtitle: `If-Match \"v${banner.version}\" · 新 Idempotency-Key · BANNER_RESOURCE_RESPONSE`,
+      impact: `${banner.status} → ${targetStatus}。资料与生命周期独立；ACTIVE 不开放直接归档。`,
+      confirmLabel: `确认${labels[action]}`,
+      reasonRequired: action !== "ACTIVATE" && action !== "DEACTIVATE",
+      confirmError,
+      repairLabel: confirmError ? "重新编辑 Banner" : undefined,
+      repairAction: confirmError ? () => openEntityEditor("banner", banner.id) : null,
+      catalogContext: { type: "banner", action, target: banner, expectedVersion: banner.version },
+      diagnostic: { message: `确认绑定 BANNER / ${action} / v${banner.version} / If-Match` },
+      action: (reason) => {
+        banner.status = targetStatus;
+        banner.version += 1;
+        if (action === "DELETE") banner.deletedAt = "2026-08-25T12:32";
+        auditLogs.unshift({ id: `AUD-${Date.now()}`, time: "08-25 12:32:00", type: "内容配置", actor: "林老板", target: banner.id, reason, result: `${action} · ${targetStatus} · v${banner.version}`, client: "Web · Prototype", status: "成功" });
+        renderBanners();
+        renderAuditLogs();
+        showToast(`${banner.name} 已${labels[action]}`);
       }
     });
   }
@@ -1168,8 +1326,8 @@
           ? inventorySkus.find((entry) => entry.id === item.id && inventorySnapshot(entry).locked > 0)
           : inventoryForProduct(product.id).find((entry) => inventorySnapshot(entry).locked > 0);
         confirmError = { code: "ACTIVE_INVENTORY_RESERVATION", status: 422, message: `仍有 ${locked} 件活动库存预占`, businessMessage: `仍有 ${locked} 件库存被订单或售后流程占用，需先完成相关业务。` };
-        const relatedAftersale = lockedSku?.aftersaleReserved > 0 ? aftersales.find((entry) => entry.sku === lockedSku.id) : null;
-        const relatedOrder = lockedSku?.paymentReserved > 0
+        const relatedAftersale = lockedSku ? aftersales.find((entry) => entry.sku === lockedSku.id && entry.reserved) : null;
+        const relatedOrder = lockedSku
           ? orders.find((entry) => entry.id === lockedSku.paymentReservationOrderId)
             || orders.find((entry) => frozenOrderDetails[entry.id]?.items.some((snapshot) => snapshot.sku.includes(lockedSku.id)))
           : null;
@@ -1219,9 +1377,9 @@
   }
 
   function openRestoreEntity(type, item, product = null) {
-    const labels = { brand: "品牌", category: "分类", product: "商品", sku: "SKU" };
+    const labels = { brand: "品牌", category: "分类", banner: "Banner", product: "商品", sku: "SKU" };
     const restoredStatus = type === "sku" ? "INACTIVE" : "DRAFT";
-    state.activeEntity = { type, id: item.id, item, product };
+    state.activeEntity = { type, id: item.id, item, product, expectedVersion: item.version };
     $("#restoreEntityTitle").textContent = `恢复${labels[type]} · ${item.name || item.code || item.id}`;
     $("#restoreEntitySubtitle").textContent = `当前已归档 · 版本 v${item.version}`;
     $("#restoreResultStatus").textContent = `恢复结果：${catalogStatusLabel(restoredStatus)}`;
@@ -1235,24 +1393,45 @@
   function openInventoryEditor(skuId, viewOnly = false, options = {}) {
     const item = inventorySkus.find((entry) => entry.id === skuId);
     if (!item) return;
+    const skuStatus = skuCatalogRecord(item.id)?.status || "INACTIVE";
+    if (skuStatus === "ARCHIVED") viewOnly = true;
     if (!options.preserveProduct) state.activeProductId = null;
     state.activeInventorySku = item.id;
     state.inventoryViewOnly = viewOnly;
     $("#stockTitle").textContent = viewOnly ? "SKU 库存流水" : "调整 SKU 库存";
-    $("#stockProductName").textContent = `${item.product} · ${item.spec} · ${item.id}`;
+    $("#stockProductName").textContent = `${item.product} · ${item.spec} · ${item.id} · ${catalogStatusLabel(skuStatus)}`;
     $("#stockSkuField").hidden = !state.activeProductId;
     if (state.activeProductId) $("#stockSkuSelect").value = item.id;
-    $("#currentStock").textContent = item.available;
-    $("#newStock").value = item.available;
-    $("#stockWarning").value = item.warning;
+    const snapshot = inventorySnapshot(item);
+    $("#currentStock").textContent = snapshot.physical;
+    $("#currentLocked").textContent = snapshot.locked;
+    $("#currentAvailable").textContent = snapshot.available;
+    $("#stockVersion").textContent = `v${item.version}`;
+    $("#stockDelta").value = "";
     $("#stockReason").value = "";
-    $("#stockNote").value = "";
-    ["newStock", "stockWarning", "stockReason", "stockNote"].forEach((id) => { $("#" + id).disabled = viewOnly; });
+    $("#stockAdjustmentFields").hidden = viewOnly;
     $("#confirmStock").hidden = viewOnly;
     $("#stockError").hidden = true;
+    $("#stockError").dataset.errorCode = "";
+    $("#stockError").dataset.httpStatus = "";
+    $("#stockPreview").textContent = "输入非零调整量后预览 physical / locked / available 的前后变化。";
     const ledger = inventoryLedger[item.id] || [];
-    $("#stockLedger").innerHTML = ledger.length ? ledger.map((entry) => `<div><span class="audit-type ${entry.delta >= 0 ? "success" : "danger"}">${entry.delta >= 0 ? "+" : ""}${entry.delta}</span><p><strong>${entry.reason} · 结存 ${entry.result}</strong><small>${entry.time} · ${entry.actor}</small></p></div>`).join("") : `<div><span class="audit-type neutral">EMPTY</span><p><strong>暂无调整流水</strong><small>支付与售后预占使用独立流水，不改写实物库存。</small></p></div>`;
+    $("#stockLedger").innerHTML = ledger.length ? ledger.map((entry) => `<div data-ledger-type="${entry.type}"><span class="audit-type ${entry.delta >= 0 ? "success" : "danger"}">${entry.delta >= 0 ? "+" : ""}${entry.delta}</span><p><strong>${entry.type} · ${entry.reason}</strong><small>实物 ${entry.after - entry.delta} → ${entry.after} · ${entry.occurredAt} · ${entry.actor} · ${entry.id}</small></p></div>`).join("") : `<div><span class="audit-type neutral">EMPTY</span><p><strong>暂无库存流水</strong><small>B4 零余额创建不补写 INITIAL；流水只追加且按 occurred_at DESC、id DESC。</small></p></div>`;
     if ($("#stockModal").hidden) openModal("#stockModal");
+  }
+
+  function updateStockDraftPreview() {
+    const item = inventorySkus.find((entry) => entry.id === state.activeInventorySku);
+    if (!item) return;
+    const delta = Number($("#stockDelta").value);
+    const valid = Number.isInteger(delta) && delta !== 0;
+    const physicalAfter = valid ? item.physical + delta : item.physical;
+    const availableAfter = physicalAfter - item.locked;
+    $("#stockPreview").textContent = valid
+      ? `预览：physical ${item.physical} → ${physicalAfter}；locked ${item.locked} → ${item.locked}；available ${item.physical - item.locked} → ${availableAfter}${physicalAfter < item.locked ? "。警告：confirm 将返回 STOCK_INSUFFICIENT 422" : ""}`
+      : "输入非零调整量后预览 physical / locked / available 的前后变化。";
+    $("#stockPreview").classList.toggle("has-warning", valid && physicalAfter < item.locked);
+    $("#stockError").hidden = true;
   }
 
   function openBusinessRule(key) {
@@ -1439,12 +1618,14 @@
     item.refundedAt = "2026-08-11 12:24";
     const sku = inventorySkus.find((entry) => entry.id === item.sku);
     if (sku) {
-      sku.aftersaleReserved = Math.max(0, sku.aftersaleReserved - item.quantity);
+      sku.locked = Math.max(0, sku.locked - item.quantity);
+      sku.activeReservationQty = Math.max(0, sku.activeReservationQty - item.quantity);
       if (restockQty > 0) {
-        sku.available += restockQty;
+        sku.physical += restockQty;
         inventoryLedger[sku.id] ||= [];
-        inventoryLedger[sku.id].unshift({ time: "08-11 12:24", delta: restockQty, result: sku.available, reason: item.fulfillment === "UNSHIPPED" ? "未发货退款自动回库" : "总部验货处置回库", actor: "售后系统" });
+        inventoryLedger[sku.id].unshift({ id: `IL-${Date.now()}`, occurredAt: "08-11 12:24", type: item.fulfillment === "UNSHIPPED" ? "REFUND_RESTOCK" : "RETURN_RESTOCK", delta: restockQty, after: sku.physical, reason: item.fulfillment === "UNSHIPPED" ? "未发货退款自动回库" : "总部验货处置回库", actor: "售后系统" });
       }
+      sku.version += 1;
     }
     if (order) {
       const full = approvedRefundAmount >= Number(order.amount);
@@ -2050,10 +2231,16 @@
       const editBanner = event.target.closest(".edit-banner");
       if (editBanner) openEntityEditor("banner", editBanner.closest(".banner-manage-card").dataset.bannerId);
 
-      const bannerToggle = event.target.closest(".banner-toggle");
-      if (bannerToggle) {
-        const banner = banners.find((item) => item.id === bannerToggle.closest(".banner-manage-card").dataset.bannerId);
-        if (banner) openEntityEditor("banner", banner.id);
+      const bannerAction = event.target.closest(".banner-lifecycle");
+      if (bannerAction) {
+        const banner = banners.find((item) => item.id === bannerAction.closest(".banner-manage-card").dataset.bannerId);
+        if (banner) bannerLifecycle(banner, bannerAction.dataset.bannerAction);
+      }
+
+      const restoreBanner = event.target.closest(".restore-banner");
+      if (restoreBanner) {
+        const banner = banners.find((item) => item.id === restoreBanner.closest(".banner-manage-card").dataset.bannerId);
+        if (banner) openRestoreEntity("banner", banner);
       }
 
       const businessRule = event.target.closest(".edit-business-rule");
@@ -2177,10 +2364,9 @@
       const context = state.pendingHighRiskAction?.catalogContext;
       if (!context) return;
       context.target.version += 1;
-      renderProducts();
-      if (context.type === "sku" && state.activeProductId === context.product.id) renderProductEditorSkus(productSkus[context.product.id]);
+      renderHighRiskContext(context);
       $("#simulateHighRiskConflict").disabled = true;
-      setHighRiskDiagnostic({ message: `已模拟其他管理员将记录更新至 v${context.target.version}；当前预览仍绑定 v${context.expectedVersion}。` });
+      setHighRiskDiagnostic({ message: `已模拟其他管理员将记录更新至 v${context.target.version}；当前${context.type === "banner" ? "确认" : "预览"}仍绑定 v${context.expectedVersion}。` });
     });
     $("#confirmHighRisk").addEventListener("click", () => {
       const pending = state.pendingHighRiskAction;
@@ -2193,28 +2379,22 @@
       const catalogContext = pending.catalogContext;
       if (catalogContext && catalogContext.target.version !== catalogContext.expectedVersion) {
         const currentVersion = catalogContext.target.version;
-        renderProducts();
-        if (catalogContext.type === "sku" && state.activeProductId === catalogContext.product.id) renderProductEditorSkus(productSkus[catalogContext.product.id]);
+        renderHighRiskContext(catalogContext);
+        const isBannerConfirmation = catalogContext.type === "banner";
         showHighRiskBusinessError({
           code: "RESOURCE_VERSION_CONFLICT",
           status: 409,
-          businessMessage: "记录已被其他操作更新。页面已刷新至最新版本，请重新检查影响后再确认。",
-          diagnosticMessage: `旧预览绑定 v${catalogContext.expectedVersion}，当前资源为 v${currentVersion}；旧预览已销毁，不得复用或自动覆盖。`,
+          businessMessage: `记录已被其他操作更新。页面已刷新至最新版本，请重新检查${isBannerConfirmation ? "资料与状态" : "影响"}后再确认。`,
+          diagnosticMessage: `旧${isBannerConfirmation ? "确认" : "预览"}绑定 v${catalogContext.expectedVersion}，当前资源为 v${currentVersion}；旧${isBannerConfirmation ? "确认" : "预览"}已销毁，不得复用或自动覆盖。`,
           subtitle: "已刷新最新记录，本次确认未生效"
         });
         $("#highRiskConfirm").checked = false;
         $("#confirmHighRisk").disabled = true;
         $("#highRiskRepair").hidden = false;
-        $("#highRiskRepair").textContent = `返回最新${catalogContext.type === "product" ? "商品" : "SKU"}`;
+        $("#highRiskRepair").textContent = `返回最新${highRiskContextLabel(catalogContext)}`;
         state.highRiskRepairAction = () => {
-          if (catalogContext.type === "product") {
-            renderProducts();
-            showPage("products");
-          } else {
-            openProductEditor(catalogContext.product.id);
-            selectProductEditorTab("sku");
-          }
-          showToast("已载入最新版本，请重新发起影响预览");
+          reopenHighRiskContext(catalogContext);
+          showToast(`已载入最新版本，请重新发起${isBannerConfirmation ? "确认" : "影响预览"}`);
         };
         state.pendingHighRiskAction = null;
         return;
@@ -2233,14 +2413,11 @@
         if (pending.catalogContext) {
           showHighRiskBusinessError(error);
           if (error.status === 409) {
-            renderProducts();
-            if (pending.catalogContext.type === "sku" && state.activeProductId === pending.catalogContext.product.id) {
-              renderProductEditorSkus(productSkus[pending.catalogContext.product.id]);
-            }
+            renderHighRiskContext(pending.catalogContext);
             $("#highRiskConfirm").checked = false;
             $("#confirmHighRisk").disabled = true;
             state.pendingHighRiskAction = null;
-            showToast("已刷新最新数据，请处理冲突后重新发起影响预览");
+            showToast(`已刷新最新数据，请处理冲突后重新发起${pending.catalogContext.type === "banner" ? "确认" : "影响预览"}`);
             return;
           }
           $("#highRiskConfirm").checked = false;
@@ -2306,24 +2483,54 @@
 
     $("#confirmStock").addEventListener("click", () => {
       const item = inventorySkus.find((entry) => entry.id === state.activeInventorySku);
-      const value = Number($("#newStock").value);
-      const warning = Number($("#stockWarning").value);
-      const reason = $("#stockReason").value;
-      const note = $("#stockNote").value.trim();
-      if (!item || value < 0 || warning < 0 || !Number.isInteger(value) || !Number.isInteger(warning) || !reason || !note) {
+      const delta = Number($("#stockDelta").value);
+      const reason = $("#stockReason").value.trim();
+      if (!item || !Number.isInteger(delta) || delta === 0 || reason.length < 2 || reason.length > 500) {
         $("#stockError").hidden = false;
+        $("#stockError").textContent = "请输入非零 int32 调整量及 2–500 个字符的原因";
+        $("#stockError").dataset.errorCode = "VALIDATION_ERROR";
+        $("#stockError").dataset.httpStatus = "400";
         return;
       }
-      const delta = value - item.available;
-      item.available = value;
-      item.warning = warning;
-      inventoryLedger[item.id] ||= [];
-      inventoryLedger[item.id].unshift({ time: "08-11 12:18", delta, result: value, reason: `${reason} · ${note}`, actor: "林老板" });
-      renderProducts();
-      renderRankings();
-      renderInventory();
-      closeOverlays();
-      showToast("库存已调整，并写入库存流水");
+      const physicalAfter = item.physical + delta;
+      if (physicalAfter < -2147483648 || physicalAfter > 2147483647) {
+        $("#stockError").hidden = false;
+        $("#stockError").textContent = "INVENTORY_QUANTITY_OUT_OF_RANGE（422）：调整结果超出 PostgreSQL INTEGER 范围";
+        $("#stockError").dataset.errorCode = "INVENTORY_QUANTITY_OUT_OF_RANGE";
+        $("#stockError").dataset.httpStatus = "422";
+        return;
+      }
+      const availableBefore = item.physical - item.locked;
+      const availableAfter = physicalAfter - item.locked;
+      const confirmError = physicalAfter < item.locked
+        ? { code: "STOCK_INSUFFICIENT", status: 422, message: `physical_after ${physicalAfter} 小于 locked_qty ${item.locked}`, businessMessage: "调整后的实物库存不能小于当前锁定库存；记录和流水均保持不变。" }
+        : null;
+      requestHighRiskAction({
+        title: `库存调整影响预览 · ${item.id}`,
+        subtitle: `HASH_ONLY · TTL 60 秒 · If-Match \"v${item.version}\" · 新 Idempotency-Key`,
+        impact: `physical ${item.physical} → ${physicalAfter}；locked ${item.locked} → ${item.locked}；available ${availableBefore} → ${availableAfter}。${confirmError ? "预览仍为 200；confirm 将以 STOCK_INSUFFICIENT 422 阻断且不消费 preview。" : "确认后原子写余额、流水、审计、幂等与 outbox。"}`,
+        confirmLabel: "确认库存调整",
+        reasonRequired: false,
+        auditReason: reason,
+        confirmError,
+        repairLabel: confirmError ? "重新填写调整量" : undefined,
+        repairAction: confirmError ? () => openInventoryEditor(item.id) : null,
+        catalogContext: { type: "inventory", action: "ADJUST", target: item, expectedVersion: item.version },
+        diagnostic: { message: `preview_token 绑定 INVENTORY.ADJUST / INVENTORY / ${item.id} / v${item.version} / 规范化 body` },
+        action: () => {
+          const before = item.physical;
+          item.physical = physicalAfter;
+          item.version += 1;
+          inventoryLedger[item.id] ||= [];
+          inventoryLedger[item.id].unshift({ id: `IL-${Date.now()}`, occurredAt: "08-25 12:18", type: delta > 0 ? "MANUAL_INCREASE" : "MANUAL_DECREASE", delta, after: physicalAfter, reason, actor: "林老板" });
+          auditLogs.unshift({ id: `AUD-${Date.now()}`, time: "08-25 12:18:00", type: "库存调整", actor: "林老板", target: item.id, reason, result: `${delta > 0 ? "MANUAL_INCREASE" : "MANUAL_DECREASE"} · physical ${before} → ${physicalAfter} · v${item.version}`, client: "Web · Prototype", status: "成功" });
+          renderProducts();
+          renderRankings();
+          renderInventory();
+          renderAuditLogs();
+          showToast("库存已调整；同幂等键重复提交将精确重放，不追加第二条流水");
+        }
+      });
     });
 
     Object.values(inspectionInputs).forEach((selector) => $(selector).addEventListener("input", () => {
@@ -2332,6 +2539,7 @@
     }));
 
     $("#stockSkuSelect").addEventListener("change", () => openInventoryEditor($("#stockSkuSelect").value, false, { preserveProduct: true }));
+    $("#stockDelta").addEventListener("input", updateStockDraftPreview);
 
     $("#addInspectionEvidence").addEventListener("click", () => {
       const item = aftersales.find((entry) => entry.id === state.activeAftersaleId);
@@ -2728,6 +2936,21 @@
     $("#openCreateBrand").addEventListener("click", () => openEntityEditor("brand"));
     $("#openCreateCategory").addEventListener("click", () => openEntityEditor("category"));
     $("#openCreateBanner").addEventListener("click", () => openEntityEditor("banner"));
+    $("#uploadBannerImage").addEventListener("click", () => {
+      state.bannerFileDraft = { fileId: `FILE-BANNER-${Date.now()}`, imageUrl: "assets/hero-banner.png", fileStatus: "READY", visibility: "PUBLIC", purpose: "BANNER" };
+      renderBannerAssetDraft();
+      showToast("Banner 图片已完成 intent / PUT / complete，当前为 READY / PUBLIC");
+    });
+    $("#entityTargetType").addEventListener("change", () => renderBannerTargetFields());
+    $("#simulateEntityConflict").addEventListener("click", () => {
+      const active = state.activeEntity;
+      if (!active?.item) return;
+      active.item.version += 1;
+      $("#entityVersionText").textContent = `服务端已更新至 v${active.item.version}；当前 If-Match 仍为 \"v${active.expectedVersion}\"`;
+      $("#simulateEntityConflict").disabled = true;
+      if (active.type === "banner") renderBanners();
+      else renderMasterData(active.type);
+    });
 
     $("#productNameInput").addEventListener("input", () => { $("#productNameCount").textContent = `${$("#productNameInput").value.length} / 60`; });
 
@@ -2757,7 +2980,7 @@
       productSkus[product.id] = skus.map((sku) => {
         const existing = previousSkus.find((item) => item.id === sku.originalId);
         if (existing) return { ...existing, spec: sku.spec, price: sku.price, isRecommended: sku.isRecommended, version: existing.version + 1 };
-        inventorySkus.push({ id: sku.id, product: name, spec: sku.spec, art: product.art, available: 0, paymentReserved: 0, aftersaleReserved: 0, warning: 0 });
+        inventorySkus.push({ id: sku.id, product: name, spec: sku.spec, art: product.art, physical: 0, locked: 0, activeReservationQty: 0, version: 1 });
         return { spec: sku.spec, id: sku.id, price: sku.price, status: "INACTIVE", version: 1, isRecommended: sku.isRecommended };
       });
       productDetails[product.id] = { sellingPoint: $("#productSellingPointInput").value.trim(), intro: $("#productIntroInput").value.trim(), ingredients: $("#productIngredientsInput").value.trim(), usage: $("#productUsageInput").value.trim(), favorites: productDetails[product.id]?.favorites || 0 };
@@ -2781,21 +3004,46 @@
       const active = state.activeEntity;
       if (!active) return;
       const isMasterData = active.type === "brand" || active.type === "category";
-      const code = $("#entityCode").value.trim().toUpperCase();
+      const isBanner = active.type === "banner";
+      if (isBanner && state.entitySubmitting) return showToast("资料请求正在处理；同幂等键只会精确重放一次结果");
       const name = $("#entityName").value.trim();
       const detail = $("#entityDetail").value.trim();
       const sort = Number($("#entitySort").value);
-      const status = $("#entityStatus").value;
       const start = $("#entityStart").value;
       const end = $("#entityEnd").value;
-      const list = active.type === "brand" ? brands : active.type === "category" ? commissionCategories : banners;
-      const duplicate = list.some((item) => item !== active.item && ((code && item.id === code) || item.name === name));
-      if ((!isMasterData && !code) || !name || (!isMasterData && !detail) || !Number.isInteger(sort) || sort < 0 || duplicate || (active.type === "banner" && (!start || !end || start > end))) {
+      const targetType = $("#entityTargetType").value;
+      const targetId = $("#entityTargetId").value || null;
+      const targetUrl = $("#entityTargetUrl").value.trim() || null;
+      const list = active.type === "brand" ? brands : commissionCategories;
+      const duplicate = isMasterData && list.some((item) => item !== active.item && item.name === name);
+      const bannerDraft = isBanner ? { ...state.bannerFileDraft, targetType, targetId, targetUrl } : null;
+      const timeInvalid = isBanner && start && end && start >= end;
+      const targetInvalid = isBanner && !bannerTargetIsValid(bannerDraft);
+      const fileInvalid = isBanner && !bannerFileIsValid(bannerDraft);
+      if (!name || !Number.isInteger(sort) || sort < 0 || duplicate || timeInvalid || targetInvalid || fileInvalid) {
         $("#entityError").hidden = false;
-        $("#entityError").textContent = duplicate ? "名称已存在；软删除记录的名称仍被保留" : active.type === "banner" && start > end ? "结束日期不得早于开始日期" : "请完整填写必填项；排序必须是大于等于 0 的整数";
+        $("#entityError").textContent = duplicate
+          ? "名称已存在；软删除记录的名称仍被保留"
+          : timeInvalid
+            ? "结束时间必须晚于开始时间"
+            : fileInvalid
+              ? "请选择 READY / PUBLIC / BANNER 图片"
+              : targetInvalid
+                ? "PRODUCT/CATEGORY 必须关联 ACTIVE 目标；URL 必须为 allowlist 内 HTTPS 地址"
+                : "请填写标题；排序必须是大于等于 0 的整数";
+        $("#entityError").dataset.errorCode = isBanner ? "VALIDATION_ERROR" : "";
+        $("#entityError").dataset.httpStatus = isBanner ? "400" : "";
         return;
       }
       let item = active.item;
+      if (item && item.version !== active.expectedVersion) {
+        if (isBanner) renderBanners();
+        else renderMasterData(active.type);
+        closeOverlays();
+        showToast(`RESOURCE_VERSION_CONFLICT（409）：已刷新至 v${item.version}，请重新打开并确认资料`);
+        return;
+      }
+      state.entitySubmitting = isBanner;
       if (active.type === "brand") {
         if (!item) { item = { id: `BR-${Date.now()}`, name, activeProductCount: 0, status: "DRAFT", version: 1, avatar: name.slice(0, 1) }; brands.push(item); }
         else item.version += 1;
@@ -2808,15 +3056,29 @@
         renderCategoryManagement();
         renderCommissionRules();
       } else {
-        if (!item) { item = { id: code, name, tone: "green-banner" }; banners.push(item); }
-        Object.assign(item, { name, detail, sort, status, start, end });
+        if (!item) { item = { id: `BN-${Date.now()}`, status: "DRAFT", version: 1 }; banners.push(item); }
+        else item.version += 1;
+        Object.assign(item, {
+          name,
+          sort,
+          start: start || null,
+          end: end || null,
+          fileId: state.bannerFileDraft.fileId,
+          imageUrl: state.bannerFileDraft.imageUrl,
+          fileStatus: state.bannerFileDraft.fileStatus,
+          visibility: state.bannerFileDraft.visibility,
+          purpose: state.bannerFileDraft.purpose,
+          targetType,
+          targetId: ["PRODUCT", "CATEGORY"].includes(targetType) ? targetId : null,
+          targetUrl: targetType === "URL" ? targetUrl : null
+        });
         renderBanners();
       }
-      const effectiveStatus = isMasterData ? item.status : status;
-      auditLogs.unshift({ id: `AUD-${Date.now()}`, time: "08-11 12:31:00", type: "内容配置", actor: "林老板", target: item.id, reason: "表单校验与 If-Match 通过", result: `${effectiveStatus} · 排序 ${sort} · ${isMasterData ? `v${item.version}` : "已保存"}`, client: "Web · Prototype", status: "成功" });
+      auditLogs.unshift({ id: `AUD-${Date.now()}`, time: "08-25 12:31:00", type: "内容配置", actor: "林老板", target: item.id, reason: "资料校验、幂等键与 If-Match 通过", result: `${item.status} · 排序 ${sort} · v${item.version} · 生命周期未改变`, client: "Web · Prototype", status: "成功" });
       renderAuditLogs();
       closeOverlays();
-      showToast(`${name} 已保存`);
+      showToast(`${name} 已保存；${isBanner && item.version === 1 ? "创建固定为 DRAFT" : `状态仍为 ${item.status}`}`);
+      if (isBanner) setTimeout(() => { state.entitySubmitting = false; }, 350);
     });
 
     $("#confirmRestoreEntity").addEventListener("click", () => {
@@ -2826,12 +3088,21 @@
         $("#restoreEntityError").hidden = false;
         return;
       }
+      if (active.item.version !== active.expectedVersion) {
+        if (active.type === "banner") renderBanners();
+        else if (["brand", "category"].includes(active.type)) renderMasterData(active.type);
+        else renderProducts();
+        closeOverlays();
+        showToast(`RESOURCE_VERSION_CONFLICT（409）：已刷新至 v${active.item.version}，请重新发起恢复`);
+        return;
+      }
       const restoredStatus = active.type === "sku" ? "INACTIVE" : "DRAFT";
       active.item.status = restoredStatus;
       active.item.deletedAt = null;
       active.item.version += 1;
       auditLogs.unshift({ id: `AUD-${Date.now()}`, time: "08-24 11:22:00", type: active.type === "product" || active.type === "sku" ? "商品生命周期" : "内容配置", actor: "林老板", target: active.item.code || active.item.id, reason, result: `RESTORE · ${restoredStatus} · v${active.item.version}`, client: "Web · Prototype", status: "成功" });
-      if (["brand", "category"].includes(active.type)) renderMasterData(active.type);
+      if (active.type === "banner") renderBanners();
+      else if (["brand", "category"].includes(active.type)) renderMasterData(active.type);
       else {
         renderProducts();
         if (active.type === "sku" && active.product) renderProductEditorSkus(productSkus[active.product.id]);
@@ -2844,13 +3115,7 @@
     $("#archiveEntity").addEventListener("click", () => {
       const active = state.activeEntity;
       if (!active || !active.item) return;
-      if (active.type === "category" && active.item.productCount > 0) return showToast("分类仍有在售商品，禁止归档");
-      requestHighRiskAction({ title: `归档 ${active.item.name}`, impact: "记录将软归档并停止后续展示；历史订单、佣金版本与审计引用永久保留。", confirmLabel: "确认归档", action: (reason) => {
-        active.item.status = "已停用";
-        active.item.archivedAt = "2026-08-11 12:32";
-        auditLogs.unshift({ id: `AUD-${Date.now()}`, time: "08-11 12:32:00", type: "内容配置", actor: "林老板", target: active.item.id, reason, result: "SOFT_ARCHIVED", client: "Web · Prototype", status: "成功" });
-        renderBrands(); renderCategoryManagement(); renderBanners(); renderAuditLogs(); showToast("记录已软归档");
-      }});
+      if (active.type === "banner") bannerLifecycle(active.item, "DELETE");
     });
 
     $("#saveBusinessRule").addEventListener("click", () => {
@@ -2893,6 +3158,7 @@
     $("#brandStatus").addEventListener("change", renderBrands);
     $("#categorySearch").addEventListener("input", renderCategoryManagement);
     $("#categoryStatus").addEventListener("change", renderCategoryManagement);
+    $("#bannerStatus").addEventListener("change", renderBanners);
     $("#inventorySearch").addEventListener("input", renderInventory);
     $("#inventoryStatus").addEventListener("change", renderInventory);
     $("#auditSearch").addEventListener("input", renderAuditLogs);
@@ -2917,6 +3183,7 @@
     $("#commissionSkuReset").addEventListener("click", () => { $("#commissionSkuSearch").value = ""; $("#commissionSkuCategory").value = ""; renderCommissionRules(); });
     $("#brandReset").addEventListener("click", () => { $("#brandSearch").value = ""; $("#brandStatus").value = ""; renderBrands(); });
     $("#categoryReset").addEventListener("click", () => { $("#categorySearch").value = ""; $("#categoryStatus").value = ""; renderCategoryManagement(); });
+    $("#bannerReset").addEventListener("click", () => { $("#bannerStatus").value = ""; renderBanners(); });
     $("#inventoryReset").addEventListener("click", () => { $("#inventorySearch").value = ""; $("#inventoryStatus").value = ""; renderInventory(); });
     $("#auditReset").addEventListener("click", () => { $("#auditSearch").value = ""; $("#auditType").value = ""; renderAuditLogs(); });
 
@@ -2964,7 +3231,7 @@
     setupEvents();
     if (state.page === "product-edit") openProductEditor(1);
     window.__ADMIN_PROTOTYPE__ = {
-      getState: () => JSON.parse(JSON.stringify({ state, products, productSkus, aftersales, inventorySkus, agents, auditLogs })),
+      getState: () => JSON.parse(JSON.stringify({ state, products, productSkus, banners, aftersales, inventorySkus, inventoryLedger, agents, auditLogs })),
       archiveParentDuringPendingSkuActivation: () => {
         const context = state.pendingHighRiskAction?.catalogContext;
         if (!context || context.type !== "sku" || context.action !== "ACTIVATE") return false;

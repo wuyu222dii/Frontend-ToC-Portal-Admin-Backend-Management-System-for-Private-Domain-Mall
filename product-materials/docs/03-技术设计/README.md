@@ -1,6 +1,6 @@
 # 技术设计交付索引
 
-> 当前基线：MVP/PRD v2.4.2、线协议 CH-010（2026-08-24）。CH-011 已放行 B5 development 治理；B5.0 审计完成但 CH-012 契约修订待批准，B5.1 与 staging/production 均为 `NO-GO`。
+> 当前基线：MVP/PRD v2.4.3、线协议 CH-012（2026-08-25）。CH-011 已放行 B5 development 治理；B5.0 契约已通过本地验收并暂停，B5.1 尚未开始，staging/production 均为 `NO-GO`。
 
 | 文件 | 用途 |
 |---|---|
@@ -12,9 +12,9 @@
 | `prisma.config.ts` | 设计验证用 Prisma 7 config；CLI 读取 `DIRECT_URL` |
 | `migrations/0001_initial/migration.sql` | Prisma 基线 DDL + PostgreSQL 专属 partial unique/CHECK/触发器/角色/RLS 草案 |
 | `../05-开发管理/B4-商品与SKU.md` | B4.0 至 B4.4 串行批次、准入门禁、验收与回退边界 |
-| `../05-开发管理/B5-Banner与库存.md` | B5.0 审计、CH-011 门禁、CH-012 待批准契约及后续串行批次 |
+| `../05-开发管理/B5-Banner与库存.md` | B5.0 CH-012 契约、CH-011 门禁及后续串行批次 |
 
-上游真相顺序为：已批准需求变更记录、PRD v2.4.2、MVP v2.4.2、原型设计方案。发生冲突时先更新上游基线和本目录契约，不由开发人员临时选择口径。
+上游真相顺序为：已批准需求变更记录、PRD v2.4.3、MVP v2.4.3、原型设计方案。发生冲突时先更新上游基线和本目录契约，不由开发人员临时选择口径。
 
 ## CH-006 历史验证状态
 
@@ -23,13 +23,20 @@
 - CH-006 当时要求 Product/SKU 拒绝 ACTIVATE；该结论是 B3 历史验收事实，现行 Product/SKU 线协议已由 CH-010 专用 DTO 取代。品牌/分类创建 DRAFT、排序、专用状态机、ARCHIVED 查询、restore-to-DRAFT 及三项错误码的既有证据继续有效。
 - B3.0 已通过 Redocly、契约/AJV/故障注入、生成漂移、冻结数据库、权限、零漂移、全仓和原型门禁并暂停。CH-007 随后批准整个 B3 在本地和一次性环境逐段实施；远端 repository 证据后续已补齐，CH-009 只对单人 development 独立 reviewer 作例外。
 
-## CH-010 实施状态
+## CH-010 历史实施状态
 
-- 现行线协议升级为 `2.4.2-ch010`；本轮实测保持 172 paths、196 operations、196 unique operationId、307 schemas、685 schema refs 和 0 dangling refs。
+- CH-010 当时线协议为 `2.4.2-ch010`；当时实测保持 172 paths、196 operations、196 unique operationId、307 schemas、685 schema refs 和 0 dangling refs。现行版本见 CH-012。
 - 旧 `LifecycleAction` 删除，Product/SKU 分别使用闭合 `ProductLifecycleAction`、`SkuLifecycleAction`，均支持 ACTIVATE/DEACTIVATE/SOFT_DELETE；创建和恢复目标、发布依赖、不级联及审计原因按 CH-010 固定。
 - Product 列表/详情冻结 `published_at DESC NULLS LAST,id DESC`、nullable 最低活动价、全部含 ARCHIVED 的 SKU、8 图；SKU 创建为 201 并原子建立零库存余额，SPU/SKU code 永不可改或复用。
 - Prisma、`0001_initial`、76 models / 59 enums 均未改变。B4.0 至 B4.4 已依次通过契约、冻结数据库、CRUD、生命周期、五视口、真实纵向和远端门禁。
 - 普通 CI Run `32721588213` 与 Supabase rollback-only Run `32722510890` 均绑定实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 并成功；后续 docs-only 登记不扩张该 SHA 的技术证明范围。
+
+## CH-012 实施状态
+
+- 产品/API 基线为 `v2.4.3 / 2.4.3-ch012`；本轮实测为 172 paths、196 operations、196 unique operationId、312 schemas、692 schema refs、2,578 local refs 和 0 dangling refs。
+- Banner 使用闭合创建/资料更新/启停请求，DELETE 唯一归档、restore-to-DRAFT、稳定排序、有效窗口、目标重查与 URL origin allowlist；库存删除 `low_stock`，固定公式、int32 增量、专用 preview/confirm 响应与闭合流水类型。
+- 公共内核注册 `INVENTORY.ADJUST/INVENTORY`、`BANNER_RESOURCE_RESPONSE` 与 `INVENTORY_QUANTITY_OUT_OF_RANGE`；不创建 B5.1 业务模块。
+- Prisma、`0001_initial`、76 models / 59 enums 保持逐字节不变；B5.0 契约、公共内核、原型和冻结门禁已通过并暂停，未进入 B5.1。
 
 ## B3.1 当前验证状态
 
@@ -54,7 +61,7 @@ B0 已在工程根建立 `prisma.config.ts`、`prisma/` 和五应用脚手架；
 
 ## B5 开发入口
 
-B3.0 至 B3.3 历史交付见 `../05-开发管理/B3-文件品牌与分类.md`，B4 串行批次与最终证据见 `../05-开发管理/B4-商品与SKU.md`，B5 审计和待批准契约见 `../05-开发管理/B5-Banner与库存.md`。CH-011 只解决 B5 development 的单人 reviewer 门禁；当前三个契约 P0 尚待 CH-012 批准和实施，故 B5.1 不得开始。Prisma 与首迁移保持冻结，staging 前仍必须外部独立复核。
+B3.0 至 B3.3 历史交付见 `../05-开发管理/B3-文件品牌与分类.md`，B4 串行批次与最终证据见 `../05-开发管理/B4-商品与SKU.md`，B5 契约与批次见 `../05-开发管理/B5-Banner与库存.md`。CH-011 只解决 B5 development 的单人 reviewer 门禁；CH-012/B5.0 已验收暂停，B5.1 尚未开始。Prisma 与首迁移保持冻结，staging 前仍必须外部独立复核。
 
 ## 剩余上线门禁
 

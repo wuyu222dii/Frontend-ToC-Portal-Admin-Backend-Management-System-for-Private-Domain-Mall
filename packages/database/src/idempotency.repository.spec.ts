@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Prisma } from '../.generated/prisma/client';
 import {
   IdempotencyRepository,
+  type CacheableBannerResourceResponse,
   type CacheableCatalogResourceResponse,
   type CacheableFileUploadCompleteResponse,
   type CacheableCommandResponse,
@@ -194,6 +195,32 @@ function skuResponse(): CacheableProductCatalogResponse {
   };
 }
 
+function bannerResponse(
+  override: Partial<CacheableBannerResourceResponse> = {},
+): CacheableBannerResourceResponse {
+  const fileId = generateUlid();
+  return {
+    code: 'OK',
+    data: {
+      banner_id: generateUlid(),
+      ends_at: null,
+      file_id: fileId,
+      image_url: `https://assets.example.test/public/${fileId}`,
+      sort_order: 0,
+      starts_at: null,
+      status: 'DRAFT',
+      target_id: null,
+      target_type: 'NONE',
+      target_url: null,
+      title: 'Home banner',
+      version: 1,
+    },
+    message: 'success',
+    request_id: 'req_0123456789abcdef0123456789abcdef',
+    ...override,
+  };
+}
+
 function transactionStub(): DatabaseTransaction {
   return {
     $queryRawUnsafe: vi.fn(async () => [{ acquired: 1 }]),
@@ -370,6 +397,65 @@ describe('IdempotencyRepository', () => {
       response_body_hash: responseHash(currentHashKey, responseBody),
       response_status: responseStatus,
     } as never)).toEqual(responseBody);
+  });
+
+  it('stores and exactly replays a closed banner response', async () => {
+    const transaction = transactionStub();
+    const responseBody = bannerResponse();
+    await repository().complete(transaction, baseClaim, {
+      policy: 'BANNER_RESOURCE_RESPONSE',
+      responseBody,
+      responseStatus: 201,
+      storage: 'CACHEABLE',
+    });
+    expect(transaction.idempotencyRecord.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        resource_id: responseBody.data.banner_id,
+        response_body: responseBody,
+      }),
+    }));
+    expect(repository().bannerResourceReplay({
+      ...recordContext(),
+      expires_at: new Date('2099-08-14T00:00:00.000Z'),
+      resource_id: responseBody.data.banner_id,
+      response_body: responseBody,
+      response_body_hash: responseHash(currentHashKey, responseBody),
+      response_status: 201,
+    } as never)).toEqual(responseBody);
+  });
+
+  it.each([
+    (() => {
+      const response = bannerResponse();
+      return { ...response, data: { ...response.data, private_url: 'https://private.example.test/file' } };
+    })(),
+    (() => {
+      const response = bannerResponse();
+      return { ...response, data: { ...response.data, target_id: generateUlid() } };
+    })(),
+    (() => {
+      const response = bannerResponse();
+      return {
+        ...response,
+        data: { ...response.data, target_type: 'URL', target_url: 'http://example.test/banner' },
+      };
+    })(),
+  ])('rejects malformed or sensitive banner cache content', async (responseBody) => {
+    await expect(repository().complete(transactionStub(), baseClaim, {
+      policy: 'BANNER_RESOURCE_RESPONSE',
+      responseBody,
+      responseStatus: 200,
+      storage: 'CACHEABLE',
+    } as never)).rejects.toThrow('valid banner response');
+  });
+
+  it('rejects a non-contract status for BANNER_RESOURCE_RESPONSE', async () => {
+    await expect(repository().complete(transactionStub(), baseClaim, {
+      policy: 'BANNER_RESOURCE_RESPONSE',
+      responseBody: bannerResponse(),
+      responseStatus: 202,
+      storage: 'CACHEABLE',
+    })).rejects.toThrow('must use HTTP status 200 or 201');
   });
 
   it.each([

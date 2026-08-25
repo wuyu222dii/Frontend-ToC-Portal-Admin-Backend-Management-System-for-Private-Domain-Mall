@@ -2,13 +2,19 @@ import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { randomBytes, randomUUID } from 'node:crypto';
 import process from 'node:process';
+import { basename } from 'node:path';
 import { URL } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+const VERTICAL_STAGE = basename(process.argv[1] ?? '') === 'test-b5-vertical.mjs' ? 'B5' : 'B4';
+const VERTICAL_MODE_NAME = `${VERTICAL_STAGE}_VERTICAL_TEST_MODE`;
+const OTHER_VERTICAL_MODE_NAME = `${VERTICAL_STAGE === 'B5' ? 'B4' : 'B5'}_VERTICAL_TEST_MODE`;
+const EXPECTED_IMAGE_BYTE_SIZE = 68n;
+const EXPECTED_IMAGE_SHA256 = '25f526ccd5c301880be1ceff8e6b725ea6f8509aaaaed330c9a9a94648536106';
 
 function refuse(message) {
-  throw new Error(`B4 vertical test refused: ${message}`);
+  throw new Error(`${VERTICAL_STAGE} vertical test refused: ${message}`);
 }
 
 function required(name) {
@@ -21,7 +27,7 @@ function parseUrl(name) {
   try {
     return new URL(required(name));
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith('B4 vertical test refused:')) throw error;
+    if (error instanceof Error && error.message.startsWith(`${VERTICAL_STAGE} vertical test refused:`)) throw error;
     refuse(`${name} must be a valid URL`);
   }
 }
@@ -41,12 +47,15 @@ function formatError(error) {
   if (error instanceof AggregateError) {
     return [error.message, ...error.errors.map((item) => formatError(item))].join('\n');
   }
-  return error instanceof Error ? error.message : 'B4 vertical test failed';
+  return error instanceof Error ? error.message : `${VERTICAL_STAGE} vertical test failed`;
 }
 
 function assertTargets() {
-  if (process.env.B4_VERTICAL_TEST_MODE !== 'full') {
-    refuse('B4_VERTICAL_TEST_MODE must be explicitly set to full');
+  if (process.env[VERTICAL_MODE_NAME] !== 'full') {
+    refuse(`${VERTICAL_MODE_NAME} must be explicitly set to full`);
+  }
+  if (process.env[OTHER_VERTICAL_MODE_NAME] === 'full') {
+    refuse(`${OTHER_VERTICAL_MODE_NAME} must not also be set to full`);
   }
   if (process.env.CI !== 'true' || process.env.NODE_ENV !== 'test' ||
     process.env.ALLOW_CI_EPHEMERAL_POSTGRES !== '1') {
@@ -65,8 +74,8 @@ function assertTargets() {
   if (!['postgres:', 'postgresql:'].includes(databaseUrl.protocol) ||
     !LOOPBACK_HOSTS.has(databaseUrl.hostname) || databaseRole !== 'mall_runtime' ||
     !databaseUrl.password || databaseUrl.search !== '' || databaseUrl.hash !== '' ||
-    !/(?:^|[-_])(?:b4|vertical|test|ephemeral)(?:[-_]|$)/i.test(databaseName)) {
-    refuse('DATABASE_URL must be a query-free loopback mall_runtime B4 test database');
+    !/(?:^|[-_])(?:b4|b5|vertical|test|ephemeral)(?:[-_]|$)/i.test(databaseName)) {
+    refuse(`DATABASE_URL must be a query-free loopback mall_runtime ${VERTICAL_STAGE} test database`);
   }
   const directUrl = parseUrl('DIRECT_URL');
   let directRole;
@@ -80,7 +89,7 @@ function assertTargets() {
     !directUrl.password || directUrl.search !== '' || directUrl.hash !== '' ||
     directUrl.hostname !== databaseUrl.hostname || directUrl.port !== databaseUrl.port ||
     directUrl.pathname !== databaseUrl.pathname) {
-    refuse('DIRECT_URL must be a query-free loopback mall_migrator connection to the same B4 test database');
+    refuse(`DIRECT_URL must be a query-free loopback mall_migrator connection to the same ${VERTICAL_STAGE} test database`);
   }
 
   const redisUrl = parseUrl('REDIS_URL');
@@ -103,8 +112,8 @@ function assertTargets() {
     storageUrl.search !== '' || storageUrl.hash !== '') {
     refuse('S3_ENDPOINT must be a credential-free loopback HTTP origin');
   }
-  if (!/^mall-(?:b3|b4)-(?:ci|local|test)(?:-[a-z0-9-]+)?$/.test(bucket)) {
-    refuse('S3_BUCKET must be an isolated mall-b3-* or mall-b4-* CI/local/test bucket');
+  if (!/^mall-(?:b3|b4|b5)-(?:ci|local|test)(?:-[a-z0-9-]+)?$/.test(bucket)) {
+    refuse('S3_BUCKET must be an isolated mall-b3-*, mall-b4-* or mall-b5-* CI/local/test bucket');
   }
   if (publicBaseUrl.origin !== storageUrl.origin ||
     publicBaseUrl.pathname.replace(/\/$/, '') !== `/${bucket}` ||
@@ -144,7 +153,7 @@ function assertTargets() {
 function databaseRuntime(createDatabaseRuntime) {
   return createDatabaseRuntime({
     allowInsecureLocalhost: true,
-    applicationName: 'qingxu-b4-vertical',
+    applicationName: `qingxu-${VERTICAL_STAGE.toLowerCase()}-vertical`,
     connectionTimeoutMs: 5_000,
     databaseUrl: process.env.DATABASE_URL,
     poolMax: 4,
@@ -153,18 +162,20 @@ function databaseRuntime(createDatabaseRuntime) {
 
 function createFixture(generateUlid) {
   const marker = randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase();
+  const stage = VERTICAL_STAGE;
   return {
     accountId: generateUlid(),
     brandId: generateUlid(),
-    brandName: `B4 Vertical Brand ${marker}`,
+    bannerTitle: `${stage} Vertical Banner ${marker}`,
+    brandName: `${stage} Vertical Brand ${marker}`,
     categoryId: generateUlid(),
-    categoryName: `B4 Vertical Category ${marker}`,
-    loginName: `b4-vertical-${marker.toLowerCase()}`,
-    password: `B4-Vertical-${randomBytes(24).toString('base64url')}!`,
-    productName: `B4 Vertical Product ${marker}`,
-    skuCode: `B4V-SKU-${marker}`,
-    skuName: `B4 Vertical SKU ${marker}`,
-    spuCode: `B4V-SPU-${marker}`,
+    categoryName: `${stage} Vertical Category ${marker}`,
+    loginName: `${stage.toLowerCase()}-vertical-${marker.toLowerCase()}`,
+    password: `${stage}-Vertical-${randomBytes(24).toString('base64url')}!`,
+    productName: `${stage} Vertical Product ${marker}`,
+    skuCode: `${stage}V-SKU-${marker}`,
+    skuName: `${stage} Vertical SKU ${marker}`,
+    spuCode: `${stage}V-SPU-${marker}`,
   };
 }
 
@@ -192,7 +203,7 @@ async function seedFixture(createDatabaseRuntime, AdminAuthRepository, hashPassw
   }
 }
 
-async function verifyFixture(createDatabaseRuntime, fixture) {
+async function verifyFixture(createDatabaseRuntime, createS3ObjectStorage, fixture) {
   const runtime = databaseRuntime(createDatabaseRuntime);
   try {
     await runtime.connect();
@@ -216,17 +227,68 @@ async function verifyFixture(createDatabaseRuntime, fixture) {
     const image = product.images[0];
     if (product.images.length !== 1 || !image || image.file.status !== 'READY' ||
       image.file.visibility !== 'PUBLIC' || image.file.purpose !== 'PRODUCT_IMAGE' ||
-      image.file.object_key !== `public/${image.file_id}`) {
+      image.file.object_key !== `public/${image.file_id}` || image.file.mime_type !== 'image/png' ||
+      image.file.byte_size !== EXPECTED_IMAGE_BYTE_SIZE || image.file.sha256 !== EXPECTED_IMAGE_SHA256) {
       throw new Error('PostgreSQL did not persist the expected READY public Product image');
     }
     const sku = product.skus[0];
+    const expectedPhysicalQty = VERTICAL_STAGE === 'B5' ? 7 : 0;
     if (product.skus.length !== 1 || !sku || sku.status !== 'INACTIVE' || sku.name !== fixture.skuName ||
-      !sku.inventory_balance || sku.inventory_balance.physical_qty !== 0 ||
+      !sku.inventory_balance || sku.inventory_balance.physical_qty !== expectedPhysicalQty ||
       sku.inventory_balance.locked_qty !== 0) {
-      throw new Error('PostgreSQL did not persist the expected INACTIVE SKU with zero inventory');
+      throw new Error(`PostgreSQL did not persist the expected INACTIVE SKU with ${expectedPhysicalQty} inventory`);
+    }
+    let banner;
+    let ledger;
+    if (VERTICAL_STAGE === 'B5') {
+      banner = await runtime.prisma.banner.findFirst({
+        where: { title: fixture.bannerTitle },
+        include: { file: true },
+      });
+      if (!banner || banner.status !== 'ACTIVE' || banner.target_type !== 'NONE' || banner.version !== 2 ||
+        banner.file.status !== 'READY' || banner.file.visibility !== 'PUBLIC' || banner.file.purpose !== 'BANNER' ||
+        banner.file.object_key !== `public/${banner.file_id}` || banner.file.mime_type !== 'image/png' ||
+        banner.file.byte_size !== EXPECTED_IMAGE_BYTE_SIZE || banner.file.sha256 !== EXPECTED_IMAGE_SHA256 ||
+        banner.file.object_key === image.file.object_key) {
+        throw new Error('PostgreSQL did not persist the expected ACTIVE Banner with a READY public image');
+      }
+      const storage = storageRuntime(createS3ObjectStorage);
+      for (const key of [image.file.object_key, banner.file.object_key]) {
+        const inspected = await storage.inspectAndHash({ key, maxBytes: Number(EXPECTED_IMAGE_BYTE_SIZE) });
+        if (inspected.byteSize !== Number(EXPECTED_IMAGE_BYTE_SIZE) || inspected.mimeType !== 'image/png' ||
+          inspected.sha256Hex !== EXPECTED_IMAGE_SHA256) {
+          throw new Error(`MinIO final object did not match the expected PNG: ${key}`);
+        }
+      }
+      const balance = await runtime.prisma.inventoryBalance.findUnique({ where: { sku_id: sku.id } });
+      if (!balance || balance.physical_qty !== 7 || balance.locked_qty !== 0 || balance.version !== 2) {
+        throw new Error('PostgreSQL did not persist the expected adjusted Inventory balance');
+      }
+      ledger = await runtime.prisma.inventoryLedger.findMany({ where: { sku_id: sku.id } });
+      if (ledger.length !== 1 || ledger[0]?.ledger_type !== 'MANUAL_INCREASE' ||
+        ledger[0].physical_change !== 7 || ledger[0].physical_after !== 7 ||
+        ledger[0].reason !== 'B5 vertical inventory verification') {
+        throw new Error('PostgreSQL did not persist exactly one expected Inventory ledger entry');
+      }
+
+      const apiRequire = createRequire(new URL('../../apps/api/package.json', import.meta.url));
+      const { createClient } = apiRequire('redis');
+      const redis = createClient({ url: process.env.REDIS_URL });
+      try {
+        await redis.connect();
+        const leaseKeys = [image.file_id, banner.file_id].map((fileId) => `file-object:v1:${fileId}`);
+        const leases = await redis.mGet(leaseKeys);
+        if (leases.some((value) => value !== null)) {
+          throw new Error('Redis retained a file completion owner lease');
+        }
+      } finally {
+        if (redis.isOpen) await redis.quit();
+      }
     }
     process.stdout.write(JSON.stringify({
+      banner_id: banner?.id,
       file_id: image.file_id,
+      inventory_ledger_id: ledger?.[0]?.id,
       product_id: product.id,
       sku_id: sku.id,
       status: 'passed',
@@ -262,6 +324,16 @@ async function cleanupFixture(createDatabaseRuntime, createS3ObjectStorage, Obje
       select: { id: true },
     });
     const skuIds = skus.map(({ id }) => id);
+    const banners = await runtime.prisma.banner.findMany({
+      where: { title: fixture.bannerTitle },
+      select: { id: true },
+    });
+    const bannerIds = banners.map(({ id }) => id);
+    const ledgers = await runtime.prisma.inventoryLedger.findMany({
+      where: { sku_id: { in: skuIds } },
+      select: { id: true },
+    });
+    const ledgerIds = ledgers.map(({ id }) => id);
     const files = await runtime.prisma.fileAsset.findMany({
       where: { created_by_id: fixture.accountId },
       select: { id: true, object_key: true },
@@ -286,8 +358,10 @@ async function cleanupFixture(createDatabaseRuntime, createS3ObjectStorage, Obje
       fixture.accountId,
       fixture.brandId,
       fixture.categoryId,
+      ...bannerIds,
       ...productIds,
       ...skuIds,
+      ...ledgerIds,
       ...fileIds,
       ...factorIds,
       ...sessionIds,
@@ -317,10 +391,30 @@ async function cleanupFixture(createDatabaseRuntime, createS3ObjectStorage, Obje
       objectCleanupError = error;
     }
 
+    let redisCleanupError;
+    if (fileIds.length) {
+      const apiRequire = createRequire(new URL('../../apps/api/package.json', import.meta.url));
+      const { createClient } = apiRequire('redis');
+      const redis = createClient({ url: process.env.REDIS_URL });
+      const leaseKeys = fileIds.map((fileId) => `file-object:v1:${fileId}`);
+      try {
+        await redis.connect();
+        await redis.del(leaseKeys);
+        const leases = await redis.mGet(leaseKeys);
+        if (leases.some((value) => value !== null)) {
+          throw new Error('Redis fixture file completion lease remains after exact cleanup');
+        }
+      } catch (error) {
+        redisCleanupError = error;
+      } finally {
+        if (redis.isOpen) await redis.quit();
+      }
+    }
+
     const databaseRequire = createRequire(new URL('../../packages/database/package.json', import.meta.url));
     const { Pool } = databaseRequire('pg');
     const cleanupPool = new Pool({
-      application_name: 'qingxu-b4-vertical-cleanup',
+      application_name: `qingxu-${VERTICAL_STAGE.toLowerCase()}-vertical-cleanup`,
       connectionString: process.env.DIRECT_URL,
       connectionTimeoutMillis: 5_000,
       max: 1,
@@ -338,10 +432,12 @@ async function cleanupFixture(createDatabaseRuntime, createS3ObjectStorage, Obje
       await cleanupClient.query('DELETE FROM public.auth_session WHERE account_id = $1', [fixture.accountId]);
       await cleanupClient.query('DELETE FROM public.totp_factor WHERE account_id = $1', [fixture.accountId]);
       await cleanupClient.query('DELETE FROM public.mfa_rate_limit WHERE account_id = $1', [fixture.accountId]);
+      await cleanupClient.query('DELETE FROM public.banner WHERE id = ANY($1::text[])', [bannerIds]);
       await cleanupClient.query(
         'DELETE FROM public.product_image WHERE product_id = ANY($1::text[]) OR file_id = ANY($2::text[])',
         [productIds, fileIds],
       );
+      await cleanupClient.query('DELETE FROM public.inventory_ledger WHERE sku_id = ANY($1::text[])', [skuIds]);
       await cleanupClient.query('DELETE FROM public.inventory_balance WHERE sku_id = ANY($1::text[])', [skuIds]);
       await cleanupClient.query('DELETE FROM public.sku WHERE id = ANY($1::text[])', [skuIds]);
       await cleanupClient.query('DELETE FROM public.product WHERE id = ANY($1::text[])', [productIds]);
@@ -373,6 +469,7 @@ async function cleanupFixture(createDatabaseRuntime, createS3ObjectStorage, Obje
         where: { OR: [{ actor_account_id: fixture.accountId }, { object_id: { in: resourceIds } }] },
       }),
       brand: await runtime.prisma.brand.count({ where: { id: fixture.brandId } }),
+      banner: await runtime.prisma.banner.count({ where: { id: { in: bannerIds } } }),
       category: await runtime.prisma.category.count({ where: { id: fixture.categoryId } }),
       file: await runtime.prisma.fileAsset.count({
         where: { OR: [{ id: { in: fileIds } }, { created_by_id: fixture.accountId }] },
@@ -381,6 +478,7 @@ async function cleanupFixture(createDatabaseRuntime, createS3ObjectStorage, Obje
         where: { OR: [{ actor_id: fixture.accountId }, { resource_id: { in: resourceIds } }] },
       }),
       inventory: await runtime.prisma.inventoryBalance.count({ where: { sku_id: { in: skuIds } } }),
+      inventoryLedger: await runtime.prisma.inventoryLedger.count({ where: { id: { in: ledgerIds } } }),
       mfaChallenge: await runtime.prisma.mfaChallenge.count({ where: { account_id: fixture.accountId } }),
       mfaFactor: await runtime.prisma.totpFactor.count({ where: { account_id: fixture.accountId } }),
       mfaRateLimit: await runtime.prisma.mfaRateLimit.count({ where: { account_id: fixture.accountId } }),
@@ -397,9 +495,14 @@ async function cleanupFixture(createDatabaseRuntime, createS3ObjectStorage, Obje
       sku: await runtime.prisma.sku.count({ where: { id: { in: skuIds } } }),
     };
     const residual = Object.entries(residualCounts).filter(([, count]) => count !== 0);
-    if (residual.length) throw new Error(`B4 vertical fixture residue: ${JSON.stringify(Object.fromEntries(residual))}`);
-    if (objectCleanupError) throw objectCleanupError;
-    process.stdout.write('B4 vertical fixture and exact MinIO objects cleaned.\n');
+    if (residual.length) {
+      throw new Error(`${VERTICAL_STAGE} vertical fixture residue: ${JSON.stringify(Object.fromEntries(residual))}`);
+    }
+    const infrastructureCleanupErrors = [objectCleanupError, redisCleanupError].filter(Boolean);
+    if (infrastructureCleanupErrors.length) {
+      throw new AggregateError(infrastructureCleanupErrors, `${VERTICAL_STAGE} infrastructure cleanup failed`);
+    }
+    process.stdout.write(`${VERTICAL_STAGE} vertical fixture and exact MinIO objects cleaned.\n`);
   } finally {
     await runtime.disconnect();
   }
@@ -425,18 +528,22 @@ async function main() {
   try {
     await seedFixture(createDatabaseRuntime, AdminAuthRepository, hashPassword, fixture);
     Object.assign(process.env, {
-      B4_VERTICAL_BRAND_NAME: fixture.brandName,
-      B4_VERTICAL_CATEGORY_NAME: fixture.categoryName,
-      B4_VERTICAL_LOGIN_NAME: fixture.loginName,
-      B4_VERTICAL_PASSWORD: fixture.password,
-      B4_VERTICAL_PRODUCT_NAME: fixture.productName,
-      B4_VERTICAL_SKU_CODE: fixture.skuCode,
-      B4_VERTICAL_SKU_NAME: fixture.skuName,
-      B4_VERTICAL_SPU_CODE: fixture.spuCode,
+      [`${VERTICAL_STAGE}_VERTICAL_BANNER_TITLE`]: fixture.bannerTitle,
+      [`${VERTICAL_STAGE}_VERTICAL_BRAND_NAME`]: fixture.brandName,
+      [`${VERTICAL_STAGE}_VERTICAL_CATEGORY_NAME`]: fixture.categoryName,
+      [`${VERTICAL_STAGE}_VERTICAL_LOGIN_NAME`]: fixture.loginName,
+      [`${VERTICAL_STAGE}_VERTICAL_PASSWORD`]: fixture.password,
+      [`${VERTICAL_STAGE}_VERTICAL_PRODUCT_NAME`]: fixture.productName,
+      [`${VERTICAL_STAGE}_VERTICAL_SKU_CODE`]: fixture.skuCode,
+      [`${VERTICAL_STAGE}_VERTICAL_SKU_NAME`]: fixture.skuName,
+      [`${VERTICAL_STAGE}_VERTICAL_SPU_CODE`]: fixture.spuCode,
     });
-    run('pnpm', ['exec', 'playwright', 'test', '--config', 'playwright.b4-vertical.config.ts'],
+    const playwrightConfig = VERTICAL_STAGE === 'B5'
+      ? 'playwright.b5-vertical.config.ts'
+      : 'playwright.b4-vertical.config.ts';
+    run('pnpm', ['exec', 'playwright', 'test', '--config', playwrightConfig],
       'browser-to-infrastructure Playwright test');
-    await verifyFixture(createDatabaseRuntime, fixture);
+    await verifyFixture(createDatabaseRuntime, createS3ObjectStorage, fixture);
   } catch (error) {
     executionError = error;
   }
@@ -444,11 +551,11 @@ async function main() {
     await cleanupFixture(createDatabaseRuntime, createS3ObjectStorage, ObjectStorageError, fixture);
   } catch (cleanupError) {
     if (executionError) throw new AggregateError([executionError, cleanupError],
-      'B4 vertical execution and fixture cleanup both failed');
+      `${VERTICAL_STAGE} vertical execution and fixture cleanup both failed`);
     throw cleanupError;
   }
   if (executionError) throw executionError;
-  process.stdout.write('B4.4 browser -> Nest -> PostgreSQL/Redis/MinIO vertical smoke passed.\n');
+  process.stdout.write(`${VERTICAL_STAGE}.4 browser -> Nest -> PostgreSQL/Redis/MinIO vertical smoke passed.\n`);
 }
 
 main().catch((error) => {

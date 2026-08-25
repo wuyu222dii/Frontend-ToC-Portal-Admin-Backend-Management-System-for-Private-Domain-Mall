@@ -163,6 +163,11 @@ jobs:
           B4_VERTICAL_TEST_MODE: full
         run: pnpm e2e:b4:vertical
 
+      - name: Run B5 browser to Nest, PostgreSQL, Redis and MinIO vertical smoke
+        env:
+          B5_VERTICAL_TEST_MODE: full
+        run: pnpm e2e:b5:vertical
+
       - name: Test B1 persistence and worker concurrency
         env:
           B1_DATABASE_TEST_MODE: full
@@ -209,6 +214,16 @@ jobs:
           B4_PRODUCT_CATALOG_DATABASE_TEST_MODE: full
         run: pnpm db:test-b4-product-catalog
 
+      - name: Test B5 Banner transactions with PostgreSQL
+        env:
+          B5_BANNER_DATABASE_TEST_MODE: full
+        run: pnpm db:test-b5-banners
+
+      - name: Test B5 Inventory transactions with PostgreSQL
+        env:
+          B5_INVENTORY_DATABASE_TEST_MODE: full
+        run: pnpm db:test-b5-inventory
+
       - name: Verify Prisma migration drift
         run: pnpm db:diff
 
@@ -232,3 +247,6 @@ jobs:
 
       - name: Run B4 Product and SKU browser E2E
         run: pnpm e2e:b4
+
+      - name: Run B5 Banner and Inventory browser E2E
+        run: pnpm e2e:b5

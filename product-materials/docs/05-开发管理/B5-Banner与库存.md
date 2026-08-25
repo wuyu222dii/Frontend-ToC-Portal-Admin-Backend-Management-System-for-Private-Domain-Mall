@@ -1,10 +1,10 @@
 # B5 Banner 与库存
 
-> 批次：B5；当前产品/API 基线：v2.4.3 / CH-012；交付门禁：CH-011；更新日期：2026-08-25；当前状态：B5.1 Banner API、B5.2 Inventory API 与 B5.3 ADM-07/08 后台工程已分别验收暂停，B5.4 尚未开始；数据范围：仅脱敏 development；staging/production：`NO-GO`。
+> 批次：B5；当前产品/API 基线：v2.4.3 / CH-012；交付门禁：CH-011（已于 B5.4 验收结束自动失效）；更新日期：2026-08-25；当前状态：B5.0-B5.4 已完成，B5 development `GO`；数据范围：仅脱敏 development；staging/production：`NO-GO`。
 
 ## 1. 当前结论
 
-用户已分别批准 CH-011 与 CH-012，并在 B5.0、B5.1、B5.2 暂停点后逐批明确要求继续下一阶段。B5.1/B5.2 已按批准后的 CH-012 分别实现后端并验收，B5.3 已实现 ADM-07/08 后台并验收暂停；该结论只放行进入 B5.4 的评估，不自动执行真实纵向链路、远端 workflow、`/store/home`、staging、production 或真实数据。
+用户已分别批准 CH-011 与 CH-012，并在 B5.0-B5.3 暂停点后逐批明确要求继续。B5.4 已完成真实 browser -> Nest -> PostgreSQL/Redis/MinIO 纵向链路、全量回归、同一实现 SHA 的普通 CI 与 Supabase rollback-only 双绿，以及最终独立只读复核；结论为 B5 development `GO`、`P0=0/P1=0`。该结论不放行消费者 `/store/home`、staging、production、真实客户数据、真实微信或真实资金链路。
 
 B5.1 新增独立 `BannerRepository` 与 Nest `AdminBannersModule`，交付既有 5 个 operation、文件挂接、闭合 CRUD/启停/归档恢复、时间窗和 typed target 校验。写事务固定为幂等 claim 后按 Banner、旧/新 target、旧/新文件稳定锁序重查，并原子写 audit、outbox 和 `BANNER_RESOURCE_RESPONSE`；公开投影在 `REPEATABLE READ` 一致性快照内完成。没有修改 Prisma、首迁移、OpenAPI path/operation 或工程前端。
 
@@ -14,7 +14,7 @@ B5.2 新增独立 `InventoryRepository` 与 Nest `AdminInventoryModule`，交付
 |---|---|---|
 | B0-B4 development | B4 实现基准 `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的普通 CI Run `32721588213` 与 Supabase Run `32722510890` 成功 | 通过 |
 | B5 产品范围 | PRD 已冻结 ADM-07/08，库存人工调整为 HR-07 | 通过 |
-| CH-011 单人开发门禁 | 用户于 2026-08-25 明确批准，仅适用于 B5 development | 通过 |
+| CH-011 单人开发门禁 | 用户于 2026-08-25 明确批准，仅适用于 B5 development | 历史通过；B5.4 后已自动失效 |
 | 冻结数据库可承载性 | Banner、InventoryBalance、Reservation、Ledger、preview/idempotency/audit 均已有模型与权限 | 通过，无迁移 |
 | CH-012 契约授权 | 用户于 2026-08-25 明确批准产品负责人 + 技术负责人立即执行 | 通过 |
 | Banner 契约 | 创建/更新拆分、闭合启停、DELETE 唯一归档与 restore-to-DRAFT | 通过 |
@@ -24,16 +24,22 @@ B5.2 新增独立 `InventoryRepository` 与 Nest `AdminInventoryModule`，交付
 | B5.1 Banner API | 5 个 operation；SUPER_ADMIN、201/200、no-store、If-Match、409 与 12 字段响应闭合 | 通过 |
 | B5.1 事务与公开投影 | Serializable 写事务、稳定锁序、精确重放；`start <= now < end` 与文件/target 一致性投影 | 通过 |
 | B5.1 自动化 | repository 43 项、API 专项 57 项；全仓 757 passed / 68 个环境模式跳过 | 通过 |
-| B5.1 PostgreSQL full | PostgreSQL 18.3 空库回放后 repository 5 passed、API 1 passed；rollback 用例按设计跳过 | 通过；远端 rollback 留待 B5.4 |
+| B5.1 PostgreSQL full | PostgreSQL 18.3 空库回放后 repository 5 passed、API 1 passed；rollback 用例按设计跳过 | 当批通过；B5.4 远端证据见下 |
 | B5.2 Inventory API | 4 个 operation；SUPER_ADMIN、no-store、If-Match、400/401/403/409/422 与闭合响应映射 | 通过 |
 | B5.2 事务与流水 | Serializable、稳定锁序、余额 CAS、活动预占重读、失败回滚、精确重放与单条人工流水 | 通过 |
 | B5.2 自动化 | repository 专项 19 项、API DTO/service/HTTP 专项 79 项；全仓 855 passed / 79 个环境模式跳过 | 通过 |
 | B5.2 PostgreSQL full | PostgreSQL 18.3 空库回放后 repository 3 passed / 1 rollback skip，API 6 passed / 1 rollback skip（含并发预占竞态） | 通过；一次性容器已删除 |
-| B5.2 Supabase rollback-only | 受控 development `mall_runtime`：repository 1 passed / 3 full skips，API 1 passed / 6 full skips；事务外逐表归零 | 通过；不是 B5.4 workflow 双绿 |
+| B5.2 Supabase rollback-only | 受控 development `mall_runtime`：repository 1 passed / 3 full skips，API 1 passed / 6 full skips；事务外逐表归零 | 当批通过；B5.4 同 SHA workflow 证据见下 |
 | B5.2 工程门禁 | lint 0 error、typecheck/build、Redocly、生成漂移、敏感扫描、Prisma validate、migration diff=0、冻结字节检查 | 通过 |
 | B5.3 ADM-07/08 | Banner 上传/CRUD/生命周期与库存列表/preview-confirm/流水已接入路由和导航 | 通过；仅 development |
 | B5.3 浏览器验收 | B5 Playwright 30 passed / 20 designed skips；B3 回归 26/4，B4 回归 27/8；覆盖 375/390/414/1024/1440 | 通过；mock 不替代 B5.4 纵向证据 |
 | B5.3 工程与复核 | 全仓 855 passed / 79 环境跳过；lint 0 error、typecheck/build、契约/冻结/敏感扫描通过；独立复核 P0=0/P1=0 | 通过并暂停 |
+| B5.4 真实纵向链路 | B4 与 B5 各 1/1；B5 覆盖登录/TOTP、商品/SKU、两次文件 complete、Banner 启用、库存 +7 preview-confirm 与流水；两个公开对象均验证 PUT/GET 2xx、浏览器解码及 MinIO 实测 MIME/68 bytes/SHA-256 | 通过；PostgreSQL、MinIO 与精确 Redis file lease 均无 fixture 残留 |
+| B5.4 全量回归 | 全仓 855 passed / 79 环境模式跳过；B0 5/5、B2 45/45、B3 26/4、B4 27/8、B5 30/20；lint 0 error、typecheck、五应用 build、MP-Weixin、契约、冻结数据库与敏感扫描通过 | 通过 |
+| B5.4 普通 CI | 实现 SHA `d97c43958142eaa0fa5a0a9954bb21d136944ba2`；[Run 32822780209](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32822780209) `completed/success` | 通过；实际包含 B5 vertical/full/browser steps |
+| B5.4 Supabase rollback-only | 同一实现 SHA；[Run 32823898006](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32823898006) `completed/success` | 通过；Banner/Inventory rollback 均执行，事务外无残留 |
+| B5.4 最终复核 | 三路独立只读复核，runner、纵向证据和 workflow 均为 P0=0/P1=0；本批新增实现 P2=0，历史 P2 继续保留 | 通过；不等同 staging 前外部独立人员复核 |
+| CH-011 状态 | B5.4 development 验收已结束 | 自动失效，不延伸到后续 development/staging/production |
 
 ## 2. B5 范围
 
@@ -73,11 +79,17 @@ B5.2 新增独立 `InventoryRepository` 与 Nest `AdminInventoryModule`，交付
 | B5-C06 | P1 | 流水查询参数是枚举，响应 `ledger_type` 却退化为任意 string | CH-012 复用闭合库存流水枚举 |
 | B5-C07 | P1 | Banner 响应没有可用的闭合幂等缓存策略 | CH-012/B5.0 公共内核新增 `BANNER_RESOURCE_RESPONSE`，不改数据库 |
 | B5-C08 | P1 | 静态原型使用色块、人工编码/自由文本 target，并重复扣减售后占用 | CH-012 获批后同步真实文件、typed target、正确库存公式与 preview-confirm |
-| B5-C09 | P2 | `inventory_reservation_item` 缺 sku-first 索引，ledger `business_id` 非唯一 | 先以真实规模 EXPLAIN 和幂等/preview 保证正确性，不在 B5.0 迁移 |
+| B5-C09 | P2 | `inventory_reservation_item` 缺 sku-first 索引，ledger `business_id` 非唯一 | B5.4 已补代表性合成 EXPLAIN；风险保留，迁移延后到交易/订单域 |
+
+### 4.1 B5-C09 合成 EXPLAIN 证据
+
+- 在事务内临时镜像中生成 100,000 条 reservation 与 500,000 条 reservation item；全部测试对象随 `ROLLBACK` 消失，不修改冻结数据库。
+- 现有 `(reservation_id, sku_id)` 索引形态按 SKU 查找时顺序扫描 500,000 行、过滤 499,950 行，代表性执行时间 20.864 ms；候选 `(sku_id, reservation_id)` 使用 bitmap index scan，命中 50 行，代表性执行时间 0.623 ms。
+- 该结果证明 sku-first 索引具有明确收益，但不构成迁移授权。B5 继续依赖 Serializable、稳定锁序与重读保证正确性；索引和 ledger `business_id` 唯一性必须在交易/订单域提交独立迁移变更后解决。
 
 ## 5. CH-011 交付门禁
 
-CH-011 只接受 B5 development 期间缺少独立 reviewer 的剩余风险，并在 B5.4 验收结束时自动失效：
+CH-011 只接受 B5 development 期间缺少独立 reviewer 的剩余风险；B5.4 已验收结束，因此该门禁例外现已自动失效。以下条款作为历史验收依据保留：
 
 1. GitHub `supabase-development` Environment 继续与普通 CI 隔离，只允许 `main` 手动触发并显式确认脱敏 development 项目。
 2. 每个业务批次仍须 `P0=0/P1=0` 后暂停；B5.4 必须登记同一实现 SHA 的普通 CI 与 Supabase rollback-only 成功 run，失败记录不能替代成功证据。
@@ -126,7 +138,7 @@ CH-011 只接受 B5 development 期间缺少独立 reviewer 的剩余风险，�
 | B5.1 | Banner repository/API、文件挂接、CRUD、启停、归档恢复、时间和 target 校验 | B5.0 已验收暂停 | 5 个 operation、幂等/409/403/排序/时间矩阵通过，P0/P1=0 |
 | B5.2 | Inventory repository/API、列表、HR-07 preview-confirm、流水 | B5.1 已验收暂停 | 4 个 operation、边界/并发/篡改/过期/重放/流水原子性通过，P0/P1=0 |
 | B5.3 | ADM-07/08 路由、导航、Banner 上传、库存预览确认和流水 | B5.2 已验收暂停 | loading/empty/401/403/409/422/500/重复提交/成功与五视口通过 |
-| B5.4 | 全量回归、真实纵向链路、普通 CI、Supabase rollback-only | B5.3 已验收暂停 | 同一实现 SHA 双绿、无残留、最终 P0/P1=0 |
+| B5.4 | 全量回归、真实纵向链路、普通 CI、Supabase rollback-only | B5.3 已验收暂停 | 已满足：同一实现 SHA 双绿、无残留、最终 P0/P1=0 |
 
 ## 8. 验收与回退
 
@@ -138,4 +150,6 @@ CH-011 只接受 B5 development 期间缺少独立 reviewer 的剩余风险，�
 
 ## 9. 当前暂停点
 
-CH-011 与 CH-012 均已登记。B5.0 历史契约/原型门禁继续有效；B5.1 已完成 Banner repository/API，B5.2 已完成 Inventory repository/API、HR-07 preview-confirm、并发预占裁决和只追加流水；B5.3 已完成 ADM-07/08 路由导航、Banner 文件上传/资料与生命周期、库存查询/调整预览确认/流水，以及五视口错误态和安全重试验收，三批均在独立复核 `P0=0/P1=0` 后暂停。实测契约仍为 172 paths / 196 operations / 196 unique operationId / 312 schemas / 692 schema refs / 2,578 local refs / 0 dangling refs；全仓为 855 passed / 79 个环境模式跳过，B5 浏览器为 30 passed / 20 个设计跳过，B3/B4 回归分别为 26/4 与 27/8；lint 为 0 error，typecheck/build、敏感扫描、Prisma validate、生成漂移和冻结字节检查均通过。一次性 PostgreSQL 18.3 空库上的 B5.2 full 为 repository 3 passed、API 6 passed；当前工作树的受控 Supabase development rollback-only 为 repository 1 passed、API 1 passed，事务外无残留。浏览器 mock 不替代真实 Nest/PostgreSQL/Redis/MinIO 纵向链路；最终准确 SHA 的普通 CI 与 Supabase rollback-only 双绿仍属于 B5.4。当前保留 4 个不阻断 P2：B5.1 ACTIVATE/归档审计 `before_json` 尚不能区分 DRAFT 与 INACTIVE 来源状态；B5-C09 的 reservation SKU 前导索引/ledger business ID 风险仍待 B5.4 真实规模 EXPLAIN；OpenAPI 的 Inventory `preview_token` 只声明最小 16 字符，而共享 DTO/repository 安全上限为 512；库存 keyword 尚未冻结最大长度与大小写规范。当前暂停在 B5.4 之前，staging/production 继续 `NO-GO`。
+B5.0-B5.4 均已完成并通过各自门禁。最终实现基准固定为 `d97c43958142eaa0fa5a0a9954bb21d136944ba2`；普通 CI Run `32822780209` 与 Supabase rollback-only Run `32823898006` 均为 `completed/success` 且 `head_sha` 一致。真实 B5 纵向链路和所有本地回归通过，fixture 数据、MinIO 对象与精确 Redis file lease 均无残留；最终独立只读复核为 `P0=0/P1=0`。B5 development 因此标记 `GO`，CH-011 同时自动失效。
+
+当前仍保留 4 个不阻断 P2：B5.1 ACTIVATE/归档审计 `before_json` 尚不能区分 DRAFT 与 INACTIVE 来源状态；B5-C09 的 reservation SKU 前导索引与 ledger `business_id` 唯一性需要交易/订单域迁移，其中 sku-first 索引收益已有 100,000/500,000 行合成 EXPLAIN 证据；OpenAPI 的 Inventory `preview_token` 只声明最小 16 字符，而共享 DTO/repository 安全上限为 512；库存 keyword 尚未冻结最大长度与大小写规范。消费者 `/store/home` 未实现；staging/production、真实客户数据、真实微信和资金链路继续 `NO-GO`。第一次进入 staging 前仍须外部独立人员复核，当前自动化与内部独立只读复核不得替代该要求。

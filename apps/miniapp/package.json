@@ -8,6 +8,7 @@
     "build:mp-weixin": "uni build -p mp-weixin",
     "dev:h5": "uni -p h5 --host 0.0.0.0",
     "dev:mp-weixin": "uni -p mp-weixin",
+    "test": "vitest run --root ../.. apps/miniapp/src",
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
@@ -15,6 +16,7 @@
     "@dcloudio/uni-components": "3.0.0-5020420260812001",
     "@dcloudio/uni-h5": "3.0.0-5020420260812001",
     "@dcloudio/uni-mp-weixin": "3.0.0-5020420260812001",
+    "@qingxu/contracts": "workspace:*",
     "@vueuse/core": "11.3.0",
     "vue": "3.4.21"
   },

@@ -1,0 +1,46 @@
+.qx-store-theme {
+  --qx-store-background: #f6f8f6;
+  --qx-store-surface: #ffffff;
+  --qx-store-surface-soft: #edf3ef;
+  --qx-store-text: #202522;
+  --qx-store-text-soft: #5f6762;
+  --qx-store-muted: #8d9690;
+  --qx-store-line: #e4e8e5;
+  --qx-store-line-strong: #cfd6d1;
+  --qx-store-brand: #496859;
+  --qx-store-brand-strong: #173b31;
+  --qx-store-accent: #e27766;
+  --qx-store-accent-soft: #f7e7e2;
+  --qx-store-warning: #a56d27;
+  --qx-store-warning-soft: #f6ecdd;
+  --qx-store-danger: #b84848;
+  --qx-store-info: #2f6578;
+  --qx-store-info-soft: #e0edf1;
+  color: var(--qx-store-text);
+  background: var(--qx-store-background);
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  letter-spacing: 0;
+}
+
+.qx-store-theme,
+.qx-store-theme view,
+.qx-store-theme text,
+.qx-store-theme button,
+.qx-store-theme image {
+  box-sizing: border-box;
+  letter-spacing: 0;
+}
+
+.qx-store-theme button {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  font: inherit;
+  line-height: inherit;
+}
+
+.qx-store-theme button::after {
+  border: 0;
+}
+

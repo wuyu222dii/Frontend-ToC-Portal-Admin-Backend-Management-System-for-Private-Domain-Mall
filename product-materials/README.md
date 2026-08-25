@@ -2,7 +2,7 @@
 
 本目录集中管理三端商城的需求、方案、技术、风控、开发文档和可点击原型。
 
-当前交付状态：B0 至 B5 development 均已通过。B5 实现基准 SHA `d97c43958142eaa0fa5a0a9954bb21d136944ba2` 的普通 CI Run `32822780209` 与 Supabase rollback-only Run `32823898006` 为同一 SHA 双绿，CH-011 已自动失效。CH-013 已批准仅适用于 B6 脱敏 development 的单人维护门禁例外，CH-014 已将产品/API 基线升级为 v2.4.4/CH-014。B6.0 契约与治理已完成并暂停，B6.1 Store 公开 API 尚未开始；staging、production、真实客户数据、真实微信身份及真实资金链路继续 `NO-GO`，第一次进入 staging 前必须取得外部独立复核。
+当前交付状态：B0 至 B5 development 均已通过。B5 实现基准 SHA `d97c43958142eaa0fa5a0a9954bb21d136944ba2` 的普通 CI Run `32822780209` 与 Supabase rollback-only Run `32823898006` 为同一 SHA 双绿，CH-011 已自动失效。CH-013 已批准仅适用于 B6 脱敏 development 的单人维护门禁例外，CH-014 已将产品/API 基线升级为 v2.4.4/CH-014。B6.1 匿名 Store 公开 API 已完成本地和受控 Supabase development rollback-only 验收并暂停，B6.2 小程序/H5 工程页面尚未开始；B6.4 的真实纵向、普通 CI 与 workflow 双绿仍待完成，B6 不得提前标记最终 development `GO`。staging、production、真实客户数据、真实微信身份及真实资金链路继续 `NO-GO`，第一次进入 staging 前必须取得外部独立复核。
 
 ## 目录
 

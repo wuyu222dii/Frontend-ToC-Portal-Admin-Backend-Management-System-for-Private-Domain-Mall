@@ -10,7 +10,7 @@
 | 目标用户 | 终端消费者、一级代理、总部商城经营人员 |
 | 人员角色 | `SUPER_ADMIN`、`AGENT_ADMIN`、`CUSTOMER` |
 | 更新日期 | 2026-08-25 |
-| 文档状态 | B0 至 B5 development 已完成并取得同一实现 SHA 双远端绿色证据；CH-013/CH-014 已批准，产品/API 基线升级为 v2.4.4，B6.0 契约与治理已完成并暂停，B6.1 尚未开始，staging/production 均为 `NO-GO` |
+| 文档状态 | B0 至 B5 development 已完成并取得同一实现 SHA 双远端绿色证据；CH-013/CH-014 已批准，产品/API 基线升级为 v2.4.4，B6.1 匿名 Store 公开 API 已完成本地及受控 Supabase development rollback-only 验收并暂停，B6.2 尚未开始，staging/production 均为 `NO-GO` |
 
 ## 1. MVP 概述
 
@@ -382,7 +382,7 @@ CH-006 已解除并完成 B3 契约与交付门禁；CH-010 已解除 B4 商品/
 | 需求确认 | MVP、三端角色确认、变更记录 | CH-013/CH-014 已批准，v2.4.4 基线已登记 |
 | 产品设计 | PRD、三端信息架构、可点击原型、Figma 重建规范 | B6 匿名目录边界、售罄可浏览、综合排序和首页局部失败已同步；页面仍为 21/9/22 |
 | 技术设计 | 系统架构、数据库 ERD、接口文档、OpenAPI、Prisma 草案与部署拓扑 | B6.0 契约门禁已通过并暂停；Prisma/首迁移逐字节不变 |
-| 开发与测试 | 三端工程、API、数据库、自动化测试 | B5 development 已双绿完成；B6.1 Store 公开 API 尚未开始 |
+| 开发与测试 | 三端工程、API、数据库、自动化测试 | B5 development 已双绿完成；B6.1 Store 公开 API 已完成验收并暂停，B6.2 工程页面尚未开始 |
 | 上线准备 | 微信资质、真实支付退款、隐私合规、部署与验收 | 未开始 |
 
 ## 10. 风险与应对
@@ -452,15 +452,15 @@ CH-006 已解除并完成 B3 契约与交付门禁；CH-010 已解除 B4 商品/
 
 - 尚无真实用户访谈、历史订单、代理规模、佣金预算、商品规模和并发数据；指标阈值需试运行后校准。
 - 尚无微信正式参数、物流合同、隐私文本、线下打款财务制度和法律审核结论。
-- 当前交付物仍不是完整可用商城业务系统。B2 已开放 ADM-01 与 ADM-16 账户安全部分，B3 已实现文件、品牌、分类与 ADM-05/06，B4 已实现 Product/SKU 后端及 ADM-03/04，B5 已实现 Banner、Inventory、ADM-07/08 并完成 development 双远端验收；B6 当前仅完成契约与静态原型，消费者公开 API、工程小程序、交易和资金仍未实施。
+- 当前交付物仍不是完整可用商城业务系统。B2 已开放 ADM-01 与 ADM-16 账户安全部分，B3 已实现文件、品牌、分类与 ADM-05/06，B4 已实现 Product/SKU 后端及 ADM-03/04，B5 已实现 Banner、Inventory、ADM-07/08 并完成 development 双远端验收；B6.1 已实现消费者匿名公开 API，工程小程序、交易和资金仍未实施。
 
 ## 13. 后续建议
 
-1. B6.0 契约门禁通过后暂停，不在同一批写 Store repository/API 或生产小程序代码。
-2. 下一次明确批准后进入 B6.1，实现 5 个匿名 GET、快照查询、公开素材装配和 fail-closed 公共限流。
+1. B6.1 的 5 个匿名 GET、快照查询、公开素材装配和 fail-closed 公共限流验收通过后暂停，不在同一批写生产小程序代码。
+2. 下一次明确批准后进入 B6.2，实现 MP-01 至 MP-05 的首页、分类、搜索、详情和 SKU 选择工程页面。
 3. B6.2/B6.3 分别完成 MP-01 至 MP-05 与游客本地购物车；收藏、CUSTOMER 会话、服务端购物车、结算和订单继续延后。
 4. B6.4 必须在同一最终实现 SHA 登记普通 CI 与 Supabase rollback-only 双绿；CH-013 随后失效，第一次进入 staging 前仍须外部独立复核。
 
 ---
 
-项目状态：三端 MVP 产品/API 基线为 v2.4.4（CH-014）。B0 至 B5 development 已通过，B5 实现 SHA `d97c43958142eaa0fa5a0a9954bb21d136944ba2` 的普通 CI Run `32822780209` 与 Supabase rollback-only Run `32823898006` 均成功。CH-013 已放行 B6 development 的单人补偿治理；B6.0 契约与治理已完成并暂停，B6.1 尚未开始。目标 staging/production 尚未放行；进入 staging 前须外部独立复核，生产上线还须通过外部凭据、联调、恢复演练和合规门禁。
+项目状态：三端 MVP 产品/API 基线为 v2.4.4（CH-014）。B0 至 B5 development 已通过，B5 实现 SHA `d97c43958142eaa0fa5a0a9954bb21d136944ba2` 的普通 CI Run `32822780209` 与 Supabase rollback-only Run `32823898006` 均成功。CH-013 已放行 B6 development 的单人补偿治理；B6.1 匿名 Store 公开 API 已完成本地及受控 Supabase development rollback-only 验收并暂停，B6.2 尚未开始。目标 staging/production 尚未放行；进入 staging 前须外部独立复核，生产上线还须通过外部凭据、联调、恢复演练和合规门禁。

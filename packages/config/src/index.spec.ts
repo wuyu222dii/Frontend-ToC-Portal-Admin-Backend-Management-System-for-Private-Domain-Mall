@@ -47,6 +47,7 @@ describe('loadPlatformConfig', () => {
     const worker = loadPlatformConfig(validEnvironment(), { service: 'worker' });
 
     expect(api.port).toBe(3000);
+    expect(api.http).toEqual({ trustedProxyCidrs: [] });
     expect(api.banner.targetOrigins).toEqual([]);
     expect(api.database.poolMax).toBe(10);
     expect(api.database.allowInsecureLocalhost).toBe(true);
@@ -83,6 +84,7 @@ describe('loadPlatformConfig', () => {
       secretHashKeys: { current: { id: 'test-auth-secret-v1', key: Buffer.alloc(32, 19) }, previous: [] },
     });
     expect(worker.port).toBe(3001);
+    expect(worker.http).toEqual({ trustedProxyCidrs: [] });
     expect(worker.database.poolMax).toBe(5);
     expect(worker.worker).toEqual({
       pollIntervalMs: 1_000,
@@ -319,6 +321,140 @@ describe('loadPlatformConfig', () => {
       'https://mall.example.test',
       'https://content.example.test:8443',
     ]);
+  });
+
+  it('normalizes trusted proxy IPv4, IPv6, and IPv4-mapped addresses', () => {
+    const environment = validEnvironment();
+    environment.API_TRUSTED_PROXY_CIDRS = [
+      ' 192.0.2.1 ',
+      '10.0.0.0/08',
+      '2001:0DB8:0000:0000:0000:0000:0000:0000/32',
+      '::FFFF:192.0.2.128',
+      '::ffff:c000:0200/120',
+    ].join(',');
+
+    expect(loadPlatformConfig(environment, { service: 'api' }).http).toEqual({
+      trustedProxyCidrs: [
+        '192.0.2.1/32',
+        '10.0.0.0/8',
+        '2001:db8::/32',
+        '192.0.2.128/32',
+        '192.0.2.0/24',
+      ],
+    });
+  });
+
+  it.each(['', '   '])('treats an empty trusted proxy allowlist as disabled', (entries) => {
+    const environment = validEnvironment();
+    environment.API_TRUSTED_PROXY_CIDRS = entries;
+
+    expect(loadPlatformConfig(environment, { service: 'api' }).http).toEqual({
+      trustedProxyCidrs: [],
+    });
+  });
+
+  it.each([
+    'proxy.example.test',
+    '[::1]',
+    'fe80::1%en0',
+    '192.0.2',
+    '192.0.2.1/32/1',
+    '192.0.2.1 /32',
+    '192.0.2.1/+32',
+  ])('rejects a malformed trusted proxy entry: %s', (entry) => {
+    const environment = validEnvironment();
+    environment.API_TRUSTED_PROXY_CIDRS = entry;
+
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'API_TRUSTED_PROXY_CIDRS',
+    );
+  });
+
+  it.each([
+    '0.0.0.0/33',
+    '::/129',
+    '0.0.0.0/-1',
+  ])('rejects an out-of-range trusted proxy prefix: %s', (entry) => {
+    const environment = validEnvironment();
+    environment.API_TRUSTED_PROXY_CIDRS = entry;
+
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'API_TRUSTED_PROXY_CIDRS',
+    );
+  });
+
+  it.each([
+    '0.0.0.0/0',
+    '::/0',
+    '::ffff:0.0.0.0/96',
+  ])('rejects a trusted proxy range that covers every source: %s', (entry) => {
+    const environment = validEnvironment();
+    environment.API_TRUSTED_PROXY_CIDRS = entry;
+
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'API_TRUSTED_PROXY_CIDRS must not trust every source address',
+    );
+  });
+
+  it.each([
+    '192.0.2.1/24',
+    '2001:db8::1/64',
+    '::ffff:192.0.2.1/120',
+  ])('rejects a trusted proxy CIDR with host bits set: %s', (entry) => {
+    const environment = validEnvironment();
+    environment.API_TRUSTED_PROXY_CIDRS = entry;
+
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'API_TRUSTED_PROXY_CIDRS CIDRs must use a network address',
+    );
+  });
+
+  it.each([
+    '192.0.2.1,192.0.2.1/32',
+    '192.0.2.1,::ffff:192.0.2.1',
+    '192.0.2.0/24,::ffff:192.0.2.0/120',
+    '2001:0DB8::/32,2001:db8:0:0:0:0:0:0/32',
+  ])('rejects semantic duplicate trusted proxy CIDRs: %s', (entries) => {
+    const environment = validEnvironment();
+    environment.API_TRUSTED_PROXY_CIDRS = entries;
+
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'API_TRUSTED_PROXY_CIDRS must not contain semantic duplicates',
+    );
+  });
+
+  it.each([
+    ',192.0.2.1',
+    '192.0.2.1,',
+    '192.0.2.1,,198.51.100.1',
+  ])('rejects an empty trusted proxy allowlist entry: %s', (entries) => {
+    const environment = validEnvironment();
+    environment.API_TRUSTED_PROXY_CIDRS = entries;
+
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'API_TRUSTED_PROXY_CIDRS must contain between 1 and 20 entries',
+    );
+  });
+
+  it('bounds trusted proxy allowlist count and input lengths', () => {
+    const environment = validEnvironment();
+    environment.API_TRUSTED_PROXY_CIDRS = Array.from(
+      { length: 21 },
+      (_, index) => `192.0.2.${index}`,
+    ).join(',');
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'API_TRUSTED_PROXY_CIDRS must contain between 1 and 20 entries',
+    );
+
+    environment.API_TRUSTED_PROXY_CIDRS = '1'.repeat(65);
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'API_TRUSTED_PROXY_CIDRS entries must not exceed 64 characters',
+    );
+
+    environment.API_TRUSTED_PROXY_CIDRS = ' '.repeat(2_049);
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'API_TRUSTED_PROXY_CIDRS is too long',
+    );
   });
 
   it.each([

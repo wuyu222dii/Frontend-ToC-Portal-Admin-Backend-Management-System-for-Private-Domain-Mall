@@ -7,6 +7,7 @@ import {
   Injectable,
   Module,
   Post,
+  Res,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -23,6 +24,10 @@ import { IfMatchVersion } from './if-match.decorator';
 
 let testPrincipal: RbacPrincipal | undefined;
 const SENSITIVE_PHONE = ['138', '1234', '5678'].join('');
+
+interface ProbeHeaderResponse {
+  setHeader(name: string, value: string): void;
+}
 
 @Injectable()
 class TestPrincipalMiddleware implements NestMiddleware {
@@ -121,6 +126,19 @@ class PlatformProbeController {
   @Public()
   rateLimited(): never {
     throw new ApplicationError('RATE_LIMITED', 'Internal rate-limit detail');
+  }
+
+  @Get('rate-limited-window')
+  @Public()
+  rateLimitedWindow(@Res({ passthrough: true }) response: ProbeHeaderResponse): never {
+    response.setHeader('Retry-After', '17');
+    throw new ApplicationError('RATE_LIMITED', 'Internal store rate-limit detail');
+  }
+
+  @Get('reauth-locked')
+  @Public()
+  reauthLocked(): never {
+    throw new ApplicationError('REAUTH_LOCKED', 'Internal reauthentication lock detail');
   }
 
   @Get('not-ready')
@@ -371,11 +389,26 @@ describe('API platform HTTP pipeline (e2e)', () => {
   });
 
   it('returns the frozen fifteen-minute retry interval for authentication locks', async () => {
-    const response = await request(app.getHttpServer())
+    const rateLimited = await request(app.getHttpServer())
       .get('/api/v1/platform-probe/rate-limited')
       .expect(429);
 
-    expect(response.headers['retry-after']).toBe('900');
+    const reauthLocked = await request(app.getHttpServer())
+      .get('/api/v1/platform-probe/reauth-locked')
+      .expect(429);
+
+    expect(rateLimited.headers['retry-after']).toBe('900');
+    expect(rateLimited.body.code).toBe('RATE_LIMITED');
+    expect(reauthLocked.headers['retry-after']).toBe('900');
+    expect(reauthLocked.body.code).toBe('REAUTH_LOCKED');
+  });
+
+  it('preserves a bounded Store fixed-window Retry-After value', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/v1/platform-probe/rate-limited-window')
+      .expect(429);
+
+    expect(response.headers['retry-after']).toBe('17');
     expect(response.body.code).toBe('RATE_LIMITED');
   });
 });

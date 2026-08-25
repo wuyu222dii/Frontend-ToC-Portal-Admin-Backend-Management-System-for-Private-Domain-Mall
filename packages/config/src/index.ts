@@ -1,3 +1,5 @@
+import { isIP } from 'node:net';
+
 export const PROJECT_TIME_ZONE = 'Asia/Shanghai' as const;
 
 export const SERVICE_DEFAULT_PORTS = {
@@ -24,6 +26,9 @@ export interface PlatformRuntimeConfig {
   environment: RuntimeEnvironment;
   service: ServiceName;
   port: number;
+  http?: {
+    trustedProxyCidrs: readonly string[];
+  };
   banner: {
     targetOrigins: readonly string[];
   };
@@ -308,6 +313,123 @@ function readBannerTargetOrigins(source: NodeJS.ProcessEnv): readonly string[] {
     throw new Error('BANNER_TARGET_ORIGINS must not contain duplicates');
   }
   return origins;
+}
+
+function hasHostBits(bytes: readonly number[], prefixLength: number): boolean {
+  const completeBytes = Math.floor(prefixLength / 8);
+  const remainingBits = prefixLength % 8;
+  if (remainingBits !== 0) {
+    const hostMask = (1 << (8 - remainingBits)) - 1;
+    if (((bytes[completeBytes] ?? 0) & hostMask) !== 0) return true;
+  }
+  const firstHostByte = completeBytes + (remainingBits === 0 ? 0 : 1);
+  return bytes.slice(firstHostByte).some((byte) => byte !== 0);
+}
+
+function parseIpv4Bytes(address: string): readonly number[] {
+  return address.split('.').map(Number);
+}
+
+function parseIpv6Bytes(address: string): readonly number[] {
+  const canonical = new URL(`http://[${address}]/`).hostname.slice(1, -1);
+  const halves = canonical.split('::');
+  const left = halves[0] ? halves[0].split(':') : [];
+  const right = halves[1] ? halves[1].split(':') : [];
+  const missing = halves.length === 2 ? 8 - left.length - right.length : 0;
+  const groups = [
+    ...left.map((group) => Number.parseInt(group, 16)),
+    ...Array.from({ length: missing }, () => 0),
+    ...right.map((group) => Number.parseInt(group, 16)),
+  ];
+  return groups.flatMap((group) => [group >>> 8, group & 0xff]);
+}
+
+function formatIpv6(bytes: readonly number[]): string {
+  const groups = Array.from({ length: 8 }, (_, index) =>
+    (((bytes[index * 2] ?? 0) << 8) | (bytes[index * 2 + 1] ?? 0)).toString(16));
+  let bestStart = -1;
+  let bestLength = 0;
+  for (let index = 0; index < groups.length;) {
+    if (groups[index] !== '0') {
+      index += 1;
+      continue;
+    }
+    let end = index;
+    while (end < groups.length && groups[end] === '0') end += 1;
+    if (end - index > bestLength && end - index >= 2) {
+      bestStart = index;
+      bestLength = end - index;
+    }
+    index = end;
+  }
+  if (bestStart === -1) return groups.join(':');
+  const left = groups.slice(0, bestStart).join(':');
+  const right = groups.slice(bestStart + bestLength).join(':');
+  return `${left ? `${left}:` : ':'}:${right ? `${right}` : ''}`;
+}
+
+function isIpv4Mapped(bytes: readonly number[]): boolean {
+  return bytes.slice(0, 10).every((byte) => byte === 0) && bytes[10] === 0xff && bytes[11] === 0xff;
+}
+
+function canonicalProxyCidr(value: string): string {
+  const parts = value.split('/');
+  if (parts.length > 2 || !parts[0]) {
+    throw new Error('API_TRUSTED_PROXY_CIDRS must contain numeric IP addresses or CIDRs');
+  }
+  const address = parts[0];
+  if (!/^[0-9A-Fa-f:.]+$/.test(address)) {
+    throw new Error('API_TRUSTED_PROXY_CIDRS must not contain hostnames, zones, or brackets');
+  }
+  const family = isIP(address);
+  if (family === 0) {
+    throw new Error('API_TRUSTED_PROXY_CIDRS must contain numeric IP addresses or CIDRs');
+  }
+  const maximumPrefix = family === 4 ? 32 : 128;
+  const prefixRaw = parts[1];
+  if (prefixRaw !== undefined && !/^\d+$/.test(prefixRaw)) {
+    throw new Error('API_TRUSTED_PROXY_CIDRS prefixes must be integers');
+  }
+  const prefixLength = prefixRaw === undefined ? maximumPrefix : Number(prefixRaw);
+  if (!Number.isSafeInteger(prefixLength) || prefixLength < 0 || prefixLength > maximumPrefix) {
+    throw new Error(`API_TRUSTED_PROXY_CIDRS IPv${family} prefixes must be between 0 and ${maximumPrefix}`);
+  }
+  if (prefixLength === 0) {
+    throw new Error('API_TRUSTED_PROXY_CIDRS must not trust every source address');
+  }
+  const bytes = family === 4 ? parseIpv4Bytes(address) : parseIpv6Bytes(address);
+  if (hasHostBits(bytes, prefixLength)) {
+    throw new Error('API_TRUSTED_PROXY_CIDRS CIDRs must use a network address');
+  }
+  if (family === 4) return `${bytes.join('.')}/${prefixLength}`;
+  if (isIpv4Mapped(bytes)) {
+    const mappedPrefixLength = prefixLength - 96;
+    if (mappedPrefixLength === 0) {
+      throw new Error('API_TRUSTED_PROXY_CIDRS must not trust every source address');
+    }
+    return `${bytes.slice(12).join('.')}/${mappedPrefixLength}`;
+  }
+  return `${formatIpv6(bytes)}/${prefixLength}`;
+}
+
+function readTrustedProxyCidrs(source: NodeJS.ProcessEnv): readonly string[] {
+  const raw = source.API_TRUSTED_PROXY_CIDRS;
+  if (raw === undefined || raw === '') return [];
+  if (raw.length > 2_048) throw new Error('API_TRUSTED_PROXY_CIDRS is too long');
+  if (raw.trim() === '') return [];
+  const rawValues = raw.split(',');
+  if (rawValues.some((value) => value.length > 64)) {
+    throw new Error('API_TRUSTED_PROXY_CIDRS entries must not exceed 64 characters');
+  }
+  const values = rawValues.map((value) => value.trim());
+  if (values.length > 20 || values.some((value) => value.length === 0)) {
+    throw new Error('API_TRUSTED_PROXY_CIDRS must contain between 1 and 20 entries');
+  }
+  const cidrs = values.map(canonicalProxyCidr);
+  if (new Set(cidrs).size !== cidrs.length) {
+    throw new Error('API_TRUSTED_PROXY_CIDRS must not contain semantic duplicates');
+  }
+  return cidrs;
 }
 
 function readRuntimeDatabaseConnection(
@@ -600,6 +722,7 @@ export function loadPlatformConfig(
     environment,
     service: options.service,
     port: readInteger(source, portName, SERVICE_DEFAULT_PORTS[options.service], 1, 65_535),
+    http: { trustedProxyCidrs: readTrustedProxyCidrs(source) },
     banner: { targetOrigins: readBannerTargetOrigins(source) },
     database: {
       ...databaseConnection,

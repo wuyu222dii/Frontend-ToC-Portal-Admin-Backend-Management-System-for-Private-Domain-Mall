@@ -23,6 +23,7 @@ interface ErrorRequest extends PrincipalRequest {
 }
 
 interface ErrorResponse {
+  getHeader(name: string): number | string | string[] | undefined;
   setHeader(name: string, value: string): void;
 }
 
@@ -134,7 +135,8 @@ export class ErrorEnvelopeFilter implements ExceptionFilter {
       );
     }
     this.adapterHost.httpAdapter.setHeader(response, 'X-Request-Id', requestId);
-    if (error.code === 'RATE_LIMITED' || error.code === 'REAUTH_LOCKED') {
+    if ((error.code === 'RATE_LIMITED' || error.code === 'REAUTH_LOCKED') &&
+      response.getHeader('Retry-After') === undefined) {
       response.setHeader('Retry-After', '900');
     }
     this.adapterHost.httpAdapter.reply(response, toErrorResponse(error, requestId), error.status);

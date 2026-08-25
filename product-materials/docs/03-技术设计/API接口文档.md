@@ -6,7 +6,7 @@
 |---|---|
 | 文档版本 | v2.4.4 |
 | 对应产品基线 | MVP/PRD v2.4.4、CH-001 至 CH-014 |
-| 接口阶段 | B0-B5 development 已完成；B6.0 已冻结 5 个现有 Store 公开 GET 的 CH-014 契约，B6.1 repository/API 业务代码尚未开始，staging/production 未批准 |
+| 接口阶段 | B0-B5 development 已完成；B6.1 已实现 5 个 Store 公开 GET 并完成本地及受控 Supabase development rollback-only 验收后暂停；B6.2 工程页面未开始，staging/production 未批准 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
 | 更新时间 | 2026-08-25 |
 
@@ -343,6 +343,12 @@ type DisplayStatus =
 `/store/home` 四区上限固定为 Banner 10、分类 8、热销 4、新品 4，并分别返回 `READY|UNAVAILABLE`。单区失败时对应数组为空且整体 200，四区全失败才返回 500。Banner PRODUCT target 必须仍能解析为公开商品，否则只从公开投影排除，不回写 Banner。公开品牌/分类无分页，返回全部 ACTIVE 记录并按 `sort_order ASC,id ASC`。
 
 5 个匿名 Store GET 共享 Redis 60 秒固定窗口，每个 HMAC 来源 IP 最多 120 次。服务端不保存原始 IP；超限通过 Store 专用 `StoreRateLimited` 响应返回 429 和准确整数秒 `Retry-After`，Redis 异常时 fail closed，不得绕过限流。通用 `RateLimited` 继续承载登录/MFA 等既有窗口，不被 60 秒上限收窄。
+
+B6.1 已按上述契约开放这 5 个 GET。独立 `StoreCatalogRepository` 使用 Repeatable Read 和参数化 SQL 完成公开过滤、最低 ACTIVE SKU 价格、五种稳定排序与分页，再按 ID 集合批量装配 Brand、Category、图片、SKU 与库存，不产生 N+1；Nest service 只映射 Store 专用响应，不返回管理状态、version、file ID 或 physical/locked 库存。repository unit 为 `9 passed`，database 全包为 `332 passed / 52 环境模式跳过`，隔离 PostgreSQL full 与受控 Supabase development rollback-only 均为 `1 passed / 1 mode skip` 且事务外 fixture 为 0；API 全包为 `426 passed / 26 环境模式跳过`。
+
+来源 IP 只取 Express 在当前连接信任边界下解析的 `request.ip`。`API_TRUSTED_PROXY_CIDRS` 默认空，对应 `trust proxy=false`，因此任意客户端自填 `X-Forwarded-For` 不会改变限流来源；只有直接可信反向代理的数字 IP/CIDR 才能显式登记。配置拒绝 hostname、全网段、带 host bits 或语义重复项，IPv4-mapped IPv6 在配置和请求来源处都归一化为等价 IPv4，再计算 HMAC 限流 key。
+
+上述是 B6.1 development 批次证据，不代表 B6.2 工程页面已实现，也不替代 B6.4 最终 SHA 的真实纵向链路、普通 CI 与 Supabase workflow 双绿。
 
 ### 4.4 地址、试算、订单与支付
 

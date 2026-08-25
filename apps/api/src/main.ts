@@ -12,7 +12,7 @@ async function bootstrap(): Promise<void> {
   try {
     const config = loadPlatformConfig(process.env, { service: 'api' });
     app = await NestFactory.create(ApiRuntimeModule.register(config));
-    configureApi(app);
+    configureApi(app, config.http);
     app.enableShutdownHooks();
     await app.listen(config.port, '0.0.0.0');
   } catch {

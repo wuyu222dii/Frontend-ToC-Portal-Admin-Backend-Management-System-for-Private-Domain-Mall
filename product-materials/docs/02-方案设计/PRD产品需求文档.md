@@ -9,7 +9,7 @@
 | 文档版本 | v2.4.4 |
 | 对应阶段 | 三端标准 MVP |
 | 更新日期 | 2026-08-25 |
-| 当前状态 | B0 至 B5 development 已完成；CH-013/CH-014 已批准并将产品/API 基线升级为 v2.4.4，B6.0 契约与治理已完成并暂停，B6.1 尚未开始，staging/production `NO-GO` |
+| 当前状态 | B0 至 B5 development 已完成；CH-013/CH-014 已批准并将产品/API 基线升级为 v2.4.4，B6.1 匿名 Store 公开 API 已完成验收并暂停，B6.2 尚未开始，staging/production `NO-GO` |
 | 产品终端 | 消费者微信小程序、一级代理工作台、总部管理后台 |
 | 人员角色 | `CUSTOMER`、`AGENT_ADMIN`、`SUPER_ADMIN` |
 
@@ -26,7 +26,7 @@
 | v2.4.1 | 2026-08-13 | 落实 CH-006：品牌排序、品牌/分类 DRAFT 创建与专用生命周期、恢复草稿、文件内容完整性、签名 TTL、对象可见性和完成幂等策略 | 已归档；B3 development 已按 CH-009 闭合交付门禁 |
 | v2.4.2 | 2026-08-24 | 落实 CH-010：Product/SKU 专用三动作生命周期、固定创建状态、首次发布时间、nullable 最低活动价、归档 SKU、8 图、零库存初值和不可变 code | 已归档；B4.0 至 B4.4 development 已完成 |
 | v2.4.3 | 2026-08-25 | 落实 CH-012：Banner 闭合生命周期/幂等、有效投影与安全目标，库存统一公式、HR-07 preview-confirm、整数边界和闭合流水类型 | 已归档；B5 development 已完成 |
-| v2.4.4 | 2026-08-25 | 落实 CH-014：匿名目录售罄投影、综合排序、商品名搜索、无分页主数据、首页分区状态和公共限流 | 当前产品版本；B6.0 已完成并暂停，B6.1 尚未开始 |
+| v2.4.4 | 2026-08-25 | 落实 CH-014：匿名目录售罄投影、综合排序、商品名搜索、无分页主数据、首页分区状态和公共限流 | 当前产品版本；B6.1 已完成验收并暂停，B6.2 尚未开始 |
 
 ### 文档使用约定
 
@@ -1483,8 +1483,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | 验收场景 AC | 116 | 0 |
 | 用户故事 US | 24 | 0 |
 
-当前准入结论：B0 至 B5 development 已通过；B5 实现 SHA `d97c43958142eaa0fa5a0a9954bb21d136944ba2` 的普通 CI Run `32822780209` 与 Supabase rollback-only Run `32823898006` 均成功，CH-011 已失效。CH-013/CH-014 将产品/API 基线升级为 v2.4.4，保持既有编号规模和冻结数据库；B6.0 只完成契约治理与静态原型同步，B6.1 Store repository/API 尚未开始，该状态不替代 B6.4、staging 或 production 验收。
+当前准入结论：B0 至 B5 development 已通过；B5 实现 SHA `d97c43958142eaa0fa5a0a9954bb21d136944ba2` 的普通 CI Run `32822780209` 与 Supabase rollback-only Run `32823898006` 均成功，CH-011 已失效。CH-013/CH-014 将产品/API 基线升级为 v2.4.4，保持既有编号规模和冻结数据库；B6.1 Store repository/API 已完成本地及受控 Supabase development rollback-only 验收并暂停，B6.2 尚未开始，该状态不替代 B6.4、staging 或 production 验收。
 
 ---
 
-PRD 状态：v2.4.4/CH-014 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B5 development 已通过。CH-013 仅放行 B6 development 的单人补偿治理，B6.0 契约与治理已完成并暂停，B6.1 尚未开始。目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。
+PRD 状态：v2.4.4/CH-014 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B5 development 已通过。CH-013 仅放行 B6 development 的单人补偿治理，B6.1 匿名 Store 公开 API 已完成验收并暂停，B6.2 尚未开始。目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。

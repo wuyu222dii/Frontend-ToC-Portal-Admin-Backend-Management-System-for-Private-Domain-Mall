@@ -9,7 +9,7 @@
 | 文档版本 | v2.4.3 |
 | 对应阶段 | 三端标准 MVP |
 | 更新日期 | 2026-08-25 |
-| 当前状态 | CH-012 已实施并升级产品/API 基线；B0 至 B4 development 已完成，B5.0 契约已通过本地验收并暂停，B5.1 尚未开始，staging/production `NO-GO` |
+| 当前状态 | CH-012 已实施并升级产品/API 基线；B0 至 B4 development 已完成，B5.1 Banner repository/API 已验收暂停，B5.2 尚未开始，staging/production `NO-GO` |
 | 产品终端 | 消费者微信小程序、一级代理工作台、总部管理后台 |
 | 人员角色 | `CUSTOMER`、`AGENT_ADMIN`、`SUPER_ADMIN` |
 
@@ -25,7 +25,7 @@
 | v2.4 | 2026-08-11 | 落实 CH-005：单包裹发货门禁、服务端售后计价、可恢复支付意图、退款双状态轴、退货验货、并发裁决、TOTP 与高风险操作唯一矩阵 | 已归档 |
 | v2.4.1 | 2026-08-13 | 落实 CH-006：品牌排序、品牌/分类 DRAFT 创建与专用生命周期、恢复草稿、文件内容完整性、签名 TTL、对象可见性和完成幂等策略 | 已归档；B3 development 已按 CH-009 闭合交付门禁 |
 | v2.4.2 | 2026-08-24 | 落实 CH-010：Product/SKU 专用三动作生命周期、固定创建状态、首次发布时间、nullable 最低活动价、归档 SKU、8 图、零库存初值和不可变 code | 已归档；B4.0 至 B4.4 development 已完成 |
-| v2.4.3 | 2026-08-25 | 落实 CH-012：Banner 闭合生命周期/幂等、有效投影与安全目标，库存统一公式、HR-07 preview-confirm、整数边界和闭合流水类型 | 当前产品版本；B5.0 已验收暂停 |
+| v2.4.3 | 2026-08-25 | 落实 CH-012：Banner 闭合生命周期/幂等、有效投影与安全目标，库存统一公式、HR-07 preview-confirm、整数边界和闭合流水类型 | 当前产品版本；B5.0/B5.1 已分别验收暂停 |
 
 ### 文档使用约定
 
@@ -1476,8 +1476,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | 验收场景 AC | 116 | 0 |
 | 用户故事 US | 24 | 0 |
 
-当前准入结论：B0 至 B4 development 已通过；CH-012 将产品/API 基线升级为 v2.4.3，并保持既有编号规模和冻结数据库。实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的普通 CI Run `32721588213` 与 Supabase B4 rollback-only Run `32722510890` 继续只证明 B4。CH-011 允许开展 B5 development 治理，CH-012/B5.0 已通过本地契约验收并暂停，B5.1 尚未开始；该状态不替代 staging 或 production 验收。
+当前准入结论：B0 至 B4 development 已通过；CH-012 将产品/API 基线升级为 v2.4.3，并保持既有编号规模和冻结数据库。实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的普通 CI Run `32721588213` 与 Supabase B4 rollback-only Run `32722510890` 继续只证明 B4。CH-011 允许开展 B5 development 治理，B5.1 Banner repository/API 已通过本地及一次性 PostgreSQL 验收并暂停，B5.2 尚未开始；该状态不替代 staging 或 production 验收。
 
 ---
 
-PRD 状态：v2.4.3/CH-012 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B4 development 已通过，两个 B4 远端门禁绑定同一实现 SHA 并成功。B5.0 已通过本地契约验收并暂停，B5.1 尚未开始。目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。
+PRD 状态：v2.4.3/CH-012 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B4 development 已通过，两个 B4 远端门禁绑定同一实现 SHA 并成功。B5.1 Banner repository/API 已验收暂停，B5.2 尚未开始。目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。

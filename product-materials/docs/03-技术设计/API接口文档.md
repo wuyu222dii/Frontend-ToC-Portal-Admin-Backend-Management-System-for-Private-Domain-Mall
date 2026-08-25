@@ -6,7 +6,7 @@
 |---|---|
 | 文档版本 | v2.4.3 |
 | 对应产品基线 | MVP/PRD v2.4.3、CH-001 至 CH-012 |
-| 接口阶段 | CH-012/B5.0 契约已通过本地验收并暂停；B5.1 业务代码尚未开始，staging/production 未批准 |
+| 接口阶段 | B5.1 Banner 5 个管理端 operation 已实现并验收暂停；B5.2 库存接口尚未开始，staging/production 未批准 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
 | 更新时间 | 2026-08-25 |
 

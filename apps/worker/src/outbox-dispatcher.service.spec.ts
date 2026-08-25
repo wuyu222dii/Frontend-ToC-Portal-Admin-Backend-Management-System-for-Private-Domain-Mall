@@ -12,6 +12,7 @@ import {
 } from './outbox-dispatcher.service';
 
 const config: PlatformRuntimeConfig = {
+  banner: { targetOrigins: [] },
   authentication: {
     accessTokenTtlSeconds: 900,
     audience: 'disabled',

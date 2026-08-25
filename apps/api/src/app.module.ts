@@ -3,6 +3,7 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 
 import { AdminCatalogModule } from './admin-catalog/admin-catalog.module';
 import { AdminAuthModule } from './admin-auth/admin-auth.module';
+import { AdminBannersModule } from './admin-banners/admin-banners.module';
 import { AdminProductsModule } from './admin-products/admin-products.module';
 import { HealthModule } from './health/health.module';
 import { FilesModule } from './files/files.module';
@@ -14,7 +15,7 @@ import { RequestIdMiddleware } from './platform/http/request-id.middleware';
 import { SuccessEnvelopeInterceptor } from './platform/http/success-envelope.interceptor';
 
 @Module({
-  imports: [AdminAuthModule, AdminCatalogModule, AdminProductsModule, FilesModule, HealthModule],
+  imports: [AdminAuthModule, AdminBannersModule, AdminCatalogModule, AdminProductsModule, FilesModule, HealthModule],
   providers: [
     { provide: APP_FILTER, useClass: ErrorEnvelopeFilter },
     { provide: APP_GUARD, useClass: AuthenticationGuard },

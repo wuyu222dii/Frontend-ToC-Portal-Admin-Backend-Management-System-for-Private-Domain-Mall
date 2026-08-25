@@ -214,6 +214,25 @@ try {
   if (process.env.S3_FORCE_PATH_STYLE !== "true" && process.env.S3_FORCE_PATH_STYLE !== "false") {
     throw new Error("S3_FORCE_PATH_STYLE must be true or false");
   }
+  const bannerTargetOrigins = process.env.BANNER_TARGET_ORIGINS?.trim();
+  if (bannerTargetOrigins) {
+    if (bannerTargetOrigins.length > 2_048) throw new Error("BANNER_TARGET_ORIGINS is too long");
+    const values = bannerTargetOrigins.split(",").map((value) => value.trim());
+    if (values.length > 20 || values.some((value) => value.length === 0)) {
+      throw new Error("BANNER_TARGET_ORIGINS must contain between 1 and 20 HTTPS origins");
+    }
+    const origins = values.map((value) => {
+      const url = new URL(value);
+      if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/" ||
+          url.search || url.hash || value !== url.origin) {
+        throw new Error("BANNER_TARGET_ORIGINS must contain canonical HTTPS origins without paths");
+      }
+      return url.origin;
+    });
+    if (new Set(origins).size !== origins.length) {
+      throw new Error("BANNER_TARGET_ORIGINS must not contain duplicates");
+    }
+  }
   const fieldEncryptionKeys = readKeyRing(
     "FIELD_ENCRYPTION_KEY_ID",
     "FIELD_ENCRYPTION_KEY_BASE64",

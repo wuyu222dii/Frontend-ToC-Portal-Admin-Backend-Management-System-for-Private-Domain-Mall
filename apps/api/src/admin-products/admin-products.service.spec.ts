@@ -29,6 +29,7 @@ const requestId = 'req_0123456789abcdef0123456789abcdef';
 
 function config(): PlatformRuntimeConfig {
   return {
+    banner: { targetOrigins: [] },
     authentication: {} as PlatformRuntimeConfig['authentication'],
     database: {} as PlatformRuntimeConfig['database'],
     encryption: {

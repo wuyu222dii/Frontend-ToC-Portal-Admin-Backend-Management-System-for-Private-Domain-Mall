@@ -39,6 +39,7 @@ function asset(overrides: Partial<FileAssetSnapshot> = {}): FileAssetSnapshot {
 
 function config(): PlatformRuntimeConfig {
   return {
+    banner: { targetOrigins: [] },
     authentication: {} as PlatformRuntimeConfig['authentication'],
     database: {} as PlatformRuntimeConfig['database'],
     encryption: {

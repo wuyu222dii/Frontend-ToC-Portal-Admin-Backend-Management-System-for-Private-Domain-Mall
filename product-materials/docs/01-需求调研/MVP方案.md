@@ -10,7 +10,7 @@
 | 目标用户 | 终端消费者、一级代理、总部商城经营人员 |
 | 人员角色 | `SUPER_ADMIN`、`AGENT_ADMIN`、`CUSTOMER` |
 | 更新日期 | 2026-08-25 |
-| 文档状态 | CH-012 已实施并升级产品/API 基线；B0 至 B4 development 已完成，B5.0 契约已通过本地验收并暂停，B5.1 尚未开始，staging/production 均为 `NO-GO` |
+| 文档状态 | CH-012 已实施并升级产品/API 基线；B0 至 B4 development 已完成，B5.1 Banner repository/API 已验收暂停，B5.2 尚未开始，staging/production 均为 `NO-GO` |
 
 ## 1. MVP 概述
 
@@ -325,7 +325,7 @@
 
 ## 7. 技术方案摘要
 
-CH-005/CH-006/CH-010 产品规则和冻结数据库继续有效；CH-012 将产品/API 基线升级为 v2.4.3，闭合既有 ADM-07/08，不改变页面、FR、AC、US、HR、operation 或数据库模型数量。B4.0 至 B4.4 已完成 development 验收，普通 CI Run `32721588213` 与 Supabase rollback-only Run `32722510890` 均在实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 上成功。CH-011 仅把单人 reviewer 补偿控制延长到 B5.4；B5.0 已完成 CH-012 契约、公共内核和原型验收并暂停，B5.1 业务代码尚未开始，staging 和 production 仍关闭。
+CH-005/CH-006/CH-010 产品规则和冻结数据库继续有效；CH-012 将产品/API 基线升级为 v2.4.3，闭合既有 ADM-07/08，不改变页面、FR、AC、US、HR、operation 或数据库模型数量。B4.0 至 B4.4 已完成 development 验收，普通 CI Run `32721588213` 与 Supabase rollback-only Run `32722510890` 均在实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 上成功。CH-011 仅把单人 reviewer 补偿控制延长到 B5.4；B5.1 已完成 Banner repository/API、事务、权限及一次性 PostgreSQL full 验收并暂停，B5.2 库存尚未开始，staging 和 production 仍关闭。
 
 Banner 创建固定为 DRAFT，资料编辑不改变状态；`DRAFT/INACTIVE -> ACTIVE -> INACTIVE`，DRAFT/INACTIVE 才能归档，恢复固定回 DRAFT。默认列表排除归档并按 `sort_order,id` 排序；公开展示仅包含处于 ACTIVE、位于 `[starts_at,ends_at)` 有效窗口、使用 READY/PUBLIC/BANNER 文件且目标仍有效的记录。PRODUCT/CATEGORY 目标必须 ACTIVE；URL 只接受 HTTPS 且命中服务端 origin allowlist，allowlist 为空时不开放 URL 目标。
 
@@ -379,7 +379,7 @@ CH-006 已解除并完成 B3 契约与交付门禁；CH-010 已解除 B4 商品/
 | 需求确认 | MVP、三端角色确认、变更记录 | CH-012 已批准并实施，v2.4.3 基线已登记 |
 | 产品设计 | PRD、三端信息架构、可点击原型、Figma 重建规范 | ADM-07/08 CH-012 交互已完成；页面仍为 21/9/22 |
 | 技术设计 | 系统架构、数据库 ERD、接口文档、OpenAPI、Prisma 草案与部署拓扑 | CH-012/B5.0 契约门禁通过；Prisma/首迁移逐字节不变 |
-| 开发与测试 | 三端工程、API、数据库、自动化测试 | B5.0 公共内核与契约已本地验收暂停；B5.1 业务代码未开始，B4 双远端证据继续有效但不证明 B5 |
+| 开发与测试 | 三端工程、API、数据库、自动化测试 | B5.1 Banner repository/API 已通过本地及一次性 PostgreSQL full 验收暂停；B4 双远端证据继续有效但不证明 B5 |
 | 上线准备 | 微信资质、真实支付退款、隐私合规、部署与验收 | 未开始 |
 
 ## 10. 风险与应对
@@ -447,15 +447,15 @@ CH-006 已解除并完成 B3 契约与交付门禁；CH-010 已解除 B4 商品/
 
 - 尚无真实用户访谈、历史订单、代理规模、佣金预算、商品规模和并发数据；指标阈值需试运行后校准。
 - 尚无微信正式参数、物流合同、隐私文本、线下打款财务制度和法律审核结论。
-- 当前交付物仍不是完整可用商城业务系统。B2 已开放 ADM-01 与 ADM-16 账户安全部分，B3 已实现文件、品牌、分类与 ADM-05/06，B4 已实现 Product/SKU 后端及 ADM-03/04；Banner、库存人工调整/流水、交易和资金仍未实施。
+- 当前交付物仍不是完整可用商城业务系统。B2 已开放 ADM-01 与 ADM-16 账户安全部分，B3 已实现文件、品牌、分类与 ADM-05/06，B4 已实现 Product/SKU 后端及 ADM-03/04，B5.1 已实现 Banner 后端；Banner 后台工程、库存人工调整/流水、交易和资金仍未实施。
 
 ## 13. 后续建议
 
-1. 保持 B5.0 暂停，不把公共内核、生成 contracts 或静态原型标记为 Banner/库存业务实现。
-2. 取得下一批明确批准后再按 B5.1-B5.4 串行实施 Banner、库存和后台工程。
+1. 保持 B5.1 暂停，不把 Banner 后端误标为库存、后台工程或 `/store/home` 已实现。
+2. 取得下一批明确批准后再进入 B5.2，并继续按 B5.2-B5.4 串行实施库存、后台工程和总验收。
 3. B5.4 最终登记同一实现 SHA 的普通 CI、Supabase rollback-only 和无残留证据；Mock 不替代目标环境证据。
 4. CH-011 在 B5.4 后失效；第一次进入 staging 前必须取得外部独立代码、安全、数据库和证据复核。
 
 ---
 
-项目状态：三端 MVP 产品/API 基线为 v2.4.3（CH-012）。B0 至 B4 development 已通过，B4 实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的普通 CI Run `32721588213` 与 Supabase rollback-only Run `32722510890` 均成功。CH-011 已放行 B5 development 治理，CH-012/B5.0 已通过本地验收并暂停，B5.1 未开始。目标 staging/production 尚未放行；进入 staging 前须外部独立复核，生产上线还须通过外部凭据、联调、恢复演练和合规门禁。
+项目状态：三端 MVP 产品/API 基线为 v2.4.3（CH-012）。B0 至 B4 development 已通过，B4 实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的普通 CI Run `32721588213` 与 Supabase rollback-only Run `32722510890` 均成功。CH-011 已放行 B5 development 治理，B5.1 Banner repository/API 已验收暂停，B5.2 未开始。目标 staging/production 尚未放行；进入 staging 前须外部独立复核，生产上线还须通过外部凭据、联调、恢复演练和合规门禁。

@@ -24,6 +24,9 @@ export interface PlatformRuntimeConfig {
   environment: RuntimeEnvironment;
   service: ServiceName;
   port: number;
+  banner: {
+    targetOrigins: readonly string[];
+  };
   database: {
     url: string;
     poolMax: number;
@@ -278,6 +281,33 @@ function readStorageConfig(
     region,
     secretKey,
   };
+}
+
+function readBannerTargetOrigins(source: NodeJS.ProcessEnv): readonly string[] {
+  const raw = source.BANNER_TARGET_ORIGINS?.trim();
+  if (!raw) return [];
+  if (raw.length > 2_048) throw new Error('BANNER_TARGET_ORIGINS is too long');
+  const values = raw.split(',').map((value) => value.trim());
+  if (values.length > 20 || values.some((value) => value.length === 0)) {
+    throw new Error('BANNER_TARGET_ORIGINS must contain between 1 and 20 HTTPS origins');
+  }
+  const origins = values.map((value) => {
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new Error('BANNER_TARGET_ORIGINS must contain valid HTTPS origins');
+    }
+    if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' ||
+      url.search || url.hash || value !== url.origin) {
+      throw new Error('BANNER_TARGET_ORIGINS must contain canonical HTTPS origins without paths');
+    }
+    return url.origin;
+  });
+  if (new Set(origins).size !== origins.length) {
+    throw new Error('BANNER_TARGET_ORIGINS must not contain duplicates');
+  }
+  return origins;
 }
 
 function readRuntimeDatabaseConnection(
@@ -570,6 +600,7 @@ export function loadPlatformConfig(
     environment,
     service: options.service,
     port: readInteger(source, portName, SERVICE_DEFAULT_PORTS[options.service], 1, 65_535),
+    banner: { targetOrigins: readBannerTargetOrigins(source) },
     database: {
       ...databaseConnection,
       poolMax: readInteger(

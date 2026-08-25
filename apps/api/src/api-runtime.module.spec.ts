@@ -26,6 +26,7 @@ import { apiRedisReconnectDelay } from './platform/redis/api-redis-runtime';
 function runtimeConfig(): PlatformRuntimeConfig {
   const key = (byte: number) => Buffer.alloc(32, byte);
   return {
+    banner: { targetOrigins: [] },
     authentication: {
       accessTokenTtlSeconds: 900,
       audience: 'qingxu-admin-web',

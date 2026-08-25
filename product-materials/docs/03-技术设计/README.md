@@ -1,6 +1,6 @@
 # 技术设计交付索引
 
-> 当前基线：MVP/PRD v2.4.3、线协议 CH-012（2026-08-25）。CH-011 已放行 B5 development 治理；B5.0 契约已通过本地验收并暂停，B5.1 尚未开始，staging/production 均为 `NO-GO`。
+> 当前基线：MVP/PRD v2.4.3、线协议 CH-012（2026-08-25）。CH-011 已放行 B5 development 治理；B5.1 Banner repository/API 已验收暂停，B5.2 尚未开始，staging/production 均为 `NO-GO`。
 
 | 文件 | 用途 |
 |---|---|
@@ -35,8 +35,8 @@
 
 - 产品/API 基线为 `v2.4.3 / 2.4.3-ch012`；本轮实测为 172 paths、196 operations、196 unique operationId、312 schemas、692 schema refs、2,578 local refs 和 0 dangling refs。
 - Banner 使用闭合创建/资料更新/启停请求，DELETE 唯一归档、restore-to-DRAFT、稳定排序、有效窗口、目标重查与 URL origin allowlist；库存删除 `low_stock`，固定公式、int32 增量、专用 preview/confirm 响应与闭合流水类型。
-- 公共内核注册 `INVENTORY.ADJUST/INVENTORY`、`BANNER_RESOURCE_RESPONSE` 与 `INVENTORY_QUANTITY_OUT_OF_RANGE`；不创建 B5.1 业务模块。
-- Prisma、`0001_initial`、76 models / 59 enums 保持逐字节不变；B5.0 契约、公共内核、原型和冻结门禁已通过并暂停，未进入 B5.1。
+- 公共内核注册 `INVENTORY.ADJUST/INVENTORY`、`BANNER_RESOURCE_RESPONSE` 与 `INVENTORY_QUANTITY_OUT_OF_RANGE`；B5.1 已以闭合 Banner 响应策略实现精确重放。
+- Prisma、`0001_initial`、76 models / 59 enums 保持逐字节不变；B5.1 已通过本地及一次性 PostgreSQL 18.3 门禁并暂停，未进入 B5.2。
 
 ## B3.1 当前验证状态
 
@@ -61,7 +61,7 @@ B0 已在工程根建立 `prisma.config.ts`、`prisma/` 和五应用脚手架；
 
 ## B5 开发入口
 
-B3.0 至 B3.3 历史交付见 `../05-开发管理/B3-文件品牌与分类.md`，B4 串行批次与最终证据见 `../05-开发管理/B4-商品与SKU.md`，B5 契约与批次见 `../05-开发管理/B5-Banner与库存.md`。CH-011 只解决 B5 development 的单人 reviewer 门禁；CH-012/B5.0 已验收暂停，B5.1 尚未开始。Prisma 与首迁移保持冻结，staging 前仍必须外部独立复核。
+B3.0 至 B3.3 历史交付见 `../05-开发管理/B3-文件品牌与分类.md`，B4 串行批次与最终证据见 `../05-开发管理/B4-商品与SKU.md`，B5 契约与批次见 `../05-开发管理/B5-Banner与库存.md`。CH-011 只解决 B5 development 的单人 reviewer 门禁；CH-012/B5.0 与 B5.1 已分别验收暂停，当前等待 B5.2 独立准入。Prisma 与首迁移保持冻结，staging 前仍必须外部独立复核。
 
 ## 剩余上线门禁
 

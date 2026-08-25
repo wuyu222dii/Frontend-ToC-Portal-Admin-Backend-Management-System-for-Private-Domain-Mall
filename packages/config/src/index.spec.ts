@@ -47,6 +47,7 @@ describe('loadPlatformConfig', () => {
     const worker = loadPlatformConfig(validEnvironment(), { service: 'worker' });
 
     expect(api.port).toBe(3000);
+    expect(api.banner.targetOrigins).toEqual([]);
     expect(api.database.poolMax).toBe(10);
     expect(api.database.allowInsecureLocalhost).toBe(true);
     expect(api.database.sslRootCertPath).toBeUndefined();
@@ -308,6 +309,30 @@ describe('loadPlatformConfig', () => {
     expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
       'S3_PUBLIC_BASE_URL path must identify S3_BUCKET',
     );
+  });
+
+  it('loads only canonical HTTPS Banner target origins', () => {
+    const environment = validEnvironment();
+    environment.BANNER_TARGET_ORIGINS = 'https://mall.example.test,https://content.example.test:8443';
+
+    expect(loadPlatformConfig(environment, { service: 'api' }).banner.targetOrigins).toEqual([
+      'https://mall.example.test',
+      'https://content.example.test:8443',
+    ]);
+  });
+
+  it.each([
+    'http://mall.example.test',
+    'https://mall.example.test/path',
+    'https://user@mall.example.test',
+    'https://mall.example.test/',
+    'https://mall.example.test,,https://content.example.test',
+    'https://mall.example.test,https://mall.example.test',
+  ])('rejects an unsafe Banner target origin allowlist: %s', (origins) => {
+    const environment = validEnvironment();
+    environment.BANNER_TARGET_ORIGINS = origins;
+
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow('BANNER_TARGET_ORIGINS');
   });
 
   it('rejects reusing the field encryption key for IP hashing', () => {

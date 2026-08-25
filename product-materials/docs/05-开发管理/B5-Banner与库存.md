@@ -1,12 +1,14 @@
 # B5 Banner 与库存
 
-> 批次：B5；当前产品/API 基线：v2.4.3 / CH-012；交付门禁：CH-011；更新日期：2026-08-25；当前状态：B5.1 Banner repository/API 已通过本地及一次性 PostgreSQL 验收并暂停，B5.2 尚未开始；数据范围：仅脱敏 development；staging/production：`NO-GO`。
+> 批次：B5；当前产品/API 基线：v2.4.3 / CH-012；交付门禁：CH-011；更新日期：2026-08-25；当前状态：B5.1 Banner 与 B5.2 Inventory repository/API 已分别验收暂停，B5.3 尚未开始；数据范围：仅脱敏 development；staging/production：`NO-GO`。
 
 ## 1. 当前结论
 
-用户已分别批准 CH-011 与 CH-012，并在 B5.0 暂停点后明确要求继续下一阶段。B5.1 已按批准后的 CH-012 实现并验收；该结论只放行进入 B5.2 的评估，不自动实施库存、后台工程、`/store/home`、staging、production 或真实数据。
+用户已分别批准 CH-011 与 CH-012，并在 B5.0、B5.1 暂停点后逐批明确要求继续下一阶段。B5.1/B5.2 已按批准后的 CH-012 分别实现并验收；该结论只放行进入 B5.3 的评估，不自动实施后台工程、`/store/home`、staging、production 或真实数据。
 
 B5.1 新增独立 `BannerRepository` 与 Nest `AdminBannersModule`，交付既有 5 个 operation、文件挂接、闭合 CRUD/启停/归档恢复、时间窗和 typed target 校验。写事务固定为幂等 claim 后按 Banner、旧/新 target、旧/新文件稳定锁序重查，并原子写 audit、outbox 和 `BANNER_RESOURCE_RESPONSE`；公开投影在 `REPEATABLE READ` 一致性快照内完成。没有修改 Prisma、首迁移、OpenAPI path/operation 或工程前端。
+
+B5.2 新增独立 `InventoryRepository` 与 Nest `AdminInventoryModule`，交付既有 4 个 operation：稳定库存列表、HR-07 调整 preview-confirm 和只追加流水。confirm 在同一 Serializable 事务中按 `idempotency -> preview -> sku -> balance -> active reservation IDs -> ledger -> audit/outbox` 执行，使用 int32/BigInt 边界、余额 CAS、`HASH_ONLY` preview 与 `COMMAND_RESPONSE` 精确重放；失败不消费 preview、不留幂等/流水/审计/outbox 成功事实。没有修改 Prisma、首迁移、OpenAPI 或工程前端。
 
 | 门禁 | 当前证据 | 结论 |
 |---|---|---|
@@ -23,6 +25,12 @@ B5.1 新增独立 `BannerRepository` 与 Nest `AdminBannersModule`，交付既�
 | B5.1 事务与公开投影 | Serializable 写事务、稳定锁序、精确重放；`start <= now < end` 与文件/target 一致性投影 | 通过 |
 | B5.1 自动化 | repository 43 项、API 专项 57 项；全仓 757 passed / 68 个环境模式跳过 | 通过 |
 | B5.1 PostgreSQL full | PostgreSQL 18.3 空库回放后 repository 5 passed、API 1 passed；rollback 用例按设计跳过 | 通过；远端 rollback 留待 B5.4 |
+| B5.2 Inventory API | 4 个 operation；SUPER_ADMIN、no-store、If-Match、400/401/403/409/422 与闭合响应映射 | 通过 |
+| B5.2 事务与流水 | Serializable、稳定锁序、余额 CAS、活动预占重读、失败回滚、精确重放与单条人工流水 | 通过 |
+| B5.2 自动化 | repository 专项 19 项、API DTO/service/HTTP 专项 79 项；全仓 855 passed / 79 个环境模式跳过 | 通过 |
+| B5.2 PostgreSQL full | PostgreSQL 18.3 空库回放后 repository 3 passed / 1 rollback skip，API 6 passed / 1 rollback skip（含并发预占竞态） | 通过；一次性容器已删除 |
+| B5.2 Supabase rollback-only | 受控 development `mall_runtime`：repository 1 passed / 3 full skips，API 1 passed / 6 full skips；事务外逐表归零 | 通过；不是 B5.4 workflow 双绿 |
+| B5.2 工程门禁 | lint 0 error、typecheck/build、Redocly、生成漂移、敏感扫描、Prisma validate、migration diff=0、冻结字节检查 | 通过 |
 
 ## 2. B5 范围
 
@@ -127,4 +135,4 @@ CH-011 只接受 B5 development 期间缺少独立 reviewer 的剩余风险，�
 
 ## 9. 当前暂停点
 
-CH-011 与 CH-012 均已登记。B5.0 历史契约/原型门禁继续有效；B5.1 已完成 Banner repository/API、文件与 target 校验、完整状态矩阵、公开投影、精确幂等、乐观锁、SUPER_ADMIN、audit/outbox 和 5 个 HTTP operation，并经独立复核收敛为 `P0=0/P1=0` 后暂停。实测契约仍为 172 paths / 196 operations / 196 unique operationId / 312 schemas / 692 schema refs / 2,578 local refs / 0 dangling refs；全仓为 757 passed / 68 个环境模式跳过，lint 为 0 error，typecheck/build、敏感扫描、Prisma validate、生成漂移和冻结字节检查均通过。一次性 PostgreSQL 18.3 完成空库回放后，B5 Banner repository 为 5 passed、API 为 1 passed；两套 rollback-only 用例已实现但没有冒充受控 Supabase 证据。独立复核保留 1 个不阻断 P2：ACTIVATE 与归档审计的 `before_json` 已记录旧版本，但尚不能区分来源状态是 `DRAFT` 还是 `INACTIVE`，须在 B5 最终收口前补齐。B5.2、B5.3、B5.4 尚未开始，B5 runner 也按计划未接入普通 CI/Supabase workflow；最终准确 SHA 的远端双绿仍属于 B5.4。
+CH-011 与 CH-012 均已登记。B5.0 历史契约/原型门禁继续有效；B5.1 已完成 Banner repository/API，B5.2 已完成 Inventory repository/API、列表、HR-07 preview-confirm、并发预占裁决和只追加流水，两批均经独立复核收敛为 `P0=0/P1=0` 后暂停。实测契约仍为 172 paths / 196 operations / 196 unique operationId / 312 schemas / 692 schema refs / 2,578 local refs / 0 dangling refs；全仓为 855 passed / 79 个环境模式跳过，lint 为 0 error，typecheck/build、敏感扫描、Prisma validate、migration diff、生成漂移和冻结字节检查均通过。一次性 PostgreSQL 18.3 空库上的 B5.2 full 为 repository 3 passed、API 6 passed；当前工作树的受控 Supabase development rollback-only 为 repository 1 passed、API 1 passed，事务外无残留。B5.2 runner 已加入根命令和 lint，但未接入普通 CI/Supabase workflow；最终准确 SHA 的远端双绿仍属于 B5.4。当前保留 4 个不阻断 P2：B5.1 ACTIVATE/归档审计 `before_json` 尚不能区分 DRAFT 与 INACTIVE 来源状态；B5-C09 的 reservation SKU 前导索引/ledger business ID 风险仍待 B5.4 真实规模 EXPLAIN；OpenAPI 的 Inventory `preview_token` 只声明最小 16 字符，而共享 DTO/repository 安全上限为 512；库存 keyword 尚未冻结最大长度与大小写规范。B5.3、B5.4 均未开始，staging/production 继续 `NO-GO`。

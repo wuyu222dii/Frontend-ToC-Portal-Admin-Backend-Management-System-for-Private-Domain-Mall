@@ -6,6 +6,7 @@ export * from './callback-inbox.repository';
 export * from './file-asset.repository';
 export * from './high-risk-preview.repository';
 export * from './idempotency.repository';
+export * from './inventory.repository';
 export * from './master-data.repository';
 export * from './outbox.repository';
 export * from './product-catalog.repository';

@@ -1,6 +1,6 @@
 # 青序生活三端私域商城
 
-本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。当前开发按 `B0` 至 `B19` 小批次推进；B0 至 B4 已完成各自 development 验收。实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的 [普通 CI Run 32721588213](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32721588213) 和 [Supabase rollback-only Run 32722510890](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32722510890) 均成功，但只证明 B4。CH-011 已放行 B5 development 治理，CH-012 已实施并将产品/API 基线升级为 `v2.4.3 / CH-012`；B5.0 契约与 B5.1 Banner repository/API 已通过本地验收并暂停，B5.2 尚未开始。B5 最终 SHA 的普通 CI 与 Supabase rollback-only 双绿仍留待 B5.4；staging、production 和真实客户数据继续 `NO-GO`，第一次进入 staging 前必须取得外部独立复核。
+本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。当前开发按 `B0` 至 `B19` 小批次推进；B0 至 B4 已完成各自 development 验收。实现基准 SHA `0929f2435e7f5b9ad745fd9cab60b066378e502e` 的 [普通 CI Run 32721588213](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32721588213) 和 [Supabase rollback-only Run 32722510890](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32722510890) 均成功，但只证明 B4。CH-011 已放行 B5 development 治理，CH-012 已实施并将产品/API 基线升级为 `v2.4.3 / CH-012`；B5.0 契约、B5.1 Banner repository/API 与 B5.2 Inventory repository/API 已分别验收暂停，B5.3 尚未开始。B5 最终 SHA 的普通 CI 与 Supabase rollback-only 双绿仍留待 B5.4；staging、production 和真实客户数据继续 `NO-GO`，第一次进入 staging 前必须取得外部独立复核。
 
 ## 工程结构
 
@@ -57,10 +57,11 @@ pnpm db:migrate:baseline # CI 临时空库专用
 pnpm db:supabase:bootstrap # 受控的 Supabase 首次初始化
 pnpm db:test-b3-master-data # B3.2 数据库 full/rollback 门禁
 pnpm db:test-b3-catalog-api # B3.2 真实 Nest + PostgreSQL + Redis 纵向门禁
+pnpm db:test-b5-inventory # B5.2 Inventory 数据库/API full/rollback 门禁
 pnpm db:diff
 ```
 
-`pnpm e2e:b4:vertical` 与 `pnpm db:test-b4-product-catalog` 不是日常开发命令：它们会拒绝普通 `.env`，仅允许在显式 `CI=true`、`NODE_ENV=test`、对应 B4 mode 和一次性回环 PostgreSQL/隔离 Redis/MinIO 凭据齐全时运行。受控环境编排以 [B4 商品与 SKU](product-materials/docs/05-开发管理/B4-商品与SKU.md) 和普通 CI workflow 为准，禁止指向 Supabase development 日常数据库执行 full 模式。
+`pnpm e2e:b4:vertical`、`pnpm db:test-b4-product-catalog` 与 `pnpm db:test-b5-inventory` 不是日常开发命令：full 模式只允许显式 `CI=true`、`NODE_ENV=test` 和一次性回环 PostgreSQL；B5.2 rollback 模式只允许带可信 CA 的受控 Supabase development runtime 连接，并以外层事务归零。禁止指向 Supabase development 日常数据库执行 full 模式。
 
 Supabase 项目创建、连接分权和受保护烟测见 [B0 工程与 Supabase](product-materials/docs/05-开发管理/B0-工程与Supabase.md)，公共内核边界见 [B1 平台公共内核](product-materials/docs/05-开发管理/B1-平台公共内核.md)，总部认证实现与安全操作见 [B2 总部安全入口](product-materials/docs/05-开发管理/B2-总部安全入口.md)，CH-006 与 B3 分段门禁见 [B3 文件、品牌与分类](product-materials/docs/05-开发管理/B3-文件品牌与分类.md)，CH-010 与 B4 证据见 [B4 商品与 SKU](product-materials/docs/05-开发管理/B4-商品与SKU.md)。普通 PR 只使用 CI 的临时 PostgreSQL，不读取 Supabase 凭据。
 

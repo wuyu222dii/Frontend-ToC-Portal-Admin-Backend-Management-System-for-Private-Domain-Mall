@@ -9,7 +9,7 @@
 | 文档版本 | v2.4.4 |
 | 对应阶段 | 三端标准 MVP |
 | 更新日期 | 2026-08-26 |
-| 当前状态 | B0 至 B5 development 已完成；CH-013/CH-014 已批准并将产品/API 基线升级为 v2.4.4，B6.1 匿名 Store 公开 API、B6.2 MP-01 至 MP-05 与 B6.3 MP-06 游客本地购物车均已完成本批验收并暂停；B6.4 验收入口已接入，普通 CI、Supabase rollback-only 与真实纵向证据待同一最终 SHA 执行，B6 仍为 `NO-GO`，staging/production `NO-GO` |
+| 当前状态 | B0 至 B6 development 已完成；B6 最终 SHA `9d8911934a5aa2b09ece2e12935bcafc9ccdcba6` 的普通 CI Run `32953444096` 与 Supabase rollback-only Run `32954611250` 同 SHA 双绿，B6 development `GO`；CH-013 已自动失效，产品/API 基线为 v2.4.4/CH-014，staging/production `NO-GO` |
 | 产品终端 | 消费者微信小程序、一级代理工作台、总部管理后台 |
 | 人员角色 | `CUSTOMER`、`AGENT_ADMIN`、`SUPER_ADMIN` |
 
@@ -26,7 +26,7 @@
 | v2.4.1 | 2026-08-13 | 落实 CH-006：品牌排序、品牌/分类 DRAFT 创建与专用生命周期、恢复草稿、文件内容完整性、签名 TTL、对象可见性和完成幂等策略 | 已归档；B3 development 已按 CH-009 闭合交付门禁 |
 | v2.4.2 | 2026-08-24 | 落实 CH-010：Product/SKU 专用三动作生命周期、固定创建状态、首次发布时间、nullable 最低活动价、归档 SKU、8 图、零库存初值和不可变 code | 已归档；B4.0 至 B4.4 development 已完成 |
 | v2.4.3 | 2026-08-25 | 落实 CH-012：Banner 闭合生命周期/幂等、有效投影与安全目标，库存统一公式、HR-07 preview-confirm、整数边界和闭合流水类型 | 已归档；B5 development 已完成 |
-| v2.4.4 | 2026-08-25 | 落实 CH-014：匿名目录售罄投影、综合排序、商品名搜索、无分页主数据、首页分区状态和公共限流 | 当前产品版本；B6.1-B6.3 已分别完成本批验收并暂停，B6.4 验收入口已接入，最终证据待同一 SHA 执行 |
+| v2.4.4 | 2026-08-25 | 落实 CH-014：匿名目录售罄投影、综合排序、商品名搜索、无分页主数据、首页分区状态和公共限流 | 当前产品版本；B6.0-B6.4 已完成，B6 development `GO` |
 
 ### 文档使用约定
 
@@ -1483,8 +1483,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | 验收场景 AC | 116 | 0 |
 | 用户故事 US | 24 | 0 |
 
-当前准入结论：B0 至 B5 development 已通过；B5 实现 SHA `d97c43958142eaa0fa5a0a9954bb21d136944ba2` 的普通 CI Run `32822780209` 与 Supabase rollback-only Run `32823898006` 均成功，CH-011 已失效。CH-013/CH-014 将产品/API 基线升级为 v2.4.4，保持既有编号规模和冻结数据库；B6.1 Store repository/API、B6.2 MP-01 至 MP-05 与 B6.3 MP-06 游客本地购物车均已完成本批验收并暂停。B6.3 当前累计证据为 miniapp unit `6 files / 84 passed`、H5 与 MP-Weixin build 通过、B6 UI Playwright `34 passed / 56 designed skips`，覆盖 375/390/414/1024/1440，root lint 0 errors（保留既有 warnings），退出审查为 `P0=0/P1=0`。B6.4 验收入口已接入，普通 CI、Supabase rollback-only 与真实纵向证据待同一最终 SHA 执行；在证据完成前不得标记 B6 最终 development `GO`，staging 或 production 仍未准入。
+当前准入结论：B0 至 B6 development 已通过。B6 最终 SHA `9d8911934a5aa2b09ece2e12935bcafc9ccdcba6` 的普通 CI Run `32953444096` 与 Supabase rollback-only Run `32954611250` 均成功；真实 H5 纵向、B6 数据库 full、五视口 E2E、全仓契约/冻结/构建与 B6 rollback-only 均实际执行，退出审查为 `P0=0/P1=0`。CH-013 已自动失效；v2.4.4/CH-014 保持既有编号规模和冻结数据库。staging 或 production 仍未准入。
 
 ---
 
-PRD 状态：v2.4.4/CH-014 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B5 development 已通过。CH-013 仅放行 B6 development 的单人补偿治理，B6.1 匿名 Store 公开 API、B6.2 MP-01 至 MP-05 与 B6.3 MP-06 均已完成本批验收并暂停；B6.4 验收入口已接入，普通 CI、Supabase rollback-only 与真实纵向证据待同一最终 SHA 执行，因此不得标记 B6 development `GO`。CH-013 仍生效；目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。
+PRD 状态：v2.4.4/CH-014 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B6 development 已通过。B6 最终实现 SHA 已取得普通 CI 与 Supabase rollback-only 同 SHA 双绿，B6 development `GO`；CH-013 已自动失效。目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。

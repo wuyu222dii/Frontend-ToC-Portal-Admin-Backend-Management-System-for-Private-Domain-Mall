@@ -6,7 +6,7 @@
 |---|---|
 | 文档版本 | v2.4.4 |
 | 对应产品基线 | MVP/PRD v2.4.4、CH-001 至 CH-014 |
-| 接口阶段 | B0-B5 development 已完成；B6.1 已实现 5 个 Store 公开 GET 并完成本地及受控 Supabase development rollback-only 验收；B6.2 MP-01 至 MP-05 与 B6.3 MP-06 游客本地购物车均已完成本地验收并暂停；B6.4 验收入口已接入，普通 CI、Supabase rollback-only 与真实纵向证据待同一最终 SHA 执行，B6 仍为 `NO-GO`，staging/production 未批准 |
+| 接口阶段 | B0-B6 development 已完成；B6 最终 SHA `9d8911934a5aa2b09ece2e12935bcafc9ccdcba6` 的普通 CI Run `32953444096` 与 Supabase rollback-only Run `32954611250` 同 SHA 双绿，真实纵向及 Store repository full/rollback 均成功，B6 development `GO`；staging/production 未批准 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
 | 更新时间 | 2026-08-26 |
 
@@ -348,7 +348,7 @@ B6.1 已按上述契约开放这 5 个 GET。独立 `StoreCatalogRepository` 使
 
 来源 IP 只取 Express 在当前连接信任边界下解析的 `request.ip`。`API_TRUSTED_PROXY_CIDRS` 默认空，对应 `trust proxy=false`，因此任意客户端自填 `X-Forwarded-For` 不会改变限流来源；只有直接可信反向代理的数字 IP/CIDR 才能显式登记。配置拒绝 hostname、全网段、带 host bits 或语义重复项，IPv4-mapped IPv6 在配置和请求来源处都归一化为等价 IPv4，再计算 HMAC 限流 key。
 
-上述 B6.1 公开 API 已由 B6.2/B6.3 工程页面使用。B6.3 的 MP-06 按 `product_id` 去重顺序调用现有公开详情接口以刷新价格、库存和状态；404/缺 SKU 才判失效，429 或网络失败保留本地项且不误判。购物车使用版本化本地存储，结算只提示登录，不调用服务端 Cart/订单，因此没有新增或修改 API operation。当前累计 miniapp unit `6 files / 84 passed`，H5 与 MP-Weixin build 均通过，B6 UI Playwright `34 passed / 56 designed skips`，覆盖 375/390/414/1024/1440 五个视口。B6.4 验收入口已接入，真实纵向链路、普通 CI 与 Supabase rollback-only 证据待同一最终 SHA 执行；在证据完成前不得标记 B6 最终 development `GO`。
+上述 B6.1 公开 API 已由 B6.2/B6.3 工程页面使用。B6.3 的 MP-06 按 `product_id` 去重顺序调用现有公开详情接口以刷新价格、库存和状态；404/缺 SKU 才判失效，429 或网络失败保留本地项且不误判。购物车使用版本化本地存储，结算只提示登录，不调用服务端 Cart/订单，因此没有新增或修改 API operation。B6.4 已在最终 SHA 上完成真实纵向、普通 CI 与 Supabase rollback-only 同 SHA 双绿，B6 development `GO`。
 
 ### 4.4 地址、试算、订单与支付
 

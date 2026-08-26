@@ -1,6 +1,6 @@
 # 技术设计交付索引
 
-> 当前基线：MVP/PRD v2.4.4、线协议 CH-014（2026-08-26）。B0-B5 development 已完成，CH-011 已失效；CH-013 仅放行 B6 脱敏 development。B6.1 匿名 Store 公开 API、B6.2 MP-01 至 MP-05 与 B6.3 MP-06 游客本地购物车均已完成当前批次验收并暂停，B6.4 验收入口已接入，普通 CI、Supabase rollback-only 与真实纵向证据待同一最终 SHA 执行，B6 仍为 `NO-GO`，staging/production 均为 `NO-GO`。
+> 当前基线：MVP/PRD v2.4.4、线协议 CH-014（2026-08-26）。B0-B6 development 已完成；B6 最终 SHA `9d8911934a5aa2b09ece2e12935bcafc9ccdcba6` 的普通 CI Run `32953444096` 与 Supabase rollback-only Run `32954611250` 同 SHA 双绿，B6 development `GO`。CH-013 已自动失效，staging/production 均为 `NO-GO`。
 
 | 文件 | 用途 |
 |---|---|
@@ -13,7 +13,7 @@
 | `migrations/0001_initial/migration.sql` | Prisma 基线 DDL + PostgreSQL 专属 partial unique/CHECK/触发器/角色/RLS 草案 |
 | `../05-开发管理/B4-商品与SKU.md` | B4.0 至 B4.4 串行批次、准入门禁、验收与回退边界 |
 | `../05-开发管理/B5-Banner与库存.md` | B5.0 CH-012 契约、CH-011 门禁及后续串行批次 |
-| `../05-开发管理/B6-消费者匿名商城目录.md` | B6.0 CH-014 契约、B6.1-B6.3 实施证据、CH-013 门禁及 B6.4 暂停边界 |
+| `../05-开发管理/B6-消费者匿名商城目录.md` | B6.0 CH-014 契约、B6.1-B6.4 实施/最终证据及 CH-013 失效边界 |
 
 上游真相顺序为：已批准需求变更记录、PRD v2.4.4、MVP v2.4.4、原型设计方案。发生冲突时先更新上游基线和本目录契约，不由开发人员临时选择口径。
 
@@ -51,8 +51,8 @@
 - 实测：repository unit `9 passed`；database 全包 `332 passed / 52 环境模式跳过`；隔离 PostgreSQL full `1 passed / 1 mode skip` 且事务外零残留；受控 Supabase development rollback-only `1 passed / 1 mode skip` 且事务外零残留；API 全包 `426 passed / 26 环境模式跳过`；config `67 passed`；Store/API 聚焦回归（含可信代理与 HTTP 限流边界）`86 passed`。
 - B6.2 已完成跨端 Store API 客户端、MP-01 首页、MP-02 分类、MP-03 搜索、MP-04 商品详情和 MP-05 SKU 选择层。
 - B6.3 已完成 MP-06 版本化游客本地购物车、同 SKU 合并、不同 SKU 分行、详情回源刷新、售罄/失效排除合计和临时网络失败保留语义；结算只提示登录，不调用服务端 Cart/订单。
-- B6.3 当前累计本地验收实测为 miniapp unit `6 files / 84 passed`、H5 与 MP-Weixin build 均通过、B6 UI Playwright `34 passed / 56 designed skips`；覆盖 375/390/414/1024/1440 五个视口，root lint 0 errors（保留既有 warnings），当前已在 B6.3 暂停点停下，`P0=0/P1=0`。
-- B6.4 验收入口已接入，真实纵向链路、普通 CI 与 Supabase rollback-only 证据待同一最终 SHA 执行；在证据完成前不能标记 B6 最终 development `GO`。CH-013 仅在 B6 脱敏 development 生效，B6.4 验收结束后自动失效。
+- B6.3 历史本地验收实测为 miniapp unit `6 files / 84 passed`、H5 与 MP-Weixin build 均通过、B6 UI Playwright `34 passed / 56 designed skips`；覆盖 375/390/414/1024/1440 五个视口，root lint 0 errors（保留既有 warnings），`P0=0/P1=0`。
+- B6.4 已完成，最终 SHA `9d8911934a5aa2b09ece2e12935bcafc9ccdcba6` 上的真实纵向链路、普通 CI 与 Supabase rollback-only 均成功；B6 development `GO`，CH-013 已自动失效。
 
 ## B3.1 当前验证状态
 
@@ -77,7 +77,7 @@ B0 已在工程根建立 `prisma.config.ts`、`prisma/` 和五应用脚手架；
 
 ## B6 开发入口
 
-B3.0 至 B3.3 历史交付见 `../05-开发管理/B3-文件品牌与分类.md`，B4 串行批次与最终证据见 `../05-开发管理/B4-商品与SKU.md`，B5 最终证据见 `../05-开发管理/B5-Banner与库存.md`，B6 契约和串行批次见 `../05-开发管理/B6-消费者匿名商城目录.md`。B6.1-B6.3 已完成各自验收并在 B6.3 暂停点停下；下一入口是经明确批准后开始 B6.4 总验收。Prisma 与首迁移保持冻结，B6.4 的真实纵向、普通 CI 与 Supabase workflow 同一最终 SHA 双绿，以及 staging 前外部独立复核，均不得提前豁免。
+B3.0 至 B3.3 历史交付见 `../05-开发管理/B3-文件品牌与分类.md`，B4 串行批次与最终证据见 `../05-开发管理/B4-商品与SKU.md`，B5 最终证据见 `../05-开发管理/B5-Banner与库存.md`，B6 契约、串行批次和最终双绿见 `../05-开发管理/B6-消费者匿名商城目录.md`。Prisma 与首迁移保持冻结；后续阶段须另行冻结范围和门禁，staging 前外部独立复核不得提前豁免。
 
 ## 剩余上线门禁
 

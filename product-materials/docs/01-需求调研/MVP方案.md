@@ -10,7 +10,7 @@
 | 目标用户 | 终端消费者、一级代理、总部商城经营人员 |
 | 人员角色 | `SUPER_ADMIN`、`AGENT_ADMIN`、`CUSTOMER` |
 | 更新日期 | 2026-08-26 |
-| 文档状态 | B0 至 B5 development 已完成并取得同一实现 SHA 双远端绿色证据；CH-013/CH-014 已批准，产品/API 基线升级为 v2.4.4，B6.1 匿名 Store 公开 API、B6.2 MP-01 至 MP-05 与 B6.3 MP-06 游客本地购物车均已完成本批验收并暂停；B6.4 验收入口已接入，普通 CI、Supabase rollback-only 与真实纵向证据待同一最终 SHA 执行，B6 仍为 `NO-GO`，staging/production 均为 `NO-GO` |
+| 文档状态 | B0 至 B6 development 已完成；B6 最终 SHA `9d8911934a5aa2b09ece2e12935bcafc9ccdcba6` 的普通 CI Run `32953444096` 与 Supabase rollback-only Run `32954611250` 同 SHA 双绿，B6 development `GO`；CH-013 已自动失效，产品/API 基线仍为 v2.4.4/CH-014，staging/production 均为 `NO-GO` |
 
 ## 1. MVP 概述
 
@@ -326,7 +326,7 @@
 
 ## 7. 技术方案摘要
 
-CH-005/CH-006/CH-010/CH-012 产品规则和冻结数据库继续有效；B5 已在实现 SHA `d97c43958142eaa0fa5a0a9954bb21d136944ba2` 上取得普通 CI Run `32822780209` 与 Supabase rollback-only Run `32823898006` 双绿，CH-011 已在 B5.4 后失效。CH-013 只批准单人 B6 development 门禁例外并在 B6.4 后自动失效；CH-014 将产品/API 基线升级为 v2.4.4，不改变 `172 paths / 196 operations / 196 unique operationId / 312 schemas`、页面、FR、AC、US、HR 或冻结数据库规模。
+CH-005/CH-006/CH-010/CH-012 产品规则和冻结数据库继续有效；B5 已在实现 SHA `d97c43958142eaa0fa5a0a9954bb21d136944ba2` 上取得普通 CI Run `32822780209` 与 Supabase rollback-only Run `32823898006` 双绿，CH-011 已在 B5.4 后失效。CH-013 只批准单人 B6 development 门禁例外，现已随 B6.4 自动失效；CH-014 将产品/API 基线升级为 v2.4.4，不改变 `172 paths / 196 operations / 196 unique operationId / 312 schemas`、页面、FR、AC、US、HR 或冻结数据库规模。
 
 B6 匿名目录包含 5 个公开 GET：首页、分类、品牌、商品列表和商品详情。公开品牌/分类返回全部 ACTIVE 记录并按 `sort_order,id` 排序；目录共享 Redis 固定窗口限流，每个 HMAC 来源 IP 每 60 秒 120 次，超限返回 429 和准确 `Retry-After`，Redis 异常不得绕过限流。B6.0 已冻结契约、产品文档和静态原型，B6.1 已实现 Store repository/API，B6.2 已实现 MP-01 至 MP-05，B6.3 已实现 MP-06 版本化游客本地购物车、详情回源刷新和登录提示。结算未调用服务端 Cart/订单。
 
@@ -379,10 +379,10 @@ CH-006 已解除并完成 B3 契约与交付门禁；CH-010 已解除 B4 商品/
 
 | 阶段 | 主要交付物 | 当前状态 |
 |---|---|---|
-| 需求确认 | MVP、三端角色确认、变更记录 | CH-013/CH-014 已批准，v2.4.4 基线已登记 |
+| 需求确认 | MVP、三端角色确认、变更记录 | CH-014/v2.4.4 基线已登记；CH-013 已随 B6.4 失效 |
 | 产品设计 | PRD、三端信息架构、可点击原型、Figma 重建规范 | B6 匿名目录边界、售罄可浏览、综合排序和首页局部失败已同步；页面仍为 21/9/22 |
-| 技术设计 | 系统架构、数据库 ERD、接口文档、OpenAPI、Prisma 草案与部署拓扑 | B6.0 契约门禁已通过并暂停；Prisma/首迁移逐字节不变 |
-| 开发与测试 | 三端工程、API、数据库、自动化测试 | B5 development 已双绿完成；B6.1-B6.3 已分别完成本批验收并暂停，B6.3 当前累计为 miniapp unit 6 files / 84 passed、B6 UI Playwright 34 passed / 56 designed skips |
+| 技术设计 | 系统架构、数据库 ERD、接口文档、OpenAPI、Prisma 草案与部署拓扑 | B6.0 契约门禁及 B6.4 最终验收已通过；Prisma/首迁移逐字节不变 |
+| 开发与测试 | 三端工程、API、数据库、自动化测试 | B6 最终 SHA 已取得普通 CI 与 Supabase rollback-only 双绿，真实纵向、数据库 full、五视口 E2E 均成功，development `GO` |
 | 上线准备 | 微信资质、真实支付退款、隐私合规、部署与验收 | 未开始 |
 
 ## 10. 风险与应对
@@ -456,11 +456,11 @@ CH-006 已解除并完成 B3 契约与交付门禁；CH-010 已解除 B4 商品/
 
 ## 13. 后续建议
 
-1. 保持 B6.3 暂停；当前累计本地证据为 miniapp unit `6 files / 84 passed`、H5 与 MP-Weixin build 通过、B6 UI Playwright `34 passed / 56 designed skips`，覆盖 375/390/414/1024/1440 五个视口，退出审查为 `P0=0/P1=0`。
-2. B6.4 验收入口已接入，继续执行真实 browser → Nest → PostgreSQL/MinIO 纵向验收、全量回归和无残留检查。
-3. 收藏、CUSTOMER 会话、服务端购物车、结算和订单继续延后；B6.3 的结算只提示登录并保留本地购物车。
-4. B6.4 必须在同一最终实现 SHA 登记普通 CI 与 Supabase rollback-only workflow 双绿；CH-013 随后失效，第一次进入 staging 前仍须外部独立复核。
+1. B6.0-B6.4 已全部完成，最终退出审查为 `P0=0/P1=0`，B6 development `GO`。
+2. B6.4 已完成真实 browser → Nest → PostgreSQL/MinIO 纵向验收、全量回归和无残留检查。
+3. 收藏、CUSTOMER 会话、服务端购物车、结算和订单未因 B6 获得准入；B6.3 的结算只提示登录并保留本地购物车。
+4. B6.4 已在同一最终实现 SHA 登记普通 CI 与 Supabase rollback-only workflow 双绿；CH-013 已失效，第一次进入 staging 前仍须外部独立复核。
 
 ---
 
-项目状态：三端 MVP 产品/API 基线为 v2.4.4（CH-014）。B0 至 B5 development 已通过，B5 实现 SHA `d97c43958142eaa0fa5a0a9954bb21d136944ba2` 的普通 CI Run `32822780209` 与 Supabase rollback-only Run `32823898006` 均成功。CH-013 已放行 B6 development 的单人补偿治理；B6.1 匿名 Store 公开 API、B6.2 MP-01 至 MP-05 与 B6.3 MP-06 游客本地购物车均已完成当前批次验收并暂停。B6.4 验收入口已接入，普通 CI、Supabase rollback-only 与真实纵向证据待同一最终 SHA 执行，因此 B6 仍不得标记最终 development `GO`。CH-013 仍生效；目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线还须通过外部凭据、联调、恢复演练和合规门禁。
+项目状态：三端 MVP 产品/API 基线为 v2.4.4（CH-014）。B0 至 B6 development 已通过；B6 最终 SHA `9d8911934a5aa2b09ece2e12935bcafc9ccdcba6` 的普通 CI Run `32953444096` 与 Supabase rollback-only Run `32954611250` 均成功，真实纵向及无残留门禁已闭合。CH-013 已随 B6.4 自动失效；目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线还须通过外部凭据、联调、恢复演练和合规门禁。

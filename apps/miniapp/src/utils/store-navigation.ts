@@ -30,6 +30,10 @@ export function openProduct(productId: string): void {
   void uni.navigateTo({ url: pageUrl('/pages/product/detail', { product_id: productId }) });
 }
 
+export function openCart(): void {
+  void uni.reLaunch({ url: '/pages/cart/index' });
+}
+
 export function goBackOrHome(): void {
   void uni.navigateBack({
     fail: openHome,
@@ -45,15 +49,11 @@ export function showLoginPrompt(): void {
   });
 }
 
-export function showUnavailable(): void {
-  void uni.showToast({ icon: 'none', title: '请稍后再试' });
-}
-
 export function handleBottomNavigation(target: StoreNavTarget): void {
   if (target === 'home') return openHome();
   if (target === 'category') return openCategory();
+  if (target === 'cart') return openCart();
   if (target === 'profile') return showLoginPrompt();
-  showUnavailable();
 }
 
 export function isSafeHttpsUrl(value: string): boolean {

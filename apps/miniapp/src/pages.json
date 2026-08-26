@@ -29,6 +29,13 @@
       }
     },
     {
+      "path": "pages/cart/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "购物车"
+      }
+    },
+    {
       "path": "pages/webview/index",
       "style": {
         "navigationBarBackgroundColor": "#ffffff",

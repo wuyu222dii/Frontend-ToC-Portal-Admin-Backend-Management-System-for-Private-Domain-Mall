@@ -367,3 +367,194 @@ test('MP-04 distinguishes a missing product and survives image decode failure', 
   await page.reload();
   await expect(page.getByText('商品不存在')).toBeVisible();
 });
+
+async function addCurrentSkuToGuestCart(page: Page, quantity = 1) {
+  await page.locator('.detail-actions__secondary').click();
+  await expect(page.locator('.sku-sheet')).toBeVisible();
+  for (let index = 1; index < quantity; index += 1) {
+    await page.locator('.sku-stepper [aria-label="增加数量"]').click();
+  }
+  await page.locator('.sku-sheet__confirm').click();
+  await expect(page.locator('.sku-sheet')).toBeHidden();
+}
+
+test('MP-06 renders an empty guest cart safely at every acceptance viewport', async ({ page }, testInfo) => {
+  await page.goto('/#/pages/cart/index');
+  await expect(page.getByText('购物车还是空的')).toBeVisible();
+  await expect(page.getByRole('navigation', { name: '商城主导航' })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({ fullPage: true, path: testInfo.outputPath('cart-empty.png') });
+});
+
+test('MP-06 adds and refreshes a guest cart at every acceptance viewport', async ({ page }, testInfo) => {
+  await mockCommonCatalog(page);
+  await page.goto(`/#/pages/product/detail?product_id=${PRODUCT_ID}`);
+  await expect(page.getByText(product.name)).toBeVisible();
+  await addCurrentSkuToGuestCart(page);
+
+  await page.goto('/#/pages/cart/index');
+  await expect(page.getByText('购物车', { exact: true }).first()).toBeVisible();
+  await expect(page.locator('.cart-item__name').filter({ hasText: product.name })).toBeVisible();
+  await expect(page.locator('.cart-summary__total')).toContainText('¥49.90');
+  await expect(page.locator('.cart-summary__checkout')).toBeVisible();
+  await expect(page.locator('.cart-summary__checkout')).toBeInViewport();
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({ fullPage: true, path: testInfo.outputPath('cart-ready.png') });
+});
+
+test('MP-06 merges the same SKU, separates another SKU and refreshes one product once', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-390', 'Interaction matrix runs once.');
+  const secondReadySku = {
+    ...detailData.skus[1],
+    available_stock: 8,
+    is_salable: true,
+  };
+  const twoSkuDetail = { ...detailData, skus: [detailData.skus[0], secondReadySku] };
+  let detailRequests = 0;
+  await mockImage(page);
+  await page.route(`**/api/v1/store/products/${PRODUCT_ID}`, async (route) => {
+    detailRequests += 1;
+    await fulfillJson(route, ok(twoSkuDetail));
+  });
+
+  await page.goto(`/#/pages/product/detail?product_id=${PRODUCT_ID}`);
+  await addCurrentSkuToGuestCart(page, 2);
+  await addCurrentSkuToGuestCart(page, 2);
+  await page.locator('.detail-actions__secondary').click();
+  await page.locator('.sku-option').filter({ hasText: '容量：100ml' }).click();
+  await page.locator('.sku-sheet__confirm').click();
+  await expect(page.locator('.sku-sheet')).toBeHidden();
+
+  const beforeCart = detailRequests;
+  await page.goto('/#/pages/cart/index');
+  await expect(page.locator('.cart-item')).toHaveCount(2);
+  await expect(page.locator('.cart-item').filter({ hasText: '容量：500ml' }).locator('.cart-stepper'))
+    .toContainText('3');
+  await expect(page.locator('.cart-item').filter({ hasText: '容量：100ml' }).locator('.cart-stepper'))
+    .toContainText('1');
+  await expect.poll(() => detailRequests - beforeCart).toBe(1);
+});
+
+test('MP-06 refreshes price and stock, clamps quantity and keeps checkout local', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-390', 'Interaction matrix runs once.');
+  let currentDetail = detailData;
+  const transactionRequests: string[] = [];
+  page.on('request', (request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (pathname.startsWith('/api/v1/') &&
+      (request.method() !== 'GET' || /^\/api\/v1\/(?:cart|checkout|orders?)(?:\/|$)/.test(pathname))) {
+      transactionRequests.push(`${request.method()} ${request.url()}`);
+    }
+  });
+  await mockImage(page);
+  await page.route(`**/api/v1/store/products/${PRODUCT_ID}`, (route) => fulfillJson(route, ok(currentDetail)));
+
+  await page.goto(`/#/pages/product/detail?product_id=${PRODUCT_ID}`);
+  await addCurrentSkuToGuestCart(page, 3);
+  currentDetail = {
+    ...detailData,
+    skus: [{ ...detailData.skus[0], retail_price: '52.30', available_stock: 1 }, detailData.skus[1]],
+  };
+  await page.goto('/#/pages/cart/index');
+  const item = page.locator('.cart-item').filter({ hasText: '容量：500ml' });
+  await expect(item).toContainText('52.30');
+  await expect(item).toContainText('价格与库存已更新');
+  await expect(item.locator('.cart-stepper')).toContainText('1');
+  await expect(page.locator('.cart-summary__total')).toContainText('¥52.30');
+
+  await page.locator('.cart-summary__checkout').click();
+  await expect(page.getByText('请先登录')).toBeVisible();
+  await page.getByText('知道了', { exact: true }).click();
+  await page.reload();
+  await expect(page.locator('.cart-item')).toHaveCount(1);
+  expect(transactionRequests).toEqual([]);
+});
+
+test('MP-06 excludes sold-out and missing SKUs from totals without deleting them', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-390', 'State matrix runs once.');
+  let currentDetail = detailData;
+  await mockImage(page);
+  await page.route(`**/api/v1/store/products/${PRODUCT_ID}`, (route) => fulfillJson(route, ok(currentDetail)));
+  await page.goto(`/#/pages/product/detail?product_id=${PRODUCT_ID}`);
+  await addCurrentSkuToGuestCart(page);
+
+  currentDetail = {
+    ...detailData,
+    skus: [{ ...detailData.skus[0], available_stock: 0, is_salable: false }, detailData.skus[1]],
+  };
+  await page.goto('/#/pages/cart/index');
+  await expect(page.getByText('当前规格已售罄')).toBeVisible();
+  await expect(page.locator('.cart-summary__total')).toContainText('¥0.00');
+  await expect(page.locator('.cart-summary__checkout')).toHaveAttribute('disabled', 'true');
+
+  currentDetail = { ...detailData, skus: [detailData.skus[1]] };
+  await page.locator('.cart-header__refresh').click();
+  await expect(page.getByText('商品已下架或规格已失效')).toBeVisible();
+  await expect(page.locator('.cart-item')).toHaveCount(1);
+});
+
+test('MP-06 keeps a cart row unverified after 429 or network failure', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-390', 'State matrix runs once.');
+  let refreshFailure: 'none' | 'rate-limited' | 'network' = 'none';
+  await mockImage(page);
+  await page.route(`**/api/v1/store/products/${PRODUCT_ID}`, async (route) => {
+    if (refreshFailure === 'rate-limited') {
+      await fulfillJson(route, {
+        code: 'RATE_LIMITED',
+        message: '请稍后重试',
+        request_id: 'req_cart_limited',
+      }, 429, { 'Retry-After': '3' });
+      return;
+    }
+    if (refreshFailure === 'network') {
+      await route.abort('failed');
+      return;
+    }
+    await fulfillJson(route, ok(detailData));
+  });
+  await page.goto(`/#/pages/product/detail?product_id=${PRODUCT_ID}`);
+  await addCurrentSkuToGuestCart(page);
+
+  refreshFailure = 'rate-limited';
+  await page.goto('/#/pages/cart/index');
+  await expect(page.getByText('刷新失败，商品仍保留在购物车')).toBeVisible();
+  await expect(page.getByText('商品已下架或规格已失效')).toHaveCount(0);
+  await expect(page.getByText('暂时售罄')).toHaveCount(0);
+  await expect(page.locator('.cart-item')).toHaveCount(1);
+  await expect(page.locator('.cart-summary__total')).toContainText('¥0.00');
+  refreshFailure = 'network';
+  await page.getByText('重试', { exact: true }).click();
+  await expect(page.getByText('刷新失败，商品仍保留在购物车')).toBeVisible();
+  await expect(page.locator('.cart-item')).toHaveCount(1);
+  await page.reload();
+  await expect(page.locator('.cart-item')).toHaveCount(1);
+});
+
+test('MP-06 cancels a hidden cart refresh before a detail-page add', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-390', 'Concurrency regression runs once.');
+  let delayNextRequest = false;
+  await mockImage(page);
+  await page.route(`**/api/v1/store/products/${PRODUCT_ID}`, async (route) => {
+    if (delayNextRequest) {
+      delayNextRequest = false;
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      await fulfillJson(route, ok(detailData)).catch(() => undefined);
+      return;
+    }
+    await fulfillJson(route, ok(detailData));
+  });
+
+  await page.goto(`/#/pages/product/detail?product_id=${PRODUCT_ID}`);
+  await addCurrentSkuToGuestCart(page);
+  delayNextRequest = true;
+  await page.goto('/#/pages/cart/index');
+  await expect(page.getByText('正在确认最新价格与库存').first()).toBeVisible();
+  await page.locator('.cart-item__image').click();
+  await expect(page.getByText(product.name)).toBeVisible();
+  await addCurrentSkuToGuestCart(page);
+  await page.waitForTimeout(1_000);
+
+  await page.locator('[aria-label="返回"]').click();
+  const cartItem = page.locator('.cart-item').filter({ hasText: '容量：500ml' });
+  await expect(cartItem.locator('.cart-stepper')).toContainText('2');
+});

@@ -6,9 +6,9 @@
 |---|---|
 | 文档版本 | v2.4.4 |
 | 对应产品基线 | MVP/PRD v2.4.4、CH-001 至 CH-014 |
-| 接口阶段 | B0-B5 development 已完成；B6.1 已实现 5 个 Store 公开 GET 并完成本地及受控 Supabase development rollback-only 验收；B6.2 MP-01 至 MP-05 工程页面、API 客户端和 SKU 选择层已完成本地验收后暂停；B6.3/B6.4 未开始，staging/production 未批准 |
+| 接口阶段 | B0-B5 development 已完成；B6.1 已实现 5 个 Store 公开 GET 并完成本地及受控 Supabase development rollback-only 验收；B6.2 MP-01 至 MP-05 与 B6.3 MP-06 游客本地购物车均已完成本地验收并暂停；B6.4 未开始，staging/production 未批准 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
-| 更新时间 | 2026-08-25 |
+| 更新时间 | 2026-08-26 |
 
 ## 1. 设计目标
 
@@ -348,7 +348,7 @@ B6.1 已按上述契约开放这 5 个 GET。独立 `StoreCatalogRepository` 使
 
 来源 IP 只取 Express 在当前连接信任边界下解析的 `request.ip`。`API_TRUSTED_PROXY_CIDRS` 默认空，对应 `trust proxy=false`，因此任意客户端自填 `X-Forwarded-For` 不会改变限流来源；只有直接可信反向代理的数字 IP/CIDR 才能显式登记。配置拒绝 hostname、全网段、带 host bits 或语义重复项，IPv4-mapped IPv6 在配置和请求来源处都归一化为等价 IPv4，再计算 HMAC 限流 key。
 
-上述 B6.1 公开 API 已由 B6.2 工程页面使用。B6.2 已完成跨端 Store API 客户端、MP-01 首页、MP-02 分类、MP-03 搜索、MP-04 商品详情和 MP-05 SKU 选择层；miniapp unit 为 `4 files / 58 passed`，H5 与 MP-Weixin build 均通过，B6 UI Playwright 为 `19 passed / 36 designed skips`，MP-01 至 MP-05 成功路径和无横向溢出覆盖 375/390/414/1024/1440 五个视口。该批只完成本地验收并暂停，没有实现 B6.3 游客本地购物车；B6.4 的真实纵向链路、普通 CI 与 Supabase workflow 同一最终 SHA 双绿尚未执行，不得标记 B6 最终 development `GO`。
+上述 B6.1 公开 API 已由 B6.2/B6.3 工程页面使用。B6.3 的 MP-06 按 `product_id` 去重顺序调用现有公开详情接口以刷新价格、库存和状态；404/缺 SKU 才判失效，429 或网络失败保留本地项且不误判。购物车使用版本化本地存储，结算只提示登录，不调用服务端 Cart/订单，因此没有新增或修改 API operation。当前累计 miniapp unit `6 files / 84 passed`，H5 与 MP-Weixin build 均通过，B6 UI Playwright `34 passed / 56 designed skips`，覆盖 375/390/414/1024/1440 五个视口。该证据只关闭 B6.3 本地门禁；B6.4 的真实纵向链路、普通 CI 与 Supabase workflow 同一最终 SHA 双绿尚未执行，不得标记 B6 最终 development `GO`。
 
 ### 4.4 地址、试算、订单与支付
 

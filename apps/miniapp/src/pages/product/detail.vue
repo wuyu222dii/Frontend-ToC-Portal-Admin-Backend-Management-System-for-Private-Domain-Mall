@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/* global uni */
 import { onLoad, onUnload } from '@dcloudio/uni-app';
 import { computed, ref } from 'vue';
 
@@ -9,6 +10,13 @@ import QxPrice from '../../components/storefront/QxPrice.vue';
 import QxProductImage from '../../components/storefront/QxProductImage.vue';
 import QxStoreShell from '../../components/storefront/QxStoreShell.vue';
 import type { StoreProductDetail, StoreSku } from '../../types/store-catalog';
+import {
+  addOrMergeGuestCartItem,
+  loadGuestCart,
+  saveGuestCart,
+  setGuestCartQuantity,
+} from '../../utils/guest-cart';
+import { guestCartSnapshot } from '../../utils/guest-cart-refresh';
 import { goBackOrHome, openHome, showLoginPrompt } from '../../utils/store-navigation';
 
 type DetailState = 'loading' | 'ready' | 'not-found' | 'error' | 'rate-limited';
@@ -20,6 +28,7 @@ const productId = ref('');
 const selectedSkuId = ref('');
 const quantity = ref(1);
 const sheetOpen = ref(false);
+const sheetPurpose = ref<'select' | 'cart'>('select');
 const currentImage = ref(0);
 const activeTab = ref<DetailTab>('introduction');
 const retryAfterSeconds = ref(0);
@@ -129,13 +138,35 @@ function changeQuantity(delta: number) {
   quantity.value = Math.min(maximum, Math.max(1, quantity.value + delta));
 }
 
-function openSkuSheet() {
+function openSkuSheet(purpose: 'select' | 'cart') {
   if (!product.value || product.value.skus.length === 0) return;
+  sheetPurpose.value = purpose;
   sheetOpen.value = true;
 }
 
 function confirmSkuSelection() {
-  if (!selectedSku.value?.is_salable || quantity.value < 1) return;
+  const currentProduct = product.value;
+  const currentSku = selectedSku.value;
+  if (!currentProduct || !currentSku?.is_salable || quantity.value < 1) return;
+  if (sheetPurpose.value === 'cart') {
+    try {
+      const merged = addOrMergeGuestCartItem(
+        loadGuestCart(),
+        guestCartSnapshot(currentProduct, currentSku),
+        quantity.value,
+      );
+      const mergedItem = merged.items.find((item) => item.snapshot.sku_id === currentSku.sku_id);
+      const maximum = Math.min(99, currentSku.available_stock);
+      const capped = mergedItem === undefined || mergedItem.quantity <= maximum
+        ? merged
+        : setGuestCartQuantity(merged, currentSku.sku_id, maximum);
+      saveGuestCart(capped);
+      void uni.showToast({ icon: 'success', title: '已加入购物车' });
+    } catch {
+      void uni.showToast({ icon: 'none', title: '本地存储不可用，加购失败' });
+      return;
+    }
+  }
   sheetOpen.value = false;
 }
 
@@ -289,7 +320,7 @@ onUnload(() => {
         <section class="detail-choice">
           <button
             class="detail-choice__row"
-            @click="openSkuSheet"
+            @click="openSkuSheet('select')"
           >
             <text class="detail-choice__label">
               规格
@@ -344,10 +375,10 @@ onUnload(() => {
           </button>
           <button
             class="detail-actions__secondary"
-            :disabled="product.skus.length === 0"
-            @click="openSkuSheet"
+            :disabled="allSoldOut"
+            @click="openSkuSheet('cart')"
           >
-            选择规格
+            {{ allSoldOut ? '暂时售罄' : '加入购物车' }}
           </button>
           <button
             class="detail-actions__primary"
@@ -465,7 +496,7 @@ onUnload(() => {
             :disabled="!selectedSku?.is_salable || quantity < 1"
             @click="confirmSkuSelection"
           >
-            {{ selectedSku?.is_salable ? '确认规格' : '该规格已售罄' }}
+            {{ selectedSku?.is_salable ? (sheetPurpose === 'cart' ? '加入购物车' : '确认规格') : '该规格已售罄' }}
           </button>
         </view>
       </view>

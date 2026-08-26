@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { isSafeHttpsUrl } from './store-navigation';
+import { handleBottomNavigation, isSafeHttpsUrl } from './store-navigation';
 
 describe('store navigation URL safety', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it.each([
     'https://mall.example.com',
     'https://mall.example.com/campaign?id=1#detail',
@@ -22,5 +24,12 @@ describe('store navigation URL safety', () => {
     'https://mall.example.com/path\nnext',
   ])('rejects an unsafe or malformed target: %s', (value) => {
     expect(isSafeHttpsUrl(value)).toBe(false);
+  });
+
+  it('opens the implemented guest cart from the shared bottom navigation', () => {
+    const reLaunch = vi.fn(() => Promise.resolve());
+    vi.stubGlobal('uni', { reLaunch });
+    handleBottomNavigation('cart');
+    expect(reLaunch).toHaveBeenCalledWith({ url: '/pages/cart/index' });
   });
 });

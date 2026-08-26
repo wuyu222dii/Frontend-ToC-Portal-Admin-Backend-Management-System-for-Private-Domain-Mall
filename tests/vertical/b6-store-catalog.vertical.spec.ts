@@ -27,13 +27,18 @@ test('browser reaches real Nest, PostgreSQL and MinIO for the anonymous store ca
   expect(await health.json()).toEqual({ service: 'api', status: 'ok' });
 
   await page.goto('/');
-  const homeProduct = page.getByRole('button', { name: new RegExp(`^${escapeRegExp(productName)}，已售`) }).first();
+  const homeProduct = page.locator('.qx-product-card').filter({
+    has: page.getByText(productName, { exact: true }),
+  }).first();
   await expect(homeProduct).toBeVisible();
+  await expect(homeProduct).toHaveAttribute('aria-label', new RegExp(`^${escapeRegExp(productName)}，已售`));
   await homeProduct.scrollIntoViewIfNeeded();
-  const homeImage = homeProduct.locator('img[alt]').first();
+  const homeImage = homeProduct.locator('.qx-product-image__asset').first();
   await expect(homeImage).toBeVisible();
   await expect(homeImage).toHaveAttribute('alt', productName);
-  await expect.poll(() => homeImage.evaluate((element: HTMLImageElement) => ({
+  const renderedHomeImage = homeImage.locator('img').first();
+  await expect(renderedHomeImage).toBeVisible();
+  await expect.poll(() => renderedHomeImage.evaluate((element: HTMLImageElement) => ({
     complete: element.complete,
     naturalHeight: element.naturalHeight,
     naturalWidth: element.naturalWidth,

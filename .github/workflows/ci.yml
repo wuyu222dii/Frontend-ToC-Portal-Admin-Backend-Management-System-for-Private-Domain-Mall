@@ -134,7 +134,7 @@ jobs:
       - name: Lint OpenAPI
         run: pnpm contracts:lint
 
-      - name: Check CH-014 contract invariants
+      - name: Check CH-016 contract invariants
         run: pnpm contracts:check
 
       - name: Check generated contract drift

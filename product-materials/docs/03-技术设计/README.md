@@ -1,12 +1,12 @@
 # 技术设计交付索引
 
-> 当前基线：MVP/PRD v2.4.4、线协议 CH-014（2026-08-26）。B0-B6 development 已完成；B6 最终 SHA `9d8911934a5aa2b09ece2e12935bcafc9ccdcba6` 的普通 CI Run `32953444096` 与 Supabase rollback-only Run `32954611250` 同 SHA 双绿，B6 development `GO`。CH-013 已自动失效，staging/production 均为 `NO-GO`。
+> 当前基线：MVP/PRD v2.4.5、线协议 CH-016（2026-08-26）。B0-B6 development 已完成；CH-015/CH-016 已批准，B7.0 契约与治理已完成并暂停、退出审查 `P0=0/P1=0`，B7.1 业务代码未准入。仅允许脱敏 development，staging/production 均为 `NO-GO`。
 
 | 文件 | 用途 |
 |---|---|
 | `技术架构说明.md` | 技术栈、三端边界、认证/RBAC、事务锁序、Provider、部署与扩展策略 |
-| `API接口文档.md` | 172 个 path、196 个 operation 的文本接口全集、状态、幂等和高风险预览/确认规则 |
-| `openapi.yaml` | OpenAPI 3.1 单一可解析契约；与文本目录 196/196 完全覆盖，operationId 唯一 |
+| `API接口文档.md` | CH-016 实测 173 paths、197 operations、197 unique operationId、320 schemas、699 schema refs、2,617 local refs、0 dangling refs 的文本接口全集 |
+| `openapi.yaml` | OpenAPI 3.1 单一可解析契约；文本目录必须完全覆盖且 operationId 唯一 |
 | `数据库设计.md` | PostgreSQL/Supabase 表域、ERD、状态机、事务、索引、加密、RLS 与验收门禁 |
 | `schema.prisma` | Prisma 7.9.1 逻辑模型：76 models、59 enums、270 个 model-typed relation fields，全部位于 `public` |
 | `prisma.config.ts` | 设计验证用 Prisma 7 config；CLI 读取 `DIRECT_URL` |
@@ -14,8 +14,9 @@
 | `../05-开发管理/B4-商品与SKU.md` | B4.0 至 B4.4 串行批次、准入门禁、验收与回退边界 |
 | `../05-开发管理/B5-Banner与库存.md` | B5.0 CH-012 契约、CH-011 门禁及后续串行批次 |
 | `../05-开发管理/B6-消费者匿名商城目录.md` | B6.0 CH-014 契约、B6.1-B6.4 实施/最终证据及 CH-013 失效边界 |
+| `../05-开发管理/B7-消费者身份会话与隐私.md` | B7.0 CH-016 契约、CH-015 门禁、B7.1-B7.5 串行批次与退出边界 |
 
-上游真相顺序为：已批准需求变更记录、PRD v2.4.4、MVP v2.4.4、原型设计方案。发生冲突时先更新上游基线和本目录契约，不由开发人员临时选择口径。
+上游真相顺序为：已批准需求变更记录、PRD v2.4.5、MVP v2.4.5、原型设计方案。发生冲突时先更新上游基线和本目录契约，不由开发人员临时选择口径。
 
 ## CH-006 历史验证状态
 
@@ -26,7 +27,7 @@
 
 ## CH-010 历史实施状态
 
-- CH-010 当时线协议为 `2.4.2-ch010`；当时实测保持 172 paths、196 operations、196 unique operationId、307 schemas、685 schema refs 和 0 dangling refs。现行版本见 CH-014。
+- CH-010 当时线协议为 `2.4.2-ch010`；当时实测保持 172 paths、196 operations、196 unique operationId、307 schemas、685 schema refs 和 0 dangling refs。现行版本见 CH-016。
 - 旧 `LifecycleAction` 删除，Product/SKU 分别使用闭合 `ProductLifecycleAction`、`SkuLifecycleAction`，均支持 ACTIVATE/DEACTIVATE/SOFT_DELETE；创建和恢复目标、发布依赖、不级联及审计原因按 CH-010 固定。
 - Product 列表/详情冻结 `published_at DESC NULLS LAST,id DESC`、nullable 最低活动价、全部含 ARCHIVED 的 SKU、8 图；SKU 创建为 201 并原子建立零库存余额，SPU/SKU code 永不可改或复用。
 - Prisma、`0001_initial`、76 models / 59 enums 均未改变。B4.0 至 B4.4 已依次通过契约、冻结数据库、CRUD、生命周期、五视口、真实纵向和远端门禁。
@@ -54,6 +55,14 @@
 - B6.3 历史本地验收实测为 miniapp unit `6 files / 84 passed`、H5 与 MP-Weixin build 均通过、B6 UI Playwright `34 passed / 56 designed skips`；覆盖 375/390/414/1024/1440 五个视口，root lint 0 errors（保留既有 warnings），`P0=0/P1=0`。
 - B6.4 已完成，最终 SHA `9d8911934a5aa2b09ece2e12935bcafc9ccdcba6` 上的真实纵向链路、普通 CI 与 Supabase rollback-only 均成功；B6 development `GO`，CH-013 已自动失效。
 
+## CH-016 契约实施状态
+
+- 产品/API 基线升级为 `v2.4.5 / 2.4.5-ch016`。新增匿名法律文本 GET、删除旧异步注销 current GET、增加注销 preview；专项实测为 173 paths / 197 operations / 197 unique operationId / 320 schemas / 699 schema refs / 2,617 local refs / 0 dangling refs，Redocly 0 warning。
+- 法律文本固定返回 USER_AGREEMENT、PRIVACY_POLICY、PHONE_AUTHORIZATION 三份当前快照；登录严格同意前两份，手机号单独同意第三份。Store token 固定 `role=CUSTOMER`、`assurance=WECHAT`、`audience=qingxu-store`，管理端继续 `qingxu-admin-web`；Provider 不是 token claim。
+- profile/手机号写要求 If-Match 和幂等，Provider 由服务端环境选择；消费者身份固定一个微信 AppID，以 `(AppID, openid)` 识别，union_id 不用于登录或自动合并；候选目标服务端解析，token 使用用途隔离 HMAC 保存、30 分钟有效，查询不消费、替换或登录迁移时原子失效；服务代理只返回 agent ID、展示名和绑定时间。
+- 注销使用 eligible preview 与 5 分钟能力；不合格 preview 不签发 token。同步 confirm 重检阻断并单事务完成去标识化和全部会话撤销，使用 HASH_ONLY 且不重放完成响应。
+- Prisma、两份 `0001_initial`、76 models / 59 enums 逐字节不变。B7.0 已通过生成稳定性、contracts 编译、原型、冻结数据库与零漂移门禁并暂停，`P0=0/P1=0`；B7.1 业务代码仍须用户另行批准。
+
 ## B3.1 当前验证状态
 
 - 真实 PostgreSQL、Redis、MinIO API 集成 `3/3` 通过；Worker 清理集成 `3/3` 通过。API 全量 `118 passed / 10 skipped`，Worker 全量 `30 passed / 3 skipped`，storage `16 passed`，database `141 passed / 24 skipped`。
@@ -75,9 +84,9 @@
 
 B0 已在工程根建立 `prisma.config.ts`、`prisma/` 和五应用脚手架；根目录中的 schema 与首迁移必须和本目录冻结产物逐字节一致。CLI/migration 通过 `DIRECT_URL` 连接，后续 runtime 通过 `@prisma/adapter-pg` 读取 `DATABASE_URL`。三端只调用 NestJS HTTPS API，禁止使用 Supabase client、Data API 或 `service_role` 密钥访问业务表。
 
-## B6 开发入口
+## B7 开发入口
 
-B3.0 至 B3.3 历史交付见 `../05-开发管理/B3-文件品牌与分类.md`，B4 串行批次与最终证据见 `../05-开发管理/B4-商品与SKU.md`，B5 最终证据见 `../05-开发管理/B5-Banner与库存.md`，B6 契约、串行批次和最终双绿见 `../05-开发管理/B6-消费者匿名商城目录.md`。Prisma 与首迁移保持冻结；后续阶段须另行冻结范围和门禁，staging 前外部独立复核不得提前豁免。
+B3-B6 历史交付见各自开发记录；B7 的 CH-015/CH-016、契约、锁序、串行批次和暂停条件见 `../05-开发管理/B7-消费者身份会话与隐私.md`。B7.0 已完成并暂停，Prisma 与首迁移保持冻结；B7.1 须另行明确批准，staging 前外部独立复核不得提前豁免。
 
 ## 剩余上线门禁
 

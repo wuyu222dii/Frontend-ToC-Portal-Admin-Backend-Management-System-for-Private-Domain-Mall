@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/store/legal-documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取当前用户协议、隐私政策与手机号授权文档快照
+         * @description 匿名读取当前生效的用户协议、隐私政策和手机号授权文档。前两份文档版本是登录 consents 的唯一匹配基线，手机号授权单独使用第三份文档版本；响应禁止缓存。此接口使用独立于匿名目录的 Redis 固定窗口 key namespace，仅保存来源 IP 的 HMAC，每个来源每 60 秒最多 120 次；Redis 不可用时 fail closed。
+         */
+        get: operations["getStoreLegalDocuments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/store/auth/wechat/login": {
         parameters: {
             query?: never;
@@ -13,7 +33,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 使用微信 code 登录；设计阶段可由 Mock Provider 替代 */
+        /**
+         * 使用微信 code 登录；设计阶段可由 Mock Provider 替代
+         * @description 服务端按环境配置选择微信或 Mock 身份 Provider，客户端不得选择 Provider；Mock 仅允许 test/development。B7 固定一个消费者微信 AppID，以 (AppID, openid) 语义识别主体；现 account.wechat_open_id 仅在单 AppID 基线内唯一。wechat_union_id 仅为可空元数据，不得作为登录键或触发账号自动合并；多 AppID 必须另立变更并执行数据库迁移。code、candidate_token 和会话令牌不得进入日志、审计或幂等响应缓存。此 operation 使用 HASH_ONLY 幂等策略：仅保存请求哈希与完成事实，不回放 access_token、refresh_token 或候选 token。登录按来源 IP HMAC 使用独立 Redis 固定窗口，每 15 分钟最多 10 次，Redis 不可用时 fail closed；超限返回准确 Retry-After。登录固定签发 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的会话，Provider 不是 token claim，绝不接受或签发 B2 SUPER_ADMIN/MFA 权限。consents 必须与 /store/legal-documents 当前版本逐项匹配，否则返回 409 CONSENT_VERSION_MISMATCH；有效 candidate_token 仅可迁移一次并原子清除 token hash。
+         */
         post: operations["postStoreAuthWechatLogin"];
         delete?: never;
         options?: never;
@@ -30,7 +53,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 刷新会话并轮换 refresh token */
+        /**
+         * 刷新会话并轮换 refresh token
+         * @description 仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的 refresh token；按 session_family 串行轮换，旧 token 重放撤销整个 family。使用 HASH_ONLY 幂等策略，不缓存或重放 access_token、refresh_token。
+         */
         post: operations["postStoreAuthRefresh"];
         delete?: never;
         options?: never;
@@ -47,7 +73,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 注销当前会话 */
+        /**
+         * 注销当前会话
+         * @description 仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的会话；使用 HASH_ONLY 幂等策略撤销当前 session，不缓存响应或回放 bearer/session 凭据，绝不接受 B2 SUPER_ADMIN/MFA 会话。
+         */
         post: operations["postStoreAuthLogout"];
         delete?: never;
         options?: never;
@@ -62,14 +91,20 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 当前消费者资料，账户手机号默认掩码 */
+        /**
+         * 当前消费者资料，账户手机号默认掩码
+         * @description 仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的会话；响应只投影当前 CUSTOMER 的最小资料和账户手机号掩码，不读取收货地址手机号。
+         */
         get: operations["getStoreProfile"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
-        /** 更新昵称、头像等非敏感资料 */
+        /**
+         * 更新昵称、头像等非敏感资料
+         * @description 仅更新当前 CUSTOMER 的非敏感资料并校验 If-Match 对应 profile.version。使用 HASH_ONLY 幂等策略，不缓存资料响应；不得写入账户手机号或收货地址。
+         */
         patch: operations["patchStoreProfile"];
         trace?: never;
     };
@@ -82,7 +117,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 使用微信手机号凭证完成自愿授权；要求 Idempotency-Key */
+        /**
+         * 使用微信手机号凭证完成自愿授权；要求 Idempotency-Key 与 If-Match
+         * @description 客户端只提交一次性 provider_credential 与已接受的 PHONE_AUTHORIZATION 协议版本，不能选择 Provider；服务端按环境选择微信 Provider，Mock 仅允许 test/development。协议版本必须匹配服务端当前手机号授权文档，否则返回 409 CONSENT_VERSION_MISMATCH。If-Match 必须对应 profile.version，版本冲突返回 409 且不自动覆盖。使用 HASH_ONLY 幂等策略，不缓存手机号凭证或资料响应；不得读取或写入收货地址手机号。
+         */
         post: operations["postStoreProfilePhoneAuthorizations"];
         delete?: never;
         options?: never;
@@ -100,7 +138,10 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** 撤回账户手机号使用授权；不修改历史订单快照 */
+        /**
+         * 撤回账户手机号使用授权；不修改历史订单快照
+         * @description 撤回当前 CUSTOMER 的账户手机号授权，不读取或改写收货地址及历史订单快照。If-Match 必须对应 profile.version，版本冲突返回 409 且不自动覆盖。使用 HASH_ONLY 幂等策略，不缓存资料响应。
+         */
         delete: operations["deleteStoreProfilePhone"];
         options?: never;
         head?: never;
@@ -116,7 +157,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 申请账号删除和去标识化 */
+        /**
+         * 确认账号删除并同步完成去标识化
+         * @description 仅接受 5 分钟内未消费且绑定当前 actor、session、请求体与 account.version 的 preview_token，并要求 If-Match 与 preview 返回的 account_version 一致。使用 HASH_ONLY 幂等策略，不缓存或重放一次性完成响应。事务内重新检查阻断项，失败返回 422 ACCOUNT_DELETION_BLOCKED 且不消费 preview；通过后原子消费 preview、完成删除请求、撤销全部会话及 refresh hash、结束绑定和候选、清除微信主体与资料，并按冻结隐私规则删除或去标识化非交易数据。成功固定返回 COMPLETED，响应后当前及其他会话均不可再使用。
+         */
         post: operations["postStorePrivacyDeletionRequests"];
         delete?: never;
         options?: never;
@@ -124,17 +168,20 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/store/privacy/deletion-requests/current": {
+    "/store/privacy/deletion-requests/preview": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** 查询当前删除申请状态 */
-        get: operations["getStorePrivacyDeletionRequestsCurrent"];
+        get?: never;
         put?: never;
-        post?: never;
+        /**
+         * 预览账号删除资格与不可逆影响
+         * @description 只读取当前 CUSTOMER 的阻断事实与删除影响；eligible=false 时返回 blockers 且不签发 token，仍为 200。eligible=true 时签发有效期固定 5 分钟的 preview_token 和 confirmation_hash，并绑定 actor、session、acknowledged 请求体与 account.version；preview_token 数据库仅保存用途隔离的 HMAC。使用 HASH_ONLY，不缓存或重放 preview_token。
+         */
+        post: operations["postStorePrivacyDeletionRequestsPreview"];
         delete?: never;
         options?: never;
         head?: never;
@@ -150,7 +197,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 打开代理推广链接时校验并保存 30 分钟候选 */
+        /**
+         * 打开代理推广链接时校验并保存 30 分钟候选
+         * @description 客户端只提交 invite_code 与 promotion_asset_id；服务端从同一 promotion_asset 解析并校验唯一公开目标，不接受客户端 target_type/target_id。候选固定 30 分钟，游客 candidate_token 使用 32..512 字符高熵值、数据库只存 domain-separated HMAC 且仅首次签发；candidate token、幂等请求和 IP 限流使用互不相同的 scope/domain，禁止跨用途关联。匿名新请求仅在携带有效旧 X-Candidate-Token 时替换该 token 定位的候选；未携带旧 token 时旧候选按 TTL 自然过期，无效链接不得覆盖。已绑定 CUSTOMER 不创建候选。此 mutation 使用 HASH_ONLY，不缓存或重放 token。
+         */
         post: operations["postStoreAttributionCandidates"];
         delete?: never;
         options?: never;
@@ -165,7 +215,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 查询当前有效候选和剩余秒数 */
+        /**
+         * 查询当前有效候选和剩余秒数
+         * @description 游客使用创建响应签发的 X-Candidate-Token，CUSTOMER 使用 aud=qingxu-store 会话；只返回当前仍有效候选及剩余秒数，不回传或消费 candidate_token。双凭据或无效凭据按固定优先级 fail closed，不得降级到另一主体。
+         */
         get: operations["getStoreAttributionCandidate"];
         put?: never;
         post?: never;
@@ -184,7 +237,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 明确确认并建立长期绑定 */
+        /**
+         * 明确确认并建立长期绑定
+         * @description 使用 HASH_ONLY 幂等策略，在 customer_profile 串行根上重新校验当前候选、代理、邀请码与推广素材后消费候选并建立唯一长期绑定。候选与登录迁移事实不匹配返回 409 ATTRIBUTION_CANDIDATE_MISMATCH；并发后到请求返回已胜出的当前绑定，不覆盖。
+         */
         post: operations["postStoreAttributionCandidateConfirm"];
         delete?: never;
         options?: never;
@@ -201,7 +257,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 拒绝并清空候选 */
+        /**
+         * 拒绝并清空候选
+         * @description 使用 HASH_ONLY 幂等策略，仅拒绝当前 CUSTOMER 的有效候选并立即清空；候选已迁移、已消费或与会话不匹配返回 409 ATTRIBUTION_CANDIDATE_MISMATCH。
+         */
         post: operations["postStoreAttributionCandidateReject"];
         delete?: never;
         options?: never;
@@ -216,7 +275,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 只读查看当前服务代理 */
+        /**
+         * 只读查看当前服务代理
+         * @description 仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的会话。只要长期绑定仍为 BOUND 且未结束，即使代理已停用也继续返回 agent_id、display_name、bound_at，不暴露代理内部状态；代理停用只阻止新候选、新绑定和未来订单归因，不得隐式结束既有绑定。仅没有 BOUND 绑定或绑定已结束时 data=null。不得返回 binding_id、customer_id、customer_version、佣金、完整手机号或其他代理管理字段。
+         */
         get: operations["getStoreServiceAgent"];
         put?: never;
         post?: never;
@@ -3103,6 +3165,7 @@ export interface components {
         ErrorDetail: {
             field: string | null;
             reason: string;
+            /** @description 仅可回显非敏感校验值。当 field 为密码、验证码、登录 code、candidate_token、provider_credential、invite_code、preview_token、confirmation_hash、refresh/access token 或 reauth_grant 等敏感字段时，必须省略 rejected_value 或返回 null，禁止回显原值。 */
             rejected_value?: string | null;
         };
         CommandResponse: {
@@ -3153,9 +3216,48 @@ export interface components {
             page_size: number;
             total: number;
         };
+        LegalDocumentsResponse: {
+            /** @constant */
+            code: "OK";
+            /** @constant */
+            message: "success";
+            data: {
+                user_agreement: {
+                    /** @constant */
+                    type: "USER_AGREEMENT";
+                    document_version: string;
+                    title: string;
+                    /** Format: uri */
+                    content_url: string;
+                    /** @constant */
+                    required: true;
+                };
+                privacy_policy: {
+                    /** @constant */
+                    type: "PRIVACY_POLICY";
+                    document_version: string;
+                    title: string;
+                    /** Format: uri */
+                    content_url: string;
+                    /** @constant */
+                    required: true;
+                };
+                phone_authorization: {
+                    /** @constant */
+                    type: "PHONE_AUTHORIZATION";
+                    document_version: string;
+                    title: string;
+                    /** Format: uri */
+                    content_url: string;
+                    /** @constant */
+                    required: true;
+                };
+            };
+            request_id: string;
+        };
         ConsentInput: {
             /** @enum {string} */
-            type: "USER_AGREEMENT" | "PRIVACY_POLICY";
+            type: "USER_AGREEMENT" | "PRIVACY_POLICY" | "PHONE_AUTHORIZATION";
             document_version: string;
             /** @constant */
             accepted: true;
@@ -3163,7 +3265,17 @@ export interface components {
         WechatLoginRequest: {
             code: string;
             candidate_token?: string | null;
-            consents: components["schemas"]["ConsentInput"][];
+            /** @description 固定二元 tuple：索引 0 必须是当前 USER_AGREEMENT，索引 1 必须是当前 PRIVACY_POLICY；两项 accepted 均固定 true。 */
+            consents: [
+                components["schemas"]["ConsentInput"] & {
+                    /** @constant */
+                    type?: "USER_AGREEMENT";
+                },
+                components["schemas"]["ConsentInput"] & {
+                    /** @constant */
+                    type?: "PRIVACY_POLICY";
+                }
+            ];
         };
         PasswordLoginRequest: {
             login_name: string;
@@ -3171,6 +3283,9 @@ export interface components {
             password: string;
         };
         RefreshTokenRequest: {
+            refresh_token: string;
+        };
+        StoreRefreshTokenRequest: {
             refresh_token: string;
         };
         ChangePasswordRequest: {
@@ -3227,6 +3342,28 @@ export interface components {
             data: components["schemas"]["AuthSessionData"];
             request_id: string;
         };
+        StoreSessionView: {
+            /** @description JWT aud 固定为 qingxu-store。 */
+            access_token: string;
+            /** @description 仅客户端安全会话存储使用；服务端只保存哈希并在 refresh 时轮换。 */
+            refresh_token: string;
+            /** @constant */
+            role: "CUSTOMER";
+            /** @constant */
+            assurance: "WECHAT";
+            /** Format: date-time */
+            access_expires_at: string;
+            /** Format: date-time */
+            refresh_expires_at: string;
+        };
+        StoreSessionResponse: {
+            /** @constant */
+            code: "OK";
+            /** @constant */
+            message: "success";
+            data: components["schemas"]["StoreSessionView"];
+            request_id: string;
+        };
         AgentLoginResponse: {
             /** @constant */
             code: "OK";
@@ -3238,10 +3375,13 @@ export interface components {
         AttributionCandidateSummary: {
             candidate_id: string;
             agent_id: string;
-            agent_name: string;
+            display_name: string;
             /** Format: date-time */
             expires_at: string;
-            attribution_eligible: boolean;
+            /** @constant */
+            attribution_eligible: true;
+            /** Format: uri */
+            public_target_url: string;
         };
         WechatAuthResponse: {
             /** @constant */
@@ -3249,9 +3389,28 @@ export interface components {
             /** @constant */
             message: "success";
             data: {
-                session: components["schemas"]["AuthSessionData"];
-                confirmation_required: boolean;
-                candidate: components["schemas"]["AttributionCandidateSummary"] | null;
+                session: components["schemas"]["StoreSessionView"];
+                /** @constant */
+                confirmation_required: true;
+                candidate: components["schemas"]["AttributionCandidateSummary"];
+            } | {
+                session: {
+                    /** @description JWT aud 固定为 qingxu-store。 */
+                    access_token: string;
+                    /** @description 仅客户端安全会话存储使用；服务端只保存哈希并在 refresh 时轮换。 */
+                    refresh_token: string;
+                    /** @constant */
+                    role: "CUSTOMER";
+                    /** @constant */
+                    assurance: "WECHAT";
+                    /** Format: date-time */
+                    access_expires_at: string;
+                    /** Format: date-time */
+                    refresh_expires_at: string;
+                };
+                /** @constant */
+                confirmation_required: false;
+                candidate: null;
             };
             request_id: string;
         };
@@ -3358,23 +3517,23 @@ export interface components {
             request_id: string;
         };
         PhoneAuthorizationRequest: {
-            /** @enum {string} */
-            provider: "WECHAT" | "MOCK";
             provider_credential: string;
-            consent_version: string;
+            consent: components["schemas"]["ConsentInput"] & {
+                /** @constant */
+                type?: "PHONE_AUTHORIZATION";
+            };
         };
         ProfileUpdateRequest: {
+            /** @description 非 null 时服务端先 trim，再按 1..80 字符保存；纯空白拒绝。 */
             nickname?: string | null;
             /** Format: uri */
             avatar_url?: string | null;
+            /** @description 非 null 时服务端先 trim，再按 1..120 字符保存；纯空白拒绝。 */
             city?: string | null;
         };
         AttributionCandidateRequest: {
             invite_code: string;
             promotion_asset_id: string;
-            /** @enum {string} */
-            target_type: "STOREFRONT" | "PRODUCT";
-            target_id?: string | null;
         };
         CartQuantityRequest: {
             quantity: number;
@@ -4245,12 +4404,26 @@ export interface components {
             avatar_url: string | null;
             city: string | null;
             phone_tail: string | null;
+            /** @description 仅返回当前已验证账户手机号的掩码；不得来自收货地址。 */
             phone_masked: string | null;
-            phone_source?: string | null;
+            /** @enum {string|null} */
+            phone_source: "WECHAT" | "MOCK" | null;
             /** Format: date-time */
-            phone_verified_at?: string | null;
+            phone_verified_at: string | null;
             version: number;
-        };
+        } & ({
+            phone_tail: null;
+            phone_masked: null;
+            phone_source: null;
+            phone_verified_at: null;
+        } | {
+            phone_tail: string;
+            phone_masked: string;
+            /** @enum {string} */
+            phone_source: "WECHAT" | "MOCK";
+            /** Format: date-time */
+            phone_verified_at: string;
+        });
         ProfileResponse: {
             /** @constant */
             code: "OK";
@@ -4261,16 +4434,12 @@ export interface components {
         };
         DeletionRequestView: {
             request_id: string;
-            /** @enum {string} */
-            status: "SUBMITTED" | "PROCESSING" | "COMPLETED" | "REJECTED";
+            /** @constant */
+            status: "COMPLETED";
             /** Format: date-time */
             submitted_at: string;
             /** Format: date-time */
-            completed_at?: string | null;
-            blockers: {
-                resource_type: string;
-                count: number;
-            }[];
+            completed_at: string;
         };
         DeletionRequestResponse: {
             /** @constant */
@@ -4280,14 +4449,57 @@ export interface components {
             data: components["schemas"]["DeletionRequestView"];
             request_id: string;
         };
+        DeletionPreviewRequest: {
+            /** @constant */
+            acknowledged: true;
+        };
+        DeletionConfirmRequest: {
+            /** @constant */
+            acknowledged: true;
+            preview_token: string;
+            confirmation_hash: string;
+        };
+        DeletionPreviewResponse: {
+            /** @constant */
+            code: "OK";
+            /** @constant */
+            message: "success";
+            data: {
+                /** @constant */
+                eligible: true;
+                blockers: Record<string, never>[];
+                impacts: ("REVOKE_ALL_SESSIONS" | "END_SERVICE_AGENT_BINDING" | "INVALIDATE_ATTRIBUTION_CANDIDATES" | "ANONYMIZE_ACCOUNT_PROFILE" | "DELETE_NON_TRANSACTIONAL_PII" | "ANONYMIZE_AGENT_HISTORY" | "RETAIN_REQUIRED_TRANSACTION_FACTS")[];
+                preview_token: string;
+                confirmation_hash: string;
+                /** Format: date-time */
+                expires_at: string;
+                account_version: number;
+            } | {
+                /** @constant */
+                eligible: false;
+                blockers: {
+                    /** @enum {string} */
+                    resource_type: "ORDER" | "AFTERSALE" | "PAYMENT" | "REFUND" | "FINANCIAL_ANOMALY";
+                    count: number;
+                }[];
+                impacts: ("REVOKE_ALL_SESSIONS" | "END_SERVICE_AGENT_BINDING" | "INVALIDATE_ATTRIBUTION_CANDIDATES" | "ANONYMIZE_ACCOUNT_PROFILE" | "DELETE_NON_TRANSACTIONAL_PII" | "ANONYMIZE_AGENT_HISTORY" | "RETAIN_REQUIRED_TRANSACTION_FACTS")[];
+                preview_token: null;
+                confirmation_hash: null;
+                expires_at: null;
+                account_version: number;
+            };
+            request_id: string;
+        };
         AttributionCandidateView: {
             candidate_id: string;
             agent_id: string;
-            agent_name: string;
-            confirmation_required: boolean;
-            attribution_eligible: boolean;
+            display_name: string;
+            /** @constant */
+            confirmation_required: true;
+            /** @constant */
+            attribution_eligible: true;
             /** Format: uri */
-            public_target_url?: string | null;
+            public_target_url: string;
             /** Format: date-time */
             expires_at: string;
             remaining_seconds: number;
@@ -4299,8 +4511,30 @@ export interface components {
             message: "success";
             data: {
                 candidate: components["schemas"]["AttributionCandidateView"];
-                /** @description 仅匿名候选首次创建时返回一次；已登录确认流可为 null。不得出现在查询、拒绝、日志或缓存响应中。 */
-                candidate_token: string | null;
+                /** @description 仅匿名候选首次创建时返回一次；已登录候选可为 null。不得出现在查询、拒绝、日志或缓存响应中。 */
+                readonly candidate_token: string | null;
+                service_agent: null;
+                public_fallback: null;
+            } | {
+                candidate: null;
+                candidate_token: null;
+                service_agent: {
+                    agent_id: string;
+                    display_name: string;
+                    /** Format: date-time */
+                    bound_at: string;
+                };
+                public_fallback: null;
+            } | {
+                candidate: null;
+                candidate_token: null;
+                service_agent: null;
+                public_fallback: {
+                    /** @constant */
+                    attribution_eligible: false;
+                    /** Format: uri */
+                    public_target_url: string;
+                };
             };
             request_id: string;
         };
@@ -4335,12 +4569,18 @@ export interface components {
             started_at: string;
             customer_version: number;
         };
-        AttributionBindingResponse: {
+        StoreServiceAgentView: {
+            agent_id: string;
+            display_name: string;
+            /** Format: date-time */
+            bound_at: string;
+        };
+        StoreAttributionBindingResponse: {
             /** @constant */
             code: "OK";
             /** @constant */
             message: "success";
-            data: components["schemas"]["AttributionBindingView"];
+            data: components["schemas"]["StoreServiceAgentView"];
             request_id: string;
         };
         ServiceAgentResponse: {
@@ -4348,7 +4588,7 @@ export interface components {
             code: "OK";
             /** @constant */
             message: "success";
-            data: components["schemas"]["AttributionBindingView"] | null;
+            data: components["schemas"]["StoreServiceAgentView"] | null;
             request_id: string;
         };
         /** @description 仅投影当前生效且处于展示时段内的 Banner；不返回文件 ID、管理状态或版本。 */
@@ -6915,6 +7155,112 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
+        /** @description B7 Store 敏感操作的通用错误；不得缓存或回显被拒绝的敏感值。 */
+        StoreSensitiveError: {
+            headers: {
+                /** @description 敏感错误响应不得缓存。 */
+                "Cache-Control": "no-store, private";
+                /** @description 兼容旧客户端和中间代理的禁止缓存指令。 */
+                Pragma: "no-cache";
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    code: string;
+                    message: string;
+                    details?: {
+                        field: string | null;
+                        reason: string;
+                        rejected_value?: null;
+                    }[];
+                    request_id: string;
+                };
+            };
+        };
+        /** @description 消费者微信登录的闭合冲突响应。 */
+        StoreLoginConflict: {
+            headers: {
+                "Cache-Control": "no-store, private";
+                Pragma: "no-cache";
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    code: "CONSENT_VERSION_MISMATCH" | "ATTRIBUTION_CANDIDATE_MISMATCH" | "STATE_CONFLICT";
+                    message: string;
+                    details?: {
+                        field: string | null;
+                        reason: string;
+                        rejected_value?: null;
+                    }[];
+                    request_id: string;
+                };
+            };
+        };
+        /** @description 消费者手机号授权的闭合协议或版本冲突响应。 */
+        StorePhoneAuthorizationConflict: {
+            headers: {
+                "Cache-Control": "no-store, private";
+                Pragma: "no-cache";
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    code: "CONSENT_VERSION_MISMATCH" | "RESOURCE_VERSION_CONFLICT" | "STATE_CONFLICT";
+                    message: string;
+                    details?: {
+                        field: string | null;
+                        reason: string;
+                        rejected_value?: null;
+                    }[];
+                    request_id: string;
+                };
+            };
+        };
+        /** @description 消费者归因候选绑定不匹配或幂等状态冲突的闭合响应。 */
+        StoreAttributionCandidateConflict: {
+            headers: {
+                "Cache-Control": "no-store, private";
+                Pragma: "no-cache";
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    code: "ATTRIBUTION_CANDIDATE_MISMATCH" | "STATE_CONFLICT";
+                    message: string;
+                    details?: {
+                        field: string | null;
+                        reason: string;
+                        rejected_value?: null;
+                    }[];
+                    request_id: string;
+                };
+            };
+        };
+        /** @description 账号删除 confirm 在事务内重检发现业务阻断时的闭合响应。 */
+        StoreAccountDeletionBlocked: {
+            headers: {
+                "Cache-Control": "no-store, private";
+                Pragma: "no-cache";
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: "ACCOUNT_DELETION_BLOCKED";
+                    message: string;
+                    details?: {
+                        field: string | null;
+                        reason: string;
+                        rejected_value?: null;
+                    }[];
+                    request_id: string;
+                };
+            };
+        };
         /** @description 库存、售后额度、金额分配或业务前置校验失败；固定业务码包括 ACTIVE_PRODUCT_DEPENDENCY、FILE_CONTENT_MISMATCH，CH-010 的 PRODUCT_PRIMARY_IMAGE_REQUIRED、PRODUCT_ACTIVE_SKU_REQUIRED、ACTIVE_SKU_DEPENDENCY、ACTIVE_INVENTORY_RESERVATION，以及 CH-012 的 INVENTORY_QUANTITY_OUT_OF_RANGE；库存确认低于锁定量继续使用 STOCK_INSUFFICIENT（均为 422）。 */
         BusinessError: {
             headers: {
@@ -6944,6 +7290,40 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
+        /** @description 匿名法务文档读取使用 Redis 固定窗口及独立 key namespace；仅保存来源 IP 的 HMAC，每个来源每 60 秒最多 120 次。超限返回距当前窗口结束的准确 Retry-After 整数秒；Redis 不可用时 fail closed。 */
+        StoreLegalRateLimited: {
+            headers: {
+                /** @description 距当前 60 秒固定窗口结束的准确剩余整数秒。 */
+                "Retry-After": number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
+        /** @description 消费者登录使用 Redis 固定窗口及独立 key namespace；仅保存来源 IP 的 HMAC，每个来源每 15 分钟最多 10 次。超限返回距当前窗口结束的准确 Retry-After 整数秒；Redis 不可用时 fail closed。 */
+        StoreLoginRateLimited: {
+            headers: {
+                /** @description 登录失败响应不得缓存。 */
+                "Cache-Control": "no-store, private";
+                /** @description 兼容旧客户端和中间代理的禁止缓存指令。 */
+                Pragma: "no-cache";
+                /** @description 距当前 15 分钟固定窗口结束的准确剩余整数秒。 */
+                "Retry-After": number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"] & {
+                    /** @constant */
+                    code?: "RATE_LIMITED";
+                    details?: {
+                        field: string | null;
+                        reason: string;
+                        rejected_value?: null;
+                    }[];
+                };
+            };
+        };
         /** @description 未预期错误；响应不暴露堆栈、SQL 或 Provider 原文 */
         InternalError: {
             headers: {
@@ -6970,11 +7350,40 @@ export interface components {
         CacheControlNoStore: "no-store, private";
         /** @description 兼容旧客户端和中间代理的禁止缓存指令。 */
         PragmaNoCache: "no-cache";
+        /** @description B7 Store 响应必返的禁止缓存指令。 */
+        StoreCacheControlNoStoreRequired: "no-store, private";
+        /** @description B7 Store 响应必返的兼容禁止缓存指令。 */
+        StorePragmaNoCacheRequired: "no-cache";
     };
     pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getStoreLegalDocuments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegalDocumentsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            429: components["responses"]["StoreLegalRateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     postStoreAuthWechatLogin: {
         parameters: {
             query?: never;
@@ -6993,22 +7402,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
-                    "Cache-Control": components["headers"]["CacheControlNoStore"];
-                    Pragma: components["headers"]["PragmaNoCache"];
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["WechatAuthResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreSensitiveError"];
+            401: components["responses"]["StoreSensitiveError"];
+            403: components["responses"]["StoreSensitiveError"];
+            404: components["responses"]["StoreSensitiveError"];
+            409: components["responses"]["StoreLoginConflict"];
+            422: components["responses"]["StoreSensitiveError"];
+            429: components["responses"]["StoreLoginRateLimited"];
+            500: components["responses"]["StoreSensitiveError"];
         };
     };
     postStoreAuthRefresh: {
@@ -7022,29 +7431,29 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RefreshTokenRequest"];
+                "application/json": components["schemas"]["StoreRefreshTokenRequest"];
             };
         };
         responses: {
             /** @description 成功 */
             200: {
                 headers: {
-                    "Cache-Control": components["headers"]["CacheControlNoStore"];
-                    Pragma: components["headers"]["PragmaNoCache"];
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SessionAuthResponse"];
+                    "application/json": components["schemas"]["StoreSessionResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreSensitiveError"];
+            401: components["responses"]["StoreSensitiveError"];
+            403: components["responses"]["StoreSensitiveError"];
+            404: components["responses"]["StoreSensitiveError"];
+            409: components["responses"]["StoreSensitiveError"];
+            422: components["responses"]["StoreSensitiveError"];
+            429: components["responses"]["StoreSensitiveError"];
+            500: components["responses"]["StoreSensitiveError"];
         };
     };
     postStoreAuthLogout: {
@@ -7061,20 +7470,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["CommandResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreSensitiveError"];
+            401: components["responses"]["StoreSensitiveError"];
+            403: components["responses"]["StoreSensitiveError"];
+            404: components["responses"]["StoreSensitiveError"];
+            409: components["responses"]["StoreSensitiveError"];
+            422: components["responses"]["StoreSensitiveError"];
+            429: components["responses"]["StoreSensitiveError"];
+            500: components["responses"]["StoreSensitiveError"];
         };
     };
     getStoreProfile: {
@@ -7089,20 +7500,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ProfileResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreSensitiveError"];
+            401: components["responses"]["StoreSensitiveError"];
+            403: components["responses"]["StoreSensitiveError"];
+            404: components["responses"]["StoreSensitiveError"];
+            409: components["responses"]["StoreSensitiveError"];
+            422: components["responses"]["StoreSensitiveError"];
+            429: components["responses"]["StoreSensitiveError"];
+            500: components["responses"]["StoreSensitiveError"];
         };
     };
     patchStoreProfile: {
@@ -7110,6 +7523,7 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                "If-Match": components["parameters"]["IfMatch"];
             };
             path?: never;
             cookie?: never;
@@ -7123,20 +7537,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ProfileResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreSensitiveError"];
+            401: components["responses"]["StoreSensitiveError"];
+            403: components["responses"]["StoreSensitiveError"];
+            404: components["responses"]["StoreSensitiveError"];
+            409: components["responses"]["StoreSensitiveError"];
+            422: components["responses"]["StoreSensitiveError"];
+            429: components["responses"]["StoreSensitiveError"];
+            500: components["responses"]["StoreSensitiveError"];
         };
     };
     postStoreProfilePhoneAuthorizations: {
@@ -7144,6 +7560,7 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                "If-Match": components["parameters"]["IfMatch"];
             };
             path?: never;
             cookie?: never;
@@ -7157,20 +7574,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ProfileResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreSensitiveError"];
+            401: components["responses"]["StoreSensitiveError"];
+            403: components["responses"]["StoreSensitiveError"];
+            404: components["responses"]["StoreSensitiveError"];
+            409: components["responses"]["StorePhoneAuthorizationConflict"];
+            422: components["responses"]["StoreSensitiveError"];
+            429: components["responses"]["StoreSensitiveError"];
+            500: components["responses"]["StoreSensitiveError"];
         };
     };
     deleteStoreProfilePhone: {
@@ -7178,6 +7597,7 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                "If-Match": components["parameters"]["IfMatch"];
             };
             path?: never;
             cookie?: never;
@@ -7187,23 +7607,62 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ProfileResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreSensitiveError"];
+            401: components["responses"]["StoreSensitiveError"];
+            403: components["responses"]["StoreSensitiveError"];
+            404: components["responses"]["StoreSensitiveError"];
+            409: components["responses"]["StoreSensitiveError"];
+            422: components["responses"]["StoreSensitiveError"];
+            429: components["responses"]["StoreSensitiveError"];
+            500: components["responses"]["StoreSensitiveError"];
         };
     };
     postStorePrivacyDeletionRequests: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                "If-Match": components["parameters"]["IfMatch"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeletionConfirmRequest"];
+            };
+        };
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletionRequestResponse"];
+                };
+            };
+            400: components["responses"]["StoreSensitiveError"];
+            401: components["responses"]["StoreSensitiveError"];
+            403: components["responses"]["StoreSensitiveError"];
+            404: components["responses"]["StoreSensitiveError"];
+            409: components["responses"]["StoreSensitiveError"];
+            422: components["responses"]["StoreAccountDeletionBlocked"];
+            429: components["responses"]["StoreSensitiveError"];
+            500: components["responses"]["StoreSensitiveError"];
+        };
+    };
+    postStorePrivacyDeletionRequestsPreview: {
         parameters: {
             query?: never;
             header: {
@@ -7212,53 +7671,31 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeletionPreviewRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DeletionRequestResponse"];
+                    "application/json": components["schemas"]["DeletionPreviewResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
-        };
-    };
-    getStorePrivacyDeletionRequestsCurrent: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description 成功 */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeletionRequestResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreSensitiveError"];
+            401: components["responses"]["StoreSensitiveError"];
+            403: components["responses"]["StoreSensitiveError"];
+            404: components["responses"]["StoreSensitiveError"];
+            409: components["responses"]["StoreSensitiveError"];
+            422: components["responses"]["StoreSensitiveError"];
+            429: components["responses"]["StoreSensitiveError"];
+            500: components["responses"]["StoreSensitiveError"];
         };
     };
     postStoreAttributionCandidates: {
@@ -7280,22 +7717,22 @@ export interface operations {
             200: {
                 headers: {
                     /** @description 游客 candidate_token 仅本次返回，不得缓存 */
-                    "Cache-Control"?: "no-store, private";
-                    Pragma?: "no-cache";
+                    "Cache-Control": "no-store, private";
+                    Pragma: "no-cache";
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["AttributionCandidateCreateResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreSensitiveError"];
+            401: components["responses"]["StoreSensitiveError"];
+            403: components["responses"]["StoreSensitiveError"];
+            404: components["responses"]["StoreSensitiveError"];
+            409: components["responses"]["StoreSensitiveError"];
+            422: components["responses"]["StoreSensitiveError"];
+            429: components["responses"]["StoreSensitiveError"];
+            500: components["responses"]["StoreSensitiveError"];
         };
     };
     getStoreAttributionCandidate: {
@@ -7310,20 +7747,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["AttributionCandidateQueryResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreSensitiveError"];
+            401: components["responses"]["StoreSensitiveError"];
+            403: components["responses"]["StoreSensitiveError"];
+            404: components["responses"]["StoreSensitiveError"];
+            409: components["responses"]["StoreAttributionCandidateConflict"];
+            422: components["responses"]["StoreSensitiveError"];
+            429: components["responses"]["StoreSensitiveError"];
+            500: components["responses"]["StoreSensitiveError"];
         };
     };
     postStoreAttributionCandidateConfirm: {
@@ -7340,20 +7779,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AttributionBindingResponse"];
+                    "application/json": components["schemas"]["StoreAttributionBindingResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreSensitiveError"];
+            401: components["responses"]["StoreSensitiveError"];
+            403: components["responses"]["StoreSensitiveError"];
+            404: components["responses"]["StoreSensitiveError"];
+            409: components["responses"]["StoreAttributionCandidateConflict"];
+            422: components["responses"]["StoreSensitiveError"];
+            429: components["responses"]["StoreSensitiveError"];
+            500: components["responses"]["StoreSensitiveError"];
         };
     };
     postStoreAttributionCandidateReject: {
@@ -7370,20 +7811,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["AttributionCandidateRejectResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreSensitiveError"];
+            401: components["responses"]["StoreSensitiveError"];
+            403: components["responses"]["StoreSensitiveError"];
+            404: components["responses"]["StoreSensitiveError"];
+            409: components["responses"]["StoreAttributionCandidateConflict"];
+            422: components["responses"]["StoreSensitiveError"];
+            429: components["responses"]["StoreSensitiveError"];
+            500: components["responses"]["StoreSensitiveError"];
         };
     };
     getStoreServiceAgent: {
@@ -7398,20 +7841,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ServiceAgentResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreSensitiveError"];
+            401: components["responses"]["StoreSensitiveError"];
+            403: components["responses"]["StoreSensitiveError"];
+            404: components["responses"]["StoreSensitiveError"];
+            409: components["responses"]["StoreSensitiveError"];
+            422: components["responses"]["StoreSensitiveError"];
+            429: components["responses"]["StoreSensitiveError"];
+            500: components["responses"]["StoreSensitiveError"];
         };
     };
     getStoreHome: {

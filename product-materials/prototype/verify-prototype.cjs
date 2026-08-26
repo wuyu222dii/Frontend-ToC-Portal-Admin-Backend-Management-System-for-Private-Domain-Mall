@@ -43,12 +43,18 @@ const cases = [
     kind: "mini-canvas",
     expectedTerms: screen === "system-states"
       ? ["加载中", "网络开小差", "无权访问", "数据已更新", "操作成功", "迟到支付自动退款"]
+      : screen === "login"
+        ? ["当前协议", "用户协议", "隐私政策", "微信登录"]
+      : screen === "profile"
+        ? ["手机号未绑定", "我的服务代理", "账户与隐私"]
+      : screen === "service-agent"
+        ? ["服务代理", "绑定时间", "商城服务保障"]
       : screen === "account"
-        ? ["账户手机号", "隐私权利", "申请删除账号"]
+        ? ["账户手机号", "隐私权利", "注销账号"]
         : screen === "phone-authorization"
-          ? ["账户手机号", "独立于收货地址", "自愿授权"]
+          ? ["账户手机号", "独立于收货地址", "手机号授权声明", "授权账户手机号"]
           : screen === "account-deletion"
-            ? ["删除资格", "提交后的影响", "申请删除账号"]
+            ? ["注销资格预览", "保留边界", "检查注销资格"]
             : screen === "order-detail"
               ? ["订单状态", "支付状态", "退款状态", "履约状态"]
               : []
@@ -568,29 +574,148 @@ async function runMiniInteractionChecks(browser) {
     await page.click('[data-open-product="shampoo"]');
     await page.click('[data-action="favorite"]');
     await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().screen === "login");
+    const initialSnapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    const expectedLegalTypes = "PHONE_AUTHORIZATION,PRIVACY_POLICY,USER_AGREEMENT";
+    const expectedLegalFields = "content_url,document_version,required,title,type";
+    expect(initialSnapshot.legalDocuments.map(({ type }) => type).sort().join(",") === expectedLegalTypes, "服务端 current legal snapshot 未固定为三份法务文档");
+    expect(initialSnapshot.legalDocuments.every((document) => Object.keys(document).sort().join(",") === expectedLegalFields && document.required === true && /^https:\/\//.test(document.content_url)), "法务文档快照字段、required 或 HTTPS content_url 与契约不一致");
+    const initialLegalVersions = Object.fromEntries(initialSnapshot.legalDocuments.map((document) => [document.type, document.document_version]));
+    expect(await page.locator('[data-legal-snapshot="current"] [data-legal-version]').count() === 2, "登录页未展示服务端 current legal snapshot 的 exact set");
+    expect(await page.locator('[data-legal-snapshot="current"] [data-legal-url]').evaluateAll((nodes) => nodes.every((node) => /^https:\/\//.test(node.dataset.legalUrl))) && !(await page.locator(".auth-body").innerText()).includes("Mock"), "登录协议缺少 HTTPS content_url 或生产界面暴露开发 Mock Provider");
+    expect(await page.locator('[data-legal-version="USER_AGREEMENT"]').innerText() === `版本 ${initialLegalVersions.USER_AGREEMENT}` && await page.locator('[data-legal-version="PRIVACY_POLICY"]').innerText() === `版本 ${initialLegalVersions.PRIVACY_POLICY}`, "登录页展示的协议版本与服务端快照不一致");
     await page.click('[data-action="mock-login"]');
     let snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
     expect(snapshot.loggedIn === false && snapshot.screen === "login", "未勾选协议仍完成了登录");
     await page.click('[data-action="toggle-consent"]');
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.acceptedConsents.map(({ type }) => type).sort().join(",") === "PRIVACY_POLICY,USER_AGREEMENT", "登录同意项不是用户协议与隐私政策 exact set");
+    expect(snapshot.acceptedConsents.every((consent) => snapshot.legalDocuments.some((document) => document.type === consent.type && document.document_version === consent.document_version)), "登录同意项未绑定当前协议版本");
+    await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.simulateLegalRevision());
+    await page.click('[data-action="mock-login"]');
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.loggedIn === false && snapshot.consentAccepted === false && snapshot.acceptedConsents.length === 0, "协议版本冲突后未刷新并清除旧同意");
+    await page.click('[data-action="toggle-consent"]');
+    await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.simulateLoginFailure("RATE_LIMITED"));
+    await page.click('[data-action="mock-login"]');
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.loggedIn === false && snapshot.loginError?.error_code === "RATE_LIMITED", "登录限流错误地创建了会话或丢失错误码");
+    expect(await page.locator('[data-login-status="429"][data-error-code="RATE_LIMITED"][data-retry-after="47"]').count() === 1, "登录 429 未展示准确 Retry-After");
+    await page.click('[data-action="retry-login"]');
+    await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.simulateLoginFailure("PROVIDER_ERROR"));
+    await page.click('[data-action="mock-login"]');
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.loggedIn === false && snapshot.loginError?.error_code === "INTERNAL_ERROR", "Provider 失败未收敛为公开 INTERNAL_ERROR 或错误创建会话");
+    expect(await page.locator('[data-login-status="500"][data-error-code="INTERNAL_ERROR"]').count() === 1, "登录 500 未使用闭合公开错误码");
+    await page.click('[data-action="retry-login"]');
     await page.click('[data-action="mock-login"]');
     await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().screen === "product");
     snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
-    expect(snapshot.loggedIn === true, "勾选协议后未完成登录");
-    expect(snapshot.favoriteProductIds.includes("shampoo"), "登录后未恢复收藏原操作");
+    expect(snapshot.loggedIn === true && snapshot.authProvider === "MOCK", "勾选当前协议后未通过开发态 Mock Provider 完成登录");
+    expect(!snapshot.favoriteProductIds.includes("shampoo"), "B7 登录错误执行了延后阶段的收藏动作");
+    expect((await page.locator("#toast").innerText()).includes("原业务动作未执行"), "登录后未返回原页面或错误暗示延后业务成功");
+
+    await page.evaluate(() => { const probe = document.createElement("button"); probe.dataset.screen = "account"; document.body.appendChild(probe); probe.click(); probe.remove(); });
+    const profileVersion = (await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState())).profile.version;
+    await page.click('[data-action="edit-profile"]');
+    expect(Number(await page.locator("#profileForm").getAttribute("data-if-match-version")) === profileVersion, "资料编辑未绑定当前 If-Match 版本");
+    await page.fill('#profileForm input[name="nickname"]', "  林青禾  ");
+    await page.fill('#profileForm input[name="avatar_url"]', "https://cdn.qingxu.example/avatar/customer.png");
+    await page.fill('#profileForm input[name="city"]', "  杭州  ");
+    await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.simulateProfileConflict());
+    await page.click('#profileForm button[type="submit"]');
+    await page.waitForFunction((version) => window.__MINIAPP_PROTOTYPE__.getState().profile.version === version + 1, profileVersion);
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.profile.nickname === "林青" && snapshot.profileConflictNext === false, "资料 409 未刷新服务端版本或错误覆盖用户输入");
+    await page.waitForFunction(() => document.querySelector("#bottomSheet")?.hidden === true);
+    await page.click('[data-action="edit-profile"]');
+    await page.fill('#profileForm input[name="nickname"]', "  林青禾  ");
+    await page.fill('#profileForm input[name="avatar_url"]', "https://cdn.qingxu.example/avatar/customer.png");
+    await page.fill('#profileForm input[name="city"]', "  杭州  ");
+    await page.click('#profileForm button[type="submit"]');
+    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().profile.nickname === "林青禾");
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.profile.city === "杭州" && snapshot.profile.avatar_url.startsWith("https://") && snapshot.profile.version === profileVersion + 2, "资料重确认未 trim 保存或 version 未递增");
+    await page.evaluate(() => { const probe = document.createElement("button"); probe.dataset.screen = "profile"; document.body.appendChild(probe); probe.click(); probe.remove(); });
+    for (const feature of ["订单", "收藏", "地址"]) {
+      await page.locator(`[data-action="deferred-feature"][data-feature="${feature}"]`).first().click();
+      snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+      expect(snapshot.screen === "profile" && (await page.locator("#toast").innerText()).includes("后续阶段开放"), `${feature}入口错误进入未实施业务或伪造成功`);
+    }
+    await page.evaluate(() => { const probe = document.createElement("button"); probe.dataset.screen = "account"; document.body.appendChild(probe); probe.click(); probe.remove(); });
+    await page.click('[data-action="logout"]');
+    await page.click('[data-action="confirm-logout"]');
+    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().screen === "login");
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.loggedIn === false && snapshot.authProvider === null && snapshot.profile.nickname === "林青禾", "退出当前会话未清除登录态或错误删除账户资料");
   });
 
   await run("mini-interaction-binding-ttl", async (page) => {
     await page.goto(miniUrl({ screen: "login", device: "375", auth: "guest", binding: "unbound", invite: "QX-A1026" }), { waitUntil: "load" });
     const loginText = await page.locator("body").innerText();
     expect(loginText.includes("候选剩余") && loginText.includes("清悦日用馆"), "登录页未展示代理候选 TTL 与代理名称");
+    let snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    const candidateFields = "agent_id,attribution_eligible,candidate_id,confirmation_required,display_name,expires_at,public_target_url,remaining_seconds";
+    expect(Object.keys(snapshot.inviteCandidate || {}).sort().join(",") === candidateFields && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(snapshot.inviteCandidate.candidate_id) && /^https:\/\/.{1,492}$/.test(snapshot.inviteCandidate.public_target_url) && !("candidate_token" in snapshot.inviteCandidate), "候选投影字段、ULID、HTTPS 目标或 token 暴露与契约不一致");
     await page.click('[data-action="toggle-consent"]');
     await page.click('[data-action="mock-login"]');
     await page.waitForSelector('.bottom-sheet.is-visible [data-action="confirm-agent-binding"]');
-    expect((await page.locator(".bottom-sheet").innerText()).includes("候选剩余"), "绑定确认层缺少候选剩余时间");
+    expect((await page.locator(".bottom-sheet").innerText()).includes("候选剩余") && await page.locator('[data-public-target-url^="https://"]').count() === 1, "绑定确认层缺少候选剩余时间或服务端公开目标");
+    await page.click('[data-action="decline-agent-binding"]');
+    expect(await page.locator('[data-binding-decision-status="PENDING"] button:disabled').count() === 2, "候选拒绝未进入 pending 或未防止重复提交");
+    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().inviteCandidate === null);
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.loggedIn === true && snapshot.agentBindingStatus === "unbound" && snapshot.inviteCandidate === null, "登录后的候选拒绝未清空候选");
+
+    await page.goto(miniUrl({ screen: "login", device: "375", auth: "guest", binding: "unbound", invite: "QX-A1026" }), { waitUntil: "load" });
+    await page.click('[data-action="toggle-consent"]');
+    await page.click('[data-action="mock-login"]');
+    await page.waitForSelector('.bottom-sheet.is-visible [data-action="confirm-agent-binding"]');
+    await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.simulateCandidateMismatch());
+    await page.click('[data-action="decline-agent-binding"]');
+    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().candidateDecisionStatus === "ERROR");
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.inviteCandidate !== null && snapshot.agentBindingStatus !== "bound" && await page.locator('[data-binding-status="409"][data-error-code="ATTRIBUTION_CANDIDATE_MISMATCH"]').count() === 1, "候选拒绝 mismatch 未以 409 停止或错误清空候选");
+    await page.click('[data-action="decline-agent-binding"]');
+    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().inviteCandidate === null);
+
+    await page.goto(miniUrl({ screen: "login", device: "375", auth: "guest", binding: "unbound", invite: "QX-A1026" }), { waitUntil: "load" });
+    await page.click('[data-action="toggle-consent"]');
+    await page.click('[data-action="mock-login"]');
+    await page.waitForSelector('.bottom-sheet.is-visible [data-action="confirm-agent-binding"]');
+    await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.simulateCandidateMismatch());
+    await page.click('[data-action="confirm-agent-binding"]');
+    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().candidateDecisionStatus === "ERROR");
+    expect(await page.locator('[data-binding-status="409"][data-error-code="ATTRIBUTION_CANDIDATE_MISMATCH"]').count() === 1, "候选确认 mismatch 未以 409 要求重新确认");
     await page.click('[data-action="confirm-agent-binding"]');
     await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().agentBindingStatus === "bound");
-    const snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
-    expect(snapshot.serviceAgent.id === "AGT-01026" && snapshot.inviteCandidate === null, "确认绑定后代理或候选清理错误");
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.serviceAgent.agent_id === "AGT-01026" && snapshot.inviteCandidate === null, "确认绑定后代理或候选清理错误");
+    expect(Object.keys(snapshot.serviceAgent).sort().join(",") === "agent_id,bound_at,display_name", "服务代理响应超出 agent_id/display_name/bound_at 最小投影");
+    expect(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(snapshot.serviceAgent.bound_at), "服务代理 bound_at 不是 RFC3339 date-time");
+    await page.click('.profile-page [data-screen="service-agent"]');
+    const serviceAgentText = await page.locator(".service-agent-body").innerText();
+    expect(serviceAgentText.includes("清悦日用馆") && serviceAgentText.includes("绑定时间"), "服务代理页未展示 display_name 与 bound_at");
+    expect(!serviceAgentText.includes("AGT-01026") && !serviceAgentText.includes("服务联系") && !serviceAgentText.includes("服务编号"), "服务代理页泄露内部 ID 或联系方式");
+
+    await page.goto(miniUrl({ screen: "login", device: "375", auth: "guest", binding: "unbound", invite: "QX-A1026" }), { waitUntil: "load" });
+    await page.click('[data-action="toggle-consent"]');
+    await page.click('[data-action="mock-login"]');
+    await page.waitForSelector('.bottom-sheet.is-visible [data-action="confirm-agent-binding"]');
+    await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.simulateCandidateExpired());
+    await page.click('[data-action="confirm-agent-binding"]');
+    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().inviteCandidate === null);
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.agentBindingStatus === "unbound" && snapshot.serviceAgent === null, "过期候选仍被绑定或未进入无候选状态");
+
+    await page.goto(miniUrl({ screen: "login", device: "375", auth: "guest", binding: "unbound", invite: "QX-A1026" }), { waitUntil: "load" });
+    await page.click('[data-action="toggle-consent"]');
+    await page.click('[data-action="mock-login"]');
+    await page.waitForSelector('.bottom-sheet.is-visible [data-action="confirm-agent-binding"]');
+    await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.simulateCandidateConcurrentWinner());
+    await page.click('[data-action="confirm-agent-binding"]');
+    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().agentBindingStatus === "bound");
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.serviceAgent.agent_id === "AGT-01038" && snapshot.inviteCandidate === null && /^\d{4}-\d{2}-\d{2}T/.test(snapshot.serviceAgent.bound_at), "并发确认未保留首个胜出绑定或时间投影非 RFC3339");
   });
 
   await run("mini-interaction-aftersale-reservation", async (page) => {
@@ -634,20 +759,88 @@ async function runMiniInteractionChecks(browser) {
   await run("mini-interaction-phone-privacy", async (page) => {
     await page.goto(miniUrl({ screen: "phone-authorization", device: "375" }), { waitUntil: "load" });
     await page.click('[data-action="authorize-phone"]');
-    await page.click('[data-action="confirm-phone"]');
+    expect(await page.locator('[data-action="confirm-phone-mutation"]:disabled').count() === 1, "未同意手机号授权声明时错误允许提交");
+    await page.click('[data-action="toggle-phone-consent"]');
     let snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
-    expect(snapshot.verifiedPhone?.source === "WECHAT_GET_PHONE_NUMBER", "手机号授权未保存验证来源");
-    expect(snapshot.verifiedPhone?.verifiedAt && snapshot.verifiedPhone?.consentVersion, "手机号授权缺少验证时间或协议版本");
+    const initialPhoneLegalDocument = snapshot.legalDocuments.find(({ type }) => type === "PHONE_AUTHORIZATION");
+    expect(JSON.stringify(snapshot.phoneAuthorizationConsent) === JSON.stringify({ type: "PHONE_AUTHORIZATION", document_version: initialPhoneLegalDocument.document_version, accepted: true }), "手机号授权未保存 exact PHONE_AUTHORIZATION 同意元组");
+    await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.simulatePhoneFailure());
+    await page.click('[data-action="confirm-phone-mutation"]');
+    expect(await page.locator('[data-phone-status="PENDING"] [data-action="confirm-phone-mutation"]:disabled').count() === 1, "手机号授权未进入 pending 或未防重复提交");
+    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().phoneMutation.status === "ERROR");
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.verifiedPhone === null && snapshot.phoneMutation.error === "INTERNAL_ERROR", "手机号 Provider 失败未保留原资料或泄露非公开错误码");
 
-    await page.goto(miniUrl({ screen: "account-deletion", device: "375" }), { waitUntil: "load" });
-    await page.click('[data-action="request-deletion"]');
-    expect((await page.locator(".bottom-sheet").innerText()).includes("暂不受理"), "存在未完成业务时未阻止账号删除");
+    const versionBeforeConflict = snapshot.profile.version;
+    await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.simulatePhoneConflict());
+    await page.click('[data-action="confirm-phone-mutation"]');
+    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().phoneMutation.status === "CONFLICT");
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.verifiedPhone === null && snapshot.profile.version === versionBeforeConflict + 1 && snapshot.phoneMutation.error === "RESOURCE_VERSION_CONFLICT", "手机号 If-Match 409 未刷新 profile version 或错误覆盖资料");
+    expect(Number(await page.locator('.phone-mutation-sheet').getAttribute("data-if-match-version")) === snapshot.profile.version, "手机号 409 后未绑定刷新的 If-Match 版本");
+    await page.click('[data-action="confirm-phone-mutation"]');
+    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().verifiedPhone !== null);
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.verifiedPhone?.phone_source === "MOCK" && snapshot.verifiedPhone?.phone_masked === "138 **** 5218" && snapshot.verifiedPhone?.phone_tail === "5218", "development 手机号授权未保存 Mock 来源或服务端脱敏投影");
+    const phoneLegalDocument = snapshot.legalDocuments.find(({ type }) => type === "PHONE_AUTHORIZATION");
+    expect(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(snapshot.verifiedPhone?.phone_verified_at) && Object.keys(snapshot.verifiedPhone).sort().join(",") === "phone_masked,phone_source,phone_tail,phone_verified_at", "手机号授权响应字段漂移、非 RFC3339 或保留了契约外敏感字段");
+    expect(await page.locator('[data-phone-legal-snapshot="current"] [data-legal-type="PHONE_AUTHORIZATION"][data-legal-url]').evaluate((node) => /^https:\/\//.test(node.dataset.legalUrl)) && await page.locator('[data-legal-version="PHONE_AUTHORIZATION"]').innerText() === `版本 ${phoneLegalDocument?.document_version}`, "手机号授权页未展示与服务端 document_version/HTTPS content_url 一致的当前授权声明");
+    expect((await page.locator(".account-phone").innerText()).includes("138 **** 5218") && !(await page.locator(".account-phone").innerText()).includes("13852185218"), "手机号授权页未使用脱敏号码");
+    await page.evaluate(() => { const probe = document.createElement("button"); probe.dataset.screen = "profile"; document.body.appendChild(probe); probe.click(); probe.remove(); });
+    expect((await page.locator(".profile-user").innerText()).includes("138 **** 5218") && !(await page.locator(".profile-user").innerText()).includes("13852185218"), "Profile 未直接消费服务端 phone_masked");
+    await page.evaluate(() => { const probe = document.createElement("button"); probe.dataset.screen = "phone-authorization"; document.body.appendChild(probe); probe.click(); probe.remove(); });
+    const revokeVersion = (await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState())).profile.version;
+    await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.simulatePhoneConflict());
+    await page.click('[data-action="revoke-phone"]');
+    await page.click('[data-action="confirm-phone-mutation"]');
+    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().phoneMutation.status === "CONFLICT");
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.verifiedPhone !== null && snapshot.profile.version === revokeVersion + 1 && snapshot.phoneMutation.error === "RESOURCE_VERSION_CONFLICT", "撤回手机号的 If-Match 409 错误清除当前号码");
+    await page.click('[data-action="confirm-phone-mutation"]');
+    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().verifiedPhone === null);
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.verifiedPhone === null && (await page.locator(".account-phone").innerText()).includes("未绑定"), "撤回手机号授权后仍保留当前号码");
+
+    await page.click('[data-action="authorize-phone"]');
+    await page.click('[data-action="toggle-phone-consent"]');
+    await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.simulateLegalRevision());
+    await page.click('[data-action="confirm-phone-mutation"]');
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.phoneMutation.status === "CONFLICT" && snapshot.phoneMutation.error === "CONSENT_VERSION_MISMATCH" && snapshot.phoneAuthorizationConsent === null && snapshot.verifiedPhone === null, "手机号授权声明版本冲突未以 409 刷新或错误授权");
+    expect(await page.locator('[data-phone-error-code="CONSENT_VERSION_MISMATCH"]').count() === 1, "手机号协议 409 未展示闭合错误码");
+    await page.click('[data-action="toggle-phone-consent"]');
+    await page.click('[data-action="confirm-phone-mutation"]');
+    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().verifiedPhone !== null);
+
+    await page.evaluate(() => { const probe = document.createElement("button"); probe.dataset.screen = "account-deletion"; document.body.appendChild(probe); probe.click(); probe.remove(); });
+    expect(await page.locator('[data-action="request-account-deletion"]').count() === 0, "未检查注销资格时错误开放确认");
+    await page.click('[data-action="preview-account-deletion"]');
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.deletionEligibility.checked === true && snapshot.deletionEligibility.eligible === false, "存在未完成业务时注销预览错误返回可确认");
+    expect(snapshot.deletionEligibility.blockers.length > 0 && snapshot.deletionEligibility.impacts.length > 0 && snapshot.deletionEligibility.confirmation_expires_in_seconds === null, "blocked 注销预览未返回 blockers/impacts 或错误签发确认能力");
+    expect(await page.locator('[data-preview-status="200"][data-eligible="false"]:not([data-error-code])').count() === 1 && await page.locator('[data-action="request-account-deletion"]').count() === 0, "blocked 注销预览未保持 OK/200 展示、错误附带 confirm 错误码或错误开放 confirm");
+    expect(snapshot.deletionEligibility.blockers.map(({ resource_type }) => resource_type).sort().join(",") === "AFTERSALE,FINANCIAL_ANOMALY,ORDER,PAYMENT,REFUND", "blocked 注销预览未覆盖五类闭合 blocker");
     await page.click('[data-action="simulate-deletion-eligible"]');
-    await page.waitForSelector(".bottom-sheet", { state: "hidden" });
-    await page.click('[data-action="request-deletion"]');
+    await page.click('[data-action="preview-account-deletion"]');
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.deletionEligibility.eligible === true && snapshot.deletionEligibility.blockers.length === 0 && snapshot.deletionEligibility.confirmation_expires_in_seconds === 300, "eligible 注销预览未签发 5 分钟确认能力");
+    await page.click('[data-action="request-account-deletion"]');
+    await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.simulateDeletionBlocker());
     await page.click('[data-action="confirm-account-deletion"]');
     snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
-    expect(snapshot.deletionRequested === true, "资格通过后二次确认未提交账号删除申请");
+    expect(snapshot.loggedIn === true && snapshot.accountDeleted === false && snapshot.deletionEligibility.eligible === false, "注销确认未重检或新增阻断项未以 422 语义停止");
+    expect(await page.locator('[data-confirm-status="422"][data-error-code="ACCOUNT_DELETION_BLOCKED"]').count() === 1 && snapshot.deletionEligibility.blockers[0].resource_type === "PAYMENT", "确认重检阻断未使用 422 ACCOUNT_DELETION_BLOCKED 或闭合 blocker 类型");
+    expect(await page.locator('[data-action="request-account-deletion"]').count() === 0, "确认重检失败后仍保留旧确认能力");
+
+    await page.click('[data-action="simulate-deletion-eligible"]');
+    await page.click('[data-action="preview-account-deletion"]');
+    await page.click('[data-action="request-account-deletion"]');
+    await page.click('[data-action="confirm-account-deletion"]');
+    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().screen === "login");
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.accountDeleted === true && snapshot.loggedIn === false && snapshot.authProvider === null, "同步注销后未清除本地会话并返回未登录态");
+    expect(snapshot.verifiedPhone === null && snapshot.serviceAgent === null && snapshot.addresses.length === 0 && snapshot.favoriteProductIds.length === 0 && snapshot.cart.length === 0, "同步注销后仍保留当前资料或偏好");
+    expect(!("deletionRequested" in snapshot) && !(await page.locator("body").innerText()).includes("处理中"), "账号注销仍保留异步申请或处理中状态");
   });
 
   return failures;

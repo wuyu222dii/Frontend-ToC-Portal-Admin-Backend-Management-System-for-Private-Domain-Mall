@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 |---|---|
-| 文档版本 | v2.4.4 |
-| 对应产品基线 | MVP/PRD v2.4.4、CH-001 至 CH-014 |
-| 接口阶段 | B0-B6 development 已完成；B6 最终 SHA `9d8911934a5aa2b09ece2e12935bcafc9ccdcba6` 的普通 CI Run `32953444096` 与 Supabase rollback-only Run `32954611250` 同 SHA 双绿，真实纵向及 Store repository full/rollback 均成功，B6 development `GO`；staging/production 未批准 |
+| 文档版本 | v2.4.5 |
+| 对应产品基线 | MVP/PRD v2.4.5、CH-001 至 CH-016 |
+| 接口阶段 | B0-B6 development 已完成；CH-015/CH-016 已批准，B7.0 契约与治理已完成并暂停、`P0=0/P1=0`，B7.1 业务代码未准入；仅允许脱敏 development，staging/production 未批准 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
 | 更新时间 | 2026-08-26 |
 
@@ -55,7 +55,7 @@ OpenAPI 与所有客户端只配置一个 server：`/api/v1`。下表及全文�
 | `Authorization: Bearer <pre-auth>` | 后台首次 TOTP enroll、LOGIN verify/recovery | 只允许服务端声明的下一步，不是业务 session |
 | `Idempotency-Key` | 订单、支付、售后、退款、提现、规则变更等写操作 | UUID，主体 + 路径范围内 24 小时唯一；退款每次新尝试必须使用未用于该退款单的新键 |
 | `X-Request-Id` | 可选 | 客户端追踪 ID；缺失时由服务端生成 |
-| `X-Candidate-Token` | 游客读取推广候选 | 首次创建候选后由服务端签发的短时不透明 token；不使用设备 ID |
+| `X-Candidate-Token` | 游客读取或替换推广候选 | 首次创建候选后由服务端签发的短时不透明 token；GET 不消费，替换或登录迁移时原子失效；不使用设备 ID |
 | `If-Match` | 配置及高风险写操作 | 必填，携带预览时的资源 ETag，例如 `"12"`；版本变化返回 `RESOURCE_VERSION_CONFLICT` |
 
 ### 2.4 数据格式
@@ -223,15 +223,16 @@ type DisplayStatus =
 
 | 方法 | 路径 | 身份 | 说明 |
 |---|---|---|---|
-| `POST` | `/store/auth/wechat/login` | 游客 | 使用微信 code 登录；设计阶段可由 Mock Provider 替代 |
+| `GET` | `/store/legal-documents` | 公开 | 用户协议、隐私政策、手机号授权说明三份当前快照；no-store，独立 120/60 秒限流 |
+| `POST` | `/store/auth/wechat/login` | 游客 | 使用 code 和当前双协议登录；development/test 可由 Mock Provider 替代 |
 | `POST` | `/store/auth/refresh` | 已登录 | 刷新会话并轮换 refresh token |
 | `POST` | `/store/auth/logout` | 已登录 | 注销当前会话 |
 | `GET` | `/store/profile` | CUSTOMER | 当前消费者资料，账户手机号默认掩码 |
-| `PATCH` | `/store/profile` | CUSTOMER | 更新昵称、头像等非敏感资料 |
-| `POST` | `/store/profile/phone-authorizations` | CUSTOMER | 使用微信手机号凭证完成自愿授权；要求 `Idempotency-Key` |
-| `DELETE` | `/store/profile/phone` | CUSTOMER | 撤回账户手机号使用授权；不修改历史订单快照 |
-| `POST` | `/store/privacy/deletion-requests` | CUSTOMER | 申请账号删除和去标识化 |
-| `GET` | `/store/privacy/deletion-requests/current` | CUSTOMER | 查询当前删除申请状态 |
+| `PATCH` | `/store/profile` | CUSTOMER | 更新非敏感资料；要求 `Idempotency-Key` 和 `If-Match` |
+| `POST` | `/store/profile/phone-authorizations` | CUSTOMER | 服务端 Provider 验证自愿手机号授权；要求幂等与 `If-Match` |
+| `DELETE` | `/store/profile/phone` | CUSTOMER | 撤回账户手机号授权；要求幂等与 `If-Match`，不改历史快照 |
+| `POST` | `/store/privacy/deletion-requests/preview` | CUSTOMER | 预览注销资格和影响；合格时签发 5 分钟能力 |
+| `POST` | `/store/privacy/deletion-requests` | CUSTOMER | 同步确认注销并撤销全部会话；HASH_ONLY |
 
 微信登录请求必须同时提交已展示且明确接受的协议版本：
 
@@ -246,34 +247,55 @@ type DisplayStatus =
 }
 ```
 
-服务端先向 Provider 换取微信主体，再在同一数据库事务中创建或锁定 `account/customer_profile`、写两条不可覆盖的 `consent_record` 并签发会话。缺失、非当前版本或 `accepted=false` 返回 `CONSENT_REQUIRED`，不会产生半成品账户。游客不再单独调用 `/consents`，因此 `consent_record.account_id` 始终非空。
+客户端必须先读取 `/store/legal-documents` 返回的 USER_AGREEMENT、PRIVACY_POLICY、PHONE_AUTHORIZATION 三份当前快照。登录 `consents` 是前两份各一次的固定二元组；手机号授权 consent 单独匹配第三份。均须 `accepted=true` 且版本精确匹配。缺失、重复、未知或过期版本返回 `CONSENT_VERSION_MISMATCH` 409，不产生半成品事实。`code` 为 1-512、`candidate_token` 为 32-512，均 write-only。服务端 Provider 换取主体后，在同一事务创建/锁定 account/customer_profile、写不可覆盖 consent，并签发固定 `role=CUSTOMER`、`assurance=WECHAT`、`audience=qingxu-store` 的 Store 会话。
+
+B7 固定一个消费者微信 AppID，服务端按 `(AppID, openid)` 语义识别账户；当前客户端不得提交或切换 AppID。现有 `account.wechat_open_id` 的唯一性只适用于该单 AppID 范围，`wechat_union_id` 仅为可空元数据，不作为登录键且不触发账号自动合并。未来支持多个 AppID 必须先变更契约并迁移为显式复合身份键。
+
+法律文本 GET 使用每 HMAC 来源 IP 120 次/60 秒独立 Redis 固定窗口；登录使用 10 次/900 秒。Redis 异常均 fail closed。Store token 不得被 `qingxu-admin-web` 管理守卫接受，反向亦然。登录、refresh、logout、profile/手机号、归因和注销等 B7 敏感/本人操作的成功及全部 JSON 错误响应统一 `Cache-Control: no-store, private` 和 `Pragma: no-cache`；敏感错误的 `rejected_value` 只能为 null。logout 与其他携带敏感凭据的写操作使用 `HASH_ONLY` 幂等，不缓存或重放 token。
 
 手机号授权请求：
 
 ```json
 {
-  "provider": "WECHAT",
   "provider_credential": "mock-or-wechat-phone-code",
-  "consent_version": "privacy-phone-v1"
+  "consent": {
+    "type": "PHONE_AUTHORIZATION",
+    "document_version": "phone-v1",
+    "accepted": true
+  }
 }
 ```
 
-响应只返回掩码与验证事实：
+手机号授权成功使用标准 `ProfileResponse`，只返回当前 CUSTOMER 最小资料、掩码手机号与验证事实：
 
 ```json
 {
-  "phone_masked": "138****6821",
-  "phone_tail": "6821",
-  "source": "WECHAT",
-  "verified_at": "2026-08-11T03:00:00Z"
+  "code": "OK",
+  "message": "success",
+  "data": {
+    "customer_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "nickname": "林青",
+    "avatar_url": null,
+    "city": "杭州",
+    "phone_tail": "6821",
+    "phone_masked": "138 **** 6821",
+    "phone_source": "WECHAT",
+    "phone_verified_at": "2026-08-11T03:00:00Z",
+    "version": 4
+  },
+  "request_id": "req_example"
 }
 ```
 
 收货地址中的联系电话不得写入账户手机号字段。未授权账户手机号时，代理端客户接口返回 `phone_tail: null`。
 
-手机号授权在一个事务中撤回旧当前记录并写入新记录；相同幂等键与相同请求返回同一验证结果，同一客户数据库层最多一条 `revoked_at IS NULL` 的当前记录。订单提交只记录归因候选，不复制昵称、手机号尾号或城市；这些脱敏客户快照仅在支付成功并冻结最终归因时写入。
+客户端不得提交 Provider；服务端由 `STORE_PHONE_PROVIDER` 选择 MOCK/WECHAT，Mock 只允许 development/test。profile PATCH、手机号授权和撤回均要求 `If-Match` 与新幂等键；同一客户最多一条 `revoked_at IS NULL` 当前记录。订单提交只记录归因候选，不复制昵称、手机号尾号或城市；这些脱敏客户快照仅在支付成功并冻结最终归因时写入。
 
-删除申请若存在非终态订单/售后、未结清支付/退款或财务异常，返回 `ACCOUNT_DELETION_BLOCKED` 和不含敏感明文的阻断对象摘要。受理事务将账户置为 `ANONYMIZED` 并清空微信 openid/unionid、登录名和密码摘要，撤销全部会话及 refresh hash，结束当前代理绑定并使候选失效；客户资料清空昵称、头像、城市并记录去标识化时间。事务硬删除 `customer_phone_verification`、`customer_address`、`favorite`、`cart_item`，确保手机号/地址密文、HMAC、last4 和 key id 不再存在；不含敏感字段的空 `cart` 聚合根可保留。不可变交易归因只保留财务事实；代理端隐私投影清空昵称、手机号尾号和城市并替换为新生成的稳定不可逆 alias。交易、退款、佣金、提现、协议版本和审计仅按上线前批准的外部合规策略保留，且不能再通过当前客户资料接口检索原主体。
+注销 preview 请求固定为 `{ "acknowledged": true }`，始终返回 200，且两个分支都完整返回 `eligible/blockers/impacts/preview_token/confirmation_hash/expires_at/account_version`。`eligible=false` 时 token/hash/expiry 均为 null，blocker `resource_type` 只允许 `ORDER/AFTERSALE/PAYMENT/REFUND/FINANCIAL_ANOMALY`；只有合格预览才返回空 blockers、32-512 字符 token、64 位小写十六进制 confirmation hash 和 5 分钟 expiry。`impacts` 只允许 `REVOKE_ALL_SESSIONS/END_SERVICE_AGENT_BINDING/INVALIDATE_ATTRIBUTION_CANDIDATES/ANONYMIZE_ACCOUNT_PROFILE/DELETE_NON_TRANSACTIONAL_PII/ANONYMIZE_AGENT_HISTORY/RETAIN_REQUIRED_TRANSACTION_FACTS`。
+
+同步 confirm 请求固定为 `{ "acknowledged": true, "preview_token": "...", "confirmation_hash": "..." }`，同时要求 `If-Match` 和新幂等键，并重新检查非终态订单/售后、未结清支付/退款或财务异常；新阻断返回 `ACCOUNT_DELETION_BLOCKED` 422。
+
+无阻断时，confirm 单事务清空身份凭据和客户资料，撤销全部 session/refresh，清理允许硬删的手机号/地址/收藏/购物车数据，结束绑定、使候选失效并匿名化代理历史投影。任一步失败整体回滚。confirm 使用 `HASH_ONLY`，不缓存或重放完成响应；提交后旧 bearer 已失效，重复请求返回认证失效或已完成冲突，不提供 current GET。
 
 ### 4.2 推广候选与服务代理
 
@@ -290,22 +312,23 @@ type DisplayStatus =
 ```json
 {
   "invite_code": "QY8K2P",
-  "promotion_asset_id": "promo_01J5...",
-  "target_type": "PRODUCT",
-  "target_id": "prod_01J5..."
+  "promotion_asset_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 }
 ```
 
 规则：
 
 - 已登录且未绑定用户立即得到 `confirmation_required: true`，无需退出登录再进入流程。
-- 游客首次创建候选时响应一次 `candidate_token`，数据库只保存 SHA-256/HMAC 哈希；游客后续 GET 使用 `X-Candidate-Token`，不采集或复用设备标识。登录后的 confirm/reject 仅接受 CUSTOMER bearer，并在确认时重新校验候选。
-- 候选创建、查询和拒绝分别使用 `AttributionCandidateCreateResponse`、`AttributionCandidateQueryResponse`、`AttributionCandidateRejectResponse`。只有首次创建响应可包含 `candidate_token`，并必须返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；查询和拒绝 DTO 不得出现 token 字段。
-- 自定义白名单商品被撤权后，旧商品推广素材返回 `attribution_eligible: false`，但可携带 `public_target_url` 正常打开公开商品页。
+- `invite_code` 长度固定 1-128，`promotion_asset_id` 固定为 26 字符 Crockford ULID；服务端从仍有效且匹配邀请码/代理的 promotion asset 解析 target type、target ID 和公开跳转，拒绝客户端覆盖目标。
+- 游客首次创建候选时响应一次 `candidate_token`，数据库只保存用途隔离的 HMAC/哈希，且与幂等键、来源 IP 使用不同 domain/scope；固定 30 分钟有效。游客后续 GET 和创建时的可选旧候选定位均使用 `X-Candidate-Token`：GET 不消费，候选替换或登录迁移原子失效 token hash，confirm/reject 消费迁移后的候选事实。不采集或复用设备标识；只有提交有效旧 token 时新候选才能使旧候选失效，未携带时不可强行关联，旧候选按 TTL 自然过期。登录迁移、confirm/reject 重新校验 token/客户/候选绑定，不匹配返回 `ATTRIBUTION_CANDIDATE_MISMATCH` 409。
+- 候选创建允许 bearer、candidate token 或无凭据三种入口，候选查询只允许前两种，但都严格 fail closed：同时携带两种凭据返回 `INVALID_ARGUMENT` 400；存在 Authorization 时只校验 `qingxu-store/CUSTOMER/WECHAT` bearer，否则存在候选 token 时必须校验该 token，任何无效或过期凭据均返回 401，不得降级为另一凭据或匿名分支。仅创建接口在两者都未携带时按匿名请求处理；查询接口无凭据返回 401。
+- 候选创建、查询和拒绝分别使用 `AttributionCandidateCreateResponse`、`AttributionCandidateQueryResponse`、`AttributionCandidateRejectResponse`。创建响应是闭合三选一：有效 candidate（service_agent/public_fallback 为 null）、已有最小 service_agent（candidate/token/fallback 为 null），或不可归因但仍可公开访问的 public_fallback（candidate/token/service_agent 为 null）。有效 candidate 分支中，无凭据匿名请求和 candidate-token 请求必须签发新的非空 32-512 字符 token，bearer 请求必须返回 null；其他两个分支 token 始终为 null。创建响应必须返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；查询和拒绝 DTO 不得出现 token 字段。
+- 有效候选必须返回服务端解析的 `public_target_url`。自定义白名单商品被撤权后，旧商品推广素材返回 `attribution_eligible: false`，但仍通过该公开 URL 正常打开商品页。
 - 白名单不参与已绑定客户后续订单的佣金判断；支付接口不保存商品授权快照。
 - 已绑定用户访问其他代理链接返回当前绑定且不创建新候选。
 - 邀请码轮换或停用后，未确认候选在确认时必须再次校验并失效；已有绑定不受影响。
 - 绑定确认、总部转移和创建订单都以永远存在的 `customer_profile/version` 为共同串行根：先锁客户并递增 version，再读取/结束当前 binding。两个确认并发时首个提交胜出，后到返回胜出绑定；部分唯一索引只作兜底。登录请求可携带本地安全保存的可选 `candidate_token`：登录事务锁 token 候选与 customer_profile，原子迁移为 customer 候选并清除 token hash；过期、撤权、已绑定或已有 customer 候选按当前事实裁决。token 重放不得重复建候选，双 token 并发最多保留首个有效 customer 候选。
+- `/store/service-agent` 使用专用最小 DTO。只要长期绑定仍为 `BOUND` 且未结束，即使代理已停用也继续返回 `agent_id`、`display_name`、`bound_at`，且不暴露代理内部状态；停用只阻止新候选、新绑定和未来订单归因，只有绑定结束或不存在时返回 null。不得复用包含 customer ID、binding ID 或 version 的内部绑定响应。
 
 ### 4.3 商品、收藏和购物车
 
@@ -853,6 +876,10 @@ CH-006 文件契约统一如下：
 | 提现提交 | 余额版本校验、冻结流水、提现申请同事务 |
 | 提现拒绝/支付 | 状态变更、解冻或扣冻结流水、审计、Outbox 同事务 |
 | 人工金额补偿 | HR-09 预览确认、订单项金额占用、补偿事实和退款主单同事务；不占数量/不回库，成功后按实际金额冲正佣金 |
+| Store 登录 | Provider 交换在事务外；事务内按 identity/account -> customer profile -> candidate -> consent -> session -> audit/idempotency 锁序创建或恢复 CUSTOMER，会话签发事实原子提交 |
+| 资料/手机号 | idempotency -> account/customer profile -> active phone -> consent -> audit；If-Match 冲突不撤回旧手机号、不写新 consent |
+| 候选确认 | idempotency -> customer profile -> candidate -> current binding -> agent/invite/promotion validity -> audit/outbox；customer profile 是确认/转移/订单归因共同串行根 |
+| 同步注销 | idempotency/preview -> account/customer profile -> blocker facts -> sessions/identity/phone/candidate/binding/privacy projection -> audit/outbox；确认重检且任一步失败整体回滚 |
 
 Provider 回调先写入回调收件箱，再由幂等处理器消费；领域事件使用事务 Outbox 发布。定时任务和消费者均必须可重入，失败进入重试队列并在超过阈值后生成后台待办。
 
@@ -876,6 +903,9 @@ Provider 回调先写入回调收件箱，再由幂等处理器消费；领域�
 - 审计至少记录主体、角色、对象、动作、原因、`before_version/after_version`、结果、结果码、请求 ID、`idempotency_key`、不可逆 `ip_hash` 和时间。`AuditLogView.before_summary/after_summary` 由数据库不可变 `before_json/after_json` 生成字段级脱敏摘要；密码、令牌、银行卡、手机号、地址等敏感字段只显示“发生变化”，不返回原值，列表和日志也不得成为履约 PII 绕行入口。
 - 所有写操作均要求权限、状态/版本、幂等和审计；原因、影响预览、TOTP 或凭证只在 HR 矩阵对应行要求，不得用不适用字段阻断。完整银行卡查看只在 APPROVED 提现上以本人 TOTP 换取一次性 grant，响应禁止缓存或记录明文。
 - access/refresh、受限改密 token、pre-auth、reauth grant、候选首次 token、`preview_token`、支付调用参数和签名上传/下载 URL 的成功响应统一返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；这些值不得进入服务端响应缓存、日志、追踪或截图。
+- `AUTH_TOKEN_AUDIENCE=qingxu-admin-web` 继续服务管理端，`STORE_AUTH_TOKEN_AUDIENCE=qingxu-store` 只服务消费者；守卫同时校验 role/assurance/audience。Provider 不属于 token claim；`STORE_IDENTITY_PROVIDER` 与 `STORE_PHONE_PROVIDER` 只负责选择 MOCK/WECHAT Adapter 和持久化来源。Mock 仅允许 development/test，production 缺真实微信凭据必须启动失败。
+- 单一消费者微信应用使用 `STORE_WECHAT_APP_ID/STORE_WECHAT_APP_SECRET`；三份当前文档分别配置 `STORE_USER_AGREEMENT_VERSION/TITLE/URL`、`STORE_PRIVACY_POLICY_VERSION/TITLE/URL`、`STORE_PHONE_AUTHORIZATION_VERSION/TITLE/URL`，每个前缀对应三个独立环境变量，URL 必须为 HTTPS。客户端只能提交已获取版本，不能定义当前版本。
+- 法律文本使用 `STORE_LEGAL_RATE_LIMIT_MAX=120`、`STORE_LEGAL_RATE_LIMIT_WINDOW_SECONDS=60`，登录使用 `STORE_LOGIN_RATE_LIMIT_MAX=10`、`STORE_LOGIN_RATE_LIMIT_WINDOW_SECONDS=900`；均按 HMAC 来源 IP 使用 Redis 服务端时间且 fail closed。
 
 ## 10. 接口验收清单
 
@@ -894,8 +924,10 @@ Provider 回调先写入回调收件箱，再由幂等处理器消费；领域�
 - 商城公开目录不出现 file ID、管理状态/版本或草稿归档记录；后台商品列表的 SPU/SKU 实物、锁定、可售库存同一快照守恒。
 - 代理客户列表只出现当前 `ACTIVE/BOUND` 客户；代理订单列表/详情只出现 `PAID` 且最终归因为当前代理的订单，不泄露客户电话或详细地址。
 - 候选查询/拒绝、文件完成确认等非首次响应不能重新返回 candidate token 或无关签名能力；所有短时能力响应均可机器校验禁止缓存头。
-- `pnpm contracts:check` 现行 CH-014 实测为 172 paths、196 operations、196 unique operationId、312 schemas、691 schema refs、2,577 local refs 和 0 dangling refs。B6 售罄投影、五种排序、搜索边界、无分页品牌/分类、首页分区状态与 Store 专用 429/Retry-After 均已形成可机器校验契约；CH-012 Banner/库存和 Product/SKU 专用 DTO 的历史闭合结论继续有效。
+- `pnpm contracts:check` 的 CH-014 历史实测为 172 paths、196 operations、196 unique operationId、312 schemas、691 schema refs、2,577 local refs 和 0 dangling refs。B6 售罄投影、五种排序、搜索边界、无分页品牌/分类、首页分区状态与 Store 专用 429/Retry-After 均已形成可机器校验契约；CH-012 Banner/库存和 Product/SKU 专用 DTO 的历史闭合结论继续有效。
+- CH-016 专项实测为 173 paths、197 operations、197 unique operationId、320 schemas、699 schema refs、2,617 local refs 和 0 dangling refs，Redocly 0 warning。专项门禁已覆盖三份法律文本、登录固定双 consent、手机号第三 consent、Store/Admin audience 隔离、Provider 服务端选择、If-Match、候选目标解析、查询不消费与替换/迁移原子失效、服务代理三字段投影和同步注销。
+- 注销不合格 preview 返回 200、完整 blockers/impacts 及 null token/hash/expiry；合格预览才签发 5 分钟能力。confirm 后出现新阻断返回 422 且不产生部分去标识化，成功后全部旧 token 失效且 HASH_ONLY 不重放完成响应。
 - Product/SKU 固定创建状态、完整状态矩阵、恢复目标、不级联、首次 `published_at`、nullable 最低活动价、8 图、归档 SKU、零库存余额、不可变 code、201 SKU create 和四个新 422 均有契约及集成测试。
 - 非 `APPROVED` 提现无法请求完整银行卡号；短时授权不可跨提现单、跨会话或重复使用。
 - 所有关键回调和写操作在重复请求下只产生一次业务结果。
-- OpenAPI 中的所有文本目录 operation 可被唯一 operationId 覆盖，路径只拼接一次 `/api/v1`；三端 auth refresh/logout/current/change-password 和 TOTP/recovery 均有契约。
+- OpenAPI 中的所有文本目录 operation 必须被唯一 operationId 覆盖，路径只拼接一次 `/api/v1`；Store、Agent、Admin 各自只实现冻结的 auth/session 能力，不因共用公共内核扩大路径或角色。

@@ -1,8 +1,8 @@
 openapi: "3.1.0"
 info:
   title: "洗化产品私域商城 API"
-  version: "2.4.4-ch014"
-  description: "CH-014 单一线协议，继承 CH-006、CH-008、CH-010 与 CH-012，并闭合 B6 消费者匿名商城目录语义。所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
+  version: "2.4.5-ch016"
+  description: "CH-016 单一线协议，继承 CH-006、CH-008、CH-010、CH-012 与 CH-014，并闭合 B7 消费者身份、会话、手机号、归属和账号删除语义。所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
   license:
     name: "Proprietary"
     identifier: "LicenseRef-Proprietary"
@@ -26,11 +26,39 @@ tags:
     name: "Files"
     description: "受控文件上传与完成接口"
 paths:
+  /store/legal-documents:
+    get:
+      tags:
+        - "Store"
+      summary: "读取当前用户协议、隐私政策与手机号授权文档快照"
+      description: "匿名读取当前生效的用户协议、隐私政策和手机号授权文档。前两份文档版本是登录 consents 的唯一匹配基线，手机号授权单独使用第三份文档版本；响应禁止缓存。此接口使用独立于匿名目录的 Redis 固定窗口 key namespace，仅保存来源 IP 的 HMAC，每个来源每 60 秒最多 120 次；Redis 不可用时 fail closed。"
+      operationId: "getStoreLegalDocuments"
+      security: []
+      parameters: []
+      responses:
+        200:
+          description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/LegalDocumentsResponse"
+        400:
+          "$ref": "#/components/responses/BadRequest"
+        429:
+          "$ref": "#/components/responses/StoreLegalRateLimited"
+        500:
+          "$ref": "#/components/responses/InternalError"
   /store/auth/wechat/login:
     post:
       tags:
         - "Store"
       summary: "使用微信 code 登录；设计阶段可由 Mock Provider 替代"
+      description: "服务端按环境配置选择微信或 Mock 身份 Provider，客户端不得选择 Provider；Mock 仅允许 test/development。B7 固定一个消费者微信 AppID，以 (AppID, openid) 语义识别主体；现 account.wechat_open_id 仅在单 AppID 基线内唯一。wechat_union_id 仅为可空元数据，不得作为登录键或触发账号自动合并；多 AppID 必须另立变更并执行数据库迁移。code、candidate_token 和会话令牌不得进入日志、审计或幂等响应缓存。此 operation 使用 HASH_ONLY 幂等策略：仅保存请求哈希与完成事实，不回放 access_token、refresh_token 或候选 token。登录按来源 IP HMAC 使用独立 Redis 固定窗口，每 15 分钟最多 10 次，Redis 不可用时 fail closed；超限返回准确 Retry-After。登录固定签发 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的会话，Provider 不是 token claim，绝不接受或签发 B2 SUPER_ADMIN/MFA 权限。consents 必须与 /store/legal-documents 当前版本逐项匹配，否则返回 409 CONSENT_VERSION_MISMATCH；有效 candidate_token 仅可迁移一次并原子清除 token hash。"
       operationId: "postStoreAuthWechatLogin"
       security: []
       parameters:
@@ -47,35 +75,37 @@ paths:
           description: "成功"
           headers:
             Cache-Control:
-              "$ref": "#/components/headers/CacheControlNoStore"
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
             Pragma:
-              "$ref": "#/components/headers/PragmaNoCache"
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/WechatAuthResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreSensitiveError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreSensitiveError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreSensitiveError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreSensitiveError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreLoginConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreSensitiveError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreLoginRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreSensitiveError"
   /store/auth/refresh:
     post:
       tags:
         - "Store"
       summary: "刷新会话并轮换 refresh token"
+      description: "仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的 refresh token；按 session_family 串行轮换，旧 token 重放撤销整个 family。使用 HASH_ONLY 幂等策略，不缓存或重放 access_token、refresh_token。"
       operationId: "postStoreAuthRefresh"
+      x-ch016-lost-response-retry: "同一 Idempotency-Key 在成功响应丢失后重试固定返回 409 且不回放 token；服务端先识别该已完成幂等事实，不将其误判为恶意旧 refresh token 重放而撤销 family。使用新幂等键重放已轮换 token 仍按安全规则撤销 family。"
       security: []
       parameters:
         -
@@ -85,40 +115,41 @@ paths:
         content:
           application/json:
             schema:
-              "$ref": "#/components/schemas/RefreshTokenRequest"
+              "$ref": "#/components/schemas/StoreRefreshTokenRequest"
       responses:
         200:
           description: "成功"
           headers:
             Cache-Control:
-              "$ref": "#/components/headers/CacheControlNoStore"
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
             Pragma:
-              "$ref": "#/components/headers/PragmaNoCache"
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/SessionAuthResponse"
+                "$ref": "#/components/schemas/StoreSessionResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreSensitiveError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreSensitiveError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreSensitiveError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreSensitiveError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreSensitiveError"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreSensitiveError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreSensitiveError"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreSensitiveError"
   /store/auth/logout:
     post:
       tags:
         - "Store"
       summary: "注销当前会话"
+      description: "仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的会话；使用 HASH_ONLY 幂等策略撤销当前 session，不缓存响应或回放 bearer/session 凭据，绝不接受 B2 SUPER_ADMIN/MFA 会话。"
       operationId: "postStoreAuthLogout"
       security:
         -
@@ -129,31 +160,37 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/CommandResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreSensitiveError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreSensitiveError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreSensitiveError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreSensitiveError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreSensitiveError"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreSensitiveError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreSensitiveError"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreSensitiveError"
   /store/profile:
     get:
       tags:
         - "Store"
       summary: "当前消费者资料，账户手机号默认掩码"
+      description: "仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的会话；响应只投影当前 CUSTOMER 的最小资料和账户手机号掩码，不读取收货地址手机号。"
       operationId: "getStoreProfile"
       security:
         -
@@ -162,30 +199,36 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/ProfileResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreSensitiveError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreSensitiveError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreSensitiveError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreSensitiveError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreSensitiveError"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreSensitiveError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreSensitiveError"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreSensitiveError"
     patch:
       tags:
         - "Store"
       summary: "更新昵称、头像等非敏感资料"
+      description: "仅更新当前 CUSTOMER 的非敏感资料并校验 If-Match 对应 profile.version。使用 HASH_ONLY 幂等策略，不缓存资料响应；不得写入账户手机号或收货地址。"
       operationId: "patchStoreProfile"
       security:
         -
@@ -193,6 +236,8 @@ paths:
       parameters:
         -
           "$ref": "#/components/parameters/IdempotencyKey"
+        -
+          "$ref": "#/components/parameters/IfMatch"
       requestBody:
         required: true
         content:
@@ -202,32 +247,179 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/ProfileResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreSensitiveError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreSensitiveError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreSensitiveError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreSensitiveError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreSensitiveError"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreSensitiveError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreSensitiveError"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreSensitiveError"
   /store/profile/phone-authorizations:
     post:
       tags:
         - "Store"
-      summary: "使用微信手机号凭证完成自愿授权；要求 Idempotency-Key"
+      summary: "使用微信手机号凭证完成自愿授权；要求 Idempotency-Key 与 If-Match"
+      description: "客户端只提交一次性 provider_credential 与已接受的 PHONE_AUTHORIZATION 协议版本，不能选择 Provider；服务端按环境选择微信 Provider，Mock 仅允许 test/development。协议版本必须匹配服务端当前手机号授权文档，否则返回 409 CONSENT_VERSION_MISMATCH。If-Match 必须对应 profile.version，版本冲突返回 409 且不自动覆盖。使用 HASH_ONLY 幂等策略，不缓存手机号凭证或资料响应；不得读取或写入收货地址手机号。"
       operationId: "postStoreProfilePhoneAuthorizations"
+      security:
+        -
+          bearerAuth: []
+      parameters:
+        -
+          "$ref": "#/components/parameters/IdempotencyKey"
+        -
+          "$ref": "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/PhoneAuthorizationRequest"
+      responses:
+        200:
+          description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ProfileResponse"
+        400:
+          "$ref": "#/components/responses/StoreSensitiveError"
+        401:
+          "$ref": "#/components/responses/StoreSensitiveError"
+        403:
+          "$ref": "#/components/responses/StoreSensitiveError"
+        404:
+          "$ref": "#/components/responses/StoreSensitiveError"
+        409:
+          "$ref": "#/components/responses/StorePhoneAuthorizationConflict"
+        422:
+          "$ref": "#/components/responses/StoreSensitiveError"
+        429:
+          "$ref": "#/components/responses/StoreSensitiveError"
+        500:
+          "$ref": "#/components/responses/StoreSensitiveError"
+  /store/profile/phone:
+    delete:
+      tags:
+        - "Store"
+      summary: "撤回账户手机号使用授权；不修改历史订单快照"
+      description: "撤回当前 CUSTOMER 的账户手机号授权，不读取或改写收货地址及历史订单快照。If-Match 必须对应 profile.version，版本冲突返回 409 且不自动覆盖。使用 HASH_ONLY 幂等策略，不缓存资料响应。"
+      operationId: "deleteStoreProfilePhone"
+      security:
+        -
+          bearerAuth: []
+      parameters:
+        -
+          "$ref": "#/components/parameters/IdempotencyKey"
+        -
+          "$ref": "#/components/parameters/IfMatch"
+      responses:
+        200:
+          description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ProfileResponse"
+        400:
+          "$ref": "#/components/responses/StoreSensitiveError"
+        401:
+          "$ref": "#/components/responses/StoreSensitiveError"
+        403:
+          "$ref": "#/components/responses/StoreSensitiveError"
+        404:
+          "$ref": "#/components/responses/StoreSensitiveError"
+        409:
+          "$ref": "#/components/responses/StoreSensitiveError"
+        422:
+          "$ref": "#/components/responses/StoreSensitiveError"
+        429:
+          "$ref": "#/components/responses/StoreSensitiveError"
+        500:
+          "$ref": "#/components/responses/StoreSensitiveError"
+  /store/privacy/deletion-requests:
+    post:
+      tags:
+        - "Store"
+      summary: "确认账号删除并同步完成去标识化"
+      description: "仅接受 5 分钟内未消费且绑定当前 actor、session、请求体与 account.version 的 preview_token，并要求 If-Match 与 preview 返回的 account_version 一致。使用 HASH_ONLY 幂等策略，不缓存或重放一次性完成响应。事务内重新检查阻断项，失败返回 422 ACCOUNT_DELETION_BLOCKED 且不消费 preview；通过后原子消费 preview、完成删除请求、撤销全部会话及 refresh hash、结束绑定和候选、清除微信主体与资料，并按冻结隐私规则删除或去标识化非交易数据。成功固定返回 COMPLETED，响应后当前及其他会话均不可再使用。"
+      operationId: "postStorePrivacyDeletionRequests"
+      security:
+        -
+          bearerAuth: []
+      parameters:
+        -
+          "$ref": "#/components/parameters/IdempotencyKey"
+        -
+          "$ref": "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/DeletionConfirmRequest"
+      responses:
+        200:
+          description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/DeletionRequestResponse"
+        400:
+          "$ref": "#/components/responses/StoreSensitiveError"
+        401:
+          "$ref": "#/components/responses/StoreSensitiveError"
+        403:
+          "$ref": "#/components/responses/StoreSensitiveError"
+        404:
+          "$ref": "#/components/responses/StoreSensitiveError"
+        409:
+          "$ref": "#/components/responses/StoreSensitiveError"
+        422:
+          "$ref": "#/components/responses/StoreAccountDeletionBlocked"
+        429:
+          "$ref": "#/components/responses/StoreSensitiveError"
+        500:
+          "$ref": "#/components/responses/StoreSensitiveError"
+  /store/privacy/deletion-requests/preview:
+    post:
+      tags:
+        - "Store"
+      summary: "预览账号删除资格与不可逆影响"
+      description: "只读取当前 CUSTOMER 的阻断事实与删除影响；eligible=false 时返回 blockers 且不签发 token，仍为 200。eligible=true 时签发有效期固定 5 分钟的 preview_token 和 confirmation_hash，并绑定 actor、session、acknowledged 请求体与 account.version；preview_token 数据库仅保存用途隔离的 HMAC。使用 HASH_ONLY，不缓存或重放 preview_token。"
+      operationId: "postStorePrivacyDeletionRequestsPreview"
       security:
         -
           bearerAuth: []
@@ -239,143 +431,52 @@ paths:
         content:
           application/json:
             schema:
-              "$ref": "#/components/schemas/PhoneAuthorizationRequest"
+              "$ref": "#/components/schemas/DeletionPreviewRequest"
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/ProfileResponse"
+                "$ref": "#/components/schemas/DeletionPreviewResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreSensitiveError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreSensitiveError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreSensitiveError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreSensitiveError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreSensitiveError"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreSensitiveError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreSensitiveError"
         500:
-          "$ref": "#/components/responses/InternalError"
-  /store/profile/phone:
-    delete:
-      tags:
-        - "Store"
-      summary: "撤回账户手机号使用授权；不修改历史订单快照"
-      operationId: "deleteStoreProfilePhone"
-      security:
-        -
-          bearerAuth: []
-      parameters:
-        -
-          "$ref": "#/components/parameters/IdempotencyKey"
-      responses:
-        200:
-          description: "成功"
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/ProfileResponse"
-        400:
-          "$ref": "#/components/responses/BadRequest"
-        401:
-          "$ref": "#/components/responses/Unauthorized"
-        403:
-          "$ref": "#/components/responses/Forbidden"
-        404:
-          "$ref": "#/components/responses/NotFound"
-        409:
-          "$ref": "#/components/responses/StateConflict"
-        422:
-          "$ref": "#/components/responses/BusinessError"
-        429:
-          "$ref": "#/components/responses/RateLimited"
-        500:
-          "$ref": "#/components/responses/InternalError"
-  /store/privacy/deletion-requests:
-    post:
-      tags:
-        - "Store"
-      summary: "申请账号删除和去标识化"
-      operationId: "postStorePrivacyDeletionRequests"
-      security:
-        -
-          bearerAuth: []
-      parameters:
-        -
-          "$ref": "#/components/parameters/IdempotencyKey"
-      responses:
-        200:
-          description: "成功"
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/DeletionRequestResponse"
-        400:
-          "$ref": "#/components/responses/BadRequest"
-        401:
-          "$ref": "#/components/responses/Unauthorized"
-        403:
-          "$ref": "#/components/responses/Forbidden"
-        404:
-          "$ref": "#/components/responses/NotFound"
-        409:
-          "$ref": "#/components/responses/StateConflict"
-        422:
-          "$ref": "#/components/responses/BusinessError"
-        429:
-          "$ref": "#/components/responses/RateLimited"
-        500:
-          "$ref": "#/components/responses/InternalError"
-  /store/privacy/deletion-requests/current:
-    get:
-      tags:
-        - "Store"
-      summary: "查询当前删除申请状态"
-      operationId: "getStorePrivacyDeletionRequestsCurrent"
-      security:
-        -
-          bearerAuth: []
-      parameters: []
-      responses:
-        200:
-          description: "成功"
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/DeletionRequestResponse"
-        400:
-          "$ref": "#/components/responses/BadRequest"
-        401:
-          "$ref": "#/components/responses/Unauthorized"
-        403:
-          "$ref": "#/components/responses/Forbidden"
-        404:
-          "$ref": "#/components/responses/NotFound"
-        409:
-          "$ref": "#/components/responses/StateConflict"
-        422:
-          "$ref": "#/components/responses/BusinessError"
-        429:
-          "$ref": "#/components/responses/RateLimited"
-        500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreSensitiveError"
   /store/attribution/candidates:
     post:
       tags:
         - "Store"
       summary: "打开代理推广链接时校验并保存 30 分钟候选"
+      description: "客户端只提交 invite_code 与 promotion_asset_id；服务端从同一 promotion_asset 解析并校验唯一公开目标，不接受客户端 target_type/target_id。候选固定 30 分钟，游客 candidate_token 使用 32..512 字符高熵值、数据库只存 domain-separated HMAC 且仅首次签发；candidate token、幂等请求和 IP 限流使用互不相同的 scope/domain，禁止跨用途关联。匿名新请求仅在携带有效旧 X-Candidate-Token 时替换该 token 定位的候选；未携带旧 token 时旧候选按 TTL 自然过期，无效链接不得覆盖。已绑定 CUSTOMER 不创建候选。此 mutation 使用 HASH_ONLY，不缓存或重放 token。"
       operationId: "postStoreAttributionCandidates"
+      x-ch016-result-invariant: "只允许三个互斥分支：有效候选、已有绑定，或不可归因但仍可公开访问的 fallback。"
       security:
         -
           bearerAuth: []
+        -
+          candidateToken: []
         - {}
+      x-ch016-anonymous-replacement: "匿名新请求只能通过可选 X-Candidate-Token 定位并使旧候选失效；未提交旧 token 时无法关联另一匿名候选，旧候选仅按 TTL 自然过期。"
+      x-ch016-credential-precedence: "同时携带 Authorization 与 X-Candidate-Token 返回 400 INVALID_ARGUMENT。只要携带 Authorization，就只校验 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的 bearer，失败返回 401 且不得尝试 candidate token 或匿名分支；否则只要携带 X-Candidate-Token，就必须校验候选凭据，失效或过期返回 401 且不得降级匿名；仅两种凭据均未携带时使用匿名分支。"
+      x-ch016-candidate-token-result: "成功返回有效 candidate 分支时，无凭据匿名请求和 candidateToken 请求必须签发新的非空 32..512 字符 candidate_token；bearer 请求必须返回 candidate_token=null。已有绑定与 public fallback 分支始终返回 null。"
       parameters:
         -
           "$ref": "#/components/parameters/IdempotencyKey"
@@ -391,9 +492,11 @@ paths:
           headers:
             Cache-Control:
               description: "游客 candidate_token 仅本次返回，不得缓存"
+              required: true
               schema:
                 const: "no-store, private"
             Pragma:
+              required: true
               schema:
                 const: "no-cache"
           content:
@@ -401,61 +504,69 @@ paths:
               schema:
                 "$ref": "#/components/schemas/AttributionCandidateCreateResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreSensitiveError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreSensitiveError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreSensitiveError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreSensitiveError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreSensitiveError"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreSensitiveError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreSensitiveError"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreSensitiveError"
   /store/attribution/candidate:
     get:
       tags:
         - "Store"
       summary: "查询当前有效候选和剩余秒数"
+      description: "游客使用创建响应签发的 X-Candidate-Token，CUSTOMER 使用 aud=qingxu-store 会话；只返回当前仍有效候选及剩余秒数，不回传或消费 candidate_token。双凭据或无效凭据按固定优先级 fail closed，不得降级到另一主体。"
       operationId: "getStoreAttributionCandidate"
       security:
         -
           bearerAuth: []
         -
           candidateToken: []
+      x-ch016-credential-precedence: "同时携带 Authorization 与 X-Candidate-Token 返回 400 INVALID_ARGUMENT。只要携带 Authorization，就只校验 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的 bearer，失败返回 401 且不得尝试 candidate token；否则必须校验 X-Candidate-Token，失效、过期或未携带均返回 401。"
       parameters: []
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/AttributionCandidateQueryResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreSensitiveError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreSensitiveError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreSensitiveError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreSensitiveError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreAttributionCandidateConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreSensitiveError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreSensitiveError"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreSensitiveError"
   /store/attribution/candidate/confirm:
     post:
       tags:
         - "Store"
       summary: "明确确认并建立长期绑定"
+      description: "使用 HASH_ONLY 幂等策略，在 customer_profile 串行根上重新校验当前候选、代理、邀请码与推广素材后消费候选并建立唯一长期绑定。候选与登录迁移事实不匹配返回 409 ATTRIBUTION_CANDIDATE_MISMATCH；并发后到请求返回已胜出的当前绑定，不覆盖。"
       operationId: "postStoreAttributionCandidateConfirm"
       security:
         -
@@ -466,31 +577,37 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/AttributionBindingResponse"
+                "$ref": "#/components/schemas/StoreAttributionBindingResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreSensitiveError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreSensitiveError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreSensitiveError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreSensitiveError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreAttributionCandidateConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreSensitiveError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreSensitiveError"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreSensitiveError"
   /store/attribution/candidate/reject:
     post:
       tags:
         - "Store"
       summary: "拒绝并清空候选"
+      description: "使用 HASH_ONLY 幂等策略，仅拒绝当前 CUSTOMER 的有效候选并立即清空；候选已迁移、已消费或与会话不匹配返回 409 ATTRIBUTION_CANDIDATE_MISMATCH。"
       operationId: "postStoreAttributionCandidateReject"
       security:
         -
@@ -501,31 +618,37 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/AttributionCandidateRejectResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreSensitiveError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreSensitiveError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreSensitiveError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreSensitiveError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreAttributionCandidateConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreSensitiveError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreSensitiveError"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreSensitiveError"
   /store/service-agent:
     get:
       tags:
         - "Store"
       summary: "只读查看当前服务代理"
+      description: "仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的会话。只要长期绑定仍为 BOUND 且未结束，即使代理已停用也继续返回 agent_id、display_name、bound_at，不暴露代理内部状态；代理停用只阻止新候选、新绑定和未来订单归因，不得隐式结束既有绑定。仅没有 BOUND 绑定或绑定已结束时 data=null。不得返回 binding_id、customer_id、customer_version、佣金、完整手机号或其他代理管理字段。"
       operationId: "getStoreServiceAgent"
       security:
         -
@@ -534,26 +657,31 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/ServiceAgentResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreSensitiveError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreSensitiveError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreSensitiveError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreSensitiveError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreSensitiveError"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreSensitiveError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreSensitiveError"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreSensitiveError"
   /store/home:
     get:
       tags:
@@ -10230,6 +10358,7 @@ components:
       type: "http"
       scheme: "bearer"
       bearerFormat: "JWT"
+      description: "B7 新增的 /store 路径仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT；/admin 继续仅接受 aud=qingxu-admin-web、role=SUPER_ADMIN、assurance=MFA。B7 不修改 /agent 现有 operation 的身份与会话契约。不得跨端复用或通过 B7 放宽 B2 会话。"
     preAuth:
       type: "http"
       scheme: "bearer"
@@ -10238,6 +10367,7 @@ components:
       type: "apiKey"
       in: "header"
       name: "X-Candidate-Token"
+      description: "游客归属候选的高熵 token，长度 32..512；只在候选创建响应中签发一次，服务端仅保存 domain-separated HMAC，固定 30 分钟失效。GET 查询不消费 token；候选替换或登录迁移会原子失效 token hash，后续确认/拒绝消费已迁移的候选事实而不复用 token。candidate token、幂等请求和 IP 限流使用互不相同的 scope/domain。"
     wechatSignature:
       type: "apiKey"
       in: "header"
@@ -10319,6 +10449,16 @@ components:
       description: "兼容旧客户端和中间代理的禁止缓存指令。"
       schema:
         const: "no-cache"
+    StoreCacheControlNoStoreRequired:
+      description: "B7 Store 响应必返的禁止缓存指令。"
+      required: true
+      schema:
+        const: "no-store, private"
+    StorePragmaNoCacheRequired:
+      description: "B7 Store 响应必返的兼容禁止缓存指令。"
+      required: true
+      schema:
+        const: "no-cache"
   responses:
     BadRequest:
       description: "参数或签名头格式错误"
@@ -10350,6 +10490,196 @@ components:
         application/json:
           schema:
             "$ref": "#/components/schemas/ErrorResponse"
+    StoreSensitiveError:
+      description: "B7 Store 敏感操作的通用错误；不得缓存或回显被拒绝的敏感值。"
+      headers:
+        Cache-Control:
+          description: "敏感错误响应不得缓存。"
+          required: true
+          schema:
+            const: "no-store, private"
+        Pragma:
+          description: "兼容旧客户端和中间代理的禁止缓存指令。"
+          required: true
+          schema:
+            const: "no-cache"
+      content:
+        application/json:
+          schema:
+            type: "object"
+            additionalProperties: false
+            required: ["code", "message", "request_id"]
+            properties:
+              code:
+                type: "string"
+              message:
+                type: "string"
+              details:
+                type: "array"
+                items:
+                  type: "object"
+                  additionalProperties: false
+                  required: ["field", "reason"]
+                  properties:
+                    field:
+                      type: ["string", "null"]
+                    reason:
+                      type: "string"
+                    rejected_value:
+                      type: "null"
+              request_id:
+                type: "string"
+    StoreLoginConflict:
+      description: "消费者微信登录的闭合冲突响应。"
+      headers:
+        Cache-Control:
+          required: true
+          schema:
+            const: "no-store, private"
+        Pragma:
+          required: true
+          schema:
+            const: "no-cache"
+      content:
+        application/json:
+          schema:
+            type: "object"
+            additionalProperties: false
+            required: ["code", "message", "request_id"]
+            properties:
+              code:
+                type: "string"
+                enum: ["CONSENT_VERSION_MISMATCH", "ATTRIBUTION_CANDIDATE_MISMATCH", "STATE_CONFLICT"]
+              message:
+                type: "string"
+              details:
+                type: "array"
+                items:
+                  type: "object"
+                  additionalProperties: false
+                  required: ["field", "reason"]
+                  properties:
+                    field:
+                      type: ["string", "null"]
+                    reason:
+                      type: "string"
+                    rejected_value:
+                      type: "null"
+              request_id:
+                type: "string"
+    StorePhoneAuthorizationConflict:
+      description: "消费者手机号授权的闭合协议或版本冲突响应。"
+      headers:
+        Cache-Control:
+          required: true
+          schema:
+            const: "no-store, private"
+        Pragma:
+          required: true
+          schema:
+            const: "no-cache"
+      content:
+        application/json:
+          schema:
+            type: "object"
+            additionalProperties: false
+            required: ["code", "message", "request_id"]
+            properties:
+              code:
+                type: "string"
+                enum: ["CONSENT_VERSION_MISMATCH", "RESOURCE_VERSION_CONFLICT", "STATE_CONFLICT"]
+              message:
+                type: "string"
+              details:
+                type: "array"
+                items:
+                  type: "object"
+                  additionalProperties: false
+                  required: ["field", "reason"]
+                  properties:
+                    field:
+                      type: ["string", "null"]
+                    reason:
+                      type: "string"
+                    rejected_value:
+                      type: "null"
+              request_id:
+                type: "string"
+    StoreAttributionCandidateConflict:
+      description: "消费者归因候选绑定不匹配或幂等状态冲突的闭合响应。"
+      headers:
+        Cache-Control:
+          required: true
+          schema:
+            const: "no-store, private"
+        Pragma:
+          required: true
+          schema:
+            const: "no-cache"
+      content:
+        application/json:
+          schema:
+            type: "object"
+            additionalProperties: false
+            required: ["code", "message", "request_id"]
+            properties:
+              code:
+                type: "string"
+                enum: ["ATTRIBUTION_CANDIDATE_MISMATCH", "STATE_CONFLICT"]
+              message:
+                type: "string"
+              details:
+                type: "array"
+                items:
+                  type: "object"
+                  additionalProperties: false
+                  required: ["field", "reason"]
+                  properties:
+                    field:
+                      type: ["string", "null"]
+                    reason:
+                      type: "string"
+                    rejected_value:
+                      type: "null"
+              request_id:
+                type: "string"
+    StoreAccountDeletionBlocked:
+      description: "账号删除 confirm 在事务内重检发现业务阻断时的闭合响应。"
+      headers:
+        Cache-Control:
+          required: true
+          schema:
+            const: "no-store, private"
+        Pragma:
+          required: true
+          schema:
+            const: "no-cache"
+      content:
+        application/json:
+          schema:
+            type: "object"
+            additionalProperties: false
+            required: ["code", "message", "request_id"]
+            properties:
+              code:
+                const: "ACCOUNT_DELETION_BLOCKED"
+              message:
+                type: "string"
+              details:
+                type: "array"
+                items:
+                  type: "object"
+                  additionalProperties: false
+                  required: ["field", "reason"]
+                  properties:
+                    field:
+                      type: ["string", "null"]
+                    reason:
+                      type: "string"
+                    rejected_value:
+                      type: "null"
+              request_id:
+                type: "string"
     BusinessError:
       description: "库存、售后额度、金额分配或业务前置校验失败；固定业务码包括 ACTIVE_PRODUCT_DEPENDENCY、FILE_CONTENT_MISMATCH，CH-010 的 PRODUCT_PRIMARY_IMAGE_REQUIRED、PRODUCT_ACTIVE_SKU_REQUIRED、ACTIVE_SKU_DEPENDENCY、ACTIVE_INVENTORY_RESERVATION，以及 CH-012 的 INVENTORY_QUANTITY_OUT_OF_RANGE；库存确认低于锁定量继续使用 STOCK_INSUFFICIENT（均为 422）。"
       content:
@@ -10376,6 +10706,64 @@ components:
         application/json:
           schema:
             "$ref": "#/components/schemas/ErrorResponse"
+    StoreLegalRateLimited:
+      description: "匿名法务文档读取使用 Redis 固定窗口及独立 key namespace；仅保存来源 IP 的 HMAC，每个来源每 60 秒最多 120 次。超限返回距当前窗口结束的准确 Retry-After 整数秒；Redis 不可用时 fail closed。"
+      headers:
+        Retry-After:
+          description: "距当前 60 秒固定窗口结束的准确剩余整数秒。"
+          required: true
+          schema:
+            type: "integer"
+            minimum: 1
+            maximum: 60
+      content:
+        application/json:
+          schema:
+            "$ref": "#/components/schemas/ErrorResponse"
+    StoreLoginRateLimited:
+      description: "消费者登录使用 Redis 固定窗口及独立 key namespace；仅保存来源 IP 的 HMAC，每个来源每 15 分钟最多 10 次。超限返回距当前窗口结束的准确 Retry-After 整数秒；Redis 不可用时 fail closed。"
+      headers:
+        Cache-Control:
+          description: "登录失败响应不得缓存。"
+          required: true
+          schema:
+            const: "no-store, private"
+        Pragma:
+          description: "兼容旧客户端和中间代理的禁止缓存指令。"
+          required: true
+          schema:
+            const: "no-cache"
+        Retry-After:
+          description: "距当前 15 分钟固定窗口结束的准确剩余整数秒。"
+          required: true
+          schema:
+            type: "integer"
+            minimum: 1
+            maximum: 900
+      content:
+        application/json:
+          schema:
+            allOf:
+              -
+                "$ref": "#/components/schemas/ErrorResponse"
+              -
+                type: "object"
+                properties:
+                  code:
+                    const: "RATE_LIMITED"
+                  details:
+                    type: "array"
+                    items:
+                      type: "object"
+                      additionalProperties: false
+                      required: ["field", "reason"]
+                      properties:
+                        field:
+                          type: ["string", "null"]
+                        reason:
+                          type: "string"
+                        rejected_value:
+                          type: "null"
     InternalError:
       description: "未预期错误；响应不暴露堆栈、SQL 或 Provider 原文"
       content:
@@ -10418,6 +10806,9 @@ components:
           type:
             - "string"
             - "null"
+          description: "仅可回显非敏感校验值。当 field 为密码、验证码、登录 code、candidate_token、provider_credential、invite_code、preview_token、confirmation_hash、refresh/access token 或 reauth_grant 等敏感字段时，必须省略 rejected_value 或返回 null，禁止回显原值。"
+      x-sensitive-field-policy:
+        forbidden-rejected-value-fields: ["password", "new_password", "totp_code", "recovery_code", "code", "candidate_token", "provider_credential", "invite_code", "preview_token", "confirmation_hash", "refresh_token", "access_token", "reauth_grant"]
     CommandResponse:
       type: "object"
       additionalProperties: false
@@ -10525,6 +10916,110 @@ components:
         total:
           type: "integer"
           minimum: 0
+    LegalDocumentsResponse:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "code"
+        - "message"
+        - "data"
+        - "request_id"
+      properties:
+        code:
+          const: "OK"
+        message:
+          const: "success"
+        data:
+          type: "object"
+          additionalProperties: false
+          required:
+            - "user_agreement"
+            - "privacy_policy"
+            - "phone_authorization"
+          properties:
+            user_agreement:
+              type: "object"
+              additionalProperties: false
+              required:
+                - "type"
+                - "document_version"
+                - "title"
+                - "content_url"
+                - "required"
+              properties:
+                type:
+                  const: "USER_AGREEMENT"
+                document_version:
+                  type: "string"
+                  minLength: 1
+                  maxLength: 80
+                title:
+                  type: "string"
+                  minLength: 1
+                  maxLength: 120
+                content_url:
+                  type: "string"
+                  format: "uri"
+                  pattern: "^https://"
+                  maxLength: 500
+                required:
+                  const: true
+            privacy_policy:
+              type: "object"
+              additionalProperties: false
+              required:
+                - "type"
+                - "document_version"
+                - "title"
+                - "content_url"
+                - "required"
+              properties:
+                type:
+                  const: "PRIVACY_POLICY"
+                document_version:
+                  type: "string"
+                  minLength: 1
+                  maxLength: 80
+                title:
+                  type: "string"
+                  minLength: 1
+                  maxLength: 120
+                content_url:
+                  type: "string"
+                  format: "uri"
+                  pattern: "^https://"
+                  maxLength: 500
+                required:
+                  const: true
+            phone_authorization:
+              type: "object"
+              additionalProperties: false
+              required:
+                - "type"
+                - "document_version"
+                - "title"
+                - "content_url"
+                - "required"
+              properties:
+                type:
+                  const: "PHONE_AUTHORIZATION"
+                document_version:
+                  type: "string"
+                  minLength: 1
+                  maxLength: 80
+                title:
+                  type: "string"
+                  minLength: 1
+                  maxLength: 120
+                content_url:
+                  type: "string"
+                  format: "uri"
+                  pattern: "^https://"
+                  maxLength: 500
+                required:
+                  const: true
+        request_id:
+          type: "string"
     ConsentInput:
       type: "object"
       additionalProperties: false
@@ -10538,9 +11033,11 @@ components:
           enum:
             - "USER_AGREEMENT"
             - "PRIVACY_POLICY"
+            - "PHONE_AUTHORIZATION"
         document_version:
           type: "string"
           minLength: 1
+          maxLength: 80
         accepted:
           const: true
     WechatLoginRequest:
@@ -10553,18 +11050,40 @@ components:
         code:
           type: "string"
           minLength: 1
+          maxLength: 512
+          writeOnly: true
         candidate_token:
           type:
             - "string"
             - "null"
           minLength: 32
+          maxLength: 512
           writeOnly: true
         consents:
           type: "array"
           minItems: 2
           maxItems: 2
-          items:
-            "$ref": "#/components/schemas/ConsentInput"
+          prefixItems:
+            -
+              allOf:
+                -
+                  "$ref": "#/components/schemas/ConsentInput"
+                -
+                  type: "object"
+                  properties:
+                    type:
+                      const: "USER_AGREEMENT"
+            -
+              allOf:
+                -
+                  "$ref": "#/components/schemas/ConsentInput"
+                -
+                  type: "object"
+                  properties:
+                    type:
+                      const: "PRIVACY_POLICY"
+          items: false
+          description: "固定二元 tuple：索引 0 必须是当前 USER_AGREEMENT，索引 1 必须是当前 PRIVACY_POLICY；两项 accepted 均固定 true。"
     PasswordLoginRequest:
       type: "object"
       additionalProperties: false
@@ -10588,6 +11107,17 @@ components:
         refresh_token:
           type: "string"
           minLength: 20
+    StoreRefreshTokenRequest:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "refresh_token"
+      properties:
+        refresh_token:
+          type: "string"
+          minLength: 20
+          maxLength: 512
+          writeOnly: true
     ChangePasswordRequest:
       type: "object"
       additionalProperties: false
@@ -10719,6 +11249,52 @@ components:
           "$ref": "#/components/schemas/AuthSessionData"
         request_id:
           type: "string"
+    StoreSessionView:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "access_token"
+        - "refresh_token"
+        - "role"
+        - "assurance"
+        - "access_expires_at"
+        - "refresh_expires_at"
+      properties:
+        access_token:
+          type: "string"
+          minLength: 20
+          description: "JWT aud 固定为 qingxu-store。"
+        refresh_token:
+          type: "string"
+          minLength: 20
+          description: "仅客户端安全会话存储使用；服务端只保存哈希并在 refresh 时轮换。"
+        role:
+          const: "CUSTOMER"
+        assurance:
+          const: "WECHAT"
+        access_expires_at:
+          type: "string"
+          format: "date-time"
+        refresh_expires_at:
+          type: "string"
+          format: "date-time"
+    StoreSessionResponse:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "code"
+        - "message"
+        - "data"
+        - "request_id"
+      properties:
+        code:
+          const: "OK"
+        message:
+          const: "success"
+        data:
+          "$ref": "#/components/schemas/StoreSessionView"
+        request_id:
+          type: "string"
     AgentLoginResponse:
       type: "object"
       additionalProperties: false
@@ -10746,21 +11322,27 @@ components:
       required:
         - "candidate_id"
         - "agent_id"
-        - "agent_name"
+        - "display_name"
         - "expires_at"
         - "attribution_eligible"
+        - "public_target_url"
       properties:
         candidate_id:
           type: "string"
         agent_id:
           type: "string"
-        agent_name:
+        display_name:
           type: "string"
         expires_at:
           type: "string"
           format: "date-time"
         attribution_eligible:
-          type: "boolean"
+          const: true
+        public_target_url:
+          type: "string"
+          format: "uri"
+          pattern: "^https://"
+          maxLength: 500
     WechatAuthResponse:
       type: "object"
       additionalProperties: false
@@ -10775,22 +11357,49 @@ components:
         message:
           const: "success"
         data:
-          type: "object"
-          additionalProperties: false
-          required:
-            - "session"
-            - "confirmation_required"
-            - "candidate"
-          properties:
-            session:
-              "$ref": "#/components/schemas/AuthSessionData"
-            confirmation_required:
-              type: "boolean"
-            candidate:
-              oneOf:
-                -
+          oneOf:
+            -
+              type: "object"
+              additionalProperties: false
+              required: ["session", "confirmation_required", "candidate"]
+              properties:
+                session:
+                  "$ref": "#/components/schemas/StoreSessionView"
+                confirmation_required:
+                  const: true
+                candidate:
                   "$ref": "#/components/schemas/AttributionCandidateSummary"
-                -
+            -
+              type: "object"
+              additionalProperties: false
+              required: ["session", "confirmation_required", "candidate"]
+              properties:
+                session:
+                  type: "object"
+                  additionalProperties: false
+                  required: ["access_token", "refresh_token", "role", "assurance", "access_expires_at", "refresh_expires_at"]
+                  properties:
+                    access_token:
+                      type: "string"
+                      minLength: 20
+                      description: "JWT aud 固定为 qingxu-store。"
+                    refresh_token:
+                      type: "string"
+                      minLength: 20
+                      description: "仅客户端安全会话存储使用；服务端只保存哈希并在 refresh 时轮换。"
+                    role:
+                      const: "CUSTOMER"
+                    assurance:
+                      const: "WECHAT"
+                    access_expires_at:
+                      type: "string"
+                      format: "date-time"
+                    refresh_expires_at:
+                      type: "string"
+                      format: "date-time"
+                confirmation_required:
+                  const: false
+                candidate:
                   type: "null"
         request_id:
           type: "string"
@@ -11043,21 +11652,23 @@ components:
       type: "object"
       additionalProperties: false
       required:
-        - "provider"
         - "provider_credential"
-        - "consent_version"
+        - "consent"
       properties:
-        provider:
-          type: "string"
-          enum:
-            - "WECHAT"
-            - "MOCK"
         provider_credential:
           type: "string"
           minLength: 1
-        consent_version:
-          type: "string"
-          minLength: 1
+          maxLength: 512
+          writeOnly: true
+        consent:
+          allOf:
+            -
+              "$ref": "#/components/schemas/ConsentInput"
+            -
+              type: "object"
+              properties:
+                type:
+                  const: "PHONE_AUTHORIZATION"
     ProfileUpdateRequest:
       type: "object"
       additionalProperties: false
@@ -11066,17 +11677,25 @@ components:
           type:
             - "string"
             - "null"
+          minLength: 1
           maxLength: 80
+          pattern: "\\S"
+          description: "非 null 时服务端先 trim，再按 1..80 字符保存；纯空白拒绝。"
         avatar_url:
           type:
             - "string"
             - "null"
           format: "uri"
+          pattern: "^https://"
+          maxLength: 500
         city:
           type:
             - "string"
             - "null"
+          minLength: 1
           maxLength: 120
+          pattern: "\\S"
+          description: "非 null 时服务端先 trim，再按 1..120 字符保存；纯空白拒绝。"
       minProperties: 1
     AttributionCandidateRequest:
       type: "object"
@@ -11084,21 +11703,15 @@ components:
       required:
         - "invite_code"
         - "promotion_asset_id"
-        - "target_type"
       properties:
         invite_code:
           type: "string"
+          minLength: 1
+          maxLength: 128
+          writeOnly: true
         promotion_asset_id:
           type: "string"
-        target_type:
-          type: "string"
-          enum:
-            - "STOREFRONT"
-            - "PRODUCT"
-        target_id:
-          type:
-            - "string"
-            - "null"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
     CartQuantityRequest:
       type: "object"
       additionalProperties: false
@@ -13735,6 +14348,8 @@ components:
         - "city"
         - "phone_tail"
         - "phone_masked"
+        - "phone_source"
+        - "phone_verified_at"
         - "version"
       properties:
         customer_id:
@@ -13761,10 +14376,17 @@ components:
           type:
             - "string"
             - "null"
+          maxLength: 32
+          pattern: "^[0-9]{3} \\*{4} [0-9]{4}$"
+          description: "仅返回当前已验证账户手机号的掩码；不得来自收货地址。"
         phone_source:
           type:
             - "string"
             - "null"
+          enum:
+            - "WECHAT"
+            - "MOCK"
+            - null
         phone_verified_at:
           type:
             - "string"
@@ -13773,6 +14395,34 @@ components:
         version:
           type: "integer"
           minimum: 1
+      oneOf:
+        -
+          required: ["phone_tail", "phone_masked", "phone_source", "phone_verified_at"]
+          properties:
+            phone_tail:
+              type: "null"
+            phone_masked:
+              type: "null"
+            phone_source:
+              type: "null"
+            phone_verified_at:
+              type: "null"
+        -
+          required: ["phone_tail", "phone_masked", "phone_source", "phone_verified_at"]
+          properties:
+            phone_tail:
+              type: "string"
+              pattern: "^[0-9]{4}$"
+            phone_masked:
+              type: "string"
+              maxLength: 32
+              pattern: "^[0-9]{3} \\*{4} [0-9]{4}$"
+            phone_source:
+              type: "string"
+              enum: ["WECHAT", "MOCK"]
+            phone_verified_at:
+              type: "string"
+              format: "date-time"
     ProfileResponse:
       type: "object"
       additionalProperties: false
@@ -13797,39 +14447,18 @@ components:
         - "request_id"
         - "status"
         - "submitted_at"
-        - "blockers"
+        - "completed_at"
       properties:
         request_id:
           type: "string"
         status:
-          type: "string"
-          enum:
-            - "SUBMITTED"
-            - "PROCESSING"
-            - "COMPLETED"
-            - "REJECTED"
+          const: "COMPLETED"
         submitted_at:
           type: "string"
           format: "date-time"
         completed_at:
-          type:
-            - "string"
-            - "null"
+          type: "string"
           format: "date-time"
-        blockers:
-          type: "array"
-          items:
-            type: "object"
-            additionalProperties: false
-            required:
-              - "resource_type"
-              - "count"
-            properties:
-              resource_type:
-                type: "string"
-              count:
-                type: "integer"
-                minimum: 0
     DeletionRequestResponse:
       type: "object"
       additionalProperties: false
@@ -13847,15 +14476,166 @@ components:
           "$ref": "#/components/schemas/DeletionRequestView"
         request_id:
           type: "string"
+    DeletionPreviewRequest:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "acknowledged"
+      properties:
+        acknowledged:
+          const: true
+    DeletionConfirmRequest:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "acknowledged"
+        - "preview_token"
+        - "confirmation_hash"
+      properties:
+        acknowledged:
+          const: true
+        preview_token:
+          type: "string"
+          minLength: 32
+          maxLength: 512
+          writeOnly: true
+        confirmation_hash:
+          type: "string"
+          pattern: "^[a-f0-9]{64}$"
+          writeOnly: true
+    DeletionPreviewResponse:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "code"
+        - "message"
+        - "data"
+        - "request_id"
+      properties:
+        code:
+          const: "OK"
+        message:
+          const: "success"
+        data:
+          oneOf:
+            -
+              type: "object"
+              additionalProperties: false
+              required:
+                - "eligible"
+                - "blockers"
+                - "impacts"
+                - "preview_token"
+                - "confirmation_hash"
+                - "expires_at"
+                - "account_version"
+              properties:
+                eligible:
+                  const: true
+                blockers:
+                  type: "array"
+                  maxItems: 0
+                  items:
+                    type: "object"
+                    additionalProperties: false
+                impacts:
+                  type: "array"
+                  minItems: 1
+                  uniqueItems: true
+                  items:
+                    type: "string"
+                    enum:
+                      - "REVOKE_ALL_SESSIONS"
+                      - "END_SERVICE_AGENT_BINDING"
+                      - "INVALIDATE_ATTRIBUTION_CANDIDATES"
+                      - "ANONYMIZE_ACCOUNT_PROFILE"
+                      - "DELETE_NON_TRANSACTIONAL_PII"
+                      - "ANONYMIZE_AGENT_HISTORY"
+                      - "RETAIN_REQUIRED_TRANSACTION_FACTS"
+                preview_token:
+                  type: "string"
+                  minLength: 32
+                  maxLength: 512
+                confirmation_hash:
+                  type: "string"
+                  pattern: "^[a-f0-9]{64}$"
+                expires_at:
+                  type: "string"
+                  format: "date-time"
+                account_version:
+                  type: "integer"
+                  minimum: 1
+            -
+              type: "object"
+              additionalProperties: false
+              required:
+                - "eligible"
+                - "blockers"
+                - "impacts"
+                - "preview_token"
+                - "confirmation_hash"
+                - "expires_at"
+                - "account_version"
+              properties:
+                eligible:
+                  const: false
+                blockers:
+                  type: "array"
+                  minItems: 1
+                  uniqueItems: true
+                  items:
+                    type: "object"
+                    additionalProperties: false
+                    required:
+                      - "resource_type"
+                      - "count"
+                    properties:
+                      resource_type:
+                        type: "string"
+                        enum:
+                          - "ORDER"
+                          - "AFTERSALE"
+                          - "PAYMENT"
+                          - "REFUND"
+                          - "FINANCIAL_ANOMALY"
+                      count:
+                        type: "integer"
+                        minimum: 1
+                impacts:
+                  type: "array"
+                  minItems: 1
+                  uniqueItems: true
+                  items:
+                    type: "string"
+                    enum:
+                      - "REVOKE_ALL_SESSIONS"
+                      - "END_SERVICE_AGENT_BINDING"
+                      - "INVALIDATE_ATTRIBUTION_CANDIDATES"
+                      - "ANONYMIZE_ACCOUNT_PROFILE"
+                      - "DELETE_NON_TRANSACTIONAL_PII"
+                      - "ANONYMIZE_AGENT_HISTORY"
+                      - "RETAIN_REQUIRED_TRANSACTION_FACTS"
+                preview_token:
+                  type: "null"
+                confirmation_hash:
+                  type: "null"
+                expires_at:
+                  type: "null"
+                account_version:
+                  type: "integer"
+                  minimum: 1
+        request_id:
+          type: "string"
     AttributionCandidateView:
       type: "object"
       additionalProperties: false
       required:
         - "candidate_id"
         - "agent_id"
-        - "agent_name"
+        - "display_name"
         - "confirmation_required"
         - "attribution_eligible"
+        - "public_target_url"
         - "expires_at"
         - "remaining_seconds"
       properties:
@@ -13863,17 +14643,17 @@ components:
           type: "string"
         agent_id:
           type: "string"
-        agent_name:
+        display_name:
           type: "string"
         confirmation_required:
-          type: "boolean"
+          const: true
         attribution_eligible:
-          type: "boolean"
+          const: true
         public_target_url:
-          type:
-            - "string"
-            - "null"
+          type: "string"
           format: "uri"
+          pattern: "^https://"
+          maxLength: 500
         expires_at:
           type: "string"
           format: "date-time"
@@ -13890,16 +14670,70 @@ components:
         message:
           const: "success"
         data:
-          type: "object"
-          additionalProperties: false
-          required: ["candidate", "candidate_token"]
-          properties:
-            candidate:
-              "$ref": "#/components/schemas/AttributionCandidateView"
-            candidate_token:
-              type: ["string", "null"]
-              minLength: 32
-              description: "仅匿名候选首次创建时返回一次；已登录确认流可为 null。不得出现在查询、拒绝、日志或缓存响应中。"
+          oneOf:
+            -
+              type: "object"
+              additionalProperties: false
+              required: ["candidate", "candidate_token", "service_agent", "public_fallback"]
+              properties:
+                candidate:
+                  "$ref": "#/components/schemas/AttributionCandidateView"
+                candidate_token:
+                  type: ["string", "null"]
+                  minLength: 32
+                  maxLength: 512
+                  readOnly: true
+                  description: "仅匿名候选首次创建时返回一次；已登录候选可为 null。不得出现在查询、拒绝、日志或缓存响应中。"
+                service_agent:
+                  type: "null"
+                public_fallback:
+                  type: "null"
+            -
+              type: "object"
+              additionalProperties: false
+              required: ["candidate", "candidate_token", "service_agent", "public_fallback"]
+              properties:
+                candidate:
+                  type: "null"
+                candidate_token:
+                  type: "null"
+                service_agent:
+                  type: "object"
+                  additionalProperties: false
+                  required: ["agent_id", "display_name", "bound_at"]
+                  properties:
+                    agent_id:
+                      type: "string"
+                    display_name:
+                      type: "string"
+                    bound_at:
+                      type: "string"
+                      format: "date-time"
+                public_fallback:
+                  type: "null"
+            -
+              type: "object"
+              additionalProperties: false
+              required: ["candidate", "candidate_token", "service_agent", "public_fallback"]
+              properties:
+                candidate:
+                  type: "null"
+                candidate_token:
+                  type: "null"
+                service_agent:
+                  type: "null"
+                public_fallback:
+                  type: "object"
+                  additionalProperties: false
+                  required: ["attribution_eligible", "public_target_url"]
+                  properties:
+                    attribution_eligible:
+                      const: false
+                    public_target_url:
+                      type: "string"
+                      format: "uri"
+                      pattern: "^https://"
+                      maxLength: 500
         request_id:
           type: "string"
     AttributionCandidateQueryResponse:
@@ -13965,7 +14799,24 @@ components:
         customer_version:
           type: "integer"
           minimum: 1
-    AttributionBindingResponse:
+    StoreServiceAgentView:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "agent_id"
+        - "display_name"
+        - "bound_at"
+      properties:
+        agent_id:
+          type: "string"
+        display_name:
+          type: "string"
+          minLength: 1
+          maxLength: 120
+        bound_at:
+          type: "string"
+          format: "date-time"
+    StoreAttributionBindingResponse:
       type: "object"
       additionalProperties: false
       required:
@@ -13979,7 +14830,7 @@ components:
         message:
           const: "success"
         data:
-          "$ref": "#/components/schemas/AttributionBindingView"
+          "$ref": "#/components/schemas/StoreServiceAgentView"
         request_id:
           type: "string"
     ServiceAgentResponse:
@@ -13998,7 +14849,7 @@ components:
         data:
           oneOf:
             -
-              "$ref": "#/components/schemas/AttributionBindingView"
+              "$ref": "#/components/schemas/StoreServiceAgentView"
             -
               type: "null"
         request_id:

@@ -190,9 +190,17 @@
   ];
 
   const inviteAgents = {
-    "QX-A1038": { id: "AGT-01038", name: "清源生活馆", contact: "顾问 安然", phone: "138****3916", city: "广东·深圳", inviteCode: "QX-A1038", boundAt: "2026-07-18 14:26" },
-    "QX-A1026": { id: "AGT-01026", name: "清悦日用馆", contact: "顾问 陈悦", phone: "186****2077", city: "广东·珠海", inviteCode: "QX-A1026", boundAt: "" }
+    "QX-A1038": { agent_id: "AGT-01038", display_name: "清源生活馆", bound_at: "2026-07-18T06:26:00Z" },
+    "QX-A1026": { agent_id: "AGT-01026", display_name: "清悦日用馆", bound_at: null }
   };
+
+  const currentLegalSnapshot = [
+    { type: "USER_AGREEMENT", document_version: "current", title: "用户协议", content_url: "https://legal.qingxu.example/user-agreement/current", required: true },
+    { type: "PRIVACY_POLICY", document_version: "current", title: "隐私政策", content_url: "https://legal.qingxu.example/privacy-policy/current", required: true },
+    { type: "PHONE_AUTHORIZATION", document_version: "current", title: "手机号授权声明", content_url: "https://legal.qingxu.example/phone-authorization/current", required: true }
+  ];
+  const loginConsentTypes = new Set(["USER_AGREEMENT", "PRIVACY_POLICY"]);
+  const ulidPattern = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
   const screenMeta = {
     home: {
@@ -246,8 +254,8 @@
     profile: {
       canvasTitle: "我的 · 客户资产中心",
       title: "个人中心",
-      description: "订单状态为第一层入口，地址、收藏、客服等高频服务集中管理。",
-      interactions: ["订单捷径带状态计数", "服务代理归属清晰可见", "地址、收藏与客服快捷入口"]
+      description: "B7 只开放本人资料、服务代理和隐私入口；后续业务保持未开放状态。",
+      interactions: ["资料与会话入口", "服务代理归属清晰可见", "延期业务仅返回未开放反馈"]
     },
     "service-agent": {
       canvasTitle: "服务代理 · 归属与服务说明",
@@ -255,7 +263,7 @@
       description: "用户可以查看当前服务代理及绑定时间，价格、发货和售后仍由平台统一保障。",
       interactions: ["有效邀请链路登录后显式确认", "候选展示 30 分钟有效期", "绑定后不提供自助更换"]
     },
-    login: { canvasTitle: "登录 · 协议与来源确认", title: "登录与协议", description: "受保护动作前完成协议确认，登录后返回原操作并继续处理代理候选。", interactions: ["协议未勾选时阻止登录", "Mock 微信登录", "登录后返回原操作"] },
+    login: { canvasTitle: "登录 · 协议与来源确认", title: "登录与协议", description: "受保护动作前确认服务端当前协议快照，登录后返回原操作并继续处理代理候选。", interactions: ["用户协议与隐私政策 exact set", "微信凭证登录", "协议冲突刷新后重新确认"] },
     "payment-result": { canvasTitle: "支付结果 · 可恢复反馈", title: "支付结果", description: "成功、失败和取消均保留订单事实，并提供与状态一致的下一步。", interactions: ["失败或取消后重试", "成功后查看订单", "稍后支付保留待付款订单"] },
     "order-detail": { canvasTitle: "订单详情 · 四轴状态", title: "订单详情", description: "订单、支付、退款和履约分别表达，商品与地址使用下单快照。", interactions: ["待付款继续支付", "运输中查看物流", "符合资格的订单项申请售后"] },
     logistics: { canvasTitle: "物流详情 · 履约时间线", title: "物流详情", description: "承运商、运单号和人工物流节点形成可追踪时间线。", interactions: ["复制运单号", "查看运输节点", "返回订单详情"] },
@@ -263,9 +271,9 @@
     addresses: { canvasTitle: "地址 · 默认与选择", title: "收货地址", description: "支持新增、编辑、删除、设为默认，并从结算页选择后返回。", interactions: ["选择结算地址", "设为默认", "新增或编辑地址"] },
     "address-edit": { canvasTitle: "地址编辑 · 完整校验", title: "编辑地址", description: "姓名、手机号、省市区和详细地址均为结构化字段。", interactions: ["手机号格式校验", "保存后返回地址列表", "默认地址唯一"] },
     favorites: { canvasTitle: "收藏 · 商品当前状态", title: "商品收藏", description: "收藏列表展示商品当前售价与可售状态，可取消或进入详情。", interactions: ["取消收藏", "进入商品详情", "空状态返回首页"] },
-    account: { canvasTitle: "账户与隐私 · 权利入口", title: "账户与隐私", description: "集中进入手机号授权、隐私政策与账号删除流程。", interactions: ["查看手机号授权状态", "进入账号删除申请", "查看隐私政策"] },
-    "phone-authorization": { canvasTitle: "手机号授权 · 自愿且独立", title: "手机号授权", description: "账户手机号独立于收货地址，自愿授权后记录来源、验证时间和协议版本。", interactions: ["授权微信手机号", "查看验证来源和时间", "重新授权"] },
-    "account-deletion": { canvasTitle: "账号删除 · 资格与影响", title: "账号删除申请", description: "先检查未完成订单与售后，再二次确认撤销会话、结束绑定和资料去标识化。", interactions: ["检查删除资格", "查看保留范围", "二次确认提交"] },
+    account: { canvasTitle: "账户与隐私 · 权利入口", title: "账户与隐私", description: "只展示服务端最小资料，并集中处理资料、手机号、会话和账号注销。", interactions: ["乐观锁编辑资料", "管理手机号与隐私权利", "退出当前会话"] },
+    "phone-authorization": { canvasTitle: "手机号授权 · 自愿且独立", title: "手机号授权", description: "账户手机号独立于收货地址，自愿授权后只展示服务端脱敏值并允许撤回。", interactions: ["拉起微信手机号能力", "展示脱敏验证结果", "撤回当前授权"] },
+    "account-deletion": { canvasTitle: "账号注销 · 资格与影响", title: "账号注销", description: "先获取资格与影响预览，再二次确认并同步完成会话撤销和资料去标识化。", interactions: ["检查注销资格", "查看 blockers 与 impacts", "同步确认注销"] },
     "system-states": { canvasTitle: "状态样例 · 可恢复与可解释", title: "异常状态样例", description: "集中展示加载、网络错误、403、409 和操作成功的代表性状态。", interactions: ["错误重试", "冲突后刷新", "成功反馈"] }
   };
 
@@ -400,11 +408,26 @@
     quantity: 1,
     skuIntent: "cart",
     loggedIn: true,
+    profile: { nickname: "林青", avatar_url: null, city: "杭州", version: 3 },
+    profileConflictNext: false,
     consentAccepted: false,
+    legalDocuments: clone(currentLegalSnapshot),
+    acceptedConsents: [],
+    authProvider: null,
+    loginFailureNext: null,
+    loginError: null,
     verifiedPhone: null,
+    phoneMutation: { kind: null, status: "IDLE", expectedVersion: null, error: null },
+    phoneAuthorizationConsent: null,
+    phoneConflictNext: false,
+    phoneFailureNext: false,
     authReturn: null,
     pendingProtectedAction: null,
     inviteCandidate: null,
+    candidateDecisionError: null,
+    candidateMismatchNext: false,
+    candidateConcurrentWinner: null,
+    candidateDecisionStatus: "IDLE",
     agentBindingStatus: "bound",
     serviceAgent: { ...inviteAgents["QX-A1038"] },
     cartManaging: false,
@@ -435,8 +458,9 @@
     submittingAftersale: false,
     currentAfterSaleId: null,
     aftersales: [{ id: "AS202608030006", orderId: "QX202608030118", orderItemId: "OI-002", type: "退货退款", reason: "商品破损", quantity: 1, reservedAmount: 89, status: "REFUND_FAILED", trackingNo: "SFRET20260805", createdAt: "2026-08-05 11:20", updatedAt: "2026-08-06 14:08", failureReason: "支付渠道暂时不可用" }],
-    deletionEligible: false,
-    deletionRequested: false,
+    deletionCanProceed: false,
+    deletionEligibility: { checked: false, eligible: false, blockers: [], impacts: [], confirmation_expires_in_seconds: null, confirm_status: null, error_code: null },
+    accountDeleted: false,
     uiRecovered: false
   };
 
@@ -448,6 +472,9 @@
   let sheetCloseTimer;
 
   const money = value => `¥${Number(value).toFixed(value % 1 ? 2 : 0)}`;
+  const displayDateTime = value => value
+    ? new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Shanghai", hour12: false }).format(new Date(value))
+    : "";
 
   function statusBar(inverse = false) {
     return `
@@ -980,19 +1007,21 @@
 
   function renderProfile() {
     const agent = state.serviceAgent;
+    const profile = state.profile;
+    const nickname = profile.nickname || "微信用户";
+    const avatarLabel = nickname.trim().charAt(0) || "青";
     const agentCard = state.agentBindingStatus === "bound" ? `
-      <button class="service-agent-card" data-screen="service-agent"><span class="service-agent-card__mark">清</span><span class="service-agent-card__copy"><small>我的服务代理</small><strong>${agent.name}</strong><em>已绑定 · ${agent.city}</em></span><span class="service-agent-card__arrow">›</span></button>` : `
+      <button class="service-agent-card" data-screen="service-agent"><span class="service-agent-card__mark">清</span><span class="service-agent-card__copy"><small>我的服务代理</small><strong>${agent.display_name}</strong><em>绑定于 ${agent.bound_at}</em></span><span class="service-agent-card__arrow">›</span></button>` : `
       <button class="service-agent-card is-unbound" data-screen="service-agent"><span class="service-agent-card__mark">青</span><span class="service-agent-card__copy"><small>服务代理</small><strong>暂未绑定</strong><em>${state.inviteCandidate ? "登录后确认候选服务关系" : "从有效邀请入口登录后确认"}</em></span><span class="service-agent-card__arrow">›</span></button>`;
-    const pendingCount = state.orders.filter(order => order.displayStatus === "待付款").length;
     return `
       <section class="app-screen with-tabbar profile-page">
         <div class="screen-scroll">
-          <div class="profile-hero">${statusBar(true)}<div class="profile-tools"><button class="icon-button" data-action="message" aria-label="消息">◦</button><button class="icon-button" data-screen="account" aria-label="设置">⚙</button></div><div class="profile-user"><div class="avatar">青</div><div><h2>林青</h2><p>微信用户 · ${state.verifiedPhone ? `手机号已验证 ${state.verifiedPhone.phoneTail}` : "手机号未授权"}</p></div></div></div>
+          <div class="profile-hero">${statusBar(true)}<div class="profile-tools"><button class="icon-button" data-action="message" aria-label="消息">◦</button><button class="icon-button" data-screen="account" aria-label="设置">⚙</button></div><div class="profile-user"><div class="avatar">${avatarLabel}</div><div><h2>${nickname}</h2><p>${profile.city || "城市未设置"} · ${state.verifiedPhone?.phone_masked || "手机号未绑定"}</p></div></div></div>
           <div class="profile-body">
             ${agentCard}
-            <section class="profile-card"><div class="profile-card__head"><strong>我的订单</strong><button data-screen="orders">全部订单 ›</button></div><div class="order-shortcuts"><button data-order-shortcut="待付款">${pendingCount ? `<span class="notice-dot">${pendingCount}</span>` : ""}<i>◴</i><span>待付款</span></button><button data-order-shortcut="待发货"><i>▣</i><span>待发货</span></button><button data-order-shortcut="待收货"><i>♧</i><span>待收货</span></button><button data-order-shortcut="已完成"><i>✓</i><span>已完成</span></button><button data-action="open-latest-aftersale"><i>↺</i><span>退款/售后</span></button></div></section>
-            <section class="profile-card"><div class="profile-card__head"><strong>常用功能</strong></div><div class="benefit-row"><button data-screen="favorites"><strong>${state.favoriteProductIds.length}</strong><span>商品收藏</span></button><button data-screen="addresses"><strong>${state.addresses.length}</strong><span>收货地址</span></button><button data-action="service"><strong>◉</strong><span>联系商家</span></button></div></section>
-            <section class="profile-card menu-list"><button class="menu-item" data-screen="account"><i>○</i><span>账户与隐私</span><span>›</span></button><button class="menu-item" data-screen="addresses"><i>⌖</i><span>收货地址</span><span>›</span></button><button class="menu-item" data-action="service"><i>◉</i><span>联系商家</span><span>›</span></button><button class="menu-item" data-action="quality"><i>◇</i><span>正品与服务保障</span><span>›</span></button><button class="menu-item" data-screen="system-states"><i>!</i><span>异常状态样例</span><span>›</span></button></section>
+            <section class="profile-card"><div class="profile-card__head"><strong>我的订单</strong><button data-action="deferred-feature" data-feature="订单">全部订单 ›</button></div><div class="order-shortcuts"><button data-action="deferred-feature" data-feature="订单"><i>◴</i><span>待付款</span></button><button data-action="deferred-feature" data-feature="订单"><i>▣</i><span>待发货</span></button><button data-action="deferred-feature" data-feature="订单"><i>♧</i><span>待收货</span></button><button data-action="deferred-feature" data-feature="订单"><i>✓</i><span>已完成</span></button><button data-action="deferred-feature" data-feature="售后"><i>↺</i><span>退款/售后</span></button></div></section>
+            <section class="profile-card"><div class="profile-card__head"><strong>常用功能</strong></div><div class="benefit-row"><button data-action="deferred-feature" data-feature="收藏"><strong>♡</strong><span>商品收藏</span></button><button data-action="deferred-feature" data-feature="地址"><strong>⌖</strong><span>收货地址</span></button><button data-action="service"><strong>◉</strong><span>联系商家</span></button></div></section>
+            <section class="profile-card menu-list"><button class="menu-item" data-screen="account"><i>○</i><span>账户与隐私</span><span>›</span></button><button class="menu-item" data-action="deferred-feature" data-feature="地址"><i>⌖</i><span>收货地址</span><span>›</span></button><button class="menu-item" data-action="service"><i>◉</i><span>联系商家</span><span>›</span></button><button class="menu-item" data-action="quality"><i>◇</i><span>正品与服务保障</span><span>›</span></button><button class="menu-item" data-screen="system-states"><i>!</i><span>异常状态样例</span><span>›</span></button></section>
           </div>
         </div>
         ${tabbar("profile")}
@@ -1001,7 +1030,7 @@
 
   function candidateRemaining() {
     if (!state.inviteCandidate) return "";
-    const seconds = Math.max(0, Math.floor((state.inviteCandidate.expiresAt - Date.now()) / 1000));
+    const seconds = Math.max(0, Math.floor((Date.parse(state.inviteCandidate.expires_at) - Date.now()) / 1000));
     return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
   }
 
@@ -1011,7 +1040,7 @@
     return `
       <section class="app-screen service-agent-page">
         <div class="screen-scroll">${statusBar()}${header("服务代理")}<div class="service-agent-body">
-          ${isBound ? `<article class="service-agent-identity"><span class="service-agent-identity__mark">清</span><div><small>CURRENT SERVICE AGENT</small><h3>${agent.name}</h3><p>${agent.contact} · ${agent.city}</p></div><span class="binding-badge">已绑定</span></article><section class="agent-fact-card"><div><span>绑定时间</span><strong>${agent.boundAt}</strong></div><div><span>服务联系</span><strong>${agent.phone}</strong></div><div><span>服务编号</span><strong>${agent.id}</strong></div></section>` : `<article class="service-agent-empty"><span>青</span><h3>暂未绑定服务代理</h3><p>${state.inviteCandidate ? `候选代理 ${state.inviteCandidate.agent.name}，剩余 ${candidateRemaining()}。完成登录后可确认或拒绝。` : "从有效分享链接或邀请二维码进入，登录后将显示绑定确认。"}</p>${state.inviteCandidate && !state.loggedIn ? `<button class="primary-button" data-screen="login">登录并确认</button>` : state.inviteCandidate ? `<button class="primary-button" data-action="open-binding">查看绑定确认</button>` : ""}</article>`}
+          ${isBound ? `<article class="service-agent-identity"><span class="service-agent-identity__mark">清</span><div><small>CURRENT SERVICE AGENT</small><h3>${agent.display_name}</h3><p>平台认证服务代理</p></div><span class="binding-badge">已绑定</span></article><section class="agent-fact-card"><div><span>绑定时间</span><strong>${agent.bound_at}</strong></div></section>` : `<article class="service-agent-empty"><span>青</span><h3>暂未绑定服务代理</h3><p>${state.inviteCandidate ? `候选代理 ${state.inviteCandidate.display_name}，剩余 ${candidateRemaining()}。完成登录后可确认或拒绝。` : "从有效分享链接或邀请二维码进入，登录后将显示绑定确认。"}</p>${state.inviteCandidate && !state.loggedIn ? `<button class="primary-button" data-screen="login">登录并确认</button>` : state.inviteCandidate ? `<button class="primary-button" data-action="open-binding">查看绑定确认</button>` : ""}</article>`}
           <section class="agent-policy-card"><div class="agent-policy-card__head"><span>◇</span><div><strong>商城服务保障</strong><small>归属关系不改变您的购物权益</small></div></div><ul><li>商品价格、支付与发货由青序生活统一提供</li><li>退款与售后仍由平台客服统一受理</li><li>绑定后不可自助更换，异常情况请联系客服</li></ul></section>
           <section class="agent-help-card"><div><strong>需要帮助？</strong><p>对服务归属有疑问，平台客服会核实处理。</p></div><button class="secondary-button" data-action="service">联系平台客服</button></section>
         </div></div>
@@ -1019,10 +1048,12 @@
   }
 
   function renderLogin() {
-    const source = state.inviteCandidate ? `<div class="login-source"><span class="service-agent-card__mark">清</span><div><small>待确认服务代理 · 候选剩余 ${candidateRemaining()}</small><strong>${state.inviteCandidate.agent.name}</strong><p>登录后仍需由您明确确认，不会自动绑定。</p></div></div>` : "";
+    const source = state.inviteCandidate ? `<div class="login-source"><span class="service-agent-card__mark">清</span><div><small>待确认服务代理 · 候选剩余 ${candidateRemaining()}</small><strong>${state.inviteCandidate.display_name}</strong><p>登录后仍需由您明确确认，不会自动绑定。</p></div></div>` : "";
+    const legalDocuments = state.legalDocuments.filter(document => loginConsentTypes.has(document.type)).map(document => `<button type="button" data-action="open-legal-document" data-legal-type="${document.type}" data-legal-url="${document.content_url}"><span>《${document.title}》</span><small data-legal-version="${document.type}">版本 ${document.document_version}</small><i>›</i></button>`).join("");
+    const loginError = state.loginError ? `<div class="inline-alert is-error" data-login-status="${state.loginError.status}" data-error-code="${state.loginError.error_code}"${state.loginError.retry_after_seconds ? ` data-retry-after="${state.loginError.retry_after_seconds}"` : ""}><strong>${state.loginError.status === 429 ? "登录尝试过于频繁" : "暂时无法完成登录"}</strong><span>${state.loginError.status === 429 ? `${state.loginError.retry_after_seconds} 秒后可重试。` : "身份服务暂时不可用，请稍后重试。"}</span><button data-action="retry-login">重试</button></div>` : "";
     return `
       <section class="app-screen auth-page">
-        <div class="screen-scroll">${statusBar()}${header("微信登录")}<div class="auth-body"><div class="auth-brand"><span>青</span><h1>欢迎来到青序生活</h1><p>登录后可继续支付、订单、地址、收藏与售后操作。</p></div>${source}<button class="wechat-login" data-action="mock-login"><span>⌁</span>微信授权登录</button><button class="consent-row ${state.consentAccepted ? "is-checked" : ""}" data-action="toggle-consent"><i>✓</i><span>我已阅读并同意《用户协议》和《隐私政策》</span></button><div class="inline-alert"><strong>手机号不是登录必选项</strong><span>登录后可在账户与隐私中自愿授权微信手机号；不会从收货地址提取账户手机号。</span></div></div></div>
+        <div class="screen-scroll">${statusBar()}${header("微信登录")}<div class="auth-body"><div class="auth-brand"><span>青</span><h1>欢迎来到青序生活</h1><p>登录后可查看账户资料、确认或拒绝服务代理候选，并管理手机号与隐私权利。</p></div>${source}<section class="legal-snapshot" data-legal-snapshot="current"><strong>当前协议</strong>${legalDocuments}</section>${loginError}<button class="wechat-login" data-action="mock-login"><span>⌁</span>微信登录</button><button class="consent-row ${state.consentAccepted ? "is-checked" : ""}" data-action="toggle-consent"><i>✓</i><span>我已阅读并同意当前《用户协议》和《隐私政策》</span></button><div class="inline-alert"><strong>手机号不是登录必选项</strong><span>登录后可在账户与隐私中自愿授权账户手机号；不会从收货地址提取账户手机号。若协议版本更新，将刷新当前内容并要求重新确认。</span></div></div></div>
       </section>`;
   }
 
@@ -1045,18 +1076,27 @@
   }
 
   function renderAccount() {
+    const profile = state.profile;
+    const nickname = profile.nickname || "微信用户";
     return `
-      <section class="app-screen list-page"><div class="screen-scroll">${statusBar()}${header("账户与隐私")}<div class="account-stack"><section class="detail-card account-user"><div class="avatar">青</div><div><strong>林青</strong><p>微信账户 · CUSTOMER</p></div></section><section class="detail-card privacy-card account-link-card"><div class="card-title"><strong>账户资料</strong></div><button data-screen="phone-authorization">账户手机号 <span>${state.verifiedPhone ? `已验证 ${state.verifiedPhone.phoneTail}` : "未授权"} ›</span></button></section><section class="detail-card privacy-card"><div class="card-title"><strong>隐私权利</strong></div><button data-action="privacy-policy">查看隐私政策 <span>›</span></button><button data-screen="account-deletion">申请删除账号 <span>›</span></button></section>${state.deletionRequested ? `<div class="inline-alert is-success"><strong>删除申请已提交</strong><span>可进入账号删除页面查看处理说明。</span></div>` : ""}</div></div></section>`;
+      <section class="app-screen list-page"><div class="screen-scroll">${statusBar()}${header("账户与隐私")}<div class="account-stack"><section class="detail-card account-user"><div class="avatar">${nickname.trim().charAt(0) || "青"}</div><div><strong>${nickname}</strong><p>${profile.city || "城市未设置"} · 微信账户 · CUSTOMER</p></div></section><section class="detail-card privacy-card account-link-card"><div class="card-title"><strong>账户资料</strong></div><button data-action="edit-profile">编辑资料 <span>昵称、头像、城市 ›</span></button><button data-screen="phone-authorization">账户手机号 <span>${state.verifiedPhone?.phone_masked || "未绑定"} ›</span></button></section><section class="detail-card privacy-card session-card"><div class="card-title"><strong>当前会话</strong></div><button data-action="logout">退出当前账号 <span>›</span></button></section><section class="detail-card privacy-card"><div class="card-title"><strong>隐私权利</strong></div><button data-action="privacy-policy">查看隐私政策 <span>›</span></button><button data-screen="account-deletion">注销账号 <span>›</span></button></section></div></div></section>`;
   }
 
   function renderPhoneAuthorization() {
+    const phoneLegalDocument = state.legalDocuments.find(document => document.type === "PHONE_AUTHORIZATION");
+    const phoneSourceLabel = state.verifiedPhone?.phone_source === "MOCK" ? "开发态模拟验证" : "微信手机号验证";
     return `
-      <section class="app-screen list-page"><div class="screen-scroll">${statusBar()}${header("手机号授权")}<div class="account-stack"><section class="detail-card account-phone"><div class="card-title"><strong>账户手机号</strong><span>独立于收货地址</span></div>${state.verifiedPhone ? `<div class="verified-phone"><span>${state.verifiedPhone.full}</span><strong>已验证</strong></div><p>来源：微信手机号授权<br />验证时间：${state.verifiedPhone.verifiedAt}<br />协议版本：${state.verifiedPhone.consentVersion}</p><button class="secondary-button" data-action="authorize-phone">重新授权</button>` : `<div class="unverified-phone"><strong>未授权</strong><p>手机号为可选资料；不会从收货地址读取。代理端在未授权时显示“未绑定”。</p><button class="primary-button" data-action="authorize-phone">自愿授权微信手机号</button></div>`}</section><div class="inline-alert"><strong>用途与快照</strong><span>支付时仅保存当时账户手机号尾号；后续授权不会追溯补写历史订单。</span></div></div></div></section>`;
+      <section class="app-screen list-page"><div class="screen-scroll">${statusBar()}${header("手机号授权")}<div class="account-stack"><section class="detail-card account-phone"><div class="card-title"><strong>账户手机号</strong><span>独立于收货地址</span></div>${state.verifiedPhone ? `<div class="verified-phone"><span>${state.verifiedPhone.phone_masked}</span><strong>已验证</strong></div><p>来源：${phoneSourceLabel}<br />验证时间：${state.verifiedPhone.phone_verified_at}<br />授权声明：版本 ${phoneLegalDocument.document_version}</p><div class="phone-actions"><button class="secondary-button" data-action="authorize-phone">重新授权</button><button class="secondary-button is-danger" data-action="revoke-phone">撤回授权</button></div>` : `<div class="unverified-phone"><strong>未绑定</strong><p>手机号为可选资料；不会从收货地址读取，也不影响浏览、下单或支付。</p><button class="primary-button" data-action="authorize-phone">授权账户手机号</button></div>`}</section><section class="legal-snapshot" data-phone-legal-snapshot="current"><strong>授权前请阅读</strong><button type="button" data-action="open-legal-document" data-legal-type="PHONE_AUTHORIZATION" data-legal-url="${phoneLegalDocument.content_url}"><span>《${phoneLegalDocument.title}》</span><small data-legal-version="PHONE_AUTHORIZATION">版本 ${phoneLegalDocument.document_version}</small><i>›</i></button></section><div class="inline-alert"><strong>用途与快照</strong><span>页面只展示服务端返回的脱敏号码。撤回授权不修改历史订单中已保存的尾号快照。</span></div></div></div></section>`;
   }
 
   function renderAccountDeletion() {
+    const preview = state.deletionEligibility;
+    if (state.accountDeleted) return `<section class="app-screen list-page"><div class="screen-scroll">${statusBar()}${header("账号注销")}<section class="detail-card success-card"><span class="success-icon">✓</span><h3>账号已注销</h3><p>本地会话已经清除，账户资料已同步去标识化。</p><button class="primary-button" data-screen="login">返回登录</button></section></div></section>`;
+    const blockers = preview.blockers.map(item => `<div><span>${item.label}</span><strong>${item.count} 项</strong></div>`).join("");
+    const impacts = preview.impacts.map(item => `<p>${item}</p>`).join("");
+    const confirmFailure = preview.confirm_status === 422 ? ` data-confirm-status="422" data-error-code="${preview.error_code}"` : "";
     return `
-      <section class="app-screen list-page"><div class="screen-scroll">${statusBar()}${header("账号删除申请")}<div class="account-stack"><section class="detail-card"><div class="card-title"><strong>删除资格</strong><span>${state.deletionEligible ? "当前可申请" : "暂不可申请"}</span></div><div class="reservation-card"><div><span>未完成订单或售后</span><strong>${state.deletionEligible ? "0 项" : "存在待处理业务"}</strong></div><small>${state.deletionEligible ? "资格检查已通过，可提交删除申请。" : "需先完成或取消待付款、待发货、运输中订单及未结束售后。"}</small></div></section><section class="detail-card"><div class="card-title"><strong>提交后的影响</strong></div><div class="policy-copy"><p>撤销全部会话并停止登录。</p><p>结束当前代理绑定并去标识化个人资料。</p><p>交易与审计记录按外部合规配置保留。</p></div></section>${state.deletionRequested ? `<div class="inline-alert is-success"><strong>删除申请已提交</strong><span>系统将按合规流程处理，当前原型不执行真实删除。</span></div>` : `<button class="primary-button is-coral" data-action="request-deletion">申请删除账号</button>`}</div></div></section>`;
+      <section class="app-screen list-page"><div class="screen-scroll">${statusBar()}${header("账号注销")}<div class="account-stack"><section class="detail-card"><div class="card-title"><strong>注销资格预览</strong><span>${!preview.checked ? "尚未检查" : preview.eligible ? "可以注销" : "存在阻断项"}</span></div>${!preview.checked ? `<div class="reservation-card"><small>检查未完成订单、售后、支付退款和财务异常后返回 blockers 与 impacts。</small></div>` : preview.eligible ? `<div class="inline-alert is-success"><strong>资格检查已通过</strong><span>当前没有阻断项，请核对下方同步注销影响。</span></div>` : `<div class="reservation-card" data-preview-status="200" data-eligible="false"${confirmFailure}>${blockers}<small>请先完成或取消阻断业务，再重新检查资格。</small></div>`}</section>${preview.checked ? `<section class="detail-card"><div class="card-title"><strong>注销影响</strong><span>${preview.eligible ? `${preview.confirmation_expires_in_seconds / 60} 分钟内确认` : "仅供预览"}</span></div><div class="policy-copy">${impacts}</div></section>` : ""}${preview.checked && preview.eligible ? `<button class="primary-button is-coral" data-action="request-account-deletion">确认注销账号</button>` : `<button class="primary-button" data-action="preview-account-deletion">检查注销资格</button>`}${preview.checked && !preview.eligible ? `<button class="secondary-button" data-action="simulate-deletion-eligible">演示阻断业务已完成</button>` : ""}<div class="inline-alert"><strong>保留边界</strong><span>交易、退款、佣金、协议同意和审计事实仅按批准的合规策略保留，不能再通过当前资料关联原账户。</span></div></div></div></section>`;
   }
 
   function renderSystemStates() {
@@ -1180,13 +1220,133 @@
   }
 
   function agentBindingSheet() {
-    const agent = state.inviteCandidate?.agent || state.serviceAgent;
+    const agent = state.inviteCandidate || state.serviceAgent;
+    const pending = state.candidateDecisionStatus === "PENDING";
+    const decisionError = state.candidateDecisionError
+      ? `<div class="inline-alert is-error" data-binding-status="409" data-error-code="ATTRIBUTION_CANDIDATE_MISMATCH"><strong>候选信息已变更</strong><span>已刷新当前候选，请重新确认。</span></div>`
+      : "";
+    const target = state.inviteCandidate
+      ? `<div class="binding-target" data-public-target-url="${state.inviteCandidate.public_target_url}"><strong>本次来源</strong><span>青序生活公开商城</span></div>`
+      : "";
     return `
-      <div class="sheet-handle"></div><div class="binding-sheet"><span class="binding-sheet__mark">清</span><small>SERVICE INVITATION · 候选剩余 ${candidateRemaining()}</small><h3>确认服务代理</h3><p>您正在通过 <strong>${agent.name}</strong> 的邀请进入青序生活。确认后，该服务代理将为您提供选购咨询服务。</p><div class="binding-assurance"><span>✓</span><div><strong>购物权益不受影响</strong><small>商品价格、支付、发货与售后均由青序生活统一保障。</small></div></div><div class="binding-warning">候选仅保留 30 分钟；绑定后不可自行更换，如归属异常可联系平台客服。</div><div class="sheet-footer"><button class="secondary-button" data-action="decline-agent-binding">拒绝并清除</button><button class="primary-button" data-action="confirm-agent-binding">确认绑定</button></div></div>`;
+      <div class="sheet-handle"></div><div class="binding-sheet" data-binding-decision-status="${state.candidateDecisionStatus}"><span class="binding-sheet__mark">清</span><small>SERVICE INVITATION · 候选剩余 ${candidateRemaining()}</small><h3>确认服务代理</h3><p>您正在通过 <strong>${agent.display_name}</strong> 的邀请进入青序生活。确认后，该服务代理将为您提供选购咨询服务。</p>${target}${decisionError}<div class="binding-assurance"><span>✓</span><div><strong>购物权益不受影响</strong><small>商品价格、支付、发货与售后均由青序生活统一保障。</small></div></div><div class="binding-warning">候选仅保留 30 分钟；绑定后不可自行更换，如归属异常可联系平台客服。</div><div class="sheet-footer"><button class="secondary-button" data-action="decline-agent-binding" ${pending ? "disabled" : ""}>${pending ? "提交中…" : "拒绝并清除"}</button><button class="primary-button" data-action="confirm-agent-binding" ${pending ? "disabled" : ""}>${pending ? "提交中…" : "确认绑定"}</button></div></div>`;
+  }
+
+  function submitCandidateDecision(decision) {
+    if (state.candidateDecisionStatus === "PENDING") return;
+    state.candidateDecisionStatus = "PENDING";
+    state.candidateDecisionError = null;
+    bottomSheet.innerHTML = agentBindingSheet();
+    setTimeout(() => {
+      if (!state.inviteCandidate || Date.parse(state.inviteCandidate.expires_at) <= Date.now()) {
+        state.inviteCandidate = null;
+        state.serviceAgent = null;
+        state.candidateDecisionStatus = "IDLE";
+        state.agentBindingStatus = "unbound";
+        closeSheet();
+        render();
+        return showToast("服务候选已过期，按直营继续");
+      }
+      if (state.candidateMismatchNext) {
+        state.candidateMismatchNext = false;
+        state.candidateDecisionStatus = "ERROR";
+        state.candidateDecisionError = "ATTRIBUTION_CANDIDATE_MISMATCH";
+        bottomSheet.innerHTML = agentBindingSheet();
+        return showToast("候选信息已更新，请重新确认");
+      }
+      if (state.candidateConcurrentWinner) {
+        state.serviceAgent = { ...state.candidateConcurrentWinner };
+        state.candidateConcurrentWinner = null;
+        state.candidateDecisionStatus = "IDLE";
+        state.agentBindingStatus = "bound";
+        state.inviteCandidate = null;
+        closeSheet();
+        render();
+        return showToast(`已保留先完成的服务绑定：${state.serviceAgent.display_name}`);
+      }
+      if (decision === "REJECT") {
+        state.agentBindingStatus = "unbound";
+        state.inviteCandidate = null;
+        state.serviceAgent = null;
+        state.candidateDecisionStatus = "IDLE";
+        closeSheet();
+        render();
+        return showToast("已拒绝并清除服务候选");
+      }
+      state.serviceAgent = { agent_id: state.inviteCandidate.agent_id, display_name: state.inviteCandidate.display_name, bound_at: "2026-08-11T07:01:00Z" };
+      state.agentBindingStatus = "bound";
+      state.inviteCandidate = null;
+      state.candidateDecisionStatus = "IDLE";
+      closeSheet();
+      render();
+      return showToast(`已绑定服务代理：${state.serviceAgent.display_name}`);
+    }, 180);
   }
 
   function phoneSheet() {
-    return `<div class="sheet-handle"></div><div class="confirm-sheet"><span class="confirm-sheet__icon">○</span><h3>授权账户手机号</h3><p>微信将返回已验证手机号 <strong>138 5218 5218</strong>。该手机号独立于收货地址，可随时在隐私权利中处理。</p><div class="sheet-footer"><button class="secondary-button" data-action="close-sheet">暂不授权</button><button class="primary-button" data-action="confirm-phone">确认授权</button></div></div>`;
+    const mutation = state.phoneMutation;
+    const isRevoke = mutation.kind === "REVOKE";
+    const pending = mutation.status === "PENDING";
+    const phoneDocument = state.legalDocuments.find(document => document.type === "PHONE_AUTHORIZATION");
+    const consentCurrent = state.phoneAuthorizationConsent?.type === "PHONE_AUTHORIZATION"
+      && state.phoneAuthorizationConsent.document_version === phoneDocument.document_version
+      && state.phoneAuthorizationConsent.accepted === true;
+    const status = mutation.status === "ERROR" ? `<div class="inline-alert is-error"><strong>手机号操作失败</strong><span>已保留当前资料，可直接重试。</span></div>` : mutation.status === "CONFLICT" ? `<div class="inline-alert is-warning" data-phone-error-code="${mutation.error}"><strong>${mutation.error === "CONSENT_VERSION_MISMATCH" ? "授权声明已更新" : "资料已更新"}</strong><span>${mutation.error === "CONSENT_VERSION_MISMATCH" ? "请阅读最新版本并重新同意。" : "已刷新最新版本，请重新确认本次操作。"}</span></div>` : "";
+    const consent = isRevoke ? "" : `<button class="consent-row ${consentCurrent ? "is-checked" : ""}" data-action="toggle-phone-consent" data-consent-version="${phoneDocument.document_version}"><i>✓</i><span>我已阅读并同意当前《${phoneDocument.title}》</span></button>`;
+    return `<div class="sheet-handle"></div><div class="confirm-sheet phone-mutation-sheet" data-phone-status="${mutation.status}" data-if-match-version="${mutation.expectedVersion}"><span class="confirm-sheet__icon">○</span><h3>${isRevoke ? "撤回手机号授权" : state.verifiedPhone ? "重新授权账户手机号" : "授权账户手机号"}</h3><p>${isRevoke ? "撤回后当前资料不再提供账户手机号；历史订单尾号快照保持不变。" : "服务端按 development 配置验证当前账户手机号。页面只展示脱敏结果，且可随时撤回。"}</p>${status}${consent}<div class="sheet-footer"><button class="secondary-button" data-action="close-sheet">取消</button><button class="primary-button ${isRevoke ? "is-coral" : ""}" data-action="confirm-phone-mutation" ${pending || (!isRevoke && !consentCurrent) ? "disabled" : ""}>${pending ? "提交中…" : mutation.status === "ERROR" ? "重试" : mutation.status === "CONFLICT" ? "重新确认" : isRevoke ? "确认撤回" : "同意并授权"}</button></div></div>`;
+  }
+
+  function openPhoneMutation(kind) {
+    state.phoneMutation = { kind, status: "IDLE", expectedVersion: state.profile.version, error: null };
+    state.phoneAuthorizationConsent = null;
+    openSheet(phoneSheet());
+  }
+
+  function submitPhoneMutation() {
+    if (state.phoneMutation.status === "PENDING") return;
+    const phoneDocument = state.legalDocuments.find(document => document.type === "PHONE_AUTHORIZATION");
+    if (state.phoneMutation.kind !== "REVOKE" && (!state.phoneAuthorizationConsent || state.phoneAuthorizationConsent.document_version !== phoneDocument.document_version)) {
+      state.phoneAuthorizationConsent = null;
+      state.phoneMutation.status = "CONFLICT";
+      state.phoneMutation.error = "CONSENT_VERSION_MISMATCH";
+      bottomSheet.innerHTML = phoneSheet();
+      return showToast("授权声明已更新，请重新同意");
+    }
+    state.phoneMutation.status = "PENDING";
+    state.phoneMutation.error = null;
+    bottomSheet.innerHTML = phoneSheet();
+    setTimeout(() => {
+      if (state.phoneFailureNext) {
+        state.phoneFailureNext = false;
+        state.phoneMutation.status = "ERROR";
+        state.phoneMutation.error = "INTERNAL_ERROR";
+        bottomSheet.innerHTML = phoneSheet();
+        return showToast("手机号验证失败，当前资料未变更");
+      }
+      if (state.phoneConflictNext || state.phoneMutation.expectedVersion !== state.profile.version) {
+        state.phoneConflictNext = false;
+        state.profile.version += 1;
+        state.phoneMutation.status = "CONFLICT";
+        state.phoneMutation.expectedVersion = state.profile.version;
+        state.phoneMutation.error = "RESOURCE_VERSION_CONFLICT";
+        bottomSheet.innerHTML = phoneSheet();
+        return showToast("资料已更新，请重新确认");
+      }
+      if (state.phoneMutation.kind === "REVOKE") state.verifiedPhone = null;
+      else state.verifiedPhone = { phone_tail: "5218", phone_masked: "138 **** 5218", phone_source: "MOCK", phone_verified_at: "2026-08-11T07:06:00Z" };
+      state.profile.version += 1;
+      const completedKind = state.phoneMutation.kind;
+      state.phoneMutation = { kind: null, status: "IDLE", expectedVersion: null, error: null };
+      state.phoneAuthorizationConsent = null;
+      closeSheet();
+      render();
+      return showToast(completedKind === "REVOKE" ? "手机号授权已撤回" : "账户手机号已验证");
+    }, 180);
+  }
+
+  function profileSheet() {
+    const profile = state.profile;
+    return `<div class="sheet-handle"></div><form class="address-form profile-edit-form" id="profileForm" data-if-match-version="${profile.version}"><div class="card-title"><strong>编辑账户资料</strong><span>已同步最新资料</span></div><label><span>昵称</span><input name="nickname" value="${profile.nickname || ""}" maxlength="80" placeholder="微信用户" /></label><label><span>头像链接</span><input name="avatar_url" value="${profile.avatar_url || ""}" maxlength="500" inputmode="url" placeholder="https://" /></label><label><span>城市</span><input name="city" value="${profile.city || ""}" maxlength="120" placeholder="所在城市" /></label><div class="sheet-footer"><button type="button" class="secondary-button" data-action="close-sheet">取消</button><button class="primary-button" type="submit">保存资料</button></div></form>`;
   }
 
   function confirmSheet(title, copy, confirmAction, confirmText = "确认") {
@@ -1379,20 +1539,38 @@
     showToast("售后已取消，可退数量和金额已释放");
   }
 
+  function currentConsentsAccepted() {
+    const loginDocuments = state.legalDocuments.filter(document => loginConsentTypes.has(document.type));
+    return state.consentAccepted
+      && state.acceptedConsents.length === loginDocuments.length
+      && loginDocuments.every(document => state.acceptedConsents.some(consent => consent.type === document.type && consent.document_version === document.document_version && consent.accepted === true));
+  }
+
   function completeLogin() {
-    if (!state.consentAccepted) return showToast("请先同意用户协议和隐私政策");
+    if (!currentConsentsAccepted()) {
+      state.consentAccepted = false;
+      state.acceptedConsents = [];
+      render();
+      return showToast("协议已更新，请阅读当前版本后重新确认");
+    }
+    if (state.loginFailureNext) {
+      const failure = state.loginFailureNext;
+      state.loginFailureNext = null;
+      state.loginError = failure === "RATE_LIMITED"
+        ? { status: 429, error_code: "RATE_LIMITED", retry_after_seconds: 47 }
+        : { status: 500, error_code: "INTERNAL_ERROR", retry_after_seconds: null };
+      render();
+      return showToast(failure === "RATE_LIMITED" ? "登录尝试过于频繁" : "身份服务暂时不可用");
+    }
+    state.loginError = null;
     state.loggedIn = true;
+    state.authProvider = "MOCK";
     const destination = state.authReturn?.screen || "profile";
     const pendingAction = state.authReturn?.action;
     state.authReturn = null;
-    if (pendingAction?.type === "favorite") {
-      const exists = state.favoriteProductIds.includes(pendingAction.productId);
-      if (pendingAction.desired && !exists) state.favoriteProductIds.push(pendingAction.productId);
-      if (!pendingAction.desired && exists) state.favoriteProductIds = state.favoriteProductIds.filter(id => id !== pendingAction.productId);
-    }
     navigate(destination, false);
-    showToast("登录成功，已返回原操作");
-    if (state.inviteCandidate && state.inviteCandidate.expiresAt > Date.now() && state.agentBindingStatus !== "bound") {
+    showToast(pendingAction ? "登录成功，已返回原页面；原业务动作未执行" : "登录成功");
+    if (state.inviteCandidate && Date.parse(state.inviteCandidate.expires_at) > Date.now() && state.agentBindingStatus !== "bound") {
       state.agentBindingStatus = "pending";
       setTimeout(() => openSheet(agentBindingSheet()), 220);
     }
@@ -1498,14 +1676,42 @@
     if (action === "simulate-aftersale-review") { const record = state.aftersales.find(item => item.id === state.currentAfterSaleId); record.status = record.type === "退货退款" ? "WAITING_RETURN" : "REFUNDING"; record.updatedAt = "2026-08-11 15:20"; const order = state.orders.find(item => item.id === record.orderId); if (record.status === "REFUNDING" && order) order.refundStatus = "REFUNDING"; render(); return showToast(record.status === "WAITING_RETURN" ? "审核通过，请按退货地址寄回" : "审核通过，退款处理中"); }
     if (action === "submit-return-tracking") { const carrier = document.querySelector("#returnCarrier")?.value.trim(); const trackingNo = document.querySelector("#returnTracking")?.value.trim(); if (!carrier || !trackingNo) return showToast("请完整填写承运商和退货单号"); const record = state.aftersales.find(item => item.id === state.currentAfterSaleId); const order = state.orders.find(item => item.id === record.orderId); record.returnCarrier = carrier; record.trackingNo = trackingNo; record.status = "REFUNDING"; record.updatedAt = "2026-08-11 15:24"; if (order) order.refundStatus = "REFUNDING"; render(); return showToast("退货物流已提交，取消入口已关闭"); }
     if (action === "retry-refund") { const record = state.aftersales.find(item => item.id === state.currentAfterSaleId); const order = state.orders.find(item => item.id === record.orderId); record.status = "REFUNDING"; record.failureReason = ""; record.updatedAt = "2026-08-11 15:28"; if (order) order.refundStatus = "REFUNDING"; render(); return showToast("已重新发起退款，占用额度继续保留"); }
-    if (action === "toggle-consent") { state.consentAccepted = !state.consentAccepted; return render(); }
-    if (action === "mock-login") return completeLogin();
-    if (action === "open-binding") return openSheet(agentBindingSheet());
-    if (action === "confirm-agent-binding") {
-      if (!state.inviteCandidate || state.inviteCandidate.expiresAt <= Date.now()) { state.inviteCandidate = null; state.agentBindingStatus = "unbound"; closeSheet(); render(); return showToast("服务候选已过期，按直营继续"); }
-      state.serviceAgent = { ...state.inviteCandidate.agent, boundAt: "2026-08-11 15:01" }; state.agentBindingStatus = "bound"; state.inviteCandidate = null; closeSheet(); render(); return showToast(`已绑定服务代理：${state.serviceAgent.name}`);
+    if (action === "toggle-consent") {
+      state.consentAccepted = !state.consentAccepted;
+      state.acceptedConsents = state.consentAccepted
+        ? state.legalDocuments.filter(document => loginConsentTypes.has(document.type)).map(document => ({ type: document.type, document_version: document.document_version, accepted: true }))
+        : [];
+      return render();
     }
-    if (action === "decline-agent-binding") { state.agentBindingStatus = "unbound"; state.inviteCandidate = null; closeSheet(); render(); return showToast("已拒绝并清除服务候选"); }
+    if (action === "open-legal-document") {
+      const document = state.legalDocuments.find(item => item.type === target.dataset.legalType);
+      return showToast(document ? `已打开${document.title}当前版本` : "协议已更新，请刷新后重试");
+    }
+    if (action === "mock-login") return completeLogin();
+    if (action === "retry-login") { state.loginError = null; render(); return; }
+    if (action === "toggle-phone-consent") {
+      const phoneDocument = state.legalDocuments.find(document => document.type === "PHONE_AUTHORIZATION");
+      state.phoneAuthorizationConsent = state.phoneAuthorizationConsent
+        ? null
+        : { type: "PHONE_AUTHORIZATION", document_version: phoneDocument.document_version, accepted: true };
+      bottomSheet.innerHTML = phoneSheet();
+      return;
+    }
+    if (action === "edit-profile") return openSheet(profileSheet());
+    if (action === "logout") return openSheet(confirmSheet("退出当前账号", "退出后仅撤销当前会话；其他设备会话和账户资料保持不变。", "confirm-logout", "确认退出"));
+    if (action === "confirm-logout") {
+      state.loggedIn = false;
+      state.authProvider = null;
+      state.authReturn = null;
+      state.screen = "login";
+      closeSheet();
+      render();
+      return showToast("当前会话已退出");
+    }
+    if (action === "deferred-feature") return showToast(`${target.dataset.feature || "此功能"}将在后续阶段开放`);
+    if (action === "open-binding") return openSheet(agentBindingSheet());
+    if (action === "confirm-agent-binding") return submitCandidateDecision("CONFIRM");
+    if (action === "decline-agent-binding") return submitCandidateDecision("REJECT");
     if (action === "choose-address") { state.addressReturnScreen = "checkout"; return navigate("addresses"); }
     if (action === "new-address") { state.editingAddressId = null; return navigate("address-edit"); }
     if (action === "toggle-address-default") { target.classList.toggle("is-on"); return; }
@@ -1515,14 +1721,43 @@
       if (state.currentAddressId === deletingId) state.currentAddressId = state.addresses[0]?.id || null;
       closeSheet(); render(); return showToast("地址已删除");
     }
-    if (action === "authorize-phone") return openSheet(phoneSheet());
-    if (action === "confirm-phone") { state.verifiedPhone = { full: "13852185218", phoneTail: "5218", source: "WECHAT_GET_PHONE_NUMBER", verifiedAt: "2026-08-11 15:06", consentVersion: "privacy-v1.1" }; closeSheet(); render(); return showToast("账户手机号已验证"); }
-    if (action === "request-deletion") {
-      if (!state.deletionEligible) return openSheet(confirmSheet("暂不受理账号删除", "当前存在待付款、待发货、运输中订单或未完成售后。完成或取消后可再次申请。", "simulate-deletion-eligible", "演示业务已完成"));
-      return openSheet(confirmSheet("确认申请删除账号", "提交后撤销会话、结束代理绑定并去标识化资料；交易与审计记录按合规配置保留。", "confirm-account-deletion", "提交申请"));
+    if (action === "authorize-phone") return openPhoneMutation(state.verifiedPhone ? "REAUTHORIZE" : "AUTHORIZE");
+    if (action === "revoke-phone") return openPhoneMutation("REVOKE");
+    if (action === "confirm-phone-mutation") return submitPhoneMutation();
+    if (action === "preview-account-deletion") {
+      state.deletionEligibility = state.deletionCanProceed
+        ? { checked: true, eligible: true, blockers: [], impacts: ["立即撤销全部会话与刷新凭据。", "结束当前服务代理绑定并清除候选。", "去标识化账户资料，删除手机号授权、地址、收藏与购物车项。"], confirmation_expires_in_seconds: 300, confirm_status: null, error_code: null }
+        : { checked: true, eligible: false, blockers: [{ resource_type: "ORDER", label: "未完成订单", count: 1 }, { resource_type: "AFTERSALE", label: "未完成售后", count: 1 }, { resource_type: "PAYMENT", label: "未结清支付", count: 1 }, { resource_type: "REFUND", label: "处理中退款", count: 1 }, { resource_type: "FINANCIAL_ANOMALY", label: "财务异常", count: 1 }], impacts: ["资格通过后将立即撤销全部会话。", "当前服务代理绑定、候选和个人资料将同步清理。"], confirmation_expires_in_seconds: null, confirm_status: null, error_code: null };
+      render();
+      return showToast(state.deletionCanProceed ? "资格预览已更新" : "存在未完成业务，暂不能注销");
     }
-    if (action === "simulate-deletion-eligible") { state.deletionEligible = true; closeSheet(); render(); return showToast("已切换为可申请删除的演示状态"); }
-    if (action === "confirm-account-deletion") { state.deletionRequested = true; closeSheet(); render(); return showToast("账号删除申请已提交"); }
+    if (action === "simulate-deletion-eligible") { state.deletionCanProceed = true; state.deletionEligibility = { checked: false, eligible: false, blockers: [], impacts: [], confirmation_expires_in_seconds: null, confirm_status: null, error_code: null }; render(); return showToast("阻断业务已完成，请重新检查资格"); }
+    if (action === "request-account-deletion") return openSheet(confirmSheet("确认注销账号", "确认后将在本次请求中同步撤销会话、结束服务代理绑定并去标识化资料。此操作不可撤销。", "confirm-account-deletion", "同步注销"));
+    if (action === "confirm-account-deletion") {
+      if (!state.deletionCanProceed) {
+        state.deletionEligibility = { checked: true, eligible: false, blockers: [{ resource_type: "PAYMENT", label: "新出现的未结清支付", count: 1 }], impacts: ["资格重新通过后将同步撤销会话、结束绑定并去标识化资料。"], confirmation_expires_in_seconds: null, confirm_status: 422, error_code: "ACCOUNT_DELETION_BLOCKED" };
+        closeSheet();
+        render();
+        return showToast("账户状态已变化，请处理阻断项后重新预览");
+      }
+      state.accountDeleted = true;
+      state.loggedIn = false;
+      state.authProvider = null;
+      state.consentAccepted = false;
+      state.acceptedConsents = [];
+      state.verifiedPhone = null;
+      state.agentBindingStatus = "unbound";
+      state.serviceAgent = null;
+      state.inviteCandidate = null;
+      state.addresses = [];
+      state.favoriteProductIds = [];
+      state.cart = [];
+      state.authReturn = null;
+      state.screen = "login";
+      closeSheet();
+      render();
+      return showToast("账号已注销，本地会话已清除");
+    }
     if (action === "recover-ui") { state.uiRecovered = true; render(); return showToast("网络已恢复，原上下文仍保留"); }
     if (action === "refresh-conflict") return showToast("已刷新最新价格和库存，请重新确认");
     if (action === "retry-home-section") { state.homeSectionStatus[target.dataset.homeSection] = "READY"; render(); return showToast("该区块已恢复"); }
@@ -1564,6 +1799,30 @@
       navigate("addresses");
       return showToast("地址已保存");
     }
+    if (event.target.id === "profileForm") {
+      const data = new FormData(event.target);
+      const nickname = String(data.get("nickname") || "").trim();
+      const avatarUrl = String(data.get("avatar_url") || "").trim();
+      const city = String(data.get("city") || "").trim();
+      if (avatarUrl && !/^https:\/\//.test(avatarUrl)) return showToast("头像链接必须使用 HTTPS");
+      const expectedVersion = Number(event.target.dataset.ifMatchVersion);
+      if (state.profileConflictNext || expectedVersion !== state.profile.version) {
+        state.profileConflictNext = false;
+        state.profile.version += 1;
+        closeSheet();
+        render();
+        return showToast("资料已更新，已刷新最新内容，请重新确认");
+      }
+      state.profile = {
+        nickname: nickname || null,
+        avatar_url: avatarUrl || null,
+        city: city || null,
+        version: state.profile.version + 1
+      };
+      closeSheet();
+      render();
+      return showToast("账户资料已保存");
+    }
   });
 
   document.addEventListener("input", event => {
@@ -1583,21 +1842,21 @@
   const requestedScreen = prototypeParams.get("screen");
   const requestedDevice = Number(prototypeParams.get("device"));
   const inviteCode = prototypeParams.get("invite");
+  const promotionAssetId = prototypeParams.get("promotion") || "01ARZ3NDEKTSV4RRFFQ69G5FAV";
   const requestedBinding = prototypeParams.get("binding");
   const requestedAuth = prototypeParams.get("auth");
   const requestedAfterSale = prototypeParams.get("aftersale");
   const requestedHomeState = prototypeParams.get("home");
   let inviteNotice = "";
   if (requestedAuth === "guest") state.loggedIn = false;
-  if (requestedBinding === "unbound") state.agentBindingStatus = "unbound";
+  if (requestedBinding === "unbound") { state.agentBindingStatus = "unbound"; state.serviceAgent = null; }
   if (inviteCode) {
     const invitedAgent = inviteAgents[inviteCode];
-    if (!invitedAgent) inviteNotice = "邀请码无效或已失效，未覆盖已有服务候选";
+    if (!invitedAgent || !ulidPattern.test(promotionAssetId)) inviteNotice = "邀请信息无效或已失效，未覆盖已有服务候选";
     else if (state.agentBindingStatus === "unbound") {
-      state.serviceAgent = { ...invitedAgent };
-      state.inviteCandidate = { code: inviteCode, agent: { ...invitedAgent }, expiresAt: Date.now() + 30 * 60 * 1000 };
+      state.inviteCandidate = { candidate_id: "01ARZ3NDEKTSV4RRFFQ69G5FAW", agent_id: invitedAgent.agent_id, display_name: invitedAgent.display_name, confirmation_required: true, attribution_eligible: true, public_target_url: "https://mall.qingxu.example/", expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(), remaining_seconds: 1800 };
       state.agentBindingStatus = state.loggedIn ? "pending" : "candidate";
-    } else inviteNotice = `您已绑定 ${state.serviceAgent.name}，本次邀请不改变归属`;
+    } else inviteNotice = `您已绑定 ${state.serviceAgent.display_name}，本次邀请不改变归属`;
   }
   if (requestedAfterSale === "failed") state.currentAfterSaleId = "AS202608030006";
   if (requestedHomeState === "partial") state.homeSectionStatus.categories = "UNAVAILABLE";
@@ -1612,7 +1871,21 @@
     document.querySelector("#deviceLabel").textContent = `${requestedDevice} × 812`;
   }
 
-  window.__MINIAPP_PROTOTYPE__ = { getState: () => clone(state), products: clone(products) };
+  window.__MINIAPP_PROTOTYPE__ = {
+    getState: () => clone(state),
+    products: clone(products),
+    simulateLegalRevision: () => {
+      state.legalDocuments = state.legalDocuments.map(document => ({ ...document, document_version: `${document.document_version}-next` }));
+    },
+    simulateDeletionBlocker: () => { state.deletionCanProceed = false; },
+    simulateProfileConflict: () => { state.profileConflictNext = true; },
+    simulateLoginFailure: failure => { state.loginFailureNext = failure; },
+    simulatePhoneConflict: () => { state.phoneConflictNext = true; },
+    simulatePhoneFailure: () => { state.phoneFailureNext = true; },
+    simulateCandidateMismatch: () => { state.candidateMismatchNext = true; },
+    simulateCandidateExpired: () => { if (state.inviteCandidate) state.inviteCandidate.expires_at = new Date(Date.now() - 1000).toISOString(); },
+    simulateCandidateConcurrentWinner: () => { state.candidateConcurrentWinner = { ...inviteAgents["QX-A1038"] }; }
+  };
   render();
   if (state.agentBindingStatus === "pending") setTimeout(() => openSheet(agentBindingSheet()), 120);
   else if (inviteNotice) setTimeout(() => showToast(inviteNotice), 120);

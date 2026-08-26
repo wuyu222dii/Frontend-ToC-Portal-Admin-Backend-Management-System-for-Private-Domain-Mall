@@ -10,8 +10,8 @@ async function expectNoHorizontalOverflow(page: import('@playwright/test').Page)
 
 test('all B0 application shells and health endpoints are reachable', async ({ page, request }) => {
   await page.goto('http://127.0.0.1:5173');
-  await expect(page.getByText('青序生活商城')).toBeVisible();
-  await expect(page.getByText('工程环境已就绪')).toBeVisible();
+  await expect(page.getByText('青序生活', { exact: true })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: '商城主导航' })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
   await page.goto('http://127.0.0.1:5174');

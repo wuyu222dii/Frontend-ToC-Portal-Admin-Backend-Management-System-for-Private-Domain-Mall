@@ -1,3 +1,8 @@
+import { Buffer } from 'node:buffer';
+import console from 'node:console';
+import process from 'node:process';
+import { URL } from 'node:url';
+
 import { readConnection } from "../db/lib/connection.mjs";
 
 const required = [
@@ -29,6 +34,22 @@ const required = [
   "AUTH_ACCESS_TOKEN_TTL_SECONDS",
   "AUTH_PREAUTH_TOKEN_TTL_SECONDS",
   "AUTH_SESSION_TTL_SECONDS",
+  "STORE_AUTH_TOKEN_AUDIENCE",
+  "STORE_IDENTITY_PROVIDER",
+  "STORE_PHONE_PROVIDER",
+  "STORE_USER_AGREEMENT_VERSION",
+  "STORE_USER_AGREEMENT_TITLE",
+  "STORE_USER_AGREEMENT_URL",
+  "STORE_PRIVACY_POLICY_VERSION",
+  "STORE_PRIVACY_POLICY_TITLE",
+  "STORE_PRIVACY_POLICY_URL",
+  "STORE_PHONE_AUTHORIZATION_VERSION",
+  "STORE_PHONE_AUTHORIZATION_TITLE",
+  "STORE_PHONE_AUTHORIZATION_URL",
+  "STORE_LEGAL_RATE_LIMIT_MAX",
+  "STORE_LEGAL_RATE_LIMIT_WINDOW_SECONDS",
+  "STORE_LOGIN_RATE_LIMIT_MAX",
+  "STORE_LOGIN_RATE_LIMIT_WINDOW_SECONDS",
   "WORKER_POLL_INTERVAL_MS",
   "WORKER_BATCH_SIZE",
   "WORKER_MAX_RETRIES",
@@ -257,8 +278,50 @@ try {
   for (const [name, value] of [
     ["AUTH_TOKEN_ISSUER", process.env.AUTH_TOKEN_ISSUER],
     ["AUTH_TOKEN_AUDIENCE", process.env.AUTH_TOKEN_AUDIENCE],
+    ["STORE_AUTH_TOKEN_AUDIENCE", process.env.STORE_AUTH_TOKEN_AUDIENCE],
   ]) {
     if (!/^[A-Za-z0-9._:/-]{3,120}$/.test(value)) throw new Error(`${name} has an invalid format`);
+  }
+  if (process.env.STORE_AUTH_TOKEN_AUDIENCE !== "qingxu-store" ||
+      process.env.STORE_AUTH_TOKEN_AUDIENCE === process.env.AUTH_TOKEN_AUDIENCE) {
+    throw new Error("STORE_AUTH_TOKEN_AUDIENCE must be qingxu-store and differ from AUTH_TOKEN_AUDIENCE");
+  }
+  for (const name of ["STORE_IDENTITY_PROVIDER", "STORE_PHONE_PROVIDER"]) {
+    const value = process.env[name];
+    if (value !== "MOCK" && value !== "WECHAT") throw new Error(`${name} must be MOCK or WECHAT`);
+    if (process.env.NODE_ENV === "production" && value === "MOCK") {
+      throw new Error(`${name}=MOCK is forbidden in production`);
+    }
+  }
+  if (process.env.STORE_IDENTITY_PROVIDER === "WECHAT" || process.env.STORE_PHONE_PROVIDER === "WECHAT") {
+    const appId = process.env.STORE_WECHAT_APP_ID?.trim() ?? "";
+    const appSecret = process.env.STORE_WECHAT_APP_SECRET?.trim() ?? "";
+    if (appId.length < 1 || appId.length > 128 || appSecret.length < 16 || appSecret.length > 256) {
+      throw new Error("WECHAT Store providers require bounded STORE_WECHAT_APP_ID and STORE_WECHAT_APP_SECRET");
+    }
+  }
+  for (const prefix of ["USER_AGREEMENT", "PRIVACY_POLICY", "PHONE_AUTHORIZATION"]) {
+    const version = process.env[`STORE_${prefix}_VERSION`];
+    const title = process.env[`STORE_${prefix}_TITLE`];
+    if (version.length < 1 || version.length > 80 || title.length < 1 || title.length > 120) {
+      throw new Error(`STORE_${prefix} version or title is outside the CH-016 bounds`);
+    }
+    const documentUrl = parseUrl(`STORE_${prefix}_URL`, ["https:"]);
+    if (!documentUrl.hostname || documentUrl.username || documentUrl.password ||
+        process.env[`STORE_${prefix}_URL`].length > 500) {
+      throw new Error(`STORE_${prefix}_URL must be a credential-free HTTPS URL of at most 500 characters`);
+    }
+  }
+  const fixedStoreLimits = [
+    ["STORE_LEGAL_RATE_LIMIT_MAX", 120],
+    ["STORE_LEGAL_RATE_LIMIT_WINDOW_SECONDS", 60],
+    ["STORE_LOGIN_RATE_LIMIT_MAX", 10],
+    ["STORE_LOGIN_RATE_LIMIT_WINDOW_SECONDS", 900],
+  ];
+  for (const [name, expected] of fixedStoreLimits) {
+    if (readBoundedInteger(name, 1, 86_400) !== expected) {
+      throw new Error(`${name} must equal the CH-016 fixed value ${expected}`);
+    }
   }
   for (const [name, minimum, maximum] of [
     ["AUTH_ACCESS_TOKEN_TTL_SECONDS", 300, 3_600],

@@ -25,6 +25,7 @@ const occurredAt = new Date('2026-08-25T05:00:00.000Z');
 function config(): PlatformRuntimeConfig {
   return {
     authentication: {} as PlatformRuntimeConfig['authentication'],
+    store: {} as PlatformRuntimeConfig['store'],
     banner: { targetOrigins: [] },
     database: {} as PlatformRuntimeConfig['database'],
     encryption: {

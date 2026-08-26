@@ -115,6 +115,33 @@ export function signAccessToken(
   now: Date = new Date(),
 ): { expiresAt: Date; token: string } {
   assertLifetime(lifetimeSeconds);
+  if (principal.role !== 'SUPER_ADMIN' || principal.assurance !== 'MFA' ||
+    principal.restriction !== 'NONE') {
+    throw new TypeError('Administrator access token principal is invalid');
+  }
+  return signScopedAccessToken(configuration, principal, lifetimeSeconds, now);
+}
+
+export function signStoreAccessToken(
+  configuration: AuthTokenConfiguration,
+  principal: RbacPrincipal & { tokenId: string },
+  lifetimeSeconds: number,
+  now: Date = new Date(),
+): { expiresAt: Date; token: string } {
+  assertLifetime(lifetimeSeconds);
+  if (principal.role !== 'CUSTOMER' || principal.assurance !== 'WECHAT' ||
+    principal.restriction !== 'NONE' || principal.permissions.length !== 0) {
+    throw new TypeError('Store access token principal is invalid');
+  }
+  return signScopedAccessToken(configuration, principal, lifetimeSeconds, now);
+}
+
+function signScopedAccessToken(
+  configuration: AuthTokenConfiguration,
+  principal: RbacPrincipal & { tokenId: string },
+  lifetimeSeconds: number,
+  now: Date,
+): { expiresAt: Date; token: string } {
   if (!(now instanceof Date) || !Number.isFinite(now.getTime())) {
     throw new TypeError('Authentication token clock is invalid');
   }
@@ -210,5 +237,27 @@ export function verifyAccessToken(
     assurance: 'MFA',
     restriction: 'NONE',
     permissions: payload.permissions,
+  };
+}
+
+export function verifyStoreAccessToken(
+  configuration: AuthTokenConfiguration,
+  token: string,
+): VerifiedAccessClaims {
+  const payload = verifyJwt(configuration, token);
+  const base = baseClaims(payload);
+  if (payload.token_use !== 'access' || typeof payload.sid !== 'string' ||
+    payload.role !== 'CUSTOMER' || payload.assurance !== 'WECHAT' || payload.restriction !== 'NONE' ||
+    !Array.isArray(payload.permissions) || payload.permissions.length !== 0) {
+    throw new TypeError('Store access token claims are invalid');
+  }
+  return {
+    ...base,
+    accountId: base.accountId,
+    sessionId: payload.sid,
+    role: 'CUSTOMER',
+    assurance: 'WECHAT',
+    restriction: 'NONE',
+    permissions: [],
   };
 }

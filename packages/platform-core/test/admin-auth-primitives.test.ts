@@ -10,8 +10,10 @@ import {
   hashPassword,
   hmacAuthenticationSecret,
   signAccessToken,
+  signStoreAccessToken,
   signPreAuthToken,
   verifyAccessToken,
+  verifyStoreAccessToken,
   verifyPasswordHash,
   verifyPreAuthToken,
   verifyTotpCode,
@@ -95,5 +97,54 @@ describe('administrator authentication primitives', () => {
       nextAction: 'ENROLL_TOTP',
       tokenId: '01J00000000000000000000002',
     }, 300)).toThrow('Pre-authentication token state is invalid');
+  });
+
+  it('keeps administrator and Store access tokens isolated by audience, role and assurance', () => {
+    const storeConfiguration: AuthTokenConfiguration = { ...configuration, audience: 'qingxu-store' };
+    const storeAccess = signStoreAccessToken(storeConfiguration, {
+      accountId: '01J00000000000000000000000',
+      sessionId: '01J00000000000000000000002',
+      role: 'CUSTOMER',
+      permissions: [],
+      assurance: 'WECHAT',
+      restriction: 'NONE',
+      tokenId: 'access:01J00000000000000000000003',
+    }, 900);
+    expect(verifyStoreAccessToken(storeConfiguration, storeAccess.token)).toMatchObject({
+      assurance: 'WECHAT',
+      permissions: [],
+      role: 'CUSTOMER',
+    });
+    expect(() => signAccessToken(storeConfiguration, {
+      accountId: '01J00000000000000000000000',
+      sessionId: '01J00000000000000000000002',
+      role: 'CUSTOMER',
+      permissions: [],
+      assurance: 'WECHAT',
+      restriction: 'NONE',
+      tokenId: 'access:01J00000000000000000000003',
+    }, 900)).toThrow('Administrator access token principal is invalid');
+    expect(() => verifyAccessToken(storeConfiguration, storeAccess.token)).toThrow();
+    expect(() => verifyStoreAccessToken(configuration, storeAccess.token)).toThrow();
+
+    const adminAccess = signAccessToken(configuration, {
+      accountId: '01J00000000000000000000000',
+      sessionId: '01J00000000000000000000002',
+      role: 'SUPER_ADMIN',
+      permissions: [],
+      assurance: 'MFA',
+      restriction: 'NONE',
+      tokenId: 'access:01J00000000000000000000004',
+    }, 900);
+    expect(() => verifyStoreAccessToken(configuration, adminAccess.token)).toThrow();
+    expect(() => signStoreAccessToken(configuration, {
+      accountId: '01J00000000000000000000000',
+      sessionId: '01J00000000000000000000002',
+      role: 'SUPER_ADMIN',
+      permissions: [],
+      assurance: 'MFA',
+      restriction: 'NONE',
+      tokenId: 'access:01J00000000000000000000004',
+    }, 900)).toThrow('Store access token principal is invalid');
   });
 });

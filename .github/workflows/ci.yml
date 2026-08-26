@@ -121,6 +121,23 @@ jobs:
           echo 'AUTH_PREVIOUS_SECRET_HASH_KEYS_JSON=[]' >> "$GITHUB_ENV"
           echo 'AUTH_TOKEN_ISSUER=qingxu-api-ci' >> "$GITHUB_ENV"
           echo 'AUTH_TOKEN_AUDIENCE=qingxu-admin-ci' >> "$GITHUB_ENV"
+          echo 'STORE_AUTH_TOKEN_AUDIENCE=qingxu-store' >> "$GITHUB_ENV"
+          echo 'STORE_IDENTITY_PROVIDER=MOCK' >> "$GITHUB_ENV"
+          echo 'STORE_PHONE_PROVIDER=MOCK' >> "$GITHUB_ENV"
+          echo 'STORE_WECHAT_APP_ID=qingxu-mock-store-ci' >> "$GITHUB_ENV"
+          echo 'STORE_USER_AGREEMENT_VERSION=ci-user-v1' >> "$GITHUB_ENV"
+          echo 'STORE_USER_AGREEMENT_TITLE=CI User Agreement' >> "$GITHUB_ENV"
+          echo 'STORE_USER_AGREEMENT_URL=https://example.invalid/legal/user-agreement' >> "$GITHUB_ENV"
+          echo 'STORE_PRIVACY_POLICY_VERSION=ci-privacy-v1' >> "$GITHUB_ENV"
+          echo 'STORE_PRIVACY_POLICY_TITLE=CI Privacy Policy' >> "$GITHUB_ENV"
+          echo 'STORE_PRIVACY_POLICY_URL=https://example.invalid/legal/privacy-policy' >> "$GITHUB_ENV"
+          echo 'STORE_PHONE_AUTHORIZATION_VERSION=ci-phone-v1' >> "$GITHUB_ENV"
+          echo 'STORE_PHONE_AUTHORIZATION_TITLE=CI Phone Authorization Notice' >> "$GITHUB_ENV"
+          echo 'STORE_PHONE_AUTHORIZATION_URL=https://example.invalid/legal/phone-authorization' >> "$GITHUB_ENV"
+          echo 'STORE_LEGAL_RATE_LIMIT_MAX=120' >> "$GITHUB_ENV"
+          echo 'STORE_LEGAL_RATE_LIMIT_WINDOW_SECONDS=60' >> "$GITHUB_ENV"
+          echo 'STORE_LOGIN_RATE_LIMIT_MAX=10' >> "$GITHUB_ENV"
+          echo 'STORE_LOGIN_RATE_LIMIT_WINDOW_SECONDS=900' >> "$GITHUB_ENV"
 
       - name: Validate environment contract
         run: pnpm config:check
@@ -233,6 +250,11 @@ jobs:
         env:
           B6_STORE_CATALOG_DATABASE_TEST_MODE: full
         run: pnpm db:test-b6-store-catalog
+
+      - name: Test B7 Store authentication with PostgreSQL
+        env:
+          B7_STORE_AUTH_DATABASE_TEST_MODE: full
+        run: pnpm db:test-b7-store-auth
 
       - name: Verify Prisma migration drift
         run: pnpm db:diff

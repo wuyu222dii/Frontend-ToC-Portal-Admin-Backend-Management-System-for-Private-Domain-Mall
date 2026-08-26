@@ -1,6 +1,6 @@
 # 青序生活三端私域商城
 
-本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。当前开发按 `B0` 至 `B19` 小批次推进；B0 至 B6 已完成 development 验收。B6 最终实现 SHA `9d8911934a5aa2b09ece2e12935bcafc9ccdcba6` 的 [普通 CI Run 32953444096](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32953444096) 和 [Supabase rollback-only Run 32954611250](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32954611250) 为同一 SHA 双绿。CH-015/CH-016 已批准，当前基线为 `v2.4.5 / CH-016`；B7.0 契约与治理已完成并暂停，退出审查 `P0=0/P1=0`，B7.1 业务代码未准入。仅允许脱敏 development，staging、production、真实客户数据、真实微信身份和资金链路继续 `NO-GO`。
+本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。当前开发按 `B0` 至 `B19` 小批次推进；B0 至 B6 已完成 development 验收。B6 最终实现 SHA `9d8911934a5aa2b09ece2e12935bcafc9ccdcba6` 的 [普通 CI Run 32953444096](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32953444096) 和 [Supabase rollback-only Run 32954611250](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32954611250) 为同一 SHA 双绿。CH-015/CH-016 已批准，当前基线为 `v2.4.5 / CH-016`；B7.1 后端身份与会话批次已完成并暂停，退出审查 `P0=0/P1=0`，B7.2 未准入。仅允许 Mock Provider 和脱敏 development，staging、production、真实客户数据、真实微信身份和资金链路继续 `NO-GO`。
 
 ## 工程结构
 

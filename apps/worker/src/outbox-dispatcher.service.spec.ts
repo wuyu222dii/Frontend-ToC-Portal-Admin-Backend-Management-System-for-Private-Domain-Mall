@@ -42,6 +42,22 @@ const config: PlatformRuntimeConfig = {
     },
   },
   redis: { url: 'redis://:runtime-test-password@127.0.0.1:6379/0' },
+  store: {
+    authTokenAudience: 'qingxu-store',
+    identityProvider: 'MOCK',
+    phoneProvider: 'MOCK',
+    wechatAppId: 'qingxu-mock-store-worker-test',
+    wechatAppSecret: undefined,
+    legalDocuments: {
+      userAgreement: { version: 'test-v1', title: 'User agreement', url: 'https://example.test/user' },
+      privacyPolicy: { version: 'test-v1', title: 'Privacy policy', url: 'https://example.test/privacy' },
+      phoneAuthorization: { version: 'test-v1', title: 'Phone notice', url: 'https://example.test/phone' },
+    },
+    legalRateLimitMax: 120,
+    legalRateLimitWindowSeconds: 60,
+    loginRateLimitMax: 10,
+    loginRateLimitWindowSeconds: 900,
+  },
   storage: {
     accessKey: 'minio-access-key',
     bucket: 'mall-test',

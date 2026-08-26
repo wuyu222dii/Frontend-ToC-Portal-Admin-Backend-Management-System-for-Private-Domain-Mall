@@ -15,6 +15,7 @@ import { ErrorEnvelopeFilter } from './platform/http/error-envelope.filter';
 import { RequestIdMiddleware } from './platform/http/request-id.middleware';
 import { SuccessEnvelopeInterceptor } from './platform/http/success-envelope.interceptor';
 import { StoreCatalogModule } from './store-catalog/store-catalog.module';
+import { StoreAuthModule } from './store-auth/store-auth.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { StoreCatalogModule } from './store-catalog/store-catalog.module';
     FilesModule,
     HealthModule,
     StoreCatalogModule,
+    StoreAuthModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: ErrorEnvelopeFilter },

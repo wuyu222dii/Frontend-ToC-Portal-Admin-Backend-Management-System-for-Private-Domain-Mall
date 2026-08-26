@@ -1,19 +1,20 @@
 import { CanActivate, ExecutionContext, Inject, Injectable, Optional } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { PlatformRuntimeConfig } from '@qingxu/config';
-import { AdminAuthRepository, type DatabaseRuntime } from '@qingxu/database';
+import { AdminAuthRepository, StoreAuthRepository, type DatabaseRuntime } from '@qingxu/database';
 import {
   ApplicationError,
   verifyAccessToken,
   verifyPreAuthToken,
+  verifyStoreAccessToken,
 } from '@qingxu/platform-core';
 
 import { API_RUNTIME_CONFIG } from '../config/api-runtime-config';
 import type { PrincipalRequest } from '../access/principal';
-import { PUBLIC_ROUTE } from '../access/rbac.metadata';
+import { PUBLIC_ROUTE, REQUIRED_ROLES } from '../access/rbac.metadata';
 import { API_DATABASE_RUNTIME } from '../database/api-database-runtime';
 import { REQUIRED_PRE_AUTH_ACTION, type PreAuthAction } from './pre-auth.metadata';
-import { NO_STORE_RESPONSE } from '../../admin-auth/no-store.decorator';
+import { NO_STORE_RESPONSE } from '../http/no-store.decorator';
 
 interface AuthenticationRequest extends PrincipalRequest {
   headers: Record<string, string | string[] | undefined>;
@@ -31,6 +32,7 @@ function bearerToken(request: AuthenticationRequest): string {
 @Injectable()
 export class AuthenticationGuard implements CanActivate {
   private readonly repository: AdminAuthRepository;
+  private readonly storeRepository: StoreAuthRepository;
 
   constructor(
     @Inject(Reflector) private readonly reflector: Reflector,
@@ -38,6 +40,16 @@ export class AuthenticationGuard implements CanActivate {
     @Optional() @Inject(API_DATABASE_RUNTIME) private readonly database?: DatabaseRuntime,
   ) {
     this.repository = database ? new AdminAuthRepository(database.prisma) : undefined as never;
+    this.storeRepository = database ? new StoreAuthRepository(database.prisma) : undefined as never;
+  }
+
+  private get storeTokenConfig() {
+    if (!this.config) throw new ApplicationError('INTERNAL_ERROR', 'Authentication runtime is unavailable');
+    return {
+      audience: this.config.store.authTokenAudience,
+      issuer: this.config.authentication.issuer,
+      keys: this.config.authentication.signingKeys,
+    };
   }
 
   private get tokenConfig() {
@@ -57,6 +69,10 @@ export class AuthenticationGuard implements CanActivate {
       [handler, controller],
     );
     const isPublic = this.reflector.getAllAndOverride<boolean | undefined>(PUBLIC_ROUTE, [handler, controller]) === true;
+    const requiredRoles = this.reflector.getAllAndOverride<readonly string[] | undefined>(
+      REQUIRED_ROLES,
+      [handler, controller],
+    );
     if (this.reflector.getAllAndOverride<boolean | undefined>(NO_STORE_RESPONSE, [handler, controller]) === true) {
       const response = context.switchToHttp().getResponse<{ setHeader(name: string, value: string): void }>();
       response.setHeader('Cache-Control', 'no-store, private');
@@ -84,6 +100,31 @@ export class AuthenticationGuard implements CanActivate {
       return true;
     }
 
+
+    if (requiredRoles?.includes('CUSTOMER')) {
+      if (requiredRoles.some((role) => role !== 'CUSTOMER')) {
+        throw new ApplicationError('PERMISSION_DENIED', 'Mixed authentication realms are forbidden');
+      }
+      const claims = this.verifyStoreAccess(token);
+      const session = await this.storeRepository.getCurrentSession({
+        sessionId: claims.sessionId,
+        accessJti: claims.tokenId,
+      });
+      if (session === null || session.accountId !== claims.accountId) {
+        throw new ApplicationError('AUTH_REQUIRED', 'Store session is not active');
+      }
+      request.storeSession = session;
+      request.principal = {
+        accountId: session.accountId,
+        assurance: 'WECHAT',
+        permissions: [],
+        restriction: 'NONE',
+        role: 'CUSTOMER',
+        sessionId: session.sessionId,
+      };
+      return true;
+    }
+
     const claims = this.verifyAccess(token);
     const session = await this.repository.getCurrentSession({
       sessionId: claims.sessionId,
@@ -102,6 +143,14 @@ export class AuthenticationGuard implements CanActivate {
       sessionId: session.sessionId,
     };
     return true;
+  }
+
+  private verifyStoreAccess(token: string) {
+    try {
+      return verifyStoreAccessToken(this.storeTokenConfig, token);
+    } catch {
+      throw new ApplicationError('AUTH_REQUIRED', 'Authentication is required');
+    }
   }
 
   private verifyPreAuth(token: string) {

@@ -41,6 +41,7 @@ function config(): PlatformRuntimeConfig {
   return {
     banner: { targetOrigins: [] },
     authentication: {} as PlatformRuntimeConfig['authentication'],
+    store: {} as PlatformRuntimeConfig['store'],
     database: {} as PlatformRuntimeConfig['database'],
     encryption: {
       fieldKeys: { current: { id: 'field', key: Buffer.alloc(32, 1) }, previous: [] },

@@ -20,6 +20,8 @@ import { createRequestId } from './request-id.middleware';
 
 interface ErrorRequest extends PrincipalRequest {
   headers?: Record<string, string | string[] | undefined>;
+  originalUrl?: string;
+  url?: string;
 }
 
 interface ErrorResponse {
@@ -44,6 +46,31 @@ const HTTP_ERROR_MAP: Readonly<Record<number, Omit<ResolvedError, 'status'>>> = 
   429: { code: 'RATE_LIMITED', message: 'Too many requests' },
   503: { code: 'INTERNAL_ERROR', message: 'Service is temporarily unavailable' },
 };
+
+const SENSITIVE_STORE_EXACT_PATHS = new Set([
+  '/api/v1/store/legal-documents',
+  '/api/v1/store/profile',
+  '/api/v1/store/service-agent',
+]);
+const SENSITIVE_STORE_PATH_PREFIXES = [
+  '/api/v1/store/auth/',
+  '/api/v1/store/attribution/',
+  '/api/v1/store/privacy/',
+  '/api/v1/store/profile/',
+] as const;
+
+function requestPath(request: ErrorRequest): string {
+  const rawPath = request.originalUrl ?? request.url ?? '';
+  const queryIndex = rawPath.indexOf('?');
+  const path = queryIndex === -1 ? rawPath : rawPath.slice(0, queryIndex);
+  return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
+}
+
+function isSensitiveStoreRequest(request: ErrorRequest): boolean {
+  const path = requestPath(request);
+  return SENSITIVE_STORE_EXACT_PATHS.has(path) ||
+    SENSITIVE_STORE_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
+}
 
 function frameworkClientStatus(exception: unknown): number | undefined {
   if (typeof exception !== 'object' || exception === null) return undefined;
@@ -135,6 +162,10 @@ export class ErrorEnvelopeFilter implements ExceptionFilter {
       );
     }
     this.adapterHost.httpAdapter.setHeader(response, 'X-Request-Id', requestId);
+    if (isSensitiveStoreRequest(request)) {
+      this.adapterHost.httpAdapter.setHeader(response, 'Cache-Control', 'no-store, private');
+      this.adapterHost.httpAdapter.setHeader(response, 'Pragma', 'no-cache');
+    }
     if ((error.code === 'RATE_LIMITED' || error.code === 'REAUTH_LOCKED') &&
       response.getHeader('Retry-After') === undefined) {
       response.setHeader('Retry-After', '900');

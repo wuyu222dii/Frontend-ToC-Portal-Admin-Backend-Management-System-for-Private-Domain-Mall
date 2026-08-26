@@ -21,6 +21,13 @@ export const FILE_STORAGE_LIMITS = {
 
 export type ServiceName = keyof typeof SERVICE_DEFAULT_PORTS;
 export type RuntimeEnvironment = 'development' | 'test' | 'production';
+export type StoreProvider = 'MOCK' | 'WECHAT';
+
+export interface StoreLegalDocumentConfig {
+  version: string;
+  title: string;
+  url: string;
+}
 
 export interface PlatformRuntimeConfig {
   environment: RuntimeEnvironment;
@@ -72,6 +79,22 @@ export interface PlatformRuntimeConfig {
     secretHashKeys: SecurityKeyRingConfig;
     sessionTtlSeconds: number;
     signingKeys: SecurityKeyRingConfig;
+  };
+  store: {
+    authTokenAudience: string;
+    identityProvider: StoreProvider;
+    phoneProvider: StoreProvider;
+    wechatAppId: string;
+    wechatAppSecret: string | undefined;
+    legalDocuments: {
+      userAgreement: StoreLegalDocumentConfig;
+      privacyPolicy: StoreLegalDocumentConfig;
+      phoneAuthorization: StoreLegalDocumentConfig;
+    };
+    legalRateLimitMax: number;
+    legalRateLimitWindowSeconds: number;
+    loginRateLimitMax: number;
+    loginRateLimitWindowSeconds: number;
   };
   worker: {
     pollIntervalMs: number;
@@ -663,6 +686,131 @@ function readIdentifier(
   return value;
 }
 
+function readStoreProvider(
+  source: NodeJS.ProcessEnv,
+  name: 'STORE_IDENTITY_PROVIDER' | 'STORE_PHONE_PROVIDER',
+  required: boolean,
+  environment: RuntimeEnvironment,
+): StoreProvider {
+  const value = source[name]?.trim() || (required ? '' : 'MOCK');
+  if (value !== 'MOCK' && value !== 'WECHAT') throw new Error(`${name} must be MOCK or WECHAT`);
+  if (required && environment === 'production' && value === 'MOCK') {
+    throw new Error(`${name}=MOCK is forbidden in production`);
+  }
+  return value;
+}
+
+function readBoundedText(
+  source: NodeJS.ProcessEnv,
+  name: string,
+  maximumLength: number,
+  required: boolean,
+  fallback: string,
+): string {
+  const value = source[name]?.trim() || (required ? '' : fallback);
+  const hasControlCharacter = Array.from(value).some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f);
+  });
+  if (value.length < 1 || value.length > maximumLength || hasControlCharacter) {
+    throw new Error(`${name} must contain between 1 and ${maximumLength} non-control characters`);
+  }
+  return value;
+}
+
+function readHttpsDocumentUrl(
+  source: NodeJS.ProcessEnv,
+  name: string,
+  required: boolean,
+  fallback: string,
+): string {
+  const value = source[name]?.trim() || (required ? '' : fallback);
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`${name} must be a valid HTTPS URL`);
+  }
+  if (url.protocol !== 'https:' || !url.hostname || url.username || url.password || value.length > 500) {
+    throw new Error(`${name} must be a credential-free HTTPS URL of at most 500 characters`);
+  }
+  return value;
+}
+
+function readStoreConfig(
+  source: NodeJS.ProcessEnv,
+  required: boolean,
+  environment: RuntimeEnvironment,
+  adminAudience: string,
+): PlatformRuntimeConfig['store'] {
+  const identityProvider = readStoreProvider(source, 'STORE_IDENTITY_PROVIDER', required, environment);
+  const phoneProvider = readStoreProvider(source, 'STORE_PHONE_PROVIDER', required, environment);
+  const authTokenAudience = readIdentifier(source, 'STORE_AUTH_TOKEN_AUDIENCE', 'qingxu-store', required);
+  if (required && authTokenAudience !== 'qingxu-store') {
+    throw new Error('STORE_AUTH_TOKEN_AUDIENCE must be qingxu-store');
+  }
+  if (authTokenAudience === adminAudience) {
+    throw new Error('STORE_AUTH_TOKEN_AUDIENCE must differ from AUTH_TOKEN_AUDIENCE');
+  }
+
+  const needsWechatCredentials = identityProvider === 'WECHAT' || phoneProvider === 'WECHAT';
+  const wechatAppId = readBoundedText(
+    source,
+    'STORE_WECHAT_APP_ID',
+    128,
+    needsWechatCredentials,
+    'qingxu-mock-store-app',
+  );
+  const rawWechatSecret = source.STORE_WECHAT_APP_SECRET?.trim();
+  if ((needsWechatCredentials || rawWechatSecret) &&
+    (!rawWechatSecret || rawWechatSecret.length < 16 || rawWechatSecret.length > 256)) {
+    throw new Error('STORE_WECHAT_APP_SECRET must contain between 16 and 256 characters');
+  }
+  if (rawWechatSecret && Array.from(rawWechatSecret).some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f);
+  })) {
+    throw new Error('STORE_WECHAT_APP_SECRET must not contain control characters');
+  }
+
+  const legalRateLimitMax = readInteger(source, 'STORE_LEGAL_RATE_LIMIT_MAX', 120, 1, 10_000);
+  const legalRateLimitWindowSeconds = readInteger(source, 'STORE_LEGAL_RATE_LIMIT_WINDOW_SECONDS', 60, 1, 3_600);
+  const loginRateLimitMax = readInteger(source, 'STORE_LOGIN_RATE_LIMIT_MAX', 10, 1, 1_000);
+  const loginRateLimitWindowSeconds = readInteger(source, 'STORE_LOGIN_RATE_LIMIT_WINDOW_SECONDS', 900, 1, 86_400);
+  if (legalRateLimitMax !== 120 || legalRateLimitWindowSeconds !== 60 ||
+    loginRateLimitMax !== 10 || loginRateLimitWindowSeconds !== 900) {
+    throw new Error('Store legal and login rate limits must match the CH-016 fixed values');
+  }
+
+  const document = (prefix: 'USER_AGREEMENT' | 'PRIVACY_POLICY' | 'PHONE_AUTHORIZATION') => ({
+    version: readBoundedText(source, `STORE_${prefix}_VERSION`, 80, required, 'disabled-v1'),
+    title: readBoundedText(source, `STORE_${prefix}_TITLE`, 120, required, 'Disabled document'),
+    url: readHttpsDocumentUrl(
+      source,
+      `STORE_${prefix}_URL`,
+      required,
+      `https://example.invalid/${prefix.toLowerCase()}`,
+    ),
+  });
+
+  return {
+    authTokenAudience,
+    identityProvider,
+    phoneProvider,
+    wechatAppId,
+    wechatAppSecret: rawWechatSecret || undefined,
+    legalDocuments: {
+      userAgreement: document('USER_AGREEMENT'),
+      privacyPolicy: document('PRIVACY_POLICY'),
+      phoneAuthorization: document('PHONE_AUTHORIZATION'),
+    },
+    legalRateLimitMax,
+    legalRateLimitWindowSeconds,
+    loginRateLimitMax,
+    loginRateLimitWindowSeconds,
+  };
+}
+
 export function loadPlatformConfig(
   source: NodeJS.ProcessEnv,
   options: LoadPlatformConfigOptions,
@@ -718,6 +866,14 @@ export function loadPlatformConfig(
     }
   }
 
+  const adminAudience = readIdentifier(
+    source,
+    'AUTH_TOKEN_AUDIENCE',
+    'qingxu-admin-web',
+    requireAuthentication,
+  );
+  const store = readStoreConfig(source, requireAuthentication, environment, adminAudience);
+
   return {
     environment,
     service: options.service,
@@ -750,13 +906,14 @@ export function loadPlatformConfig(
     storage,
     authentication: {
       accessTokenTtlSeconds: readInteger(source, 'AUTH_ACCESS_TOKEN_TTL_SECONDS', 900, 300, 3_600),
-      audience: readIdentifier(source, 'AUTH_TOKEN_AUDIENCE', 'qingxu-admin-web', requireAuthentication),
+      audience: adminAudience,
       issuer: readIdentifier(source, 'AUTH_TOKEN_ISSUER', 'qingxu-api', requireAuthentication),
       preAuthTokenTtlSeconds: readInteger(source, 'AUTH_PREAUTH_TOKEN_TTL_SECONDS', 300, 60, 300),
       secretHashKeys,
       sessionTtlSeconds: readInteger(source, 'AUTH_SESSION_TTL_SECONDS', 604_800, 3_600, 2_592_000),
       signingKeys,
     },
+    store,
     worker: {
       pollIntervalMs: readInteger(source, 'WORKER_POLL_INTERVAL_MS', 1_000, 100, 60_000),
       batchSize: readInteger(source, 'WORKER_BATCH_SIZE', 20, 1, 100),

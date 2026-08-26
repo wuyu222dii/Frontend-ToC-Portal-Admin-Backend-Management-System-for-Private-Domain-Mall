@@ -8,8 +8,8 @@
 | 文档类型 | Product Requirements Document |
 | 文档版本 | v2.4.5 |
 | 对应阶段 | 三端标准 MVP |
-| 更新日期 | 2026-08-26 |
-| 当前状态 | B0 至 B6 development 已完成；CH-015/CH-016 已批准，产品/API 基线升级为 v2.4.5/CH-016；B7.0 契约与治理已完成并暂停、`P0=0/P1=0`，B7.1 业务代码未准入；仅允许脱敏 development，staging/production `NO-GO` |
+| 更新日期 | 2026-08-27 |
+| 当前状态 | B0 至 B6 development 已完成；CH-015/CH-016 已批准，产品/API 基线为 v2.4.5/CH-016；B7.1 后端身份与会话批次已完成并暂停、`P0=0/P1=0`，B7.2 未准入；仅允许 Mock Provider 和脱敏 development，staging/production `NO-GO` |
 | 产品终端 | 消费者微信小程序、一级代理工作台、总部管理后台 |
 | 人员角色 | `CUSTOMER`、`AGENT_ADMIN`、`SUPER_ADMIN` |
 
@@ -27,7 +27,7 @@
 | v2.4.2 | 2026-08-24 | 落实 CH-010：Product/SKU 专用三动作生命周期、固定创建状态、首次发布时间、nullable 最低活动价、归档 SKU、8 图、零库存初值和不可变 code | 已归档；B4.0 至 B4.4 development 已完成 |
 | v2.4.3 | 2026-08-25 | 落实 CH-012：Banner 闭合生命周期/幂等、有效投影与安全目标，库存统一公式、HR-07 preview-confirm、整数边界和闭合流水类型 | 已归档；B5 development 已完成 |
 | v2.4.4 | 2026-08-25 | 落实 CH-014：匿名目录售罄投影、综合排序、商品名搜索、无分页主数据、首页分区状态和公共限流 | 已归档；B6.0-B6.4 已完成，B6 development `GO` |
-| v2.4.5 | 2026-08-26 | 落实 CH-016：服务端法律文本、角色感知 Store 会话、资料手机号、归因/服务代理与同步账号注销契约 | 当前产品版本；B7.0 已完成并暂停，B7.1 未准入 |
+| v2.4.5 | 2026-08-26 | 落实 CH-016：服务端法律文本、角色感知 Store 会话、资料手机号、归因/服务代理与同步账号注销契约 | 当前产品版本；B7.1 后端身份与会话已完成并暂停，B7.2 未准入 |
 
 ### 文档使用约定
 
@@ -1497,8 +1497,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | 验收场景 AC | 116 | 0 |
 | 用户故事 US | 24 | 0 |
 
-当前准入结论：B0 至 B6 development 已通过。CH-015/CH-016 已批准，B7.0 契约与治理已完成并暂停，退出审查 `P0=0/P1=0`；CH-016 专项实测 173 paths/197 operations/197 unique operationId/320 schemas/699 schema refs/2,617 local refs/0 dangling refs，Prisma/首迁移保持冻结。B7.1 业务代码仍须用户另行批准；staging 或 production 仍未准入。
+当前准入结论：B0 至 B6 development 已通过。CH-015/CH-016 已批准，B7.0 契约与治理、B7.1 后端身份与会话均已完成并暂停，退出审查 `P0=0/P1=0`；CH-016 专项实测 173 paths/197 operations/197 unique operationId/320 schemas/699 schema refs/2,617 local refs/0 dangling refs，Prisma/首迁移保持冻结。B7.2 业务代码仍须用户另行批准；staging 或 production 仍未准入。
 
 ---
 
-PRD 状态：v2.4.5/CH-016 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B6 development 已通过，B7.0 已完成并暂停、`P0=0/P1=0`，B7.1 未准入。目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。
+PRD 状态：v2.4.5/CH-016 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B6 development 已通过，B7.1 后端身份与会话已完成并暂停、`P0=0/P1=0`，B7.2 未准入。目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。

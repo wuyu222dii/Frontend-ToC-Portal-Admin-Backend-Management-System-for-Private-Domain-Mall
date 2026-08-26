@@ -6,9 +6,9 @@
 |---|---|
 | 文档版本 | v2.4.5 |
 | 对应产品基线 | MVP/PRD v2.4.5、CH-001 至 CH-016 |
-| 接口阶段 | B0-B6 development 已完成；CH-015/CH-016 已批准，B7.0 契约与治理已完成并暂停、`P0=0/P1=0`，B7.1 业务代码未准入；仅允许脱敏 development，staging/production 未批准 |
+| 接口阶段 | B0-B6 development 已完成；CH-015/CH-016 已批准，B7.1 后端身份与会话批次已完成并暂停、`P0=0/P1=0`，B7.2 未准入；仅允许 Mock Provider 和脱敏 development，staging/production 未批准 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
-| 更新时间 | 2026-08-26 |
+| 更新时间 | 2026-08-27 |
 
 ## 1. 设计目标
 

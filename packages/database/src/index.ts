@@ -11,6 +11,7 @@ export * from './master-data.repository';
 export * from './outbox.repository';
 export * from './product-catalog.repository';
 export * from './store-catalog.repository';
+export * from './store-auth.repository';
 export * from './runtime';
 export * from './transaction';
 export * from '../.generated/prisma/enums';

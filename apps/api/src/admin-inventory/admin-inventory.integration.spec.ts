@@ -99,6 +99,7 @@ function runtimeForMode(): DatabaseRuntime {
 function config(): PlatformRuntimeConfig {
   return {
     authentication: {} as PlatformRuntimeConfig['authentication'],
+    store: {} as PlatformRuntimeConfig['store'],
     banner: { targetOrigins: [] },
     database: {} as PlatformRuntimeConfig['database'],
     encryption: {

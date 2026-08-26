@@ -38,6 +38,23 @@ function validEnvironment(): NodeJS.ProcessEnv {
     AUTH_PREVIOUS_SECRET_HASH_KEYS_JSON: '[]',
     AUTH_TOKEN_ISSUER: 'qingxu-api-test',
     AUTH_TOKEN_AUDIENCE: 'qingxu-admin-test',
+    STORE_AUTH_TOKEN_AUDIENCE: 'qingxu-store',
+    STORE_IDENTITY_PROVIDER: 'MOCK',
+    STORE_PHONE_PROVIDER: 'MOCK',
+    STORE_WECHAT_APP_ID: 'qingxu-mock-store-app',
+    STORE_USER_AGREEMENT_VERSION: 'user-v1',
+    STORE_USER_AGREEMENT_TITLE: 'User agreement',
+    STORE_USER_AGREEMENT_URL: 'https://example.invalid/legal/user-v1',
+    STORE_PRIVACY_POLICY_VERSION: 'privacy-v1',
+    STORE_PRIVACY_POLICY_TITLE: 'Privacy policy',
+    STORE_PRIVACY_POLICY_URL: 'https://example.invalid/legal/privacy-v1',
+    STORE_PHONE_AUTHORIZATION_VERSION: 'phone-v1',
+    STORE_PHONE_AUTHORIZATION_TITLE: 'Phone authorization',
+    STORE_PHONE_AUTHORIZATION_URL: 'https://example.invalid/legal/phone-v1',
+    STORE_LEGAL_RATE_LIMIT_MAX: '120',
+    STORE_LEGAL_RATE_LIMIT_WINDOW_SECONDS: '60',
+    STORE_LOGIN_RATE_LIMIT_MAX: '10',
+    STORE_LOGIN_RATE_LIMIT_WINDOW_SECONDS: '900',
   };
 }
 
@@ -82,6 +99,28 @@ describe('loadPlatformConfig', () => {
       sessionTtlSeconds: 604_800,
       signingKeys: { current: { id: 'test-auth-sign-v1', key: Buffer.alloc(32, 17) }, previous: [] },
       secretHashKeys: { current: { id: 'test-auth-secret-v1', key: Buffer.alloc(32, 19) }, previous: [] },
+    });
+    expect(api.store).toEqual({
+      authTokenAudience: 'qingxu-store',
+      identityProvider: 'MOCK',
+      phoneProvider: 'MOCK',
+      wechatAppId: 'qingxu-mock-store-app',
+      wechatAppSecret: undefined,
+      legalDocuments: {
+        userAgreement: {
+          version: 'user-v1', title: 'User agreement', url: 'https://example.invalid/legal/user-v1',
+        },
+        privacyPolicy: {
+          version: 'privacy-v1', title: 'Privacy policy', url: 'https://example.invalid/legal/privacy-v1',
+        },
+        phoneAuthorization: {
+          version: 'phone-v1', title: 'Phone authorization', url: 'https://example.invalid/legal/phone-v1',
+        },
+      },
+      legalRateLimitMax: 120,
+      legalRateLimitWindowSeconds: 60,
+      loginRateLimitMax: 10,
+      loginRateLimitWindowSeconds: 900,
     });
     expect(worker.port).toBe(3001);
     expect(worker.http).toEqual({ trustedProxyCidrs: [] });
@@ -525,6 +564,50 @@ describe('loadPlatformConfig', () => {
     environment.AUTH_PREAUTH_TOKEN_TTL_SECONDS = '301';
     expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
       'AUTH_PREAUTH_TOKEN_TTL_SECONDS must be between 60 and 300',
+    );
+  });
+
+  it('rejects Store authentication realm drift and production Mock providers', () => {
+    const sharedAudience = validEnvironment();
+    sharedAudience.AUTH_TOKEN_AUDIENCE = 'qingxu-store';
+    expect(() => loadPlatformConfig(sharedAudience, { service: 'api' })).toThrow(
+      'STORE_AUTH_TOKEN_AUDIENCE must differ from AUTH_TOKEN_AUDIENCE',
+    );
+
+    const productionMock = validEnvironment();
+    productionMock.NODE_ENV = 'production';
+    delete productionMock.DATABASE_URL;
+    delete productionMock.REDIS_URL;
+    delete productionMock.S3_ENDPOINT;
+    delete productionMock.S3_PUBLIC_BASE_URL;
+    expect(() => loadPlatformConfig(productionMock, {
+      service: 'api', requireDatabase: false, requireStorage: false,
+    })).toThrow('STORE_IDENTITY_PROVIDER=MOCK is forbidden in production');
+  });
+
+  it('requires WeChat credentials only when a Store WeChat provider is selected', () => {
+    const environment = validEnvironment();
+    environment.STORE_IDENTITY_PROVIDER = 'WECHAT';
+    delete environment.STORE_WECHAT_APP_SECRET;
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'STORE_WECHAT_APP_SECRET must contain between 16 and 256 characters',
+    );
+
+    environment.STORE_WECHAT_APP_SECRET = 'development-secret-value';
+    expect(loadPlatformConfig(environment, { service: 'api' }).store.identityProvider).toBe('WECHAT');
+  });
+
+  it('requires HTTPS legal documents and the frozen Store rate limits', () => {
+    const insecureDocument = validEnvironment();
+    insecureDocument.STORE_PRIVACY_POLICY_URL = 'http://example.invalid/privacy';
+    expect(() => loadPlatformConfig(insecureDocument, { service: 'api' })).toThrow(
+      'STORE_PRIVACY_POLICY_URL must be a credential-free HTTPS URL',
+    );
+
+    const driftedLimit = validEnvironment();
+    driftedLimit.STORE_LOGIN_RATE_LIMIT_MAX = '11';
+    expect(() => loadPlatformConfig(driftedLimit, { service: 'api' })).toThrow(
+      'Store legal and login rate limits must match the CH-016 fixed values',
     );
   });
 

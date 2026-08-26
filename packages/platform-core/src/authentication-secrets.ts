@@ -19,7 +19,7 @@ function normalizeRecoveryCode(code: string): string {
 export function hmacAuthenticationSecret(
   value: string,
   key: Uint8Array,
-  domain: 'challenge' | 'recovery-code' | 'refresh-token' | 'totp-secret',
+  domain: 'candidate-token' | 'challenge' | 'recovery-code' | 'refresh-token' | 'store-refresh-token' | 'totp-secret',
 ): string {
   if (typeof value !== 'string' || value.length < 8 || value.length > 2_048) {
     throw new TypeError('Authentication secrets have an invalid length');
@@ -34,7 +34,7 @@ export function hmacAuthenticationSecret(
 export function hmacAuthenticationIdentity(
   value: unknown,
   key: Uint8Array,
-  domain: 'admin-login-source' | 'admin-login-subject',
+  domain: 'admin-login-source' | 'admin-login-subject' | 'store-mock-code',
 ): string {
   return createHmac('sha256', keyBuffer(key))
     .update(`qingxu-auth:v1:${domain}\0`, 'utf8')
@@ -46,7 +46,7 @@ export function authenticationSecretHashMatches(
   value: string,
   expectedHash: string,
   key: Uint8Array,
-  domain: 'challenge' | 'recovery-code' | 'refresh-token' | 'totp-secret',
+  domain: 'candidate-token' | 'challenge' | 'recovery-code' | 'refresh-token' | 'store-refresh-token' | 'totp-secret',
 ): boolean {
   if (!/^[a-f0-9]{64}$/.test(expectedHash)) return false;
   const actual = Buffer.from(hmacAuthenticationSecret(value, key, domain), 'hex');

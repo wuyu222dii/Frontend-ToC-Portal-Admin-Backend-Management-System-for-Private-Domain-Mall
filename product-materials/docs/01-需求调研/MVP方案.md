@@ -10,7 +10,7 @@
 | 目标用户 | 终端消费者、一级代理、总部商城经营人员 |
 | 人员角色 | `SUPER_ADMIN`、`AGENT_ADMIN`、`CUSTOMER` |
 | 更新日期 | 2026-08-26 |
-| 文档状态 | B0 至 B5 development 已完成并取得同一实现 SHA 双远端绿色证据；CH-013/CH-014 已批准，产品/API 基线升级为 v2.4.4，B6.1 匿名 Store 公开 API、B6.2 MP-01 至 MP-05 与 B6.3 MP-06 游客本地购物车均已完成本批验收并暂停；B6.4 真实纵向及同 SHA 双远端绿色证据未执行，staging/production 均为 `NO-GO` |
+| 文档状态 | B0 至 B5 development 已完成并取得同一实现 SHA 双远端绿色证据；CH-013/CH-014 已批准，产品/API 基线升级为 v2.4.4，B6.1 匿名 Store 公开 API、B6.2 MP-01 至 MP-05 与 B6.3 MP-06 游客本地购物车均已完成本批验收并暂停；B6.4 验收入口已接入，普通 CI、Supabase rollback-only 与真实纵向证据待同一最终 SHA 执行，B6 仍为 `NO-GO`，staging/production 均为 `NO-GO` |
 
 ## 1. MVP 概述
 
@@ -457,10 +457,10 @@ CH-006 已解除并完成 B3 契约与交付门禁；CH-010 已解除 B4 商品/
 ## 13. 后续建议
 
 1. 保持 B6.3 暂停；当前累计本地证据为 miniapp unit `6 files / 84 passed`、H5 与 MP-Weixin build 通过、B6 UI Playwright `34 passed / 56 designed skips`，覆盖 375/390/414/1024/1440 五个视口，退出审查为 `P0=0/P1=0`。
-2. 下一次明确批准后进入 B6.4，完成真实 browser → Nest → PostgreSQL/MinIO 纵向验收、全量回归和无残留检查。
+2. B6.4 验收入口已接入，继续执行真实 browser → Nest → PostgreSQL/MinIO 纵向验收、全量回归和无残留检查。
 3. 收藏、CUSTOMER 会话、服务端购物车、结算和订单继续延后；B6.3 的结算只提示登录并保留本地购物车。
 4. B6.4 必须在同一最终实现 SHA 登记普通 CI 与 Supabase rollback-only workflow 双绿；CH-013 随后失效，第一次进入 staging 前仍须外部独立复核。
 
 ---
 
-项目状态：三端 MVP 产品/API 基线为 v2.4.4（CH-014）。B0 至 B5 development 已通过，B5 实现 SHA `d97c43958142eaa0fa5a0a9954bb21d136944ba2` 的普通 CI Run `32822780209` 与 Supabase rollback-only Run `32823898006` 均成功。CH-013 已放行 B6 development 的单人补偿治理；B6.1 匿名 Store 公开 API、B6.2 MP-01 至 MP-05 与 B6.3 MP-06 游客本地购物车均已完成当前批次验收并暂停。B6.4 真实纵向、普通 CI 与 Supabase workflow 同 SHA 双绿未执行，因此不得标记 B6 development `GO`。CH-013 仍生效；目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线还须通过外部凭据、联调、恢复演练和合规门禁。
+项目状态：三端 MVP 产品/API 基线为 v2.4.4（CH-014）。B0 至 B5 development 已通过，B5 实现 SHA `d97c43958142eaa0fa5a0a9954bb21d136944ba2` 的普通 CI Run `32822780209` 与 Supabase rollback-only Run `32823898006` 均成功。CH-013 已放行 B6 development 的单人补偿治理；B6.1 匿名 Store 公开 API、B6.2 MP-01 至 MP-05 与 B6.3 MP-06 游客本地购物车均已完成当前批次验收并暂停。B6.4 验收入口已接入，普通 CI、Supabase rollback-only 与真实纵向证据待同一最终 SHA 执行，因此 B6 仍不得标记最终 development `GO`。CH-013 仍生效；目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线还须通过外部凭据、联调、恢复演练和合规门禁。

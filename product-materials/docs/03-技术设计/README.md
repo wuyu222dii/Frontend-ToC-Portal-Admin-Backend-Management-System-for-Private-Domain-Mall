@@ -1,6 +1,6 @@
 # 技术设计交付索引
 
-> 当前基线：MVP/PRD v2.4.4、线协议 CH-014（2026-08-26）。B0-B5 development 已完成，CH-011 已失效；CH-013 仅放行 B6 脱敏 development。B6.1 匿名 Store 公开 API、B6.2 MP-01 至 MP-05 与 B6.3 MP-06 游客本地购物车均已完成当前批次验收并暂停，B6.4 尚未开始，staging/production 均为 `NO-GO`。
+> 当前基线：MVP/PRD v2.4.4、线协议 CH-014（2026-08-26）。B0-B5 development 已完成，CH-011 已失效；CH-013 仅放行 B6 脱敏 development。B6.1 匿名 Store 公开 API、B6.2 MP-01 至 MP-05 与 B6.3 MP-06 游客本地购物车均已完成当前批次验收并暂停，B6.4 验收入口已接入，普通 CI、Supabase rollback-only 与真实纵向证据待同一最终 SHA 执行，B6 仍为 `NO-GO`，staging/production 均为 `NO-GO`。
 
 | 文件 | 用途 |
 |---|---|
@@ -52,7 +52,7 @@
 - B6.2 已完成跨端 Store API 客户端、MP-01 首页、MP-02 分类、MP-03 搜索、MP-04 商品详情和 MP-05 SKU 选择层。
 - B6.3 已完成 MP-06 版本化游客本地购物车、同 SKU 合并、不同 SKU 分行、详情回源刷新、售罄/失效排除合计和临时网络失败保留语义；结算只提示登录，不调用服务端 Cart/订单。
 - B6.3 当前累计本地验收实测为 miniapp unit `6 files / 84 passed`、H5 与 MP-Weixin build 均通过、B6 UI Playwright `34 passed / 56 designed skips`；覆盖 375/390/414/1024/1440 五个视口，root lint 0 errors（保留既有 warnings），当前已在 B6.3 暂停点停下，`P0=0/P1=0`。
-- B6.4 的真实纵向链路、普通 CI 与 Supabase workflow 同一最终 SHA 双绿尚未执行，不能据此标记 B6 最终 development `GO`。CH-013 仅在 B6 脱敏 development 生效，B6.4 后自动失效。
+- B6.4 验收入口已接入，真实纵向链路、普通 CI 与 Supabase rollback-only 证据待同一最终 SHA 执行；在证据完成前不能标记 B6 最终 development `GO`。CH-013 仅在 B6 脱敏 development 生效，B6.4 验收结束后自动失效。
 
 ## B3.1 当前验证状态
 

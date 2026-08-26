@@ -2,7 +2,7 @@
 
 本目录集中管理三端商城的需求、方案、技术、风控、开发文档和可点击原型。
 
-当前交付状态：B0 至 B5 development 均已通过。B5 实现基准 SHA `d97c43958142eaa0fa5a0a9954bb21d136944ba2` 的普通 CI Run `32822780209` 与 Supabase rollback-only Run `32823898006` 为同一 SHA 双绿，CH-011 已自动失效。CH-013 已批准仅适用于 B6 脱敏 development 的单人维护门禁例外，CH-014 已将产品/API 基线升级为 v2.4.4/CH-014。B6.1 匿名 Store 公开 API、B6.2 MP-01 至 MP-05 与 B6.3 MP-06 游客本地购物车均已完成当前批次验收并暂停；B6.3 本地退出审查为 `P0=0/P1=0`。B6.4 的真实纵向、普通 CI、Supabase workflow 与同一最终 SHA 双绿尚未开始，B6 不得提前标记最终 development `GO`。CH-013 仍生效；staging、production、真实客户数据、真实微信身份及真实资金链路继续 `NO-GO`，第一次进入 staging 前必须取得外部独立复核。
+当前交付状态：B0 至 B5 development 均已通过。B5 实现基准 SHA `d97c43958142eaa0fa5a0a9954bb21d136944ba2` 的普通 CI Run `32822780209` 与 Supabase rollback-only Run `32823898006` 为同一 SHA 双绿，CH-011 已自动失效。CH-013 已批准仅适用于 B6 脱敏 development 的单人维护门禁例外，CH-014 已将产品/API 基线升级为 v2.4.4/CH-014。B6.1 匿名 Store 公开 API、B6.2 MP-01 至 MP-05 与 B6.3 MP-06 游客本地购物车均已完成当前批次验收并暂停；B6.4 的数据库 rollback、mock UI 和真实纵向入口已接入，等待同一最终 SHA 的普通 CI 与 Supabase rollback-only 双绿证据，因此 B6 仍不得标记最终 development `GO`。CH-013 仍生效；staging、production、真实客户数据、真实微信身份及真实资金链路继续 `NO-GO`，第一次进入 staging 前必须取得外部独立复核。
 
 ## 目录
 

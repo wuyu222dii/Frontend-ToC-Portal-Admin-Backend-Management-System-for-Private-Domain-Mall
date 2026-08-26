@@ -115,3 +115,9 @@ jobs:
           B5_INVENTORY_DATABASE_TEST_MODE: rollback
           DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
         run: pnpm db:test-b5-inventory
+
+      - name: Run rollback-only B6 Store catalog smoke
+        env:
+          B6_STORE_CATALOG_DATABASE_TEST_MODE: rollback
+          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
+        run: pnpm db:test-b6-store-catalog

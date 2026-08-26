@@ -93,7 +93,11 @@ function createFixtureIds(): FixtureIds {
   return {
     activeBrandId: generateUlid(),
     inactiveBrandId: generateUlid(),
-    activeCategoryId: generateUlid(),
+    // Home categories are capped at eight and this suite shares the CI database
+    // with earlier catalog fixtures. Keep the active fixture in the deterministic
+    // prefix without changing the production sort or limit contract.
+    // Use 1 rather than 0 because the ulid package treats a zero seed as omitted.
+    activeCategoryId: generateUlid(1),
     inactiveCategoryId: generateUlid(),
     salableProductId: generateUlid(),
     soldOutProductId: generateUlid(),

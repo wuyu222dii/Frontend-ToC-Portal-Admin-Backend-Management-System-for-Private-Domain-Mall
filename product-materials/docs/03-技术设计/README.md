@@ -1,6 +1,6 @@
 # 技术设计交付索引
 
-> 当前基线：MVP/PRD v2.4.6、线协议 CH-018（2026-08-27）。B0-B7 development 已完成；B7 最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 的普通 CI Run `33055090596` 与 Supabase development rollback-only Run `33056078437` 同 SHA 双绿，B7 development `GO`，CH-015 已失效。CH-017/CH-018 已批准，B8.0 契约与治理已完成并暂停，B8.1 未准入。仅允许 Mock Provider 和脱敏 development，staging/production 均为 `NO-GO`。
+> 当前基线：MVP/PRD v2.4.6、线协议 CH-018（2026-08-27）。B0-B7 development 已完成；B7 最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 的普通 CI Run `33055090596` 与 Supabase development rollback-only Run `33056078437` 同 SHA 双绿，B7 development `GO`，CH-015 已失效。CH-017/CH-018 已批准，B8.1 收藏已完成并暂停，B8.2 未准入。仅允许 Mock Provider 和脱敏 development，staging/production 均为 `NO-GO`。
 
 | 文件 | 用途 |
 |---|---|

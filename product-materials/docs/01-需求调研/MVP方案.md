@@ -10,7 +10,7 @@
 | 目标用户 | 终端消费者、一级代理、总部商城经营人员 |
 | 人员角色 | `SUPER_ADMIN`、`AGENT_ADMIN`、`CUSTOMER` |
 | 更新日期 | 2026-08-27 |
-| 文档状态 | B0 至 B7 development 已完成；B7 最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 已取得普通 CI/Supabase rollback-only 同 SHA 双绿，CH-015 已失效；CH-017/CH-018 已批准，产品/API 基线为 v2.4.6/CH-018，B8.0 契约与治理已完成并暂停，B8.1 尚未准入；仅允许 Mock Provider 和脱敏 development，staging/production 均为 `NO-GO` |
+| 文档状态 | B0 至 B7 development 已完成；B7 最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 已取得普通 CI/Supabase rollback-only 同 SHA 双绿，CH-015 已失效；CH-017/CH-018 已批准，产品/API 基线为 v2.4.6/CH-018，B8.1 收藏已完成并暂停，B8.2 尚未准入；仅允许 Mock Provider 和脱敏 development，staging/production 均为 `NO-GO` |
 
 ## 1. MVP 概述
 
@@ -392,14 +392,14 @@ Supabase 在当前 MVP 中仅作为 PostgreSQL 托管服务。消费者小程序
 
 ## 9. 里程碑建议
 
-CH-015/CH-016 对应的 B7.0-B7.5 已全部完成；最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 的普通 CI Run `33055090596` 与 Supabase development rollback-only Run `33056078437` 同 SHA 双绿，B7 development `GO`，CH-015 已失效。CH-017/CH-018 已批准，B8.0 契约与治理已完成并暂停；任何 development 结果都不等同于 staging 或生产许可。
+CH-015/CH-016 对应的 B7.0-B7.5 已全部完成；最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 的普通 CI Run `33055090596` 与 Supabase development rollback-only Run `33056078437` 同 SHA 双绿，B7 development `GO`，CH-015 已失效。CH-017/CH-018 已批准，B8.1 收藏已完成并暂停，B8.2 未准入；任何 development 结果都不等同于 staging 或生产许可。
 
 | 阶段 | 主要交付物 | 当前状态 |
 |---|---|---|
 | 需求确认 | MVP、三端角色确认、变更记录 | CH-017/CH-018 与 v2.4.6 基线已登记 |
 | 产品设计 | PRD、三端信息架构、可点击原型、Figma 重建规范 | B8 收藏、服务端购物车、游客合并和地址边界已同步；页面仍为 21/9/22 |
-| 技术设计 | 系统架构、数据库 ERD、接口文档、OpenAPI、Prisma 草案与部署拓扑 | B8.0 已完成并暂停；CH-018 实测 173 paths/198 operations/198 unique operationId/323 schemas/701 schema refs/2,653 local refs/0 dangling refs；Prisma/首迁移不变 |
-| 开发与测试 | 三端工程、API、数据库、自动化测试 | B0-B7 development 已通过；B8.0 只实施契约与治理，B8.1 未准入 |
+| 技术设计 | 系统架构、数据库 ERD、接口文档、OpenAPI、Prisma 草案与部署拓扑 | CH-018 实测 173 paths/198 operations/198 unique operationId/323 schemas/701 schema refs/2,653 local refs/0 dangling refs；Prisma/首迁移不变 |
+| 开发与测试 | 三端工程、API、数据库、自动化测试 | B0-B7 development 已通过；B8.1 收藏已完成并暂停，B8.2 未准入 |
 | 上线准备 | 微信资质、真实支付退款、隐私合规、部署与验收 | 未开始 |
 
 ## 10. 风险与应对
@@ -487,4 +487,4 @@ CH-015/CH-016 对应的 B7.0-B7.5 已全部完成；最终 SHA `3f844bfb9866854c
 
 ---
 
-项目状态：三端 MVP 产品/API 基线为 v2.4.6（CH-018）。B0 至 B7 development 已通过，B7 最终同 SHA 双绿已闭合且 CH-015 失效；CH-017/CH-018 已批准，B8.0 已完成并暂停，B8.1 尚未准入。目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线还须通过真实 Provider、恢复演练和合规门禁。
+项目状态：三端 MVP 产品/API 基线为 v2.4.6（CH-018）。B0 至 B7 development 已通过，B7 最终同 SHA 双绿已闭合且 CH-015 失效；CH-017/CH-018 已批准，B8.1 收藏已完成并暂停，B8.2 尚未准入。目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线还须通过真实 Provider、恢复演练和合规门禁。

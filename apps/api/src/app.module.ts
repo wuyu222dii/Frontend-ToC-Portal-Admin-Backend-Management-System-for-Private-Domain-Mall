@@ -15,6 +15,7 @@ import { ErrorEnvelopeFilter } from './platform/http/error-envelope.filter';
 import { RequestIdMiddleware } from './platform/http/request-id.middleware';
 import { SuccessEnvelopeInterceptor } from './platform/http/success-envelope.interceptor';
 import { StoreCatalogModule } from './store-catalog/store-catalog.module';
+import { StoreFavoritesModule } from './store-favorites/store-favorites.module';
 import { StoreAttributionModule } from './store-attribution/store-attribution.module';
 import { StoreAuthModule } from './store-auth/store-auth.module';
 import { StoreProfileModule } from './store-profile/store-profile.module';
@@ -31,6 +32,7 @@ import { StorePrivacyModule } from './store-privacy/store-privacy.module';
     HealthModule,
     StoreAttributionModule,
     StoreCatalogModule,
+    StoreFavoritesModule,
     StoreAuthModule,
     StorePrivacyModule,
     StoreProfileModule,

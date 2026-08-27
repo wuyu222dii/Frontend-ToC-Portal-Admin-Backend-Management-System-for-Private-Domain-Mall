@@ -25,6 +25,8 @@ import { apiRedisReconnectDelay } from './platform/redis/api-redis-runtime';
 import { StorePhoneProvider } from './store-profile/store-phone-provider';
 import { StoreProfileController } from './store-profile/store-profile.controller';
 import { StoreProfileService } from './store-profile/store-profile.service';
+import { StoreFavoritesController } from './store-favorites/store-favorites.controller';
+import { StoreFavoritesService } from './store-favorites/store-favorites.service';
 
 function runtimeConfig(): PlatformRuntimeConfig {
   const key = (byte: number) => Buffer.alloc(32, byte);
@@ -107,6 +109,10 @@ describe('ApiRuntimeModule authentication wiring', () => {
     const profileService = moduleRef.get(StoreProfileService);
     expect(profileService).toHaveProperty('phoneProvider', moduleRef.get(StorePhoneProvider));
     expect(moduleRef.get(StoreProfileController)).toHaveProperty('profiles', profileService);
+    expect(moduleRef.get(StoreFavoritesController)).toHaveProperty(
+      'favorites',
+      moduleRef.get(StoreFavoritesService),
+    );
     await moduleRef.close();
   });
 

@@ -49,12 +49,14 @@ const HTTP_ERROR_MAP: Readonly<Record<number, Omit<ResolvedError, 'status'>>> = 
 
 const SENSITIVE_STORE_EXACT_PATHS = new Set([
   '/api/v1/store/legal-documents',
+  '/api/v1/store/favorites',
   '/api/v1/store/profile',
   '/api/v1/store/service-agent',
 ]);
 const SENSITIVE_STORE_PATH_PREFIXES = [
   '/api/v1/store/auth/',
   '/api/v1/store/attribution/',
+  '/api/v1/store/favorites/',
   '/api/v1/store/privacy/',
   '/api/v1/store/profile/',
 ] as const;

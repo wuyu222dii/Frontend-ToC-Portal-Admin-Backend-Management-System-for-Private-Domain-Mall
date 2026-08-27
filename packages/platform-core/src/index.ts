@@ -10,4 +10,5 @@ export * from './outbox-backoff';
 export * from './password';
 export * from './rbac';
 export * from './redaction';
+export * from './store-phone';
 export * from './totp';

@@ -8,6 +8,7 @@ const IDEMPOTENCY_HASH_KEY = Buffer.alloc(32, 11).toString('base64');
 const PREVIOUS_IDEMPOTENCY_HASH_KEY = Buffer.alloc(32, 13).toString('base64');
 const AUTH_SIGNING_KEY = Buffer.alloc(32, 17).toString('base64');
 const AUTH_SECRET_HASH_KEY = Buffer.alloc(32, 19).toString('base64');
+const STORE_PHONE_HASH_KEY = Buffer.alloc(32, 21).toString('base64');
 
 function validEnvironment(): NodeJS.ProcessEnv {
   return {
@@ -41,6 +42,9 @@ function validEnvironment(): NodeJS.ProcessEnv {
     STORE_AUTH_TOKEN_AUDIENCE: 'qingxu-store',
     STORE_IDENTITY_PROVIDER: 'MOCK',
     STORE_PHONE_PROVIDER: 'MOCK',
+    STORE_PHONE_HASH_KEY_BASE64: STORE_PHONE_HASH_KEY,
+    STORE_PHONE_HASH_KEY_ID: 'test-store-phone-v1',
+    STORE_PHONE_PREVIOUS_HASH_KEYS_JSON: '[]',
     STORE_WECHAT_APP_ID: 'qingxu-mock-store-app',
     STORE_USER_AGREEMENT_VERSION: 'user-v1',
     STORE_USER_AGREEMENT_TITLE: 'User agreement',
@@ -103,6 +107,10 @@ describe('loadPlatformConfig', () => {
     expect(api.store).toEqual({
       authTokenAudience: 'qingxu-store',
       identityProvider: 'MOCK',
+      phoneHashKeys: {
+        current: { id: 'test-store-phone-v1', key: Buffer.alloc(32, 21) },
+        previous: [],
+      },
       phoneProvider: 'MOCK',
       wechatAppId: 'qingxu-mock-store-app',
       wechatAppSecret: undefined,
@@ -531,6 +539,15 @@ describe('loadPlatformConfig', () => {
   it('requires independent authentication signing and secret hashing keys', () => {
     const environment = validEnvironment();
     environment.AUTH_SECRET_HASH_KEY_BASE64 = environment.AUTH_SIGNING_KEY_BASE64;
+
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'all authentication, encryption, audit, and idempotency keys must be independent',
+    );
+  });
+
+  it('requires the Store phone HMAC key ring to be independent', () => {
+    const environment = validEnvironment();
+    environment.STORE_PHONE_HASH_KEY_BASE64 = environment.AUTH_SECRET_HASH_KEY_BASE64;
 
     expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
       'all authentication, encryption, audit, and idempotency keys must be independent',

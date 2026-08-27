@@ -37,6 +37,9 @@ const required = [
   "STORE_AUTH_TOKEN_AUDIENCE",
   "STORE_IDENTITY_PROVIDER",
   "STORE_PHONE_PROVIDER",
+  "STORE_PHONE_HASH_KEY_BASE64",
+  "STORE_PHONE_HASH_KEY_ID",
+  "STORE_PHONE_PREVIOUS_HASH_KEYS_JSON",
   "STORE_USER_AGREEMENT_VERSION",
   "STORE_USER_AGREEMENT_TITLE",
   "STORE_USER_AGREEMENT_URL",
@@ -275,6 +278,11 @@ try {
     "AUTH_SECRET_HASH_KEY_BASE64",
     "AUTH_PREVIOUS_SECRET_HASH_KEYS_JSON",
   );
+  const storePhoneHashKeys = readKeyRing(
+    "STORE_PHONE_HASH_KEY_ID",
+    "STORE_PHONE_HASH_KEY_BASE64",
+    "STORE_PHONE_PREVIOUS_HASH_KEYS_JSON",
+  );
   for (const [name, value] of [
     ["AUTH_TOKEN_ISSUER", process.env.AUTH_TOKEN_ISSUER],
     ["AUTH_TOKEN_AUDIENCE", process.env.AUTH_TOKEN_AUDIENCE],
@@ -336,10 +344,11 @@ try {
     ...idempotencyKeys.map(({ key }) => key),
     ...authSigningKeys.map(({ key }) => key),
     ...authSecretHashKeys.map(({ key }) => key),
+    ...storePhoneHashKeys.map(({ key }) => key),
   ];
   if (purposeKeys.some((key, index) => purposeKeys.some((candidate, candidateIndex) =>
     index !== candidateIndex && key.equals(candidate)))) {
-    throw new Error("authentication, field encryption, audit, and idempotency keys must be independent");
+    throw new Error("authentication, Store phone, field encryption, audit, and idempotency keys must be independent");
   }
   readBoundedInteger("WORKER_POLL_INTERVAL_MS", 100, 60_000);
   readBoundedInteger("WORKER_BATCH_SIZE", 1, 100);

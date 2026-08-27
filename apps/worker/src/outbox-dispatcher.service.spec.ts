@@ -45,6 +45,7 @@ const config: PlatformRuntimeConfig = {
   store: {
     authTokenAudience: 'qingxu-store',
     identityProvider: 'MOCK',
+    phoneHashKeys: { current: { id: 'disabled', key: Buffer.alloc(32) }, previous: [] },
     phoneProvider: 'MOCK',
     wechatAppId: 'qingxu-mock-store-worker-test',
     wechatAppSecret: undefined,

@@ -22,6 +22,9 @@ import { FileAssetsService } from './files/files.service';
 import { ApiRuntimeModule, API_RUNTIME_CONFIG } from './api-runtime.module';
 import { API_DATABASE_RUNTIME } from './platform/database/api-database-runtime';
 import { apiRedisReconnectDelay } from './platform/redis/api-redis-runtime';
+import { StorePhoneProvider } from './store-profile/store-phone-provider';
+import { StoreProfileController } from './store-profile/store-profile.controller';
+import { StoreProfileService } from './store-profile/store-profile.service';
 
 function runtimeConfig(): PlatformRuntimeConfig {
   const key = (byte: number) => Buffer.alloc(32, byte);
@@ -53,6 +56,7 @@ function runtimeConfig(): PlatformRuntimeConfig {
     store: {
       authTokenAudience: 'qingxu-store',
       identityProvider: 'MOCK',
+      phoneHashKeys: { current: { id: 'store-phone-v1', key: key(6) }, previous: [] },
       phoneProvider: 'MOCK',
       wechatAppId: 'qingxu-mock-store-app',
       wechatAppSecret: undefined,
@@ -98,6 +102,9 @@ describe('ApiRuntimeModule authentication wiring', () => {
     expect(moduleRef.get(AdminCatalogController)).toHaveProperty('catalog', moduleRef.get(AdminCatalogService));
     expect(moduleRef.get(FilesController)).toHaveProperty('files', fileService);
     expect(fileService).toHaveProperty('leases', moduleRef.get(FileObjectLeaseManager));
+    const profileService = moduleRef.get(StoreProfileService);
+    expect(profileService).toHaveProperty('phoneProvider', moduleRef.get(StorePhoneProvider));
+    expect(moduleRef.get(StoreProfileController)).toHaveProperty('profiles', profileService);
     await moduleRef.close();
   });
 

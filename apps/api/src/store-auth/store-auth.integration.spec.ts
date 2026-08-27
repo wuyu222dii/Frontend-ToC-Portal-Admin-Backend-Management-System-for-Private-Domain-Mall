@@ -81,6 +81,10 @@ function integrationConfig(): PlatformRuntimeConfig {
     store: {
       authTokenAudience: 'qingxu-store',
       identityProvider: 'MOCK',
+      phoneHashKeys: {
+        current: { id: 'b7-phone-hash-v1', key: Buffer.alloc(32, 8) },
+        previous: [],
+      },
       legalDocuments: {
         phoneAuthorization: {
           title: 'B7 Integration Phone Authorization',

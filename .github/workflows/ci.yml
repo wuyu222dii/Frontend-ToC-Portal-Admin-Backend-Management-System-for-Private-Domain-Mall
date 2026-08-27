@@ -124,6 +124,9 @@ jobs:
           echo 'STORE_AUTH_TOKEN_AUDIENCE=qingxu-store' >> "$GITHUB_ENV"
           echo 'STORE_IDENTITY_PROVIDER=MOCK' >> "$GITHUB_ENV"
           echo 'STORE_PHONE_PROVIDER=MOCK' >> "$GITHUB_ENV"
+          echo "STORE_PHONE_HASH_KEY_BASE64=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
+          echo "STORE_PHONE_HASH_KEY_ID=ci-store-phone-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+          echo 'STORE_PHONE_PREVIOUS_HASH_KEYS_JSON=[]' >> "$GITHUB_ENV"
           echo 'STORE_WECHAT_APP_ID=qingxu-mock-store-ci' >> "$GITHUB_ENV"
           echo 'STORE_USER_AGREEMENT_VERSION=ci-user-v1' >> "$GITHUB_ENV"
           echo 'STORE_USER_AGREEMENT_TITLE=CI User Agreement' >> "$GITHUB_ENV"
@@ -251,7 +254,7 @@ jobs:
           B6_STORE_CATALOG_DATABASE_TEST_MODE: full
         run: pnpm db:test-b6-store-catalog
 
-      - name: Test B7 Store authentication with PostgreSQL
+      - name: Test B7 Store authentication and profile with PostgreSQL
         env:
           B7_STORE_AUTH_DATABASE_TEST_MODE: full
         run: pnpm db:test-b7-store-auth

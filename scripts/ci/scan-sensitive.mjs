@@ -15,6 +15,25 @@ const syntheticPrototypePhoneFiles = new Set([
   "product-materials/prototype/app.js",
   "product-materials/prototype/verify-prototype.cjs",
 ]);
+const syntheticStorePhoneFixtures = new Map([
+  ["apps/api/src/store-profile/store-phone-provider.spec.ts", new Set(["13800000000"])],
+  ["apps/api/src/store-profile/store-profile.dto.spec.ts", new Set(["13800000000"])],
+  ["apps/api/src/store-profile/store-profile.integration.spec.ts", new Set([
+    "13800006820",
+    "13800006821",
+    "13900007932",
+  ])],
+  ["apps/api/src/store-profile/store-profile.routes.e2e.spec.ts", new Set(["13800000000"])],
+  ["apps/api/src/store-profile/store-profile.service.spec.ts", new Set(["13812345678"])],
+  ["packages/database/src/store-profile.repository.spec.ts", new Set([
+    "13800138000",
+    "13900139000",
+  ])],
+  ["packages/platform-core/test/store-phone.test.ts", new Set([
+    "13800006821",
+    "13900006821",
+  ])],
+]);
 const exactSyntheticSecrets = new Map([
   ["apps/api/src/admin-auth/admin-auth.controller.spec.ts", new Set([
     "password: '12345678'",
@@ -53,7 +72,7 @@ const rules = [
   ["live payment secret", /\b(?:sk_live_|wx(?:pay)?[_-]?secret\s*[:=]\s*["'][^"']{12,})/i],
   ["full bank card", /(?<!\d)(?:62\d{14,17})(?!\d)/],
   ["fixture phone number", /(?<!\d)1[3-9]\d{9}(?!\d)/],
-  ["application key material", /\b(?:FIELD_ENCRYPTION_KEY_BASE64|AUDIT_IP_HASH_KEY_BASE64|IDEMPOTENCY_HASH_KEY_BASE64|AUTH_SIGNING_KEY_BASE64|AUTH_SECRET_HASH_KEY_BASE64)\s*[:=]\s*["']?[A-Za-z0-9+/]{40,}={0,2}/],
+  ["application key material", /\b(?:FIELD_ENCRYPTION_KEY_BASE64|AUDIT_IP_HASH_KEY_BASE64|IDEMPOTENCY_HASH_KEY_BASE64|AUTH_SIGNING_KEY_BASE64|AUTH_SECRET_HASH_KEY_BASE64|STORE_PHONE_HASH_KEY_BASE64)\s*[:=]\s*["']?[A-Za-z0-9+/]{40,}={0,2}/],
   ["previous application key material", /["']key_base64["']\s*:\s*["'][A-Za-z0-9+/]{40,}={0,2}["']/],
   ["JWT credential", /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/],
   ["opaque authentication token", /\b(?:rfr|pat)_[A-Za-z0-9_-]{32,}\b/],
@@ -70,7 +89,10 @@ for (const file of textFiles) {
   for (const [label, pattern] of rules) {
     const matches = [...content.matchAll(new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`))];
     for (const match of matches) {
-      if (label === "fixture phone number" && syntheticPrototypePhoneFiles.has(file) && syntheticPrototypePhones.has(match[0])) {
+      if (label === "fixture phone number" && (
+        (syntheticPrototypePhoneFiles.has(file) && syntheticPrototypePhones.has(match[0]))
+        || syntheticStorePhoneFixtures.get(file)?.has(match[0])
+      )) {
         allowlisted.push(`${file}: ${match[0]}`);
       } else if (exactSyntheticSecrets.get(file)?.has(match[0])) {
         allowlisted.push(`${file}: ${label}`);

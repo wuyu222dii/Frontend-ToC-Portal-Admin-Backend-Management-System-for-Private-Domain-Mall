@@ -83,6 +83,7 @@ export interface PlatformRuntimeConfig {
   store: {
     authTokenAudience: string;
     identityProvider: StoreProvider;
+    phoneHashKeys: SecurityKeyRingConfig;
     phoneProvider: StoreProvider;
     wechatAppId: string;
     wechatAppSecret: string | undefined;
@@ -742,6 +743,7 @@ function readStoreConfig(
   required: boolean,
   environment: RuntimeEnvironment,
   adminAudience: string,
+  phoneHashKeys: SecurityKeyRingConfig,
 ): PlatformRuntimeConfig['store'] {
   const identityProvider = readStoreProvider(source, 'STORE_IDENTITY_PROVIDER', required, environment);
   const phoneProvider = readStoreProvider(source, 'STORE_PHONE_PROVIDER', required, environment);
@@ -796,6 +798,7 @@ function readStoreConfig(
   return {
     authTokenAudience,
     identityProvider,
+    phoneHashKeys,
     phoneProvider,
     wechatAppId,
     wechatAppSecret: rawWechatSecret || undefined,
@@ -842,6 +845,12 @@ export function loadPlatformConfig(
     previousName: 'AUTH_PREVIOUS_SECRET_HASH_KEYS_JSON',
     required: requireAuthentication,
   });
+  const phoneHashKeys = readSecurityKeyRing(source, {
+    currentIdName: 'STORE_PHONE_HASH_KEY_ID',
+    currentKeyName: 'STORE_PHONE_HASH_KEY_BASE64',
+    previousName: 'STORE_PHONE_PREVIOUS_HASH_KEYS_JSON',
+    required: requireAuthentication,
+  });
   const databaseConnection = readRuntimeDatabaseConnection(source, requireDatabase, environment);
   const redisUrl = readRuntimeRedisUrl(source, requireDatabase, environment);
   const storage = readStorageConfig(source, requireStorage, environment);
@@ -859,6 +868,7 @@ export function loadPlatformConfig(
       ...infrastructureKeys,
       ...[signingKeys.current, ...signingKeys.previous].map(({ key }) => key),
       ...[secretHashKeys.current, ...secretHashKeys.previous].map(({ key }) => key),
+      ...[phoneHashKeys.current, ...phoneHashKeys.previous].map(({ key }) => key),
     ];
     if (purposeKeys.some((key, index) => purposeKeys.some((candidate, candidateIndex) =>
       index !== candidateIndex && key.equals(candidate)))) {
@@ -872,7 +882,7 @@ export function loadPlatformConfig(
     'qingxu-admin-web',
     requireAuthentication,
   );
-  const store = readStoreConfig(source, requireAuthentication, environment, adminAudience);
+  const store = readStoreConfig(source, requireAuthentication, environment, adminAudience, phoneHashKeys);
 
   return {
     environment,

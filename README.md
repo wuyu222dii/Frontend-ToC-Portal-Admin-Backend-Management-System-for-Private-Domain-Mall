@@ -1,6 +1,6 @@
 # 青序生活三端私域商城
 
-本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。当前开发按 `B0` 至 `B19` 小批次推进；B0 至 B6 已完成 development 验收。B6 最终实现 SHA `9d8911934a5aa2b09ece2e12935bcafc9ccdcba6` 的 [普通 CI Run 32953444096](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32953444096) 和 [Supabase rollback-only Run 32954611250](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32954611250) 为同一 SHA 双绿。CH-015/CH-016 已批准，当前基线为 `v2.4.5 / CH-016`；B7.1 后端身份与会话批次已完成并暂停，退出审查 `P0=0/P1=0`，B7.2 未准入。仅允许 Mock Provider 和脱敏 development，staging、production、真实客户数据、真实微信身份和资金链路继续 `NO-GO`。
+本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。当前开发按 `B0` 至 `B19` 小批次推进；B0 至 B6 已完成 development 验收。B6 最终实现 SHA `9d8911934a5aa2b09ece2e12935bcafc9ccdcba6` 的 [普通 CI Run 32953444096](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32953444096) 和 [Supabase rollback-only Run 32954611250](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32954611250) 为同一 SHA 双绿。CH-015/CH-016 已批准，当前基线为 `v2.4.5 / CH-016`；B7.0-B7.2 已完成并按批暂停，B7.2 退出审查 `P0=0/P1=0`，B7.3 未准入。仅允许 Mock Provider 和脱敏 development，staging、production、真实客户数据、真实微信身份和资金链路继续 `NO-GO`。
 
 ## 工程结构
 
@@ -59,11 +59,14 @@ pnpm db:supabase:bootstrap # 受控的 Supabase 首次初始化
 pnpm db:test-b3-master-data # B3.2 数据库 full/rollback 门禁
 pnpm db:test-b3-catalog-api # B3.2 真实 Nest + PostgreSQL + Redis 纵向门禁
 pnpm db:test-b5-inventory # B5.2 Inventory 数据库/API full/rollback 门禁
+pnpm db:test-b7-store-auth # B7.1-B7.2 Store 身份/profile full/rollback 门禁
 pnpm db:diff
 ```
+
+B7.2 账户手机号 HMAC 轮换是受控维护操作，不是日常启动命令。先排空所有仍持有旧 current key 的 API 写实例，并以 `mall_migrator` 连接一次性注入 `STORE_PHONE_HASH_DRAIN_OLD_WRITERS_APPROVAL=DRAIN_OLD_STORE_PHONE_HASH_WRITERS_APPROVED`，运行 `pnpm store:phone-hash:rehash`。重算成功后从配置移除 previous key，再以相同一次性审批运行 `pnpm store:phone-hash:verify`；current-only 验证成功前不得销毁旧密钥。审批变量不得写入 `.env` 或长期 Secret。
 
 `pnpm e2e:b4:vertical`、`pnpm db:test-b4-product-catalog` 与 `pnpm db:test-b5-inventory` 不是日常开发命令：full 模式只允许显式 `CI=true`、`NODE_ENV=test` 和一次性回环 PostgreSQL；B5.2 rollback 模式只允许带可信 CA 的受控 Supabase development runtime 连接，并以外层事务归零。禁止指向 Supabase development 日常数据库执行 full 模式。
 
 Supabase 项目创建、连接分权和受保护烟测见 [B0 工程与 Supabase](product-materials/docs/05-开发管理/B0-工程与Supabase.md)，公共内核边界见 [B1 平台公共内核](product-materials/docs/05-开发管理/B1-平台公共内核.md)，总部认证实现与安全操作见 [B2 总部安全入口](product-materials/docs/05-开发管理/B2-总部安全入口.md)，B3-B6 历史批次见对应开发记录；B7 的 CH-015/CH-016、串行批次和准入边界见 [B7 消费者身份、会话、服务代理与隐私](product-materials/docs/05-开发管理/B7-消费者身份会话与隐私.md)。普通 PR 只使用 CI 的临时 PostgreSQL，不读取 Supabase 凭据。
 
-B3.1 至 B3.3 的文件、品牌/分类与 ADM-05/06 证据继续有效；B4 已交付 Product/SKU，B5 已交付 Banner/库存，B6 已交付匿名 Store API、MP-01 至 MP-06 和真实纵向验收。B7.0 已冻结法律文本、Mock 微信登录/CUSTOMER 会话、资料手机号、归因/服务代理和同步注销契约并暂停；B7.1 业务代码仍未准入。收藏、服务端购物车、地址和交易继续排除。
+B3.1 至 B3.3 的文件、品牌/分类与 ADM-05/06 证据继续有效；B4 已交付 Product/SKU，B5 已交付 Banner/库存，B6 已交付匿名 Store API、MP-01 至 MP-06 和真实纵向验收。B7.0-B7.2 已交付冻结契约、Mock 微信登录/CUSTOMER 会话、本人 profile 与账户手机号后端闭环；归因/服务代理、同步注销和小程序身份页面尚未实施。收藏、服务端购物车、地址和交易继续排除。

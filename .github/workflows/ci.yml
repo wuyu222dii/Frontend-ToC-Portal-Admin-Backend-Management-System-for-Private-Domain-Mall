@@ -254,7 +254,7 @@ jobs:
           B6_STORE_CATALOG_DATABASE_TEST_MODE: full
         run: pnpm db:test-b6-store-catalog
 
-      - name: Test B7 Store authentication, profile and attribution with PostgreSQL
+      - name: Test B7 Store authentication, profile, attribution and privacy with PostgreSQL
         env:
           B7_STORE_AUTH_DATABASE_TEST_MODE: full
         run: pnpm db:test-b7-store-auth

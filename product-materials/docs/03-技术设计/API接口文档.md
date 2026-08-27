@@ -6,7 +6,7 @@
 |---|---|
 | 文档版本 | v2.4.5 |
 | 对应产品基线 | MVP/PRD v2.4.5、CH-001 至 CH-016 |
-| 接口阶段 | B0-B6 development 已完成；CH-015/CH-016 已批准，B7.0-B7.3 已完成并按批暂停，B7.3 `P0=0/P1=0`，B7.4 未准入；仅允许 Mock Provider 和脱敏 development，staging/production 未批准 |
+| 接口阶段 | B0-B6 development 已完成；CH-015/CH-016 已批准，B7.0-B7.4 已完成并按批暂停，B7.4 退出复审 `P0=0/P1=0`，B7.5 尚未准入；仅允许 Mock Provider 和脱敏 development，staging/production 未批准 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
 | 更新时间 | 2026-08-27 |
 
@@ -879,7 +879,7 @@ CH-006 文件契约统一如下：
 | Store 登录 | Provider 交换在事务外；事务内按 identity/account -> customer profile -> candidate -> consent -> session -> audit/idempotency 锁序创建或恢复 CUSTOMER，会话签发事实原子提交 |
 | 资料/手机号 | idempotency -> account/customer profile -> active phone -> consent -> audit；If-Match 冲突不撤回旧手机号、不写新 consent |
 | 候选确认 | idempotency -> account/customer profile -> candidate -> current binding -> agent/invite/promotion/product validity -> customer_agent_binding -> binding_change_log -> audit -> idempotency completion；customer profile 是确认/转移/订单归因共同串行根；本批无异步副作用，不产生 outbox |
-| 同步注销 | idempotency/preview -> account/customer profile -> blocker facts -> sessions/identity/phone/candidate/binding/privacy projection -> audit/outbox；确认重检且任一步失败整体回滚 |
+| 同步注销 | idempotency/preview -> account/customer -> current session validation -> blocker facts -> binding/anonymization matrix -> audit/outbox/idempotency completion；确认重检，阻断 fail closed，任一步失败整体回滚；成功将全部 session 保留为 revoked tombstone 并清空 refresh hash |
 
 Provider 回调先写入回调收件箱，再由幂等处理器消费；领域事件使用事务 Outbox 发布。定时任务和消费者均必须可重入，失败进入重试队列并在超过阈值后生成后台待办。
 
@@ -926,7 +926,7 @@ Provider 回调先写入回调收件箱，再由幂等处理器消费；领域�
 - 候选查询/拒绝、文件完成确认等非首次响应不能重新返回 candidate token 或无关签名能力；所有短时能力响应均可机器校验禁止缓存头。
 - `pnpm contracts:check` 的 CH-014 历史实测为 172 paths、196 operations、196 unique operationId、312 schemas、691 schema refs、2,577 local refs 和 0 dangling refs。B6 售罄投影、五种排序、搜索边界、无分页品牌/分类、首页分区状态与 Store 专用 429/Retry-After 均已形成可机器校验契约；CH-012 Banner/库存和 Product/SKU 专用 DTO 的历史闭合结论继续有效。
 - CH-016 专项实测为 173 paths、197 operations、197 unique operationId、320 schemas、699 schema refs、2,617 local refs 和 0 dangling refs，Redocly 0 warning。专项门禁已覆盖三份法律文本、登录固定双 consent、手机号第三 consent、Store/Admin audience 隔离、Provider 服务端选择、If-Match、候选目标解析、查询不消费与替换/迁移原子失效、服务代理三字段投影和同步注销。
-- 注销不合格 preview 返回 200、完整 blockers/impacts 及 null token/hash/expiry；合格预览才签发 5 分钟能力。confirm 后出现新阻断返回 422 且不产生部分去标识化，成功后全部旧 token 失效且 HASH_ONLY 不重放完成响应。
+- B7.4 已实现注销后端：不合格 preview 返回 200、完整 blockers/impacts 及 null token/hash/expiry；合格预览才签发 5 分钟能力。confirm 后出现新阻断返回 422 且不消费能力、不产生部分去标识化；成功后在单事务清除登录主体/非交易 PII、结束绑定、使候选失效、匿名化代理隐私投影、写审计与 durable `PENDING account.anonymized` Outbox 事实，并将全部 session 留作 revoked tombstone。这里只证明事件事实已持久化，不宣称已投递或消费。全部旧 token 失效，HASH_ONLY 不重放完成响应；full 与受控 Supabase development rollback-only 门禁已通过，退出复审 `P0=0/P1=0`。
 - Product/SKU 固定创建状态、完整状态矩阵、恢复目标、不级联、首次 `published_at`、nullable 最低活动价、8 图、归档 SKU、零库存余额、不可变 code、201 SKU create 和四个新 422 均有契约及集成测试。
 - 非 `APPROVED` 提现无法请求完整银行卡号；短时授权不可跨提现单、跨会话或重复使用。
 - 所有关键回调和写操作在重复请求下只产生一次业务结果。

@@ -18,6 +18,7 @@ import { StoreCatalogModule } from './store-catalog/store-catalog.module';
 import { StoreAttributionModule } from './store-attribution/store-attribution.module';
 import { StoreAuthModule } from './store-auth/store-auth.module';
 import { StoreProfileModule } from './store-profile/store-profile.module';
+import { StorePrivacyModule } from './store-privacy/store-privacy.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { StoreProfileModule } from './store-profile/store-profile.module';
     StoreAttributionModule,
     StoreCatalogModule,
     StoreAuthModule,
+    StorePrivacyModule,
     StoreProfileModule,
   ],
   providers: [

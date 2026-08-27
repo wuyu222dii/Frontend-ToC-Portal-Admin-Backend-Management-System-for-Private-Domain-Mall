@@ -11,9 +11,11 @@ import type {
 } from './idempotency.repository';
 
 export const HIGH_RISK_PREVIEW_TTL_MS = 60_000;
+export const ACCOUNT_ANONYMIZE_PREVIEW_TTL_MS = 300_000;
 
-export type HighRiskPreviewTargetType = 'BRAND' | 'CATEGORY' | 'INVENTORY' | 'PRODUCT' | 'SKU';
+export type HighRiskPreviewTargetType = 'ACCOUNT' | 'BRAND' | 'CATEGORY' | 'INVENTORY' | 'PRODUCT' | 'SKU';
 export type HighRiskPreviewAction =
+  | 'ACCOUNT.ANONYMIZE'
   | 'BRAND.ACTIVATE'
   | 'BRAND.DEACTIVATE'
   | 'BRAND.SOFT_DELETE'
@@ -73,6 +75,7 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const HASH_KEY_ID = /^[A-Za-z0-9._:-]{3,80}$/;
 const MAX_PREVIOUS_HASH_KEYS = 3;
 const PREVIEW_ACTION = new Set<HighRiskPreviewAction>([
+  'ACCOUNT.ANONYMIZE',
   'BRAND.ACTIVATE',
   'BRAND.DEACTIVATE',
   'BRAND.SOFT_DELETE',
@@ -88,6 +91,7 @@ const PREVIEW_ACTION = new Set<HighRiskPreviewAction>([
   'SKU.SOFT_DELETE',
 ]);
 const PREVIEW_TARGET_TYPE = new Set<HighRiskPreviewTargetType>([
+  'ACCOUNT',
   'BRAND',
   'CATEGORY',
   'INVENTORY',
@@ -253,7 +257,10 @@ export class HighRiskPreviewRepository {
     validateIssueInput(input);
     const currentKey = this.hashKeys[0] as IdempotencyHashKey;
     const createdAt = this.currentTime();
-    const expiresAt = new Date(createdAt.getTime() + HIGH_RISK_PREVIEW_TTL_MS);
+    const ttlMs = input.action === 'ACCOUNT.ANONYMIZE'
+      ? ACCOUNT_ANONYMIZE_PREVIEW_TTL_MS
+      : HIGH_RISK_PREVIEW_TTL_MS;
+    const expiresAt = new Date(createdAt.getTime() + ttlMs);
     const previewTokenHash = tokenHash(input.previewToken, currentKey.key);
     const previewRequestHash = requestHash(input.request, currentKey.key);
     const previewConfirmationHash = confirmationHash(

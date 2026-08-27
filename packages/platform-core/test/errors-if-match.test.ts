@@ -27,6 +27,7 @@ describe('application errors', () => {
     expect(getApplicationErrorHttpStatus('ACTIVE_INVENTORY_RESERVATION')).toBe(422);
     expect(getApplicationErrorHttpStatus('INVENTORY_QUANTITY_OUT_OF_RANGE')).toBe(422);
     expect(getApplicationErrorHttpStatus('FILE_CONTENT_MISMATCH')).toBe(422);
+    expect(getApplicationErrorHttpStatus('ACCOUNT_DELETION_BLOCKED')).toBe(422);
     expect(error.toResponse('req_test')).toEqual({
       code: 'INVALID_ARGUMENT',
       message: 'The request is invalid',
@@ -44,6 +45,7 @@ describe('application errors', () => {
     ['ACTIVE_INVENTORY_RESERVATION', 'Active inventory reservations must be released first'],
     ['INVENTORY_QUANTITY_OUT_OF_RANGE', 'The resulting inventory quantity is outside the supported range'],
     ['FILE_CONTENT_MISMATCH', 'The uploaded file does not match its declaration'],
+    ['ACCOUNT_DELETION_BLOCKED', 'Account deletion is blocked by unsettled activity'],
   ] as const)('uses a fixed public message for catalog error %s', (code, message) => {
     expect(new ApplicationError(code, 'private implementation detail').toResponse('req_test')).toEqual({
       code,

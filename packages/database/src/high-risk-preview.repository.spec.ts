@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { PrismaClient } from '../.generated/prisma/client';
 import type { DatabaseTransaction, IdempotencyHashKeyRing } from './idempotency.repository';
 import {
+  ACCOUNT_ANONYMIZE_PREVIEW_TTL_MS,
   HIGH_RISK_PREVIEW_TTL_MS,
   HighRiskPreviewRepository,
   type IssueHighRiskPreviewInput,
@@ -159,6 +160,27 @@ describe('HighRiskPreviewRepository', () => {
     expect(stored?.preview_token_hash).not.toBe(issued.requestHash);
     expect(stored?.preview_token_hash).not.toBe(issued.confirmationHash);
     expect(JSON.stringify(stored)).not.toContain('Approved catalog activation');
+  });
+
+  it('uses five minutes only for ACCOUNT.ANONYMIZE and keeps existing actions at 60 seconds', async () => {
+    const accountHarness = harness();
+    const accountTargetId = generateUlid(NOW.getTime() - 1_000);
+    const accountPreview = await accountHarness.repository().issueInTransaction(accountHarness.transaction, input({
+      action: 'ACCOUNT.ANONYMIZE',
+      request: { acknowledged: true },
+      targetId: accountTargetId,
+      targetType: 'ACCOUNT',
+    }));
+    expect(accountPreview.expiresAt).toEqual(new Date(NOW.getTime() + ACCOUNT_ANONYMIZE_PREVIEW_TTL_MS));
+    expect(accountHarness.getRecord()).toMatchObject({
+      action: 'ACCOUNT.ANONYMIZE',
+      target_id: accountTargetId,
+      target_type: 'ACCOUNT',
+    });
+
+    const brandHarness = harness();
+    const brandPreview = await brandHarness.repository().issueInTransaction(brandHarness.transaction, input());
+    expect(brandPreview.expiresAt).toEqual(new Date(NOW.getTime() + HIGH_RISK_PREVIEW_TTL_MS));
   });
 
   it('consumes exactly once when every binding and hash matches', async () => {

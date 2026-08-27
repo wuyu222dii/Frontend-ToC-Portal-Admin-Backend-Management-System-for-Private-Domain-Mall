@@ -8,6 +8,7 @@ import {
   ApplicationError,
   generateUlid,
   hmacAuthenticationSecret,
+  hmacStoreCandidateToken,
   verifyStoreAccessToken,
 } from '@qingxu/platform-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,6 +21,8 @@ const ACCOUNT_ID = '01J00000000000000000000000';
 const CUSTOMER_ID = '01J00000000000000000000001';
 const REQUEST_ID = 'req_0123456789abcdef0123456789abcdef';
 const KEY = '018f47a2-9f61-7c4f-8b6e-9a61b3470f2e';
+const CANDIDATE_ID = '01J00000000000000000000004';
+const CANDIDATE_TOKEN = 'c'.repeat(32);
 
 function config(): PlatformRuntimeConfig {
   return {
@@ -100,13 +103,16 @@ function harness() {
     revokeCurrentSessionInTransaction: vi.fn().mockResolvedValue({ revoked: true }),
   };
   const audit = { append: vi.fn().mockResolvedValue({}) };
+  const attribution = {
+    migrateAnonymousCandidateInTransaction: vi.fn().mockResolvedValue({ kind: 'none' }),
+  };
   const idempotency = {
     claim: vi.fn().mockResolvedValue({ kind: 'execute' }),
     complete: vi.fn().mockResolvedValue({}),
   };
   const service = new StoreAuthService(config(), database, provider as unknown as StoreIdentityProvider);
-  Object.assign(service as unknown as Record<string, unknown>, { auth, audit, idempotency });
-  return { audit, auth, idempotency, provider, service, transaction };
+  Object.assign(service as unknown as Record<string, unknown>, { attribution, auth, audit, idempotency });
+  return { attribution, audit, auth, idempotency, provider, service, transaction };
 }
 
 describe('B7.1 Store auth service', () => {
@@ -152,7 +158,7 @@ describe('B7.1 Store auth service', () => {
     }, response.session.access_token)).toMatchObject({ accountId: ACCOUNT_ID, role: 'CUSTOMER' });
     expect(idempotency.complete).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
       resourceId: expect.any(String),
-      responseForHash: { account_id: ACCOUNT_ID, session_id: expect.any(String) },
+      responseForHash: { account_id: ACCOUNT_ID, candidate_id: null, session_id: expect.any(String) },
       responseStatus: 200,
       storage: 'HASH_ONLY',
     });
@@ -162,7 +168,7 @@ describe('B7.1 Store auth service', () => {
     expect(JSON.stringify(completed)).not.toContain('mock:customer_0001');
   });
 
-  it('rejects stale consent and staged candidate migration before Provider or database writes', async () => {
+  it('rejects stale consent before Provider or database writes', async () => {
     const stale = harness();
     const input = loginInput();
     input.consents[0].documentVersion = 'user-old';
@@ -172,10 +178,88 @@ describe('B7.1 Store auth service', () => {
     expect(stale.provider.exchange).not.toHaveBeenCalled();
     expect(stale.auth.resolveCustomerInTransaction).not.toHaveBeenCalled();
 
-    const candidate = harness();
-    await expect(candidate.service.login(loginInput('c'.repeat(32)), KEY, REQUEST_ID))
+  });
+
+  it('migrates a candidate with current and previous HMACs before session creation and returns its summary', async () => {
+    const { attribution, audit, auth, idempotency, provider, service } = harness();
+    attribution.migrateAnonymousCandidateInTransaction.mockResolvedValue({
+      kind: 'candidate',
+      candidate: {
+        agentId: '01J00000000000000000000005',
+        displayName: 'Development Agent',
+        expiresAt: new Date('2026-08-27T04:30:00.000Z'),
+        id: CANDIDATE_ID,
+        publicTargetUrl: 'https://example.test/products/01J00000000000000000000006',
+      },
+    });
+
+    const response = await service.login(loginInput(CANDIDATE_TOKEN), KEY, REQUEST_ID, '127.0.0.1');
+
+    expect(provider.exchange).toHaveBeenCalledWith('mock:customer_0001');
+    expect(attribution.migrateAnonymousCandidateInTransaction).toHaveBeenCalledWith(expect.anything(), {
+      accountId: ACCOUNT_ID,
+      customerId: CUSTOMER_ID,
+      tokenHashCandidates: [
+        hmacStoreCandidateToken(CANDIDATE_TOKEN, config().authentication.secretHashKeys.current.key),
+        hmacStoreCandidateToken(CANDIDATE_TOKEN, config().authentication.secretHashKeys.previous[0]!.key),
+      ],
+    });
+    expect(attribution.migrateAnonymousCandidateInTransaction.mock.invocationCallOrder[0])
+      .toBeLessThan(auth.createLoginSessionInTransaction.mock.invocationCallOrder[0] as number);
+    expect(response).toMatchObject({
+      candidate: {
+        agent_id: '01J00000000000000000000005',
+        attribution_eligible: true,
+        candidate_id: CANDIDATE_ID,
+        display_name: 'Development Agent',
+        expires_at: '2026-08-27T04:30:00.000Z',
+        public_target_url: 'https://example.test/products/01J00000000000000000000006',
+      },
+      confirmation_required: true,
+      session: { assurance: 'WECHAT', role: 'CUSTOMER' },
+    });
+    expect(idempotency.complete).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
+      resourceId: expect.any(String),
+      responseForHash: {
+        account_id: ACCOUNT_ID,
+        candidate_id: CANDIDATE_ID,
+        session_id: expect.any(String),
+      },
+      responseStatus: 200,
+      storage: 'HASH_ONLY',
+    });
+    expect(audit.append).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      action: 'TRANSFER',
+      actorAccountId: ACCOUNT_ID,
+      actorRole: 'CUSTOMER',
+      idempotencyKey: KEY,
+      module: 'attribution',
+      objectId: CUSTOMER_ID,
+      objectType: 'customer',
+      requestId: REQUEST_ID,
+      result: 'SUCCESS',
+      resultCode: 'OK',
+      summaryPolicy: 'NONE',
+    }));
+    expect(audit.append).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify([
+      audit.append.mock.calls,
+      idempotency.complete.mock.calls.map((call) => call[2]),
+    ])).not.toContain(CANDIDATE_TOKEN);
+  });
+
+  it('fails the login transaction when the candidate token no longer matches and never creates a session', async () => {
+    const { attribution, auth, idempotency, provider, service } = harness();
+    attribution.migrateAnonymousCandidateInTransaction.mockRejectedValue(new ApplicationError(
+      'ATTRIBUTION_CANDIDATE_MISMATCH',
+      'candidate detail',
+    ));
+
+    await expect(service.login(loginInput(CANDIDATE_TOKEN), KEY, REQUEST_ID))
       .rejects.toMatchObject({ code: 'ATTRIBUTION_CANDIDATE_MISMATCH' });
-    expect(candidate.provider.exchange).not.toHaveBeenCalled();
+    expect(provider.exchange).toHaveBeenCalledOnce();
+    expect(auth.createLoginSessionInTransaction).not.toHaveBeenCalled();
+    expect(idempotency.complete).not.toHaveBeenCalled();
   });
 
   it('records invalid Mock credentials as a HASH_ONLY failure without persisting the code', async () => {

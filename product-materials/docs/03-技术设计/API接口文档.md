@@ -6,7 +6,7 @@
 |---|---|
 | 文档版本 | v2.4.5 |
 | 对应产品基线 | MVP/PRD v2.4.5、CH-001 至 CH-016 |
-| 接口阶段 | B0-B6 development 已完成；CH-015/CH-016 已批准，B7.0-B7.2 已完成并按批暂停，B7.2 `P0=0/P1=0`，B7.3 未准入；仅允许 Mock Provider 和脱敏 development，staging/production 未批准 |
+| 接口阶段 | B0-B6 development 已完成；CH-015/CH-016 已批准，B7.0-B7.3 已完成并按批暂停，B7.3 `P0=0/P1=0`，B7.4 未准入；仅允许 Mock Provider 和脱敏 development，staging/production 未批准 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
 | 更新时间 | 2026-08-27 |
 
@@ -878,7 +878,7 @@ CH-006 文件契约统一如下：
 | 人工金额补偿 | HR-09 预览确认、订单项金额占用、补偿事实和退款主单同事务；不占数量/不回库，成功后按实际金额冲正佣金 |
 | Store 登录 | Provider 交换在事务外；事务内按 identity/account -> customer profile -> candidate -> consent -> session -> audit/idempotency 锁序创建或恢复 CUSTOMER，会话签发事实原子提交 |
 | 资料/手机号 | idempotency -> account/customer profile -> active phone -> consent -> audit；If-Match 冲突不撤回旧手机号、不写新 consent |
-| 候选确认 | idempotency -> customer profile -> candidate -> current binding -> agent/invite/promotion validity -> audit/outbox；customer profile 是确认/转移/订单归因共同串行根 |
+| 候选确认 | idempotency -> account/customer profile -> candidate -> current binding -> agent/invite/promotion/product validity -> customer_agent_binding -> binding_change_log -> audit -> idempotency completion；customer profile 是确认/转移/订单归因共同串行根；本批无异步副作用，不产生 outbox |
 | 同步注销 | idempotency/preview -> account/customer profile -> blocker facts -> sessions/identity/phone/candidate/binding/privacy projection -> audit/outbox；确认重检且任一步失败整体回滚 |
 
 Provider 回调先写入回调收件箱，再由幂等处理器消费；领域事件使用事务 Outbox 发布。定时任务和消费者均必须可重入，失败进入重试队列并在超过阈值后生成后台待办。

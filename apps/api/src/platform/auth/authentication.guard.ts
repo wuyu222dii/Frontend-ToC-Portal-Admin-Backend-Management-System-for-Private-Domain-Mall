@@ -14,10 +14,15 @@ import type { PrincipalRequest } from '../access/principal';
 import { PUBLIC_ROUTE, REQUIRED_ROLES } from '../access/rbac.metadata';
 import { API_DATABASE_RUNTIME } from '../database/api-database-runtime';
 import { REQUIRED_PRE_AUTH_ACTION, type PreAuthAction } from './pre-auth.metadata';
+import { OPTIONAL_STORE_AUTHENTICATION } from './optional-store-authentication.metadata';
 import { NO_STORE_RESPONSE } from '../http/no-store.decorator';
 
 interface AuthenticationRequest extends PrincipalRequest {
   headers: Record<string, string | string[] | undefined>;
+}
+
+function headerPresent(request: AuthenticationRequest, name: string): boolean {
+  return request.headers[name] !== undefined;
 }
 
 function bearerToken(request: AuthenticationRequest): string {
@@ -73,14 +78,31 @@ export class AuthenticationGuard implements CanActivate {
       REQUIRED_ROLES,
       [handler, controller],
     );
+    const optionalStoreAuthentication = this.reflector.getAllAndOverride<boolean | undefined>(
+      OPTIONAL_STORE_AUTHENTICATION,
+      [handler, controller],
+    ) === true;
     if (this.reflector.getAllAndOverride<boolean | undefined>(NO_STORE_RESPONSE, [handler, controller]) === true) {
       const response = context.switchToHttp().getResponse<{ setHeader(name: string, value: string): void }>();
       response.setHeader('Cache-Control', 'no-store, private');
       response.setHeader('Pragma', 'no-cache');
     }
-    if (isPublic && requiredPreAuth === undefined) return true;
+    if (optionalStoreAuthentication && (!isPublic || requiredPreAuth !== undefined || requiredRoles !== undefined)) {
+      throw new ApplicationError('PERMISSION_DENIED', 'Optional Store authentication policy is invalid');
+    }
 
     const request = context.switchToHttp().getRequest<AuthenticationRequest>();
+    if (optionalStoreAuthentication) {
+      const authorizationPresent = headerPresent(request, 'authorization');
+      const candidateTokenPresent = headerPresent(request, 'x-candidate-token');
+      if (authorizationPresent && candidateTokenPresent) {
+        throw new ApplicationError('INVALID_ARGUMENT', 'Authorization and X-Candidate-Token cannot be combined');
+      }
+      if (!authorizationPresent) return true;
+      return this.authenticateStoreBearer(request);
+    }
+    if (isPublic && requiredPreAuth === undefined) return true;
+
     if (!this.config || !this.database) {
       throw new ApplicationError('AUTH_REQUIRED', 'Authentication is required');
     }
@@ -105,24 +127,7 @@ export class AuthenticationGuard implements CanActivate {
       if (requiredRoles.some((role) => role !== 'CUSTOMER')) {
         throw new ApplicationError('PERMISSION_DENIED', 'Mixed authentication realms are forbidden');
       }
-      const claims = this.verifyStoreAccess(token);
-      const session = await this.storeRepository.getCurrentSession({
-        sessionId: claims.sessionId,
-        accessJti: claims.tokenId,
-      });
-      if (session === null || session.accountId !== claims.accountId) {
-        throw new ApplicationError('AUTH_REQUIRED', 'Store session is not active');
-      }
-      request.storeSession = session;
-      request.principal = {
-        accountId: session.accountId,
-        assurance: 'WECHAT',
-        permissions: [],
-        restriction: 'NONE',
-        role: 'CUSTOMER',
-        sessionId: session.sessionId,
-      };
-      return true;
+      return this.authenticateStoreBearer(request, token);
     }
 
     const claims = this.verifyAccess(token);
@@ -140,6 +145,31 @@ export class AuthenticationGuard implements CanActivate {
       permissions: claims.permissions,
       restriction: 'NONE',
       role: 'SUPER_ADMIN',
+      sessionId: session.sessionId,
+    };
+    return true;
+  }
+
+  private async authenticateStoreBearer(request: AuthenticationRequest, token = bearerToken(request)): Promise<true> {
+    if (!this.config || !this.database || !this.storeRepository) {
+      throw new ApplicationError('AUTH_REQUIRED', 'Authentication is required');
+    }
+    request.authorizationToken = token;
+    const claims = this.verifyStoreAccess(token);
+    const session = await this.storeRepository.getCurrentSession({
+      sessionId: claims.sessionId,
+      accessJti: claims.tokenId,
+    });
+    if (session === null || session.accountId !== claims.accountId) {
+      throw new ApplicationError('AUTH_REQUIRED', 'Store session is not active');
+    }
+    request.storeSession = session;
+    request.principal = {
+      accountId: session.accountId,
+      assurance: 'WECHAT',
+      permissions: [],
+      restriction: 'NONE',
+      role: 'CUSTOMER',
       sessionId: session.sessionId,
     };
     return true;

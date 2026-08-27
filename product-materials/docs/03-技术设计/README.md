@@ -1,6 +1,6 @@
 # 技术设计交付索引
 
-> 当前基线：MVP/PRD v2.4.5、线协议 CH-016（2026-08-27）。B0-B6 development 已完成；CH-015/CH-016 已批准，B7.0-B7.2 已完成并按批暂停，B7.2 退出审查 `P0=0/P1=0`，B7.3 未准入。仅允许 Mock Provider 和脱敏 development，staging/production 均为 `NO-GO`。
+> 当前基线：MVP/PRD v2.4.5、线协议 CH-016（2026-08-27）。B0-B6 development 已完成；CH-015/CH-016 已批准，B7.0-B7.3 已完成并按批暂停，B7.3 退出审查 `P0=0/P1=0`，B7.4 未准入。仅允许 Mock Provider 和脱敏 development，staging/production 均为 `NO-GO`。
 
 | 文件 | 用途 |
 |---|---|
@@ -61,7 +61,7 @@
 - 法律文本固定返回 USER_AGREEMENT、PRIVACY_POLICY、PHONE_AUTHORIZATION 三份当前快照；登录严格同意前两份，手机号单独同意第三份。Store token 固定 `role=CUSTOMER`、`assurance=WECHAT`、`audience=qingxu-store`，管理端继续 `qingxu-admin-web`；Provider 不是 token claim。
 - profile/手机号写要求 If-Match 和幂等，Provider 由服务端环境选择；消费者身份固定一个微信 AppID，以 `(AppID, openid)` 识别，union_id 不用于登录或自动合并；候选目标服务端解析，token 使用用途隔离 HMAC 保存、30 分钟有效，查询不消费、替换或登录迁移时原子失效；服务代理只返回 agent ID、展示名和绑定时间。
 - 注销使用 eligible preview 与 5 分钟能力；不合格 preview 不签发 token。同步 confirm 重检阻断并单事务完成去标识化和全部会话撤销，使用 HASH_ONLY 且不重放完成响应。
-- Prisma、两份 `0001_initial`、76 models / 59 enums 逐字节不变。B7.0 已通过生成稳定性、contracts 编译、原型、冻结数据库与零漂移门禁；B7.1 已完成 Store 身份与会话；B7.2 已完成 profile/手机号 repository、service、HTTP、AES-GCM、独立 HMAC 密钥环、HASH_ONLY、并发与 full/rollback 门禁。B7.3 业务代码仍须用户另行批准。
+- Prisma、两份 `0001_initial`、76 models / 59 enums 逐字节不变。B7.0 已通过生成稳定性、contracts 编译、原型、冻结数据库与零漂移门禁；B7.1 已完成 Store 身份与会话；B7.2 已完成 profile/手机号；B7.3 已完成归因候选、长期绑定与服务代理的 repository、service、HTTP、HMAC、HASH_ONLY、并发与 full/rollback 门禁。B7.4 业务代码仍须用户另行批准。
 
 ## B3.1 当前验证状态
 
@@ -86,7 +86,7 @@ B0 已在工程根建立 `prisma.config.ts`、`prisma/` 和五应用脚手架；
 
 ## B7 开发入口
 
-B3-B6 历史交付见各自开发记录；B7 的 CH-015/CH-016、契约、锁序、串行批次和暂停条件见 `../05-开发管理/B7-消费者身份会话与隐私.md`。B7.1 后端身份/会话与 B7.2 profile/账户手机号均已完成并按批暂停，Prisma 与首迁移保持冻结；B7.3 须另行明确批准，staging 前外部独立复核不得提前豁免。
+B3-B6 历史交付见各自开发记录；B7 的 CH-015/CH-016、契约、锁序、串行批次和暂停条件见 `../05-开发管理/B7-消费者身份会话与隐私.md`。B7.1 后端身份/会话、B7.2 profile/账户手机号与 B7.3 归因/服务代理均已完成并按批暂停，Prisma 与首迁移保持冻结；B7.4 须另行明确批准，staging 前外部独立复核不得提前豁免。
 
 ## 剩余上线门禁
 

@@ -58,8 +58,10 @@ for (const command of [
   ['--filter', '@qingxu/config', 'build'],
   ['--filter', '@qingxu/database', 'build'],
   ['--filter', '@qingxu/database', 'exec', 'vitest', 'run', 'src/store-auth.integration.spec.ts'],
+  ['--filter', '@qingxu/database', 'exec', 'vitest', 'run', 'src/store-attribution.integration.spec.ts'],
   ['--filter', '@qingxu/api', 'exec', 'vitest', 'run', 'src/store-auth/store-auth.integration.spec.ts'],
   ['--filter', '@qingxu/api', 'exec', 'vitest', 'run', 'src/store-profile/store-profile.integration.spec.ts'],
+  ['--filter', '@qingxu/api', 'exec', 'vitest', 'run', 'src/store-attribution/store-attribution.integration.spec.ts'],
 ]) {
   const child = spawnSync('pnpm', command, {
     cwd: process.cwd(),
@@ -69,4 +71,4 @@ for (const command of [
   if (child.error || child.status !== 0) fail(`command failed: pnpm ${command.join(' ')}`);
 }
 
-process.stdout.write('B7.1-B7.2 Store auth/profile database and API service checks passed.\n');
+process.stdout.write('B7.1-B7.3 Store auth/profile/attribution database and API service checks passed.\n');

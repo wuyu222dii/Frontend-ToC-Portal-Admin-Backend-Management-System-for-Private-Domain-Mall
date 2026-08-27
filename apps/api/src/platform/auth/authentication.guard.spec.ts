@@ -9,8 +9,9 @@ import {
 import { describe, expect, it, vi } from 'vitest';
 
 import type { PrincipalRequest } from '../access/principal';
-import { RequireRoles } from '../access/rbac.metadata';
+import { Public, RequireRoles } from '../access/rbac.metadata';
 import { AuthenticationGuard } from './authentication.guard';
+import { OptionalStoreAuthentication } from './optional-store-authentication.metadata';
 
 const ACCOUNT_ID = '01J00000000000000000000000';
 const CUSTOMER_ID = '01J00000000000000000000001';
@@ -43,6 +44,13 @@ class RealmFixture {
 
   @RequireRoles('CUSTOMER', 'SUPER_ADMIN')
   mixedRealmRoute(): void {}
+
+  @Public()
+  @OptionalStoreAuthentication()
+  optionalStoreRoute(): void {}
+
+  @Public()
+  publicRoute(): void {}
 }
 
 interface AuthenticationRequest extends PrincipalRequest {
@@ -93,8 +101,15 @@ function contextFor(
   handlerName: keyof RealmFixture,
   token: string,
 ): { context: ExecutionContext; request: AuthenticationRequest } {
+  return contextForHeaders(handlerName, { authorization: `Bearer ${token}` });
+}
+
+function contextForHeaders(
+  handlerName: keyof RealmFixture,
+  headers: Record<string, string | undefined>,
+): { context: ExecutionContext; request: AuthenticationRequest } {
   const request: AuthenticationRequest = {
-    headers: { authorization: `Bearer ${token}` },
+    headers,
   };
   const context = {
     getClass: () => RealmFixture,
@@ -205,5 +220,57 @@ describe('AuthenticationGuard Store and Admin realm isolation', () => {
     expect(findUnique).toHaveBeenCalledOnce();
     expect(request.storeSession).toBeUndefined();
     expect(request.principal).toBeUndefined();
+  });
+
+  it('authenticates a Store bearer on an explicitly optional public route', async () => {
+    const { findUnique, guard } = runtimeWithSession(storeSessionRow());
+    const { context, request } = contextFor('optionalStoreRoute', storeToken());
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(findUnique).toHaveBeenCalledOnce();
+    expect(request.storeSession).toMatchObject({ accountId: ACCOUNT_ID, customerId: CUSTOMER_ID });
+  });
+
+  it('allows candidate-only and credential-free requests through the optional bearer layer', async () => {
+    for (const headers of [{ 'x-candidate-token': 'c'.repeat(32) }, {}]) {
+      const { findUnique, guard } = runtimeWithSession(storeSessionRow());
+      const { context, request } = contextForHeaders('optionalStoreRoute', headers);
+
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+      expect(findUnique).not.toHaveBeenCalled();
+      expect(request.storeSession).toBeUndefined();
+    }
+  });
+
+  it('rejects dual optional credentials before validating or falling back to either branch', async () => {
+    const { findUnique, guard } = runtimeWithSession(storeSessionRow());
+    const { context, request } = contextForHeaders('optionalStoreRoute', {
+      authorization: `Bearer ${storeToken()}`,
+      'x-candidate-token': 'c'.repeat(32),
+    });
+
+    await expect(guard.canActivate(context)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(request.storeSession).toBeUndefined();
+  });
+
+  it('does not downgrade a malformed or wrong-realm optional bearer to anonymous', async () => {
+    for (const authorization of ['Basic invalid', `Bearer ${adminToken()}`]) {
+      const { findUnique, guard } = runtimeWithSession(storeSessionRow());
+      const { context, request } = contextForHeaders('optionalStoreRoute', { authorization });
+
+      await expect(guard.canActivate(context)).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
+      expect(findUnique).not.toHaveBeenCalled();
+      expect(request.storeSession).toBeUndefined();
+    }
+  });
+
+  it('preserves the existing pass-through behavior of public routes without optional metadata', async () => {
+    const { findUnique, guard } = runtimeWithSession(storeSessionRow());
+    const { context, request } = contextForHeaders('publicRoute', { authorization: 'malformed' });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(findUnique).not.toHaveBeenCalled();
+    expect(request.storeSession).toBeUndefined();
   });
 });

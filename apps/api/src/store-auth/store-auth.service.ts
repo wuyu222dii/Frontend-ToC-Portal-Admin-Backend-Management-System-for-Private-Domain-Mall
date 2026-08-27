@@ -4,6 +4,7 @@ import {
   AuditRepository,
   IdempotencyRepository,
   runSerializableTransaction,
+  StoreAttributionRepository,
   StoreAuthRepository,
   type CurrentStoreSession,
   type DatabaseRuntime,
@@ -17,6 +18,7 @@ import {
   generateUlid,
   hmacAuthenticationSecret,
   signStoreAccessToken,
+  storeCandidateTokenHashCandidates,
 } from '@qingxu/platform-core';
 
 import { API_RUNTIME_CONFIG } from '../platform/config/api-runtime-config';
@@ -52,6 +54,7 @@ export class StoreAuthService {
   private readonly database: DatabaseRuntime;
   private readonly auth: StoreAuthRepository;
   private readonly audit: AuditRepository;
+  private readonly attribution: StoreAttributionRepository;
   private readonly idempotency: IdempotencyRepository;
 
   constructor(
@@ -62,6 +65,7 @@ export class StoreAuthService {
     this.config = config as PlatformRuntimeConfig;
     this.database = database as DatabaseRuntime;
     this.auth = database ? new StoreAuthRepository(database.prisma) : undefined as never;
+    this.attribution = database ? new StoreAttributionRepository(database.prisma) : undefined as never;
     this.audit = config ? new AuditRepository(config.encryption.ipHashKey) : undefined as never;
     this.idempotency = config
       ? new IdempotencyRepository(config.encryption.idempotencyHashKeys)
@@ -79,9 +83,9 @@ export class StoreAuthService {
 
   async login(input: StoreWechatLoginInput, key: string, requestId: string, ipAddress?: string) {
     this.assertCurrentLoginConsents(input);
-    if (input.candidateToken !== null) {
-      throw new ApplicationError('ATTRIBUTION_CANDIDATE_MISMATCH', 'Candidate migration starts in B7.3');
-    }
+    const candidateTokenHashCandidates = input.candidateToken === null
+      ? null
+      : storeCandidateTokenHashCandidates(input.candidateToken, this.runtime().authentication.secretHashKeys);
     const claim = this.claim(STORE_LOGIN_IDEMPOTENCY_ACTOR, key, ROUTES.login, input);
     const loginReplay = await this.replayStatus(claim);
     if (loginReplay !== null) {
@@ -106,6 +110,13 @@ export class StoreAuthService {
         openId: identity.openId,
         unionId: identity.unionId,
       });
+      const attribution = candidateTokenHashCandidates === null
+        ? { kind: 'none' as const }
+        : await this.attribution.migrateAnonymousCandidateInTransaction(transaction, {
+          accountId: customer.accountId,
+          customerId: customer.customerId,
+          tokenHashCandidates: candidateTokenHashCandidates,
+        });
       const draft = this.sessionDraft(customer.accountId);
       const session = await this.auth.createLoginSessionInTransaction(transaction, {
         accountId: customer.accountId,
@@ -119,18 +130,35 @@ export class StoreAuthService {
       });
       await this.auditSuccess(transaction, session.accountId, 'LOGIN', requestId, key,
         'session', session.session.id, ipAddress);
+      if (candidateTokenHashCandidates !== null) {
+        await this.auditAttributionMigration(
+          transaction,
+          session.accountId,
+          session.customerId,
+          requestId,
+          key,
+          ipAddress,
+        );
+      }
       await this.idempotency.complete(transaction, claim, {
         resourceId: session.session.id,
-        responseForHash: { account_id: session.accountId, session_id: session.session.id },
+        responseForHash: {
+          account_id: session.accountId,
+          candidate_id: attribution.kind === 'candidate' ? attribution.candidate.id : null,
+          session_id: session.session.id,
+        },
         responseStatus: 200,
         storage: 'HASH_ONLY',
       });
-      return { accountId: session.accountId, draft };
+      return {
+        candidate: attribution.kind === 'candidate' ? this.loginCandidate(attribution.candidate) : null,
+        draft,
+      };
     });
 
     return {
-      candidate: null,
-      confirmation_required: false,
+      candidate: result.candidate,
+      confirmation_required: result.candidate !== null,
       session: this.sessionData(result.draft),
     };
   }
@@ -260,6 +288,23 @@ export class StoreAuthService {
     } as const;
   }
 
+  private loginCandidate(candidate: {
+    agentId: string;
+    displayName: string;
+    expiresAt: Date;
+    id: string;
+    publicTargetUrl: string;
+  }) {
+    return {
+      agent_id: candidate.agentId,
+      attribution_eligible: true,
+      candidate_id: candidate.id,
+      display_name: candidate.displayName,
+      expires_at: candidate.expiresAt.toISOString(),
+      public_target_url: candidate.publicTargetUrl,
+    } as const;
+  }
+
   private legalDocument(
     type: 'PHONE_AUTHORIZATION' | 'PRIVACY_POLICY' | 'USER_AGREEMENT',
     document: { title: string; url: string; version: string },
@@ -363,6 +408,30 @@ export class StoreAuthService {
       requestId,
       result: 'FAILURE',
       resultCode,
+      summaryPolicy: 'NONE',
+      ...(ipAddress ? { ipAddress } : {}),
+    });
+  }
+
+  private auditAttributionMigration(
+    transaction: DatabaseTransaction,
+    accountId: string,
+    customerId: string,
+    requestId: string,
+    idempotencyKey: string,
+    ipAddress?: string,
+  ) {
+    return this.audit.append(transaction, {
+      action: 'TRANSFER',
+      actorAccountId: accountId,
+      actorRole: 'CUSTOMER',
+      idempotencyKey,
+      module: 'attribution',
+      objectId: customerId,
+      objectType: 'customer',
+      requestId,
+      result: 'SUCCESS',
+      resultCode: 'OK',
       summaryPolicy: 'NONE',
       ...(ipAddress ? { ipAddress } : {}),
     });

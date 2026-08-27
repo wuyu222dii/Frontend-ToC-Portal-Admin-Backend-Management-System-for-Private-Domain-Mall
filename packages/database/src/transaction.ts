@@ -13,9 +13,9 @@ function findPostgresCode(error: unknown, seen = new Set<object>()): string | un
   if (typeof error !== 'object' || error === null || seen.has(error)) return undefined;
   seen.add(error);
   const record = error as Record<string, unknown>;
-  for (const key of ['code', 'originalCode', 'sqlState']) {
+  for (const key of ['originalCode', 'sqlState', 'code']) {
     const candidate = record[key];
-    if (typeof candidate === 'string' && /^[0-9A-Z]{5}$/.test(candidate)) return candidate;
+    if (typeof candidate === 'string' && RETRYABLE_POSTGRES_CODES.has(candidate)) return candidate;
   }
   for (const key of ['cause', 'meta', 'driverAdapterError', 'originalError']) {
     const nested = findPostgresCode(record[key], seen);

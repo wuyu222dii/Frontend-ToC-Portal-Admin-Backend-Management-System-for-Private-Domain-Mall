@@ -8,6 +8,12 @@ import {
   type DatabaseRuntime,
   type DatabaseTransaction,
 } from '@qingxu/database';
+import {
+  generateStoreCandidateToken,
+  generateUlid,
+  hmacStoreCandidateToken,
+  hmacStoreInviteCode,
+} from '@qingxu/platform-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { StoreWechatLoginInput } from './store-auth.dto';
@@ -36,6 +42,15 @@ interface RollbackFixture {
   openId: string;
   requestIds: string[];
   sessionIds: string[];
+}
+
+interface CandidateLoginFixture extends RollbackFixture {
+  agentAccountId: string;
+  agentId: string;
+  candidateId: string;
+  customerId: string;
+  inviteId: string;
+  promotionAssetId: string;
 }
 
 interface FullCleanupConnection {
@@ -300,6 +315,18 @@ integrationDescribe('B7.1 Store authentication service and PostgreSQL integratio
     ])).resolves.toEqual([0, 0, 0, 0, 0, 0, 0]);
   }
 
+  async function assertNoCandidateLoginFacts(fixture: CandidateLoginFixture): Promise<void> {
+    await assertNoFixtureFacts(fixture);
+    await expect(Promise.all([
+      runtime.prisma.account.count({ where: { id: fixture.agentAccountId } }),
+      runtime.prisma.agentProfile.count({ where: { id: fixture.agentId } }),
+      runtime.prisma.agentInviteCode.count({ where: { id: fixture.inviteId } }),
+      runtime.prisma.promotionAsset.count({ where: { id: fixture.promotionAssetId } }),
+      runtime.prisma.attributionCandidate.count({ where: { id: fixture.candidateId } }),
+      runtime.prisma.customerProfile.count({ where: { id: fixture.customerId } }),
+    ])).resolves.toEqual([0, 0, 0, 0, 0, 0]);
+  }
+
   it('keeps login, rotation, replay revocation, logout, audit and HASH_ONLY facts atomic and leaves no residue',
     async () => {
       const code = `mock:b7-api-${randomUUID()}`;
@@ -506,6 +533,196 @@ integrationDescribe('B7.1 Store authentication service and PostgreSQL integratio
 
       if (!fixture) throw new TypeError('Rollback-only B7 Store auth API fixture was not created');
       await assertNoFixtureFacts(fixture);
+    }, 120_000);
+
+  it('migrates a previous-key anonymous candidate with login facts atomically and rolls every fact back',
+    async () => {
+      const suffix = randomUUID();
+      const now = new Date();
+      const code = `mock:b73-candidate-login-${suffix}`;
+      const identity = await identityProvider.exchange(code);
+      const candidateToken = generateStoreCandidateToken();
+      const previousSecret = config.authentication.secretHashKeys.previous[0];
+      if (!previousSecret) throw new TypeError('B7 candidate login integration requires a previous HMAC key');
+      const candidateTokenHash = hmacStoreCandidateToken(candidateToken, previousSecret.key);
+      const inviteCode = `B73-${suffix}`;
+      const ids = {
+        agentAccountId: generateUlid(),
+        agentId: generateUlid(),
+        candidateId: generateUlid(),
+        inviteId: generateUlid(),
+        promotionAssetId: generateUlid(),
+      };
+      const key = randomUUID();
+      const loginRequestId = requestId();
+      let fixture: CandidateLoginFixture | undefined;
+
+      await expect(runtime.withPrismaTransaction(async (transaction) => {
+        await transaction.account.create({
+          data: {
+            created_at: now,
+            deleted_at: null,
+            id: ids.agentAccountId,
+            login_name: `b73-login-agent-${suffix}`,
+            must_change_password: false,
+            password_hash: 'b73-candidate-login-integration-hash',
+            role: 'AGENT_ADMIN',
+            status: 'ACTIVE',
+            updated_at: now,
+            version: 1,
+          },
+        });
+        await transaction.agentProfile.create({
+          data: {
+            account_id: ids.agentAccountId,
+            agent_no: `B73-${suffix.slice(0, 24)}`,
+            created_at: now,
+            deleted_at: null,
+            id: ids.agentId,
+            name: 'B7.3 Login Migration Agent',
+            product_authorization_mode: 'ALL_ACTIVE_PRODUCTS',
+            status: 'ACTIVE',
+            updated_at: now,
+            version: 1,
+          },
+        });
+        await transaction.agentInviteCode.create({
+          data: {
+            agent_id: ids.agentId,
+            code_ciphertext: Buffer.from('b73-login-migration-invite'),
+            code_hash: hmacStoreInviteCode(inviteCode, previousSecret.key),
+            code_last4: inviteCode.slice(-4),
+            created_at: now,
+            effective_at: new Date(now.getTime() - 60_000),
+            encryption_key_id: 'b73-integration-field-v1',
+            ended_at: null,
+            expires_at: new Date(now.getTime() + 3_600_000),
+            id: ids.inviteId,
+            status: 'ACTIVE',
+          },
+        });
+        await transaction.promotionAsset.create({
+          data: {
+            agent_id: ids.agentId,
+            authorization_version: 1,
+            created_at: now,
+            expires_at: new Date(now.getTime() + 3_600_000),
+            id: ids.promotionAssetId,
+            invite_code_id: ids.inviteId,
+            public_url: 'https://store.example.invalid/',
+            revoked_at: null,
+            status: 'ACTIVE',
+            target_product_id: null,
+            target_type: 'STOREFRONT',
+          },
+        });
+        await transaction.attributionCandidate.create({
+          data: {
+            agent_id: ids.agentId,
+            candidate_token_hash: candidateTokenHash,
+            confirmed_at: null,
+            created_at: now,
+            customer_id: null,
+            expires_at: new Date(now.getTime() + 30 * 60_000),
+            id: ids.candidateId,
+            invalid_reason: null,
+            invite_code_id: ids.inviteId,
+            promotion_asset_id: ids.promotionAssetId,
+            status: 'ACTIVE',
+            updated_at: now,
+          },
+        });
+
+        const boundRuntime = transactionBoundRuntime(runtime, transaction);
+        const service = new StoreAuthService(config, boundRuntime, identityProvider);
+        const response = await service.login(
+          { ...loginInput(config, code), candidateToken },
+          key,
+          loginRequestId,
+          '127.0.0.1',
+        );
+        const account = await transaction.account.findUniqueOrThrow({
+          where: { wechat_open_id: identity.openId },
+          include: { customer_profile: true },
+        });
+        const customerId = account.customer_profile?.id;
+        if (!customerId) throw new TypeError('Candidate login did not create a customer profile');
+        const candidate = await transaction.attributionCandidate.findUniqueOrThrow({
+          where: { id: ids.candidateId },
+        });
+        expect(candidate).toMatchObject({
+          candidate_token_hash: null,
+          customer_id: customerId,
+          status: 'ACTIVE',
+        });
+        expect(response).toMatchObject({
+          candidate: {
+            agent_id: ids.agentId,
+            attribution_eligible: true,
+            candidate_id: ids.candidateId,
+            display_name: 'B7.3 Login Migration Agent',
+            public_target_url: 'https://store.example.invalid/',
+          },
+          confirmation_required: true,
+          session: { assurance: 'WECHAT', role: 'CUSTOMER' },
+        });
+
+        const sessions = await transaction.authSession.findMany({ where: { account_id: account.id } });
+        const consents = await transaction.consentRecord.findMany({ where: { account_id: account.id } });
+        const idempotency = await transaction.idempotencyRecord.findMany({
+          where: { idempotency_key: key },
+        });
+        const audits = await transaction.auditLog.findMany({
+          where: { idempotency_key: key },
+          orderBy: { action: 'asc' },
+        });
+        expect(sessions).toHaveLength(1);
+        expect(consents).toHaveLength(2);
+        expect(idempotency).toHaveLength(1);
+        expect(idempotency[0]).toMatchObject({
+          resource_id: sessions[0]?.id,
+          response_body: null,
+          response_status: 200,
+        });
+        expect(idempotency[0]?.response_body_hash).toMatch(/^[a-f0-9]{64}$/);
+        expect(audits).toHaveLength(2);
+        expect(audits).toEqual(expect.arrayContaining([
+          expect.objectContaining({
+            action: 'LOGIN',
+            actor_account_id: account.id,
+            module: 'auth',
+            object_id: sessions[0]?.id,
+            object_type: 'session',
+            request_id: loginRequestId,
+            result: 'SUCCESS',
+          }),
+          expect.objectContaining({
+            action: 'TRANSFER',
+            actor_account_id: account.id,
+            module: 'attribution',
+            object_id: customerId,
+            object_type: 'customer',
+            request_id: loginRequestId,
+            result: 'SUCCESS',
+          }),
+        ]));
+        expect(persistedText({ account, audits, candidate, consents, idempotency, sessions }))
+          .not.toContain(candidateToken);
+
+        fixture = {
+          ...ids,
+          accountId: account.id,
+          customerId,
+          idempotencyKeys: [key],
+          openId: identity.openId,
+          requestIds: [loginRequestId],
+          sessionIds: sessions.map(({ id }) => id),
+        };
+        throw rollbackSentinel;
+      }, rollbackOptions)).rejects.toBe(rollbackSentinel);
+
+      if (!fixture) throw new TypeError('Candidate login rollback fixture was not created');
+      await assertNoCandidateLoginFacts(fixture);
     }, 120_000);
 
   fullIt('rolls back identity, consent and session writes when audit validation fails', async () => {

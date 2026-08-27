@@ -395,7 +395,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 收藏列表 */
+        /**
+         * 收藏列表
+         * @description 只读取当前 CUSTOMER 的收藏，按 created_at DESC,id DESC 稳定分页。keyword 先 trim，再仅对商品名称执行大小写不敏感匹配。收藏商品当前不可公开时仍返回专用 FavoriteProductView，availability=UNAVAILABLE、is_salable=false，图片和最低活动价允许为 null。响应不得缓存。
+         */
         get: operations["getStoreFavorites"];
         put?: never;
         post?: never;
@@ -412,11 +415,21 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        /** 幂等收藏 */
+        /**
+         * 读取单个商品的收藏状态
+         * @description 按当前 CUSTOMER 与 product_id 返回 is_favorite；即使商品已经不可公开，只要收藏事实仍存在也返回 true。只读操作不接受 Idempotency-Key，响应不得缓存。
+         */
+        get: operations["getStoreFavoritesByProductId"];
+        /**
+         * 幂等收藏
+         * @description 仅允许收藏当前公开商品。重复收藏不产生重复事实。使用 HASH_ONLY 幂等策略，不缓存响应正文；同一 Idempotency-Key 不得重复应用命令。重放时必须重新鉴权并返回当前投影；无法安全重放时返回 409 并要求客户端刷新。
+         */
         put: operations["putStoreFavoritesByProductId"];
         post?: never;
-        /** 幂等取消收藏 */
+        /**
+         * 幂等取消收藏
+         * @description 收藏事实不存在或商品已不可公开时仍幂等成功。使用 HASH_ONLY 幂等策略，不缓存响应正文；同一 Idempotency-Key 不得重复应用命令。重放时必须重新鉴权并返回当前投影；无法安全重放时返回 409 并要求客户端刷新。
+         */
         delete: operations["deleteStoreFavoritesByProductId"];
         options?: never;
         head?: never;
@@ -430,7 +443,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 当前客户唯一服务端购物车及最新校验结果 */
+        /**
+         * 当前客户唯一服务端购物车及最新校验结果
+         * @description 只读装配当前 CUSTOMER 的服务端购物车。没有 cart 事实时不得写数据库，返回 cart_id=null、items=[]、total_amount=0.00。已有项按 created_at ASC,id ASC 返回服务端当前商品、图片、价格、库存和闭合 sale_status；合计仅包含 selected=true 且 SALEABLE 的项。响应不得缓存。
+         */
         get: operations["getStoreCart"];
         put?: never;
         post?: never;
@@ -448,10 +464,16 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** 按 SKU 新增或设置数量 */
+        /**
+         * 按 SKU 新增或设置数量
+         * @description 首次写入时为当前 CUSTOMER 懒创建唯一 Cart；按 sku_id 新增或原子设置 quantity/selected。每项数量 1..99，购物车最多 100 个不同 SKU，超过返回 422 CART_ITEM_LIMIT_EXCEEDED。已存在但失效的 SKU 可保留并按当前状态投影。使用 HASH_ONLY 幂等策略，不缓存响应正文；同一 Idempotency-Key 不得重复应用命令。重放时必须重新鉴权并返回当前投影；无法安全重放时返回 409 并要求客户端刷新。
+         */
         put: operations["putStoreCartItemsBySkuId"];
         post?: never;
-        /** 删除单个 SKU */
+        /**
+         * 删除单个 SKU
+         * @description 删除当前 CUSTOMER 购物车中的 sku_id；目标项不存在时仍幂等成功。使用 HASH_ONLY 幂等策略，不缓存响应正文；同一 Idempotency-Key 不得重复应用命令。重放时必须重新鉴权并返回当前投影；无法安全重放时返回 409 并要求客户端刷新。
+         */
         delete: operations["deleteStoreCartItemsBySkuId"];
         options?: never;
         head?: never;
@@ -467,7 +489,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 登录后把小程序本地项合入服务端购物车 */
+        /**
+         * 登录后把小程序本地项合入服务端购物车
+         * @description 把 1..100 个 sku_id 唯一的游客项一次性合入当前 CUSTOMER 的服务端购物车，整个请求全成全败。未知 SKU 返回 404 并整体回滚；已存在但失效的 SKU 可保存并返回当前状态。已有与传入数量相加后封顶 99，selected 使用 existing OR incoming；合并后的不同 SKU 超过 100 返回 422 CART_ITEM_LIMIT_EXCEEDED。使用 HASH_ONLY 幂等策略，不缓存响应正文；客户端丢失响应时必须以同一 Idempotency-Key 和原请求重试，新键表示新的合并命令，同一 Idempotency-Key 不得重复应用命令。重放时必须重新鉴权并返回当前投影；无法安全重放时返回 409 并要求客户端刷新。
+         */
         post: operations["postStoreCartMerge"];
         delete?: never;
         options?: never;
@@ -482,10 +507,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 地址列表、新增地址 */
+        /**
+         * 当前客户地址列表
+         * @description 只返回当前 CUSTOMER 的脱敏摘要，按 is_default DESC,created_at ASC,id ASC 稳定排序；不得返回完整收件人、手机号或详细地址。响应不得缓存。
+         */
         get: operations["getStoreAddresses"];
         put?: never;
-        /** 地址列表、新增地址 */
+        /**
+         * 新增收货地址
+         * @description 完整手机号与 detail 使用 AES-256-GCM 加密，AAD 分别绑定 customer_address:<address_id>:phone_ciphertext 与 customer_address:<address_id>:detail_ciphertext；phone_hash 使用 Store 手机密钥环和 qingxu:store-address-phone:v1 域。第一条活动地址强制成为默认地址。使用 HASH_ONLY 幂等策略，不缓存响应正文或个人信息；同一 Idempotency-Key 不得重复应用命令。重放时必须重新鉴权并返回当前投影；无法安全重放时返回 409 并要求客户端刷新。
+         */
         post: operations["postStoreAddresses"];
         delete?: never;
         options?: never;
@@ -500,15 +531,24 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 地址详情、修改、软删除 */
+        /**
+         * 读取本人地址详情
+         * @description 只允许当前 CUSTOMER 读取本人地址完整值，跨客户访问统一返回 404。完整收件人、手机号和 detail 不得进入日志、审计、埋点或持久化幂等响应；响应不得缓存。
+         */
         get: operations["getStoreAddressesByAddressId"];
         put?: never;
         post?: never;
-        /** 地址详情、修改、软删除 */
+        /**
+         * 删除本人收货地址
+         * @description 只允许当前 CUSTOMER 软删除本人地址，跨客户访问统一返回 404。If-Match 必须匹配 address.version；删除默认地址后按 created_at ASC,id ASC 原子提升下一条活动地址为默认，删除最后一条后允许没有地址。使用 HASH_ONLY 幂等策略，不缓存响应正文或个人信息；同一 Idempotency-Key 不得重复应用命令。重放时必须重新鉴权并返回当前投影；无法安全重放时返回 409 并要求客户端刷新。
+         */
         delete: operations["deleteStoreAddressesByAddressId"];
         options?: never;
         head?: never;
-        /** 地址详情、修改、软删除 */
+        /**
+         * 修改本人收货地址
+         * @description 只允许当前 CUSTOMER 修改本人地址，跨客户访问统一返回 404。If-Match 必须匹配 address.version；设置新的默认地址时原默认地址在同一事务清除。存在其他活动地址时，将当前唯一默认地址改为 is_default=false 返回 422 DEFAULT_ADDRESS_REQUIRED。使用 HASH_ONLY 幂等策略，不缓存响应正文或个人信息；同一 Idempotency-Key 不得重复应用命令。重放时必须重新鉴权并返回当前投影；无法安全重放时返回 409 并要求客户端刷新。
+         */
         patch: operations["patchStoreAddressesByAddressId"];
         trace?: never;
     };
@@ -3535,13 +3575,21 @@ export interface components {
             invite_code: string;
             promotion_asset_id: string;
         };
-        CartQuantityRequest: {
+        CartItemWriteRequest: {
             quantity: number;
+            selected: boolean;
+        };
+        CartMergeItemInput: {
+            sku_id: string;
+            quantity: number;
+            selected: boolean;
         };
         CartMergeRequest: {
-            items: components["schemas"]["OrderLineInput"][];
+            /** @description sku_id 必须两两不同；uniqueItems 之外，服务端 DTO 必须按 sku_id 显式拒绝重复项。 */
+            items: components["schemas"]["CartMergeItemInput"][];
         };
         AddressWriteRequest: {
+            /** @description 服务端先 trim；纯空白或包含控制字符时拒绝。 */
             recipient_name: string;
             phone: string;
             province: string;
@@ -5030,11 +5078,21 @@ export interface components {
             };
             request_id: string;
         };
+        /** @description 收藏专用消费者安全投影。UNAVAILABLE 时 is_salable 固定 false，primary_image_url 与 minimum_active_price 允许为 null；不得返回管理状态、version、文件 ID 或内部库存。 */
+        FavoriteProductView: {
+            product_id: string;
+            name: string;
+            primary_image_url: string | null;
+            minimum_active_price: components["schemas"]["PositiveMoney"] | null;
+            is_salable: boolean;
+            /** @enum {string} */
+            availability: "SALEABLE" | "OUT_OF_STOCK" | "UNAVAILABLE";
+        };
         FavoriteView: {
             favorite_id: string;
             /** Format: date-time */
             created_at: string;
-            product: components["schemas"]["StoreProductListItem"];
+            product: components["schemas"]["FavoriteProductView"];
         };
         FavoriteListResponse: {
             /** @constant */
@@ -5051,29 +5109,42 @@ export interface components {
             };
             request_id: string;
         };
+        FavoriteStateResponse: {
+            /** @constant */
+            code: "OK";
+            /** @constant */
+            message: "success";
+            data: {
+                product_id: string;
+                is_favorite: boolean;
+            };
+            request_id: string;
+        };
+        /** @description 始终使用服务端当前商品、公开图片、价格、库存和状态。SALEABLE 要求商品/SKU 当前公开且 quantity <= available_stock；客户端以本地游客快照自行提示变化。 */
         CartItemView: {
             sku_id: string;
             product_id: string;
             product_name: string;
             sku_name: string;
             spec_json: components["schemas"]["SkuSpec"] | null;
+            primary_image_url: string | null;
             quantity: number;
+            selected: boolean;
             retail_price: components["schemas"]["PositiveMoney"];
             available_stock: number;
             /** @enum {string} */
-            sale_status: "SALEABLE" | "OUT_OF_STOCK" | "INACTIVE" | "DELETED";
-            change_flags: ("PRICE_CHANGED" | "STOCK_CHANGED" | "STATUS_CHANGED")[];
+            sale_status: "SALEABLE" | "INSUFFICIENT_STOCK" | "OUT_OF_STOCK" | "INACTIVE" | "DELETED";
         };
         CartResponse: {
             /** @constant */
             code: "OK";
             /** @constant */
             message: "success";
+            /** @description 不存在服务端购物车时 cart_id=null 且 items=[]；GET 不得为此创建数据库事实。total_amount 只汇总 selected=true 且 SALEABLE 的项。 */
             data: {
-                cart_id: string;
+                cart_id: string | null;
                 items: components["schemas"]["CartItemView"][];
                 total_amount: components["schemas"]["NonNegativeMoney"];
-                version: number;
             };
             request_id: string;
         };
@@ -7261,6 +7332,91 @@ export interface components {
                 };
             };
         };
+        /** @description B8 登录后购物接口的通用错误；不得缓存或回显被拒绝的个性化值。 */
+        StoreCustomerError: {
+            headers: {
+                "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                Pragma: components["headers"]["StorePragmaNoCacheRequired"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    code: string;
+                    message: string;
+                    details?: {
+                        field: string | null;
+                        reason: string;
+                        rejected_value?: null;
+                    }[];
+                    request_id: string;
+                };
+            };
+        };
+        /** @description B8 登录后购物接口的闭合版本、状态或幂等冲突响应。 */
+        StoreCustomerConflict: {
+            headers: {
+                "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                Pragma: components["headers"]["StorePragmaNoCacheRequired"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    code: "RESOURCE_VERSION_CONFLICT" | "STATE_CONFLICT";
+                    message: string;
+                    details?: {
+                        field: string | null;
+                        reason: string;
+                        rejected_value?: null;
+                    }[];
+                    request_id: string;
+                };
+            };
+        };
+        /** @description B8 登录后购物接口的闭合业务校验响应。 */
+        StoreCustomerBusinessError: {
+            headers: {
+                "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                Pragma: components["headers"]["StorePragmaNoCacheRequired"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    code: "CART_ITEM_LIMIT_EXCEEDED" | "DEFAULT_ADDRESS_REQUIRED";
+                    message: string;
+                    details?: {
+                        field: string | null;
+                        reason: string;
+                        rejected_value?: null;
+                    }[];
+                    request_id: string;
+                };
+            };
+        };
+        /** @description B8 的 13 个登录后收藏、购物车和地址 operation 共享 Redis 固定窗口；key 只保存 CUSTOMER 与规范化来源 IP 组合的用途隔离 HMAC，每个组合每 60 秒最多 120 次。超限返回准确 Retry-After；Redis 不可用时 fail closed。 */
+        StoreCustomerRateLimited: {
+            headers: {
+                "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                Pragma: components["headers"]["StorePragmaNoCacheRequired"];
+                /** @description 距当前 60 秒固定窗口结束的准确剩余整数秒。 */
+                "Retry-After": number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: "RATE_LIMITED";
+                    message: string;
+                    details?: {
+                        field: string | null;
+                        reason: string;
+                        rejected_value?: null;
+                    }[];
+                    request_id: string;
+                };
+            };
+        };
         /** @description 库存、售后额度、金额分配或业务前置校验失败；固定业务码包括 ACTIVE_PRODUCT_DEPENDENCY、FILE_CONTENT_MISMATCH，CH-010 的 PRODUCT_PRIMARY_IMAGE_REQUIRED、PRODUCT_ACTIVE_SKU_REQUIRED、ACTIVE_SKU_DEPENDENCY、ACTIVE_INVENTORY_RESERVATION，以及 CH-012 的 INVENTORY_QUANTITY_OUT_OF_RANGE；库存确认低于锁定量继续使用 STOCK_INSUFFICIENT（均为 422）。 */
         BusinessError: {
             headers: {
@@ -7350,9 +7506,9 @@ export interface components {
         CacheControlNoStore: "no-store, private";
         /** @description 兼容旧客户端和中间代理的禁止缓存指令。 */
         PragmaNoCache: "no-cache";
-        /** @description B7 Store 响应必返的禁止缓存指令。 */
+        /** @description Store 个性化或敏感响应必返的禁止缓存指令。 */
         StoreCacheControlNoStoreRequired: "no-store, private";
-        /** @description B7 Store 响应必返的兼容禁止缓存指令。 */
+        /** @description Store 个性化或敏感响应必返的兼容禁止缓存指令。 */
         StorePragmaNoCacheRequired: "no-cache";
     };
     pathItems: never;
@@ -8029,20 +8185,54 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["FavoriteListResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
+        };
+    };
+    getStoreFavoritesByProductId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 成功 */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FavoriteStateResponse"];
+                };
+            };
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     putStoreFavoritesByProductId: {
@@ -8061,20 +8251,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CommandResponse"];
+                    "application/json": components["schemas"]["FavoriteStateResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     deleteStoreFavoritesByProductId: {
@@ -8093,20 +8285,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CommandResponse"];
+                    "application/json": components["schemas"]["FavoriteStateResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     getStoreCart: {
@@ -8121,20 +8315,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["CartResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     putStoreCartItemsBySkuId: {
@@ -8150,27 +8346,29 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CartQuantityRequest"];
+                "application/json": components["schemas"]["CartItemWriteRequest"];
             };
         };
         responses: {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CommandResponse"];
+                    "application/json": components["schemas"]["CartResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     deleteStoreCartItemsBySkuId: {
@@ -8189,20 +8387,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CommandResponse"];
+                    "application/json": components["schemas"]["CartResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     postStoreCartMerge: {
@@ -8223,20 +8423,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["CartResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     getStoreAddresses: {
@@ -8251,22 +8453,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
-                    "Cache-Control": components["headers"]["CacheControlNoStore"];
-                    Pragma: components["headers"]["PragmaNoCache"];
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["StoreAddressSummaryResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     postStoreAddresses: {
@@ -8287,22 +8489,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
-                    "Cache-Control": components["headers"]["CacheControlNoStore"];
-                    Pragma: components["headers"]["PragmaNoCache"];
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["StoreAddressDetailResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     getStoreAddressesByAddressId: {
@@ -8319,22 +8521,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
-                    "Cache-Control": components["headers"]["CacheControlNoStore"];
-                    Pragma: components["headers"]["PragmaNoCache"];
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["StoreAddressDetailResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     deleteStoreAddressesByAddressId: {
@@ -8354,20 +8556,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["CommandResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     patchStoreAddressesByAddressId: {
@@ -8391,22 +8595,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
-                    "Cache-Control": components["headers"]["CacheControlNoStore"];
-                    Pragma: components["headers"]["PragmaNoCache"];
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["StoreAddressDetailResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     postStoreCheckoutQuotes: {

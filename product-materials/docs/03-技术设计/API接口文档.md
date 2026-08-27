@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 |---|---|
-| 文档版本 | v2.4.5 |
-| 对应产品基线 | MVP/PRD v2.4.5、CH-001 至 CH-016 |
-| 接口阶段 | B0-B6 development 已完成；CH-015/CH-016 已批准，B7.0-B7.4 已完成并按批暂停，B7.5 已获准并完成小程序工程实现，本地自动化验收与最终只读复审已通过 `P0=0/P1=0`，等待同 SHA 普通 CI/Supabase rollback-only 双绿，B7 development 尚不可标记 `GO`；仅允许 Mock Provider 和脱敏 development，staging/production 未批准 |
+| 文档版本 | v2.4.6 |
+| 对应产品基线 | MVP/PRD v2.4.6、CH-001 至 CH-018 |
+| 接口阶段 | B0-B7 development 已完成；最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 的普通 CI Run `33055090596` 与 Supabase development rollback-only Run `33056078437` 双绿，B7 development `GO`，CH-015 已失效；CH-017/CH-018 已批准，当前只完成 B8.0 契约与治理并暂停，尚未开始 B8.1 业务代码；仅允许 Mock Provider 和脱敏 development，staging/production 未批准 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
 | 更新时间 | 2026-08-27 |
 
@@ -124,7 +124,7 @@ OpenAPI 与所有客户端只配置一个 server：`/api/v1`。下表及全文�
 | 403 | `PERMISSION_DENIED`、`REAUTH_REQUIRED` | 角色、数据范围或二次验证不足 |
 | 404 | `RESOURCE_NOT_FOUND` | 不存在或无权查看时统一返回 |
 | 409 | `RESOURCE_VERSION_CONFLICT`、`STATE_CONFLICT`、`SOFT_DELETED_KEY_RESERVED` | 乐观锁、非法/同状态转换或软删除业务键保留冲突 |
-| 422 | `STOCK_INSUFFICIENT`、`AFTERSALE_QUOTA_EXCEEDED`、`ACTIVE_PRODUCT_DEPENDENCY`、`FILE_CONTENT_MISMATCH`、`PRODUCT_PRIMARY_IMAGE_REQUIRED`、`PRODUCT_ACTIVE_SKU_REQUIRED`、`ACTIVE_SKU_DEPENDENCY`、`ACTIVE_INVENTORY_RESERVATION`、`INVENTORY_QUANTITY_OUT_OF_RANGE` | 业务依赖、活动预占、库存整数边界或文件实测内容校验不通过 |
+| 422 | `STOCK_INSUFFICIENT`、`AFTERSALE_QUOTA_EXCEEDED`、`ACTIVE_PRODUCT_DEPENDENCY`、`FILE_CONTENT_MISMATCH`、`PRODUCT_PRIMARY_IMAGE_REQUIRED`、`PRODUCT_ACTIVE_SKU_REQUIRED`、`ACTIVE_SKU_DEPENDENCY`、`ACTIVE_INVENTORY_RESERVATION`、`INVENTORY_QUANTITY_OUT_OF_RANGE`、`CART_ITEM_LIMIT_EXCEEDED`、`DEFAULT_ADDRESS_REQUIRED` | 业务依赖、活动预占、库存/购物车整数边界、默认地址约束或文件实测内容校验不通过 |
 | 429 | `RATE_LIMITED`、`REAUTH_LOCKED` | 访问或验证次数受限 |
 | 500 | `INTERNAL_ERROR` | 未预期错误，不暴露堆栈和敏感值 |
 
@@ -340,6 +340,7 @@ B7 固定一个消费者微信 AppID，服务端按 `(AppID, openid)` 语义识�
 | `GET` | `/store/products` | 公开 | 商品名关键词、品牌、分类、五种排序和分页 |
 | `GET` | `/store/products/{product_id}` | 公开 | 商品详情及全部 ACTIVE SKU，包括零库存 |
 | `GET` | `/store/favorites` | CUSTOMER | 收藏列表 |
+| `GET` | `/store/favorites/{product_id}` | CUSTOMER | 当前商品收藏状态 |
 | `PUT` | `/store/favorites/{product_id}` | CUSTOMER | 幂等收藏 |
 | `DELETE` | `/store/favorites/{product_id}` | CUSTOMER | 幂等取消收藏 |
 | `GET` | `/store/cart` | CUSTOMER | 当前客户唯一服务端购物车及最新校验结果 |
@@ -353,15 +354,22 @@ B7 固定一个消费者微信 AppID，服务端按 `(AppID, openid)` 语义识�
 
 ```json
 {
-  "quantity": 2
+  "quantity": 2,
+  "selected": true
 }
 ```
 
-游客购物车只存在小程序本地，不创建服务端匿名 Cart 或 ownership token。登录合并请求为 `items[{sku_id,quantity}]`，每行 quantity 为 1..99、SKU 不重复；服务端重新校验商品/SKU 状态、当前零售价和库存后，按 SKU 幂等合入 CUSTOMER cart。响应由服务端补全 `product_id`、`sku_id`、规格、当前零售价、可售库存、上下架状态和价格/库存变化提示。同一商品不同 SKU 是不同购物车项。
+游客购物车只存在小程序本地，不创建服务端匿名 Cart 或 ownership token。登录合并请求为 `items[{sku_id,quantity,selected}]`，最多 100 行，每行 quantity 为 1..99，且同一 `sku_id` 不得重复；未知 SKU 阻断整个事务，已失效但仍存在的 SKU 可保存并返回当前状态。已有数量与传入数量相加后按 99 封顶，选择状态采用 `existing OR incoming`。同一固定幂等键重试不重复累加；客户端只有在服务端确认后才删除对应本地条目。
+
+收藏列表固定按 `created_at DESC,id DESC`，可选搜索只匹配 trim 后 1..200 字符的商品名且大小写不敏感。`FavoriteProductView.availability` 闭合为 `SALEABLE|OUT_OF_STOCK|UNAVAILABLE`；商品失效后收藏仍可见，但图片和价格可以为 null，且 `is_salable=false`。PUT 只接受当前公开商品，重复收藏成功且不新增记录；DELETE 对记录不存在或商品已失效仍成功。单商品状态 GET 返回 `FavoriteStateResponse`，路径 Product ID 使用 ULID。
+
+空购物车 GET 不创建数据库事实，固定返回 `cart_id=null,items=[]`；首次 PUT 或 merge 才懒创建当前客户唯一 Cart。列表按 `created_at ASC,id ASC`，每项状态闭合为 `SALEABLE|INSUFFICIENT_STOCK|OUT_OF_STOCK|INACTIVE|DELETED`，数量为 1..99，最多 100 个不同 SKU；合计只包含 `selected=true` 且 `SALEABLE` 的项目。响应只返回实时价格/库存投影，不返回无数据库来源的 Cart version 或 `change_flags`。
+
+B8 的收藏、购物车和地址共 8 个写 operation 均使用 `Idempotency-Key` 与 `HASH_ONLY`，不缓存响应正文。相同键重放必须重新鉴权并返回当前投影；无法安全重放时返回 409 要求刷新。所有收藏、购物车和地址成功/错误响应均强制 `Cache-Control: no-store, private` 与 `Pragma: no-cache`。
 
 商品 `PRICE_ASC/PRICE_DESC` 使用当前公开 ACTIVE SKU 的最低 `retail_price` 作为 SPU 排序价，同价以 `product_id ASC` 打破平局；没有 ACTIVE SKU 的商品不进入公开列表，但 ACTIVE SKU 全部零库存不会隐藏商品。HOT 使用全生命周期净销量，即支付成功 SKU 数量减成功退款数量；NEWEST 使用首次 `published_at DESC NULLS LAST,product_id ASC`。默认 COMPREHENSIVE 固定为 `is_hot DESC,is_new DESC,sales_count DESC,published_at DESC NULLS LAST,product_id ASC`。`product.sales_count` 只是可由支付/退款事实重建的缓存，支付和退款结转事务更新投影，每日对账发现差异后重建，不作为不可变交易事实。
 
-公开目录使用 `StoreCategoryView`、`StoreBrandView`、`StoreProductListItem`、`StoreProductDetailView` 与 `StoreSkuView`；首页和收藏也只能复用这些公开投影。只返回 ACTIVE 分类/品牌、ACTIVE 且至少有一个 ACTIVE SKU 的商品、以及全部 ACTIVE SKU。`StoreSkuView.is_salable` 与商品摘要 `is_salable` 均为布尔值；可售条件为当前 `available_stock > 0`，零库存仍返回且标记 false。图片必须 READY/PUBLIC 且 purpose 正确，响应只给公开 URL；不得返回 `file_id`、管理 `status`、`version`、DRAFT/INACTIVE/ARCHIVED 记录、实物/锁定库存或其他后台字段。后台管理端继续使用独立管理 DTO。
+公开目录使用 `StoreCategoryView`、`StoreBrandView`、`StoreProductListItem`、`StoreProductDetailView` 与 `StoreSkuView`；收藏使用允许商品失效的独立 `FavoriteProductView`，不得复用只能表示公开 ACTIVE 商品的目录 DTO。公开目录只返回 ACTIVE 分类/品牌、ACTIVE 且至少有一个 ACTIVE SKU 的商品、以及全部 ACTIVE SKU。`StoreSkuView.is_salable` 与商品摘要 `is_salable` 均为布尔值；可售条件为当前 `available_stock > 0`，零库存仍返回且标记 false。图片必须 READY/PUBLIC 且 purpose 正确，响应只给公开 URL；不得返回 `file_id`、管理 `status`、`version`、DRAFT/INACTIVE/ARCHIVED 记录、实物/锁定库存或其他后台字段。后台管理端继续使用独立管理 DTO。
 
 `/store/home` 四区上限固定为 Banner 10、分类 8、热销 4、新品 4，并分别返回 `READY|UNAVAILABLE`。单区失败时对应数组为空且整体 200，四区全失败才返回 500。Banner PRODUCT target 必须仍能解析为公开商品，否则只从公开投影排除，不回写 Banner。公开品牌/分类无分页，返回全部 ACTIVE 记录并按 `sort_order ASC,id ASC`。
 
@@ -390,9 +398,9 @@ B6.1 已按上述契约开放这 5 个 GET。独立 `StoreCatalogRepository` 使
 | `POST` | `/store/orders/{order_id}/confirm-receipt` | CUSTOMER | 确认收货，幂等完成订单 |
 | `GET` | `/store/orders/{order_id}/logistics` | CUSTOMER | 包裹与人工物流节点 |
 
-新增、修改或删除默认地址必须在事务中锁定该客户当前地址，并先取消旧默认再设置新默认；PostgreSQL 条件唯一索引保证每位客户最多一个未删除默认地址，并发冲突返回 `RESOURCE_VERSION_CONFLICT` 后允许刷新重试。
+收件人、省、市、区各为 trim 后 1..80 字符，详细地址为 1..300 字符，均不得为空或包含控制字符；手机号只接受 11 位 ASCII 数字。手机号和详细地址以 AES-256-GCM 加密，AAD 分别绑定地址 ID 与字段名；手机号 HMAC 复用 Store 手机密钥环，但使用独立域 `qingxu:store-address-phone:v1`。第一条地址自动设为默认；切换默认地址时原默认地址原子清除。存在其他地址时不得直接把当前默认改为非默认，返回 `DEFAULT_ADDRESS_REQUIRED` 422；删除默认地址后按 `created_at ASC,id ASC` 自动提升下一条。PATCH/DELETE 必须携带 `If-Match`，并发冲突返回 `RESOURCE_VERSION_CONFLICT` 409。
 
-地址列表使用 `StoreAddressSummaryResponse/StoreAddressSummaryView`，只返回 `recipient_name_masked/phone_masked/detail_masked`；地址 GET 详情、POST 和 PATCH 使用 `StoreAddressDetailResponse/StoreAddressDetailView`，完整 `recipient_name/phone/detail` 仅在 bearer 所属 CUSTOMER 读取本人地址时返回，跨客户对象统一按 404 处理。四类地址读取/写入响应均返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；DELETE 只返回 `CommandResponse`。完整收件人、电话和门牌地址不得进入访问日志、追踪、埋点、审计前后摘要或 `idempotency_record.response_body`；POST/PATCH 的幂等记录只保存结果资源 ID、版本和响应摘要哈希，重放时重新鉴权并实时生成响应，不持久化 PII 明文。
+地址列表使用 `StoreAddressSummaryResponse/StoreAddressSummaryView`，只返回 `recipient_name_masked/phone_masked/detail_masked`；地址 GET 详情、POST 和 PATCH 使用 `StoreAddressDetailResponse/StoreAddressDetailView`，完整 `recipient_name/phone/detail` 仅在 bearer 所属 CUSTOMER 读取本人地址时返回，跨客户对象统一按 404 处理。四类地址读取/写入响应均返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；DELETE 只返回 `CommandResponse`。完整收件人、电话和门牌地址不得进入访问日志、追踪、埋点、审计前后摘要或 `idempotency_record.response_body`；审计只记录地址 ID、版本、状态与默认标志。POST/PATCH 的幂等记录只保存结果资源 ID、版本和响应摘要哈希，重放时重新鉴权并实时生成响应，不持久化 PII 明文。
 
 订单创建、取消和确认收货可返回摘要 `StoreOrderResponse`；列表使用 `StoreOrderListResponse`，每单含紧凑 SKU 项、`pay_expires_at`、服务端 `available_actions` 与售后摘要，并按 `display_group` 映射订单 Tab。只有详情 GET 返回端点专用 `StoreOrderDetailResponse`。详情必须一次返回服务端计算的订单/支付/退款/履约状态、支付截止与服务端时间、冻结收货地址、可执行动作、四条主状态轴合并时间线、包裹与物流节点、关联售后、支付尝试、稳定退款及历次尝试、角色安全错误和资源版本。消费者只能读取本人订单；Provider 原文、内部堆栈、库存内部流水和佣金均不得出现在小程序响应。
 
@@ -880,6 +888,9 @@ CH-006 文件契约统一如下：
 | 资料/手机号 | idempotency -> account/customer profile -> active phone -> consent -> audit；If-Match 冲突不撤回旧手机号、不写新 consent |
 | 候选确认 | idempotency -> account/customer profile -> candidate -> current binding -> agent/invite/promotion/product validity -> customer_agent_binding -> binding_change_log -> audit -> idempotency completion；customer profile 是确认/转移/订单归因共同串行根；本批无异步副作用，不产生 outbox |
 | 同步注销 | idempotency/preview -> account/customer -> current session validation -> blocker facts -> binding/anonymization matrix -> audit/outbox/idempotency completion；确认重检，阻断 fail closed，任一步失败整体回滚；成功将全部 session 保留为 revoked tombstone 并清空 refresh hash |
+| 收藏写入 | idempotency -> customer -> product/favorite -> audit -> idempotency completion；HASH_ONLY，重复 PUT/DELETE 不制造重复记录或失败 |
+| 购物车写入/合并 | Serializable + 统一重试；idempotency -> customer -> cart -> 升序 SKU/cart item -> audit -> idempotency completion；合并全成全败，不产生 Outbox |
+| 地址写入 | idempotency -> customer -> 按 `created_at,id` 稳定顺序的活动地址 -> audit -> idempotency completion；PATCH/DELETE 同时校验 If-Match，默认切换/提升与写入同事务 |
 
 Provider 回调先写入回调收件箱，再由幂等处理器消费；领域事件使用事务 Outbox 发布。定时任务和消费者均必须可重入，失败进入重试队列并在超过阈值后生成后台待办。
 
@@ -905,7 +916,7 @@ Provider 回调先写入回调收件箱，再由幂等处理器消费；领域�
 - access/refresh、受限改密 token、pre-auth、reauth grant、候选首次 token、`preview_token`、支付调用参数和签名上传/下载 URL 的成功响应统一返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；这些值不得进入服务端响应缓存、日志、追踪或截图。
 - `AUTH_TOKEN_AUDIENCE=qingxu-admin-web` 继续服务管理端，`STORE_AUTH_TOKEN_AUDIENCE=qingxu-store` 只服务消费者；守卫同时校验 role/assurance/audience。Provider 不属于 token claim；`STORE_IDENTITY_PROVIDER` 与 `STORE_PHONE_PROVIDER` 只负责选择 MOCK/WECHAT Adapter 和持久化来源。Mock 仅允许 development/test，production 缺真实微信凭据必须启动失败。
 - 单一消费者微信应用使用 `STORE_WECHAT_APP_ID/STORE_WECHAT_APP_SECRET`；三份当前文档分别配置 `STORE_USER_AGREEMENT_VERSION/TITLE/URL`、`STORE_PRIVACY_POLICY_VERSION/TITLE/URL`、`STORE_PHONE_AUTHORIZATION_VERSION/TITLE/URL`，每个前缀对应三个独立环境变量，URL 必须为 HTTPS。客户端只能提交已获取版本，不能定义当前版本。
-- 法律文本使用 `STORE_LEGAL_RATE_LIMIT_MAX=120`、`STORE_LEGAL_RATE_LIMIT_WINDOW_SECONDS=60`，登录使用 `STORE_LOGIN_RATE_LIMIT_MAX=10`、`STORE_LOGIN_RATE_LIMIT_WINDOW_SECONDS=900`；均按 HMAC 来源 IP 使用 Redis 服务端时间且 fail closed。
+- 法律文本使用 `STORE_LEGAL_RATE_LIMIT_MAX=120`、`STORE_LEGAL_RATE_LIMIT_WINDOW_SECONDS=60`，登录使用 `STORE_LOGIN_RATE_LIMIT_MAX=10`、`STORE_LOGIN_RATE_LIMIT_WINDOW_SECONDS=900`。B8 登录后接口使用 `STORE_CUSTOMER_RATE_LIMIT_MAX=120`、`STORE_CUSTOMER_RATE_LIMIT_WINDOW_SECONDS=60`，限流键只保存 CUSTOMER 与来源 IP 的用途隔离 HMAC 摘要，不保存原始标识；均使用 Redis 服务端时间且 fail closed。
 
 ## 10. 接口验收清单
 
@@ -926,6 +937,8 @@ Provider 回调先写入回调收件箱，再由幂等处理器消费；领域�
 - 候选查询/拒绝、文件完成确认等非首次响应不能重新返回 candidate token 或无关签名能力；所有短时能力响应均可机器校验禁止缓存头。
 - `pnpm contracts:check` 的 CH-014 历史实测为 172 paths、196 operations、196 unique operationId、312 schemas、691 schema refs、2,577 local refs 和 0 dangling refs。B6 售罄投影、五种排序、搜索边界、无分页品牌/分类、首页分区状态与 Store 专用 429/Retry-After 均已形成可机器校验契约；CH-012 Banner/库存和 Product/SKU 专用 DTO 的历史闭合结论继续有效。
 - CH-016 专项实测为 173 paths、197 operations、197 unique operationId、320 schemas、699 schema refs、2,617 local refs 和 0 dangling refs，Redocly 0 warning。专项门禁已覆盖三份法律文本、登录固定双 consent、手机号第三 consent、Store/Admin audience 隔离、Provider 服务端选择、If-Match、候选目标解析、查询不消费与替换/迁移原子失效、服务代理三字段投影和同步注销。
+- 最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 的普通 CI Run `33055090596` 与 Supabase development rollback-only Run `33056078437` 同 SHA 双绿，B7 development 已标记 `GO`，CH-015 已自动失效。CH-017 仅覆盖 B8 脱敏 development 的单人 reviewer 例外，B8.5 后自动失效，不放行 staging/production。
+- CH-018 专项实测为 173 paths、198 operations、198 unique operationId、323 schemas、701 schema refs、2,653 local refs 和 0 dangling refs，Redocly 0 warning。门禁覆盖收藏失效投影与状态 GET、购物车 selected/五状态/100 项限制/全成全败 merge、地址 ULID/加密/默认约束/If-Match、8 个 HASH_ONLY 写操作、13 个 CUSTOMER operation 的 no-store 与 120/60 fail-closed 限流。B8.0 只冻结契约与静态原型；B8.1 repository/API 尚未开始。
 - B7.4 已实现注销后端：不合格 preview 返回 200、完整 blockers/impacts 及 null token/hash/expiry；合格预览才签发 5 分钟能力。confirm 后出现新阻断返回 422 且不消费能力、不产生部分去标识化；成功后在单事务清除登录主体/非交易 PII、结束绑定、使候选失效、匿名化代理隐私投影、写审计与 durable `PENDING account.anonymized` Outbox 事实，并将全部 session 留作 revoked tombstone。这里只证明事件事实已持久化，不宣称已投递或消费。全部旧 token 失效，HASH_ONLY 不重放完成响应；full 与受控 Supabase development rollback-only 门禁已通过，退出复审 `P0=0/P1=0`。
 - Product/SKU 固定创建状态、完整状态矩阵、恢复目标、不级联、首次 `published_at`、nullable 最低活动价、8 图、归档 SKU、零库存余额、不可变 code、201 SKU create 和四个新 422 均有契约及集成测试。
 - 非 `APPROVED` 提现无法请求完整银行卡号；短时授权不可跨提现单、跨会话或重复使用。

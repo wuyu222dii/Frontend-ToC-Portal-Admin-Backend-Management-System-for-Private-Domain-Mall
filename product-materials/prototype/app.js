@@ -228,10 +228,10 @@
       interactions: ["收藏状态即时反馈", "详情 Tab 切换", "加入购物车/立即购买弹出 SKU"]
     },
     cart: {
-      canvasTitle: "购物车 · 批量结算",
+      canvasTitle: "购物车 · 登录后同步",
       title: "购物车",
-      description: "商品选择、数量与价格在同一卡片内操作，结算金额持续可见。",
-      interactions: ["单选与全选商品", "数量增减与库存校验", "选中商品进入确认订单"]
+      description: "游客本地项登录后幂等合入服务端购物车，当前价格、库存和状态由服务端投影。",
+      interactions: ["单选与全选可售商品", "数量上限 min(99, available_stock)", "结算保留选中项并提示 B9 开放"]
     },
     checkout: {
       canvasTitle: "确认订单 · 支付前复核",
@@ -254,8 +254,8 @@
     profile: {
       canvasTitle: "我的 · 客户资产中心",
       title: "个人中心",
-      description: "B7 只开放本人资料、服务代理和隐私入口；后续业务保持未开放状态。",
-      interactions: ["资料与会话入口", "服务代理归属清晰可见", "延期业务仅返回未开放反馈"]
+      description: "B8 开放收藏与收货地址，订单和交易仍保持未开放状态。",
+      interactions: ["资料与会话入口", "进入商品收藏和收货地址", "订单与交易仅返回未开放反馈"]
     },
     "service-agent": {
       canvasTitle: "服务代理 · 归属与服务说明",
@@ -268,9 +268,9 @@
     "order-detail": { canvasTitle: "订单详情 · 四轴状态", title: "订单详情", description: "订单、支付、退款和履约分别表达，商品与地址使用下单快照。", interactions: ["待付款继续支付", "运输中查看物流", "符合资格的订单项申请售后"] },
     logistics: { canvasTitle: "物流详情 · 履约时间线", title: "物流详情", description: "承运商、运单号和人工物流节点形成可追踪时间线。", interactions: ["复制运单号", "查看运输节点", "返回订单详情"] },
     "aftersale-detail": { canvasTitle: "售后详情 · 数量金额占用", title: "售后详情", description: "展示审核、退货、退款与失败重试，并明确已占用的可退数量和金额。", interactions: ["允许阶段取消并释放占用", "填写退货物流", "退款失败可重试"] },
-    addresses: { canvasTitle: "地址 · 默认与选择", title: "收货地址", description: "支持新增、编辑、删除、设为默认，并从结算页选择后返回。", interactions: ["选择结算地址", "设为默认", "新增或编辑地址"] },
-    "address-edit": { canvasTitle: "地址编辑 · 完整校验", title: "编辑地址", description: "姓名、手机号、省市区和详细地址均为结构化字段。", interactions: ["手机号格式校验", "保存后返回地址列表", "默认地址唯一"] },
-    favorites: { canvasTitle: "收藏 · 商品当前状态", title: "商品收藏", description: "收藏列表展示商品当前售价与可售状态，可取消或进入详情。", interactions: ["取消收藏", "进入商品详情", "空状态返回首页"] },
+    addresses: { canvasTitle: "地址 · 默认与脱敏", title: "收货地址", description: "列表只展示脱敏摘要，并按默认、创建时间和 ID 稳定排序。", interactions: ["设为默认", "新增或编辑地址", "删除默认地址后稳定提升下一条"] },
+    "address-edit": { canvasTitle: "地址编辑 · 版本校验", title: "编辑地址", description: "收件人、手机号、省、市、区和详细地址均为独立字段。", interactions: ["11 位 ASCII 手机号校验", "If-Match 冲突后刷新", "唯一默认地址约束"] },
+    favorites: { canvasTitle: "收藏 · 商品当前状态", title: "商品收藏", description: "收藏列表保留当前不可用商品，并展示闭合可售状态。", interactions: ["按商品名搜索", "取消收藏 pending 防重复", "进入仍公开的商品详情"] },
     account: { canvasTitle: "账户与隐私 · 权利入口", title: "账户与隐私", description: "只展示服务端最小资料，并集中处理资料、手机号、会话和账号注销。", interactions: ["乐观锁编辑资料", "管理手机号与隐私权利", "退出当前会话"] },
     "phone-authorization": { canvasTitle: "手机号授权 · 自愿且独立", title: "手机号授权", description: "账户手机号独立于收货地址，自愿授权后只展示服务端脱敏值并允许撤回。", interactions: ["拉起微信手机号能力", "展示脱敏验证结果", "撤回当前授权"] },
     "account-deletion": { canvasTitle: "账号注销 · 资格与影响", title: "账号注销", description: "先获取资格与影响预览，再二次确认并同步完成会话撤销和资料去标识化。", interactions: ["检查注销资格", "查看 blockers 与 impacts", "同步确认注销"] },
@@ -299,13 +299,28 @@
   const clone = value => JSON.parse(JSON.stringify(value));
 
   const defaultAddress = {
-    id: "ADDR-001",
+    id: "01ARZ3NDEKTSV4RRFFQ69G5FAX",
     recipient: "林青",
     phone: "13852185218",
-    region: "浙江省 杭州市 西湖区",
+    province: "浙江省",
+    city: "杭州市",
+    district: "西湖区",
     detail: "文三路 88 号 2 幢 1102 室",
-    isDefault: true
+    isDefault: true,
+    version: 3,
+    createdAt: "2026-07-18T06:20:00Z"
   };
+
+  const initialFavorites = [
+    { favoriteId: "01ARZ3NDEKTSV4RRFFQ69G5FB0", productId: "serum", createdAt: "2026-08-25T04:20:00Z", availability: "SALEABLE", primaryImageUrl: "./assets/product-1.png", minimumActivePrice: 168, isSalable: true },
+    { favoriteId: "01ARZ3NDEKTSV4RRFFQ69G5FB1", productId: "laundry", createdAt: "2026-08-25T04:20:00Z", availability: "OUT_OF_STOCK", primaryImageUrl: "./assets/product-8.png", minimumActivePrice: 49, isSalable: false },
+    { favoriteId: "01ARZ3NDEKTSV4RRFFQ69G5FB2", productId: "sunscreen", createdAt: "2026-08-23T04:20:00Z", availability: "UNAVAILABLE", primaryImageUrl: null, minimumActivePrice: null, isSalable: false }
+  ];
+
+  const guestCartMergeFixture = [
+    { productId: "serum", skuId: "SKU-SER-30", quantity: 2, selected: false, saleStatus: "SALEABLE", availableStock: 286 },
+    { productId: "shampoo", skuId: "SKU-SHA-500", quantity: 1, selected: true, saleStatus: "SALEABLE", availableStock: 142 }
+  ];
 
   const initialOrders = [
     {
@@ -403,7 +418,9 @@
     homeSectionStatus: { banners: "READY", categories: "READY", hot_products: "READY", new_products: "READY" },
     product: products[0],
     detailTab: "亮点",
-    favoriteProductIds: ["serum"],
+    favorites: clone(initialFavorites),
+    favoriteKeyword: "",
+    favoritePendingProductId: null,
     selectedSkuId: "SKU-SER-30",
     quantity: 1,
     skuIntent: "cart",
@@ -431,17 +448,26 @@
     agentBindingStatus: "bound",
     serviceAgent: { ...inviteAgents["QX-A1038"] },
     cartManaging: false,
+    cartId: "01ARZ3NDEKTSV4RRFFQ69G5FB3",
+    cartMergeJournal: null,
+    cartMergeFailureNext: false,
+    guestCart: [],
     cart: [
-      { productId: "serum", skuId: "SKU-SER-30", quantity: 1, selected: true },
-      { productId: "bodywash", skuId: "SKU-BOD-480", quantity: 2, selected: true },
-      { productId: "sunscreen", skuId: "SKU-SUN-50", quantity: 1, selected: false, invalidReason: "商品已下架" }
+      { productId: "serum", skuId: "SKU-SER-30", quantity: 1, selected: true, saleStatus: "SALEABLE", availableStock: 286 },
+      { productId: "bodywash", skuId: "SKU-BOD-480", quantity: 2, selected: true, saleStatus: "INSUFFICIENT_STOCK", availableStock: 1 },
+      { productId: "laundry", skuId: "SKU-LAU-30", quantity: 1, selected: false, saleStatus: "OUT_OF_STOCK", availableStock: 0 },
+      { productId: "sunscreen", skuId: "SKU-SUN-50", quantity: 1, selected: false, saleStatus: "INACTIVE", availableStock: 0 },
+      { productId: "cleanser", skuId: "SKU-CLN-120", quantity: 1, selected: false, saleStatus: "DELETED", availableStock: 0 }
     ],
     checkoutMode: "cart",
     buyNowLine: null,
-    currentAddressId: "ADDR-001",
+    currentAddressId: defaultAddress.id,
     addressReturnScreen: null,
-    editingAddressId: "ADDR-001",
-    addresses: [clone(defaultAddress), { id: "ADDR-002", recipient: "林青", phone: "13852185218", region: "上海市 上海市 徐汇区", detail: "衡山路 26 号 6 楼", isDefault: false }],
+    editingAddressId: defaultAddress.id,
+    addressMutationExpectedVersion: defaultAddress.version,
+    addressConflictNext: false,
+    addressError: null,
+    addresses: [clone(defaultAddress), { id: "01ARZ3NDEKTSV4RRFFQ69G5FAY", recipient: "林青", phone: "13852185218", province: "上海市", city: "上海市", district: "徐汇区", detail: "衡山路 26 号 6 楼", isDefault: false, version: 1, createdAt: "2026-07-20T06:20:00Z" }],
     orderTab: "全部",
     currentOrderId: "QX202608030118",
     activePaymentOrderId: null,
@@ -687,6 +713,49 @@
     return `${street.slice(0, 4)} ****`;
   }
 
+  function addressRegion(address) {
+    return [address.province, address.city, address.district].filter(Boolean).join(" ");
+  }
+
+  function sortedAddresses() {
+    return [...state.addresses].sort((left, right) => Number(right.isDefault) - Number(left.isDefault)
+      || Date.parse(left.createdAt) - Date.parse(right.createdAt)
+      || left.id.localeCompare(right.id));
+  }
+
+  function isFavorite(productId) {
+    return state.favorites.some(favorite => favorite.productId === productId);
+  }
+
+  function favoriteViewForProduct(product) {
+    const suffixes = ["B3", "B4", "B5", "B6", "B7", "B8", "B9"];
+    return {
+      favoriteId: `01ARZ3NDEKTSV4RRFFQ69G5F${suffixes[state.favorites.length] || "BZ"}`,
+      productId: product.id,
+      createdAt: new Date().toISOString(),
+      availability: isProductSalable(product) ? "SALEABLE" : "OUT_OF_STOCK",
+      primaryImageUrl: product.image,
+      minimumActivePrice: minimumActivePrice(product),
+      isSalable: isProductSalable(product)
+    };
+  }
+
+  function setFavorite(productId, desired) {
+    if (state.favoritePendingProductId) return false;
+    const product = products.find(item => item.id === productId);
+    if (desired && (!product || !isPublicProduct(product))) return showToast("商品当前不可收藏");
+    state.favoritePendingProductId = productId;
+    render();
+    setTimeout(() => {
+      if (desired && !isFavorite(productId)) state.favorites = [favoriteViewForProduct(product), ...state.favorites];
+      if (!desired) state.favorites = state.favorites.filter(favorite => favorite.productId !== productId);
+      state.favoritePendingProductId = null;
+      render();
+      showToast(desired ? "已收藏商品" : "已取消收藏");
+    }, 180);
+    return true;
+  }
+
   function currentProductSku() {
     const activeSkus = publicSkusFor(state.product);
     return activeSkus.find(sku => sku.id === state.selectedSkuId) || preferredPublicSku(state.product);
@@ -695,7 +764,8 @@
   function renderProduct() {
     const product = state.product;
     const selectedSku = currentProductSku();
-    const isFavorite = state.favoriteProductIds.includes(product.id);
+    const favorite = isFavorite(product.id);
+    const favoritePending = state.favoritePendingProductId === product.id;
     const detail = product.details;
     const isSalable = isSkuSalable(selectedSku);
     const detailCopy = {
@@ -708,7 +778,7 @@
         <div class="screen-scroll">
           <div class="product-gallery">
             ${statusBar()}
-            <div class="floating-header"><button class="icon-button is-soft" data-action="back" aria-label="返回">‹</button><div><button class="icon-button is-soft" data-action="share" aria-label="分享">↗</button><button class="icon-button is-soft" data-action="favorite" aria-label="收藏">${isFavorite ? "♥" : "♡"}</button></div></div>
+            <div class="floating-header"><button class="icon-button is-soft" data-action="back" aria-label="返回">‹</button><div><button class="icon-button is-soft" data-action="share" aria-label="分享">↗</button><button class="icon-button is-soft" data-action="favorite" aria-label="收藏" ${favoritePending ? "disabled" : ""}>${favoritePending ? "…" : favorite ? "♥" : "♡"}</button></div></div>
             ${imageMedia(product, "product-hero-media")}
             <div class="gallery-dots"><i></i><i></i><i></i></div>
           </div>
@@ -736,43 +806,63 @@
       </section>`;
   }
 
+  function activeCartItems() {
+    return state.loggedIn ? state.cart : state.guestCart;
+  }
+
   function cartTotal() {
-    return state.cart.filter(item => item.selected && !item.invalidReason).reduce((sum, item) => sum + lineSku(item).price * item.quantity, 0);
+    return activeCartItems().filter(item => item.selected && item.saleStatus === "SALEABLE").reduce((sum, item) => sum + lineSku(item).price * item.quantity, 0);
+  }
+
+  function cartStatusCopy(item) {
+    if (item.saleStatus === "INSUFFICIENT_STOCK") return `库存不足，仅剩 ${item.availableStock} 件`;
+    if (item.saleStatus === "OUT_OF_STOCK") return "当前规格已售罄";
+    if (item.saleStatus === "INACTIVE") return "商品或规格已下架";
+    if (item.saleStatus === "DELETED") return "商品或规格已删除";
+    return `库存 ${item.availableStock} 件`;
   }
 
   function renderCart() {
-    const validItems = state.cart.filter(item => !item.invalidReason);
+    const cartItems = activeCartItems();
+    const validItems = cartItems.filter(item => item.saleStatus === "SALEABLE");
     const selectedCount = validItems.filter(item => item.selected).length;
     const allSelected = Boolean(validItems.length) && selectedCount === validItems.length;
+    const mergeNotice = state.cartMergeJournal?.status === "RETRY"
+      ? `<div class="inline-alert is-warning" data-merge-status="RETRY"><strong>游客购物车尚未合并</strong><span>已保留原条目与同一幂等键，网络恢复后可安全重试。</span><button data-action="retry-cart-merge">重试合并</button></div>`
+      : state.cartMergeJournal?.status === "MERGED"
+        ? `<div class="inline-alert is-success" data-merge-status="MERGED"><strong>游客购物车已合并</strong><span>${state.cartMergeJournal.itemCount} 个本地规格已写入服务端；每个购物车最多 100 种规格。</span></div>`
+        : "";
     return `
       <section class="app-screen with-tabbar cart-page">
         <div class="screen-scroll">
           ${statusBar()}
           ${header("购物车", { back: false, action: `<button class="text-button" data-action="manage-cart">${state.cartManaging ? "完成" : "管理"}</button>` })}
-          ${state.cart.length ? `
+          ${mergeNotice}
+          ${cartItems.length ? `
             <div class="cart-list">
               <div class="cart-group-label"><span>青序自营</span><span>·</span><span>全场包邮</span></div>
-              ${state.cart.map((item, index) => {
+              ${cartItems.map((item, index) => {
                 const product = lineProduct(item);
                 const sku = lineSku(item);
-                return `<article class="cart-card ${item.invalidReason ? "is-invalid" : ""}" data-cart-sku="${item.skuId}">
-                  <button class="check-control ${item.selected ? "is-checked" : ""}" data-cart-select="${index}" aria-label="选择商品" ${item.invalidReason ? "disabled" : ""}>✓</button>
+                const saleable = item.saleStatus === "SALEABLE";
+                return `<article class="cart-card ${saleable ? "" : "is-invalid"}" data-cart-sku="${item.skuId}" data-sale-status="${item.saleStatus}" data-selected="${item.selected}">
+                  <button class="check-control ${item.selected && saleable ? "is-checked" : ""}" data-cart-select="${index}" aria-label="选择商品" ${saleable ? "" : "disabled"}>✓</button>
                   ${imageMedia(product, "cart-thumb")}
-                  <div class="cart-info"><h3>${product.name}</h3><span class="sku-label">${sku.name}</span>${item.invalidReason ? `<small class="invalid-reason">${item.invalidReason} · 不计入结算</small>` : ""}<div class="cart-card__footer"><span class="price"><small>¥</small>${sku.price}</span>${state.cartManaging || item.invalidReason ? `<button class="cart-delete" data-cart-delete="${index}">删除</button>` : `<div class="quantity-stepper"><button data-cart-qty="${index}" data-delta="-1">−</button><span>${item.quantity}</span><button data-cart-qty="${index}" data-delta="1">＋</button></div>`}</div></div>
+                  <div class="cart-info"><h3>${product.name}</h3><span class="sku-label">${sku.name}</span><small class="${saleable ? "sku-label" : "invalid-reason"}">${cartStatusCopy(item)}${saleable ? "" : " · 不计入合计"}</small><div class="cart-card__footer"><span class="price"><small>¥</small>${sku.price}</span>${state.cartManaging || !saleable ? `<button class="cart-delete" data-cart-delete="${index}">删除</button>` : `<div class="quantity-stepper"><button data-cart-qty="${index}" data-delta="-1">−</button><span>${item.quantity}</span><button data-cart-qty="${index}" data-delta="1">＋</button></div>`}</div></div>
                 </article>`;
               }).join("")}
             </div>
             <section class="cart-recommend"><div class="section-heading"><div><h3>你可能还喜欢</h3></div></div><div class="product-grid">${publicProducts().slice(2, 4).map(productCard).join("")}</div></section>
-          ` : `<div class="empty-state"><i>□</i><strong>购物车还是空的</strong><p>去挑选一些日常好物吧</p><button class="primary-button" data-screen="home" style="padding:0 22px">去逛逛</button></div>`}
+          ` : `<div class="empty-state" data-cart-id="${state.loggedIn ? state.cartId || "" : ""}"><i>□</i><strong>购物车还是空的</strong><p>${state.loggedIn && state.cartId === null ? "服务端尚未创建购物车，首次加购时再创建。" : "去挑选一些日常好物吧"}</p><button class="primary-button" data-screen="home" style="padding:0 22px">去逛逛</button></div>`}
         </div>
-        ${state.cart.length ? `<div class="cart-summary"><button class="select-all" data-action="select-all"><span class="check-control ${allSelected ? "is-checked" : ""}">✓</span><span>全选</span></button><div class="summary-price"><span>合计：<strong>${money(cartTotal())}</strong></span><small>提交时重新校验价格和库存</small></div><button class="primary-button is-coral" data-action="checkout" ${selectedCount ? "" : "disabled"}>去结算 (${selectedCount})</button></div>` : ""}
+        ${cartItems.length ? `<div class="cart-summary"><button class="select-all" data-action="select-all"><span class="check-control ${allSelected ? "is-checked" : ""}">✓</span><span>全选</span></button><div class="summary-price"><span>合计：<strong>${money(cartTotal())}</strong></span><small>仅统计已选可售商品</small></div><button class="primary-button is-coral" data-action="checkout" ${selectedCount ? "" : "disabled"}>去结算 (${selectedCount})</button></div>` : ""}
         ${tabbar("cart")}
       </section>`;
   }
 
   function checkoutLines() {
     if (state.checkoutMode === "buy" && state.buyNowLine) return [state.buyNowLine];
-    return state.cart.filter(item => item.selected && !item.invalidReason);
+    return activeCartItems().filter(item => item.selected && item.saleStatus === "SALEABLE");
   }
 
   function renderCheckout() {
@@ -785,7 +875,7 @@
           ${statusBar()}
           ${header("确认订单")}
           <div class="checkout-content">
-            ${address ? `<button class="address-card" data-action="choose-address"><span class="address-icon">⌖</span><span class="address-main"><strong>${address.recipient} <span>${maskPhone(address.phone)}</span></strong><p>${address.region} ${address.detail}</p></span><span>›</span></button>` : `<button class="address-card is-empty" data-action="choose-address"><span class="address-icon">＋</span><span class="address-main"><strong>添加收货地址</strong><p>提交订单前需要选择有效地址</p></span><span>›</span></button>`}
+            ${address ? `<button class="address-card" data-action="choose-address"><span class="address-icon">⌖</span><span class="address-main"><strong>${address.recipient} <span>${maskPhone(address.phone)}</span></strong><p>${addressRegion(address)} ${address.detail}</p></span><span>›</span></button>` : `<button class="address-card is-empty" data-action="choose-address"><span class="address-icon">＋</span><span class="address-main"><strong>添加收货地址</strong><p>提交订单前需要选择有效地址</p></span><span>›</span></button>`}
             <section class="checkout-card"><div class="merchant-name">青序自营 · 正品保障</div>
               ${items.map(item => {
                 const product = lineProduct(item);
@@ -890,7 +980,7 @@
           ${header("订单详情")}
           <section class="status-hero ${statusClass(order.displayStatus)}"><span>${order.displayStatus}</span><strong>${statusCopy}</strong></section>
           <div class="detail-stack">
-            <section class="detail-card address-summary"><span class="address-icon">⌖</span><div><strong>${address.recipient} · ${maskPhone(address.phone)}</strong><p>${address.region} ${address.detail}</p></div></section>
+            <section class="detail-card address-summary"><span class="address-icon">⌖</span><div><strong>${address.recipient} · ${maskPhone(address.phone)}</strong><p>${addressRegion(address)} ${address.detail}</p></div></section>
             <section class="detail-card order-detail-products"><div class="card-title"><strong>商品快照</strong><span>下单后规格与成交价不回写</span></div>${renderOrderItems(order)}</section>
             <section class="detail-card fact-list"><div><span>订单状态</span><strong>${order.displayStatus}</strong></div><div><span>支付状态</span><strong>${paymentLabel(order.paymentStatus)}</strong></div><div><span>退款状态</span><strong>${refundLabel(order.refundStatus)}</strong></div><div><span>履约状态</span><strong>${fulfillmentLabel(order.fulfillmentStatus)}</strong></div>${order.closeReason ? `<div><span>关闭原因</span><strong>${order.closeReason === "FULL_REFUND_BEFORE_SHIPMENT" ? "未发货全额退款" : order.closeReason === "PAYMENT_TIMEOUT" ? "支付超时" : "用户取消"}</strong></div>` : ""}${order.inventoryRestock ? `<div><span>库存处理</span><strong>已自动回补 ${order.inventoryRestock.quantity} 件</strong></div>` : ""}</section>
             <section class="detail-card amount-card"><div class="amount-row"><span>商品金额</span><span>${money(order.total)}</span></div><div class="amount-row"><span>运费</span><span>¥0</span></div><div class="amount-row total"><span>${order.paymentStatus === "PAID" ? "实付金额" : "待付金额"}</span><strong>${money(order.total)}</strong></div></section>
@@ -1020,8 +1110,8 @@
           <div class="profile-body">
             ${agentCard}
             <section class="profile-card"><div class="profile-card__head"><strong>我的订单</strong><button data-action="deferred-feature" data-feature="订单">全部订单 ›</button></div><div class="order-shortcuts"><button data-action="deferred-feature" data-feature="订单"><i>◴</i><span>待付款</span></button><button data-action="deferred-feature" data-feature="订单"><i>▣</i><span>待发货</span></button><button data-action="deferred-feature" data-feature="订单"><i>♧</i><span>待收货</span></button><button data-action="deferred-feature" data-feature="订单"><i>✓</i><span>已完成</span></button><button data-action="deferred-feature" data-feature="售后"><i>↺</i><span>退款/售后</span></button></div></section>
-            <section class="profile-card"><div class="profile-card__head"><strong>常用功能</strong></div><div class="benefit-row"><button data-action="deferred-feature" data-feature="收藏"><strong>♡</strong><span>商品收藏</span></button><button data-action="deferred-feature" data-feature="地址"><strong>⌖</strong><span>收货地址</span></button><button data-action="service"><strong>◉</strong><span>联系商家</span></button></div></section>
-            <section class="profile-card menu-list"><button class="menu-item" data-screen="account"><i>○</i><span>账户与隐私</span><span>›</span></button><button class="menu-item" data-action="deferred-feature" data-feature="地址"><i>⌖</i><span>收货地址</span><span>›</span></button><button class="menu-item" data-action="service"><i>◉</i><span>联系商家</span><span>›</span></button><button class="menu-item" data-action="quality"><i>◇</i><span>正品与服务保障</span><span>›</span></button><button class="menu-item" data-screen="system-states"><i>!</i><span>异常状态样例</span><span>›</span></button></section>
+            <section class="profile-card"><div class="profile-card__head"><strong>常用功能</strong></div><div class="benefit-row"><button data-screen="favorites"><strong>♡</strong><span>商品收藏</span></button><button data-screen="addresses"><strong>⌖</strong><span>收货地址</span></button><button data-action="service"><strong>◉</strong><span>联系商家</span></button></div></section>
+            <section class="profile-card menu-list"><button class="menu-item" data-screen="account"><i>○</i><span>账户与隐私</span><span>›</span></button><button class="menu-item" data-screen="addresses"><i>⌖</i><span>收货地址</span><span>›</span></button><button class="menu-item" data-action="service"><i>◉</i><span>联系商家</span><span>›</span></button><button class="menu-item" data-action="quality"><i>◇</i><span>正品与服务保障</span><span>›</span></button><button class="menu-item" data-screen="system-states"><i>!</i><span>异常状态样例</span><span>›</span></button></section>
           </div>
         </div>
         ${tabbar("profile")}
@@ -1058,21 +1148,36 @@
   }
 
   function renderAddresses() {
+    const addresses = sortedAddresses();
     return `
-      <section class="app-screen list-page"><div class="screen-scroll">${statusBar()}${header(state.addressReturnScreen ? "选择收货地址" : "收货地址")}<div class="address-list">${state.addresses.map(address => `<article class="saved-address ${address.id === state.currentAddressId ? "is-selected" : ""}"><button class="saved-address__main" data-address-select="${address.id}"><strong>${maskRecipient(address.recipient)} <span>${maskPhone(address.phone)}</span></strong><p>${address.region} ${maskAddressDetail(address.detail)}</p><small>${address.isDefault ? "默认地址" : ""}</small></button><div class="saved-address__actions"><button data-address-default="${address.id}" ${address.isDefault ? "disabled" : ""}>设为默认</button><button data-address-edit="${address.id}">编辑</button><button data-address-delete="${address.id}">删除</button></div></article>`).join("") || `<div class="empty-state"><i>⌖</i><strong>暂无收货地址</strong><p>新增地址后即可提交订单。</p></div>`}</div></div><div class="form-submit"><button class="primary-button" data-action="new-address">＋ 新增收货地址</button></div></section>`;
+      <section class="app-screen list-page"><div class="screen-scroll">${statusBar()}${header(state.addressReturnScreen ? "选择收货地址" : "收货地址")}<div class="address-list">${addresses.map(address => `<article class="saved-address ${address.isDefault ? "is-selected" : ""}" data-address-version="${address.version}"><button class="saved-address__main" data-address-select="${address.id}"><strong>${maskRecipient(address.recipient)} <span>${maskPhone(address.phone)}</span></strong><p>${addressRegion(address)} ${maskAddressDetail(address.detail)}</p><small>${address.isDefault ? "默认地址" : ""}</small></button><div class="saved-address__actions"><button data-address-default="${address.id}" ${address.isDefault ? "disabled" : ""}>设为默认</button><button data-address-edit="${address.id}">编辑</button><button data-address-delete="${address.id}">删除</button></div></article>`).join("") || `<div class="empty-state"><i>⌖</i><strong>暂无收货地址</strong><p>新增地址后可在后续下单时使用。</p></div>`}</div></div><div class="form-submit"><button class="primary-button" data-action="new-address">＋ 新增收货地址</button></div></section>`;
   }
 
   function renderAddressEdit() {
     const editing = state.addresses.find(item => item.id === state.editingAddressId);
-    const address = editing || { recipient: "", phone: "", region: "", detail: "", isDefault: !state.addresses.length };
+    const address = editing || { recipient: "", phone: "", province: "", city: "", district: "", detail: "", isDefault: !state.addresses.length, version: null };
+    const addressError = state.addressError === "RESOURCE_VERSION_CONFLICT"
+      ? `<div class="inline-alert is-warning" data-address-error-code="RESOURCE_VERSION_CONFLICT"><strong>地址已更新</strong><span>已刷新最新版本，请重新确认本次修改。</span></div>`
+      : state.addressError === "DEFAULT_ADDRESS_REQUIRED"
+        ? `<div class="inline-alert is-error" data-address-error-code="DEFAULT_ADDRESS_REQUIRED"><strong>必须保留默认地址</strong><span>请先把其他地址设为默认，再关闭当前默认状态。</span></div>`
+        : "";
     return `
-      <section class="app-screen form-page"><div class="screen-scroll">${statusBar()}${header(editing ? "编辑地址" : "新增地址")}<form class="address-form" id="addressForm"><label><span>收货人</span><input name="recipient" value="${address.recipient}" placeholder="请输入姓名" required /></label><label><span>手机号</span><input name="phone" value="${address.phone}" inputmode="numeric" maxlength="11" placeholder="11 位手机号" required /></label><label><span>省市区</span><input name="region" value="${address.region}" placeholder="省 市 区" required /></label><label class="is-textarea"><span>详细地址</span><textarea name="detail" placeholder="街道、楼栋和门牌号" required>${address.detail}</textarea></label><button type="button" class="switch-row ${address.isDefault ? "is-on" : ""}" data-action="toggle-address-default"><span><strong>设为默认地址</strong><small>保存后其他地址将取消默认</small></span><i></i></button><button class="primary-button" type="submit">保存地址</button></form></div></section>`;
+      <section class="app-screen form-page"><div class="screen-scroll">${statusBar()}${header(editing ? "编辑地址" : "新增地址")}${addressError}<form class="address-form" id="addressForm" data-if-match-version="${address.version ?? ""}"><label><span>收货人</span><input name="recipient" value="${address.recipient}" maxlength="80" placeholder="请输入姓名" required /></label><label><span>手机号</span><input name="phone" value="${address.phone}" inputmode="numeric" maxlength="11" pattern="[0-9]{11}" placeholder="11 位手机号" required /></label><label><span>省</span><input name="province" value="${address.province}" maxlength="80" required /></label><label><span>市</span><input name="city" value="${address.city}" maxlength="80" required /></label><label><span>区</span><input name="district" value="${address.district}" maxlength="80" required /></label><label class="is-textarea"><span>详细地址</span><textarea name="detail" maxlength="300" placeholder="街道、楼栋和门牌号" required>${address.detail}</textarea></label><button type="button" class="switch-row ${address.isDefault ? "is-on" : ""}" data-action="toggle-address-default"><span><strong>设为默认地址</strong><small>保存后其他地址将取消默认</small></span><i></i></button><button class="primary-button" type="submit">保存地址</button></form></div></section>`;
   }
 
   function renderFavorites() {
-    const favoriteProducts = state.favoriteProductIds.map(productById);
+    const keyword = state.favoriteKeyword.trim().toLowerCase();
+    const favorites = [...state.favorites]
+      .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt) || right.favoriteId.localeCompare(left.favoriteId))
+      .filter(favorite => !keyword || productById(favorite.productId).name.toLowerCase().includes(keyword));
+    const availabilityCopy = { SALEABLE: "可购买", OUT_OF_STOCK: "暂时售罄", UNAVAILABLE: "商品已失效" };
     return `
-      <section class="app-screen list-page"><div class="screen-scroll">${statusBar()}${header("商品收藏")}<div class="favorite-list">${favoriteProducts.length ? favoriteProducts.map(product => `<article class="favorite-item">${imageMedia(product, "favorite-thumb")}<button class="favorite-copy" data-open-product="${product.id}"><span class="product-brand">${product.brand}</span><strong>${product.name}</strong><p>${product.skus[0].name}</p><em>${money(product.skus[0].price)}</em></button><button class="favorite-remove" data-remove-favorite="${product.id}" aria-label="取消收藏">♡</button></article>`).join("") : `<div class="empty-state"><i>♡</i><strong>还没有收藏商品</strong><p>在商品详情点击收藏，方便下次找到。</p><button class="primary-button" data-screen="home" style="padding:0 18px">去逛逛</button></div>`}</div></div></section>`;
+      <section class="app-screen list-page"><div class="screen-scroll">${statusBar()}${header("商品收藏")}<form class="search-bar-wrap" id="favoriteSearchForm"><label class="search-field"><span>⌕</span><input id="favoriteSearchInput" name="keyword" value="${state.favoriteKeyword}" maxlength="200" placeholder="搜索收藏的商品名称" /><button type="button" data-action="clear-favorite-search">×</button></label><button class="search-submit" type="submit">搜索</button></form><div class="favorite-list">${favorites.length ? favorites.map(favorite => {
+        const product = productById(favorite.productId);
+        const pending = state.favoritePendingProductId === favorite.productId;
+        const media = favorite.primaryImageUrl ? imageMedia({ ...product, image: favorite.primaryImageUrl }, "favorite-thumb result-thumb") : `<div class="favorite-thumb result-thumb"><div class="fallback-pack" data-label="暂不可用"></div></div>`;
+        return `<article class="favorite-item" data-favorite-id="${favorite.favoriteId}" data-favorite-status="${favorite.availability}">${media}<button class="favorite-copy" data-favorite-open="${favorite.productId}" ${favorite.availability === "UNAVAILABLE" ? "disabled" : ""}><span class="product-brand">${product.brand}</span><strong>${product.name}</strong><p>${availabilityCopy[favorite.availability]}</p><em>${favorite.minimumActivePrice === null ? "价格不可用" : money(favorite.minimumActivePrice)}</em></button><button class="favorite-remove" data-remove-favorite="${favorite.productId}" aria-label="取消收藏" ${pending ? "disabled" : ""}>${pending ? "…" : "♡"}</button></article>`;
+      }).join("") : `<div class="empty-state"><i>♡</i><strong>${keyword ? "没有匹配的收藏" : "还没有收藏商品"}</strong><p>${keyword ? "换个商品名称关键词再试试。" : "在商品详情点击收藏，方便下次找到。"}</p><button class="primary-button" data-screen="home" style="padding:0 18px">去逛逛</button></div>`}</div></div></section>`;
   }
 
   function renderAccount() {
@@ -1356,22 +1461,25 @@
   function handleSkuConfirm() {
     const sku = currentProductSku();
     if (!isSkuSalable(sku)) return showToast("当前规格暂时售罄");
-    const quantity = Math.min(state.quantity, sku.stock);
+    const quantity = Math.min(99, state.quantity, sku.stock);
     if (state.skuIntent === "cart") {
-      const existing = state.cart.find(item => item.skuId === sku.id);
+      const cartItems = activeCartItems();
+      const existing = cartItems.find(item => item.skuId === sku.id);
       if (existing) {
-        existing.quantity = Math.min(existing.quantity + quantity, sku.stock);
+        existing.quantity = Math.min(99, existing.quantity + quantity, sku.stock);
         existing.selected = true;
+        existing.saleStatus = "SALEABLE";
+        existing.availableStock = sku.stock;
       } else {
-        state.cart.push({ productId: state.product.id, skuId: sku.id, quantity, selected: true });
+        if (cartItems.length >= 100) return showToast("购物车最多保留 100 种规格");
+        cartItems.push({ productId: state.product.id, skuId: sku.id, quantity, selected: true, saleStatus: "SALEABLE", availableStock: sku.stock });
+        if (state.loggedIn && state.cartId === null) state.cartId = "01ARZ3NDEKTSV4RRFFQ69G5FB3";
       }
       closeSheet();
       return showToast(`已加入购物车 · ${sku.name} × ${quantity}`);
     }
-    state.checkoutMode = "buy";
-    state.buyNowLine = { productId: state.product.id, skuId: sku.id, quantity, selected: true };
     closeSheet();
-    setTimeout(() => navigate("checkout"), 190);
+    return showToast("立即购买将在 B9 开放，所选规格未丢失");
   }
 
   function createPendingOrder() {
@@ -1546,6 +1654,53 @@
       && loginDocuments.every(document => state.acceptedConsents.some(consent => consent.type === document.type && consent.document_version === document.document_version && consent.accepted === true));
   }
 
+  function sameGuestCartSnapshot(left, right) {
+    return left.productId === right.productId
+      && left.skuId === right.skuId
+      && left.quantity === right.quantity
+      && left.selected === right.selected;
+  }
+
+  function applyCartMergeJournal() {
+    const journal = state.cartMergeJournal;
+    if (!journal || journal.status === "MERGED") return false;
+    journal.attempts += 1;
+    if (state.cartMergeFailureNext) {
+      state.cartMergeFailureNext = false;
+      journal.status = "RETRY";
+      journal.serverConfirmed = false;
+      return false;
+    }
+    journal.items.forEach(incoming => {
+      const existing = state.cart.find(item => item.skuId === incoming.skuId);
+      if (existing) {
+        existing.quantity = Math.min(99, existing.quantity + incoming.quantity);
+        existing.selected = existing.selected || incoming.selected;
+      } else state.cart.push(clone(incoming));
+    });
+    if (state.cartId === null) state.cartId = "01ARZ3NDEKTSV4RRFFQ69G5FB3";
+    state.guestCart = state.guestCart.filter(localItem =>
+      !journal.items.some(journalItem => sameGuestCartSnapshot(localItem, journalItem)));
+    journal.status = "MERGED";
+    journal.serverConfirmed = true;
+    return true;
+  }
+
+  function beginGuestCartMerge() {
+    if (!state.guestCart.length) return null;
+    if (!state.cartMergeJournal) {
+      state.cartMergeJournal = {
+        status: "PENDING",
+        itemCount: state.guestCart.length,
+        idempotencyKey: "b8-guest-cart-merge-0001",
+        items: clone(state.guestCart),
+        attempts: 0,
+        serverConfirmed: false
+      };
+    }
+    return applyCartMergeJournal();
+  }
+
   function completeLogin() {
     if (!currentConsentsAccepted()) {
       state.consentAccepted = false;
@@ -1568,8 +1723,13 @@
     const destination = state.authReturn?.screen || "profile";
     const pendingAction = state.authReturn?.action;
     state.authReturn = null;
+    const hadGuestCart = state.guestCart.length > 0;
+    const mergeCompleted = beginGuestCartMerge();
     navigate(destination, false);
-    showToast(pendingAction ? "登录成功，已返回原页面；原业务动作未执行" : "登录成功");
+    if (pendingAction?.type === "favorite") setFavorite(pendingAction.productId, pendingAction.desired);
+    else if (hadGuestCart && !mergeCompleted) showToast("登录成功，本地购物车已保留，可使用同一幂等键重试");
+    else if (hadGuestCart) showToast("登录成功，游客购物车已合并");
+    else showToast(pendingAction ? "登录成功，已返回原页面" : "登录成功");
     if (state.inviteCandidate && Date.parse(state.inviteCandidate.expires_at) > Date.now() && state.agentBindingStatus !== "bound") {
       state.agentBindingStatus = "pending";
       setTimeout(() => openSheet(agentBindingSheet()), 220);
@@ -1600,6 +1760,16 @@
       state.quantity = 1;
       return navigate("product");
     }
+    if (target.dataset.favoriteOpen) {
+      const favorite = state.favorites.find(item => item.productId === target.dataset.favoriteOpen);
+      if (!favorite || favorite.availability === "UNAVAILABLE") return showToast("商品当前不可用，收藏记录仍保留");
+      const product = publicProductById(favorite.productId);
+      if (!product) return showToast("商品当前不可用，收藏记录仍保留");
+      state.product = product;
+      state.selectedSkuId = preferredPublicSku(product).id;
+      state.quantity = 1;
+      return navigate("product");
+    }
     if (target.dataset.openOrder) { state.currentOrderId = target.dataset.openOrder; return navigate("order-detail"); }
     if (target.dataset.keyword) { state.searchQuery = target.dataset.keyword; state.searchPerformed = true; return render(); }
     if (target.dataset.sort) { state.searchSort = target.dataset.sort; return render(); }
@@ -1607,14 +1777,15 @@
     if (target.dataset.skuIntent) { state.skuIntent = target.dataset.skuIntent; state.quantity = 1; return openSheet(skuSheet()); }
     if (target.dataset.skuId) { state.selectedSkuId = target.dataset.skuId; state.quantity = Math.min(state.quantity, currentProductSku().stock); bottomSheet.innerHTML = skuSheet(); return; }
     if (target.dataset.skuDelta) { state.quantity = Math.max(1, Math.min(currentProductSku().stock, state.quantity + Number(target.dataset.skuDelta))); bottomSheet.innerHTML = skuSheet(); return; }
-    if (target.dataset.cartSelect !== undefined) { const item = state.cart[Number(target.dataset.cartSelect)]; if (item && !item.invalidReason) item.selected = !item.selected; return render(); }
-    if (target.dataset.cartDelete !== undefined) { state.cart.splice(Number(target.dataset.cartDelete), 1); render(); return showToast("商品已从购物车删除"); }
+    if (target.dataset.cartSelect !== undefined) { const item = activeCartItems()[Number(target.dataset.cartSelect)]; if (item?.saleStatus === "SALEABLE") item.selected = !item.selected; return render(); }
+    if (target.dataset.cartDelete !== undefined) { activeCartItems().splice(Number(target.dataset.cartDelete), 1); render(); return showToast("商品已从购物车删除"); }
     if (target.dataset.cartQty !== undefined) {
       const index = Number(target.dataset.cartQty);
-      const item = state.cart[index];
+      const cartItems = activeCartItems();
+      const item = cartItems[index];
       if (!item) return;
       const next = item.quantity + Number(target.dataset.delta);
-      if (next < 1) { state.cart.splice(index, 1); showToast("商品已移出购物车"); } else item.quantity = Math.min(next, lineSku(item).stock);
+      if (next < 1) { cartItems.splice(index, 1); showToast("商品已移出购物车"); } else item.quantity = Math.min(99, item.availableStock, next);
       return render();
     }
     if (target.dataset.orderTab) { state.orderTab = target.dataset.orderTab; return render(); }
@@ -1630,10 +1801,31 @@
     if (target.dataset.aftersaleReasonOption) { state.afterSaleReason = target.dataset.aftersaleReasonOption; closeSheet(); setTimeout(render, 190); return; }
     if (target.dataset.aftersaleDelta) { const context = aftersaleContext(); state.afterSaleQty = Math.max(1, Math.min(context.availableQty, state.afterSaleQty + Number(target.dataset.aftersaleDelta))); return render(); }
     if (target.dataset.addressSelect) { state.currentAddressId = target.dataset.addressSelect; const returnScreen = state.addressReturnScreen; state.addressReturnScreen = null; if (returnScreen) { navigate(returnScreen); showToast("已切换收货地址"); } else render(); return; }
-    if (target.dataset.addressEdit) { state.editingAddressId = target.dataset.addressEdit; return navigate("address-edit"); }
-    if (target.dataset.addressDelete) { state.editingAddressId = target.dataset.addressDelete; return openSheet(confirmSheet("删除收货地址", "删除后不可恢复；若删除默认地址，将自动选择下一条地址为默认。", "confirm-delete-address", "确认删除")); }
-    if (target.dataset.addressDefault) { state.addresses.forEach(item => { item.isDefault = item.id === target.dataset.addressDefault; }); state.currentAddressId = target.dataset.addressDefault; render(); return showToast("已设为默认地址"); }
-    if (target.dataset.removeFavorite) { state.favoriteProductIds = state.favoriteProductIds.filter(id => id !== target.dataset.removeFavorite); render(); return showToast("已取消收藏"); }
+    if (target.dataset.addressEdit) {
+      const address = state.addresses.find(item => item.id === target.dataset.addressEdit);
+      state.editingAddressId = target.dataset.addressEdit;
+      state.addressMutationExpectedVersion = address?.version ?? null;
+      state.addressError = null;
+      return navigate("address-edit");
+    }
+    if (target.dataset.addressDelete) {
+      const address = state.addresses.find(item => item.id === target.dataset.addressDelete);
+      state.editingAddressId = target.dataset.addressDelete;
+      state.addressMutationExpectedVersion = address?.version ?? null;
+      state.addressError = null;
+      return openSheet(confirmSheet("删除收货地址", "删除后不可恢复；若删除默认地址，将按创建时间和地址 ID 提升下一条。", "confirm-delete-address", "确认删除"));
+    }
+    if (target.dataset.addressDefault) {
+      state.addresses.forEach(item => {
+        const nextDefault = item.id === target.dataset.addressDefault;
+        if (item.isDefault !== nextDefault) item.version += 1;
+        item.isDefault = nextDefault;
+      });
+      state.currentAddressId = target.dataset.addressDefault;
+      render();
+      return showToast("已设为默认地址");
+    }
+    if (target.dataset.removeFavorite) return setFavorite(target.dataset.removeFavorite, false);
 
     const action = target.dataset.action;
     if (!action) return;
@@ -1642,14 +1834,12 @@
     if (action === "open-sku") { state.skuIntent = "cart"; return openSheet(skuSheet()); }
     if (action === "confirm-sku") return handleSkuConfirm();
     if (action === "favorite") {
-      const exists = state.favoriteProductIds.includes(state.product.id);
+      const exists = isFavorite(state.product.id);
       if (!state.loggedIn) return requireLogin("product", { type: "favorite", productId: state.product.id, desired: !exists });
-      state.favoriteProductIds = exists ? state.favoriteProductIds.filter(id => id !== state.product.id) : [...state.favoriteProductIds, state.product.id];
-      render();
-      return showToast(exists ? "已取消收藏" : "已收藏商品");
+      return setFavorite(state.product.id, !exists);
     }
-    if (action === "select-all") { const validItems = state.cart.filter(item => !item.invalidReason); const shouldSelect = !validItems.every(item => item.selected); validItems.forEach(item => { item.selected = shouldSelect; }); return render(); }
-    if (action === "checkout") { if (!state.cart.some(item => item.selected)) return showToast("请先选择要结算的商品"); state.checkoutMode = "cart"; return navigate("checkout"); }
+    if (action === "select-all") { const validItems = activeCartItems().filter(item => item.saleStatus === "SALEABLE"); const shouldSelect = !validItems.every(item => item.selected); validItems.forEach(item => { item.selected = shouldSelect; }); return render(); }
+    if (action === "checkout") { if (!activeCartItems().some(item => item.selected && item.saleStatus === "SALEABLE")) return showToast("请先选择可购买商品"); return showToast("结算将在 B9 开放，购物车已保留"); }
     if (action === "submit-order") {
       if (!state.loggedIn) return requireLogin("checkout", null);
       const order = createPendingOrder();
@@ -1713,13 +1903,32 @@
     if (action === "confirm-agent-binding") return submitCandidateDecision("CONFIRM");
     if (action === "decline-agent-binding") return submitCandidateDecision("REJECT");
     if (action === "choose-address") { state.addressReturnScreen = "checkout"; return navigate("addresses"); }
-    if (action === "new-address") { state.editingAddressId = null; return navigate("address-edit"); }
-    if (action === "toggle-address-default") { target.classList.toggle("is-on"); return; }
+    if (action === "new-address") { state.editingAddressId = null; state.addressMutationExpectedVersion = null; state.addressError = null; return navigate("address-edit"); }
+    if (action === "toggle-address-default") { state.addressError = null; target.classList.toggle("is-on"); return; }
     if (action === "confirm-delete-address") {
-      const deletingId = state.editingAddressId; const deleting = state.addresses.find(item => item.id === deletingId); state.addresses = state.addresses.filter(item => item.id !== deletingId);
-      if (deleting?.isDefault && state.addresses[0]) state.addresses[0].isDefault = true;
-      if (state.currentAddressId === deletingId) state.currentAddressId = state.addresses[0]?.id || null;
+      const deletingId = state.editingAddressId;
+      const deleting = state.addresses.find(item => item.id === deletingId);
+      if (!deleting) return closeSheet();
+      if (state.addressConflictNext || state.addressMutationExpectedVersion !== deleting.version) {
+        state.addressConflictNext = false;
+        deleting.version += 1;
+        closeSheet();
+        render();
+        return showToast("地址已更新，请刷新后重新确认删除");
+      }
+      state.addresses = state.addresses.filter(item => item.id !== deletingId);
+      if (deleting.isDefault) {
+        const nextDefault = [...state.addresses].sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt) || left.id.localeCompare(right.id))[0];
+        if (nextDefault) { nextDefault.isDefault = true; nextDefault.version += 1; }
+      }
+      state.currentAddressId = state.addresses.find(item => item.isDefault)?.id || null;
       closeSheet(); render(); return showToast("地址已删除");
+    }
+    if (action === "retry-cart-merge") {
+      const idempotencyKey = state.cartMergeJournal?.idempotencyKey;
+      const completed = applyCartMergeJournal();
+      render();
+      return showToast(completed ? `已使用原幂等键 ${idempotencyKey} 完成合并` : "合并已确认，未重复累加");
     }
     if (action === "authorize-phone") return openPhoneMutation(state.verifiedPhone ? "REAUTHORIZE" : "AUTHORIZE");
     if (action === "revoke-phone") return openPhoneMutation("REVOKE");
@@ -1750,8 +1959,10 @@
       state.serviceAgent = null;
       state.inviteCandidate = null;
       state.addresses = [];
-      state.favoriteProductIds = [];
+      state.favorites = [];
       state.cart = [];
+      state.guestCart = [];
+      state.cartMergeJournal = null;
       state.authReturn = null;
       state.screen = "login";
       closeSheet();
@@ -1762,6 +1973,7 @@
     if (action === "refresh-conflict") return showToast("已刷新最新价格和库存，请重新确认");
     if (action === "retry-home-section") { state.homeSectionStatus[target.dataset.homeSection] = "READY"; render(); return showToast("该区块已恢复"); }
     if (action === "clear-search") { state.searchQuery = ""; state.searchPerformed = false; return render(); }
+    if (action === "clear-favorite-search") { state.favoriteKeyword = ""; return render(); }
     if (action === "clear-search-history") return showToast("搜索记录已清空");
     if (action === "manage-cart") { state.cartManaging = !state.cartManaging; render(); return showToast(state.cartManaging ? "已进入管理模式，可按 SKU 删除" : "已退出管理模式"); }
     if (action === "reset-category-filter") { state.categoryBrand = "全部"; state.filter = "全部"; render(); return; }
@@ -1786,18 +1998,52 @@
     }
     if (event.target.id === "addressForm") {
       const data = new FormData(event.target);
+      const recipient = String(data.get("recipient") || "").trim();
       const phone = String(data.get("phone") || "").trim();
-      if (!/^1[3-9]\d{9}$/.test(phone)) return showToast("请输入有效的 11 位手机号");
+      const province = String(data.get("province") || "").trim();
+      const city = String(data.get("city") || "").trim();
+      const district = String(data.get("district") || "").trim();
+      const detail = String(data.get("detail") || "").trim();
+      const fields = [recipient, province, city, district, detail];
+      if (!/^[0-9]{11}$/.test(phone)) return showToast("请输入 11 位数字手机号");
+      if (fields.some(value => !value || /[\u0000-\u001F\u007F]/.test(value))) return showToast("地址字段不能为空或包含控制字符");
+      if (recipient.length > 80 || [province, city, district].some(value => value.length > 80) || detail.length > 300) return showToast("地址字段长度超出限制");
       const setDefault = event.target.querySelector(".switch-row").classList.contains("is-on");
-      const payload = { recipient: String(data.get("recipient") || "").trim(), phone, region: String(data.get("region") || "").trim(), detail: String(data.get("detail") || "").trim(), isDefault: setDefault };
-      if (setDefault) state.addresses.forEach(item => { item.isDefault = false; });
       const existing = state.addresses.find(item => item.id === state.editingAddressId);
-      if (existing) Object.assign(existing, payload);
-      else { payload.id = `ADDR-${String(state.addresses.length + 1).padStart(3, "0")}`; state.addresses.push(payload); state.editingAddressId = payload.id; }
+      const expectedVersion = Number(event.target.dataset.ifMatchVersion);
+      if (existing && (state.addressConflictNext || expectedVersion !== existing.version)) {
+        state.addressConflictNext = false;
+        existing.version += 1;
+        state.addressMutationExpectedVersion = existing.version;
+        state.addressError = "RESOURCE_VERSION_CONFLICT";
+        render();
+        return showToast("地址已更新，请重新确认");
+      }
+      if (existing?.isDefault && !setDefault && state.addresses.length > 1) {
+        state.addressError = "DEFAULT_ADDRESS_REQUIRED";
+        render();
+        return showToast("必须保留一个默认地址");
+      }
+      const payload = { recipient, phone, province, city, district, detail, isDefault: setDefault };
+      if (setDefault) state.addresses.forEach(item => {
+        if (item.id !== existing?.id && item.isDefault) item.version += 1;
+        item.isDefault = false;
+      });
+      if (existing) Object.assign(existing, payload, { version: existing.version + 1 });
+      else {
+        Object.assign(payload, { id: "01ARZ3NDEKTSV4RRFFQ69G5FAZ", version: 1, createdAt: new Date().toISOString() });
+        state.addresses.push(payload);
+        state.editingAddressId = payload.id;
+      }
       if (!state.addresses.some(item => item.isDefault)) state.addresses[0].isDefault = true;
       state.currentAddressId = state.addresses.find(item => item.isDefault)?.id || state.editingAddressId;
+      state.addressError = null;
       navigate("addresses");
       return showToast("地址已保存");
+    }
+    if (event.target.id === "favoriteSearchForm") {
+      state.favoriteKeyword = String(new FormData(event.target).get("keyword") || event.target.querySelector("#favoriteSearchInput")?.value || "").trim().slice(0, 200);
+      return render();
     }
     if (event.target.id === "profileForm") {
       const data = new FormData(event.target);
@@ -1847,6 +2093,7 @@
   const requestedAuth = prototypeParams.get("auth");
   const requestedAfterSale = prototypeParams.get("aftersale");
   const requestedHomeState = prototypeParams.get("home");
+  const requestedCartState = prototypeParams.get("cart");
   let inviteNotice = "";
   if (requestedAuth === "guest") state.loggedIn = false;
   if (requestedBinding === "unbound") { state.agentBindingStatus = "unbound"; state.serviceAgent = null; }
@@ -1860,6 +2107,13 @@
   }
   if (requestedAfterSale === "failed") state.currentAfterSaleId = "AS202608030006";
   if (requestedHomeState === "partial") state.homeSectionStatus.categories = "UNAVAILABLE";
+  if (requestedCartState === "empty") { state.cart = []; state.guestCart = []; state.cartId = null; state.cartMergeJournal = null; }
+  if (requestedCartState === "guest-merge") {
+    state.guestCart = clone(guestCartMergeFixture);
+    state.cartMergeJournal = null;
+    state.cartMergeFailureNext = true;
+  }
+  if (requestedCartState === "limit" && activeCartItems()[0]) activeCartItems()[0].quantity = 99;
   if (requestedScreen && renderers[requestedScreen]) {
     if (!state.loggedIn && protectedScreens.has(requestedScreen)) { state.authReturn = { screen: requestedScreen, action: null }; state.screen = "login"; }
     else state.screen = requestedScreen;
@@ -1879,6 +2133,7 @@
     },
     simulateDeletionBlocker: () => { state.deletionCanProceed = false; },
     simulateProfileConflict: () => { state.profileConflictNext = true; },
+    simulateAddressConflict: () => { state.addressConflictNext = true; },
     simulateLoginFailure: failure => { state.loginFailureNext = failure; },
     simulatePhoneConflict: () => { state.phoneConflictNext = true; },
     simulatePhoneFailure: () => { state.phoneFailureNext = true; },

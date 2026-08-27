@@ -59,6 +59,8 @@ function validEnvironment(): NodeJS.ProcessEnv {
     STORE_LEGAL_RATE_LIMIT_WINDOW_SECONDS: '60',
     STORE_LOGIN_RATE_LIMIT_MAX: '10',
     STORE_LOGIN_RATE_LIMIT_WINDOW_SECONDS: '900',
+    STORE_CUSTOMER_RATE_LIMIT_MAX: '120',
+    STORE_CUSTOMER_RATE_LIMIT_WINDOW_SECONDS: '60',
   };
 }
 
@@ -129,6 +131,8 @@ describe('loadPlatformConfig', () => {
       legalRateLimitWindowSeconds: 60,
       loginRateLimitMax: 10,
       loginRateLimitWindowSeconds: 900,
+      customerRateLimitMax: 120,
+      customerRateLimitWindowSeconds: 60,
     });
     expect(worker.port).toBe(3001);
     expect(worker.http).toEqual({ trustedProxyCidrs: [] });
@@ -622,9 +626,9 @@ describe('loadPlatformConfig', () => {
     );
 
     const driftedLimit = validEnvironment();
-    driftedLimit.STORE_LOGIN_RATE_LIMIT_MAX = '11';
+    driftedLimit.STORE_CUSTOMER_RATE_LIMIT_MAX = '121';
     expect(() => loadPlatformConfig(driftedLimit, { service: 'api' })).toThrow(
-      'Store legal and login rate limits must match the CH-016 fixed values',
+      'Store rate limits must match the CH-018 fixed values',
     );
   });
 

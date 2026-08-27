@@ -121,6 +121,8 @@ function integrationConfig(): PlatformRuntimeConfig {
       legalRateLimitWindowSeconds: 60,
       loginRateLimitMax: 10,
       loginRateLimitWindowSeconds: 900,
+      customerRateLimitMax: 120,
+      customerRateLimitWindowSeconds: 60,
       phoneProvider: 'MOCK',
       wechatAppId: 'qingxu-b7-integration-app',
       wechatAppSecret: undefined,

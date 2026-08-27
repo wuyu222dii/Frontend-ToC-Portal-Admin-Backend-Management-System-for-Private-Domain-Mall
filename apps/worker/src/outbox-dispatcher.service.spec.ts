@@ -58,6 +58,8 @@ const config: PlatformRuntimeConfig = {
     legalRateLimitWindowSeconds: 60,
     loginRateLimitMax: 10,
     loginRateLimitWindowSeconds: 900,
+    customerRateLimitMax: 120,
+    customerRateLimitWindowSeconds: 60,
   },
   storage: {
     accessKey: 'minio-access-key',

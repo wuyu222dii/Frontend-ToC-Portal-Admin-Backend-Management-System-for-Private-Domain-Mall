@@ -1,8 +1,8 @@
 openapi: "3.1.0"
 info:
   title: "洗化产品私域商城 API"
-  version: "2.4.5-ch016"
-  description: "CH-016 单一线协议，继承 CH-006、CH-008、CH-010、CH-012 与 CH-014，并闭合 B7 消费者身份、会话、手机号、归属和账号删除语义。所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
+  version: "2.4.6-ch018"
+  description: "CH-018 单一线协议，继承 CH-006、CH-008、CH-010、CH-012、CH-014 与 CH-016，并闭合 B8 登录后收藏、服务端购物车、游客合并和收货地址语义。所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
   license:
     name: "Proprietary"
     identifier: "LicenseRef-Proprietary"
@@ -897,6 +897,7 @@ paths:
       tags:
         - "Store"
       summary: "收藏列表"
+      description: "只读取当前 CUSTOMER 的收藏，按 created_at DESC,id DESC 稳定分页。keyword 先 trim，再仅对商品名称执行大小写不敏感匹配。收藏商品当前不可公开时仍返回专用 FavoriteProductView，availability=UNAVAILABLE、is_salable=false，图片和最低活动价允许为 null。响应不得缓存。"
       operationId: "getStoreFavorites"
       security:
         -
@@ -913,35 +914,87 @@ paths:
           schema:
             type: "string"
             minLength: 1
+            maxLength: 200
           description: "商品名关键词"
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/FavoriteListResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreCustomerError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreCustomerError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreCustomerError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreCustomerError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreCustomerConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreCustomerError"
   /store/favorites/{product_id}:
+    get:
+      tags:
+        - "Store"
+      summary: "读取单个商品的收藏状态"
+      description: "按当前 CUSTOMER 与 product_id 返回 is_favorite；即使商品已经不可公开，只要收藏事实仍存在也返回 true。只读操作不接受 Idempotency-Key，响应不得缓存。"
+      operationId: "getStoreFavoritesByProductId"
+      security:
+        -
+          bearerAuth: []
+      parameters:
+        -
+          name: "product_id"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+      responses:
+        200:
+          description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/FavoriteStateResponse"
+        400:
+          "$ref": "#/components/responses/StoreCustomerError"
+        401:
+          "$ref": "#/components/responses/StoreCustomerError"
+        403:
+          "$ref": "#/components/responses/StoreCustomerError"
+        404:
+          "$ref": "#/components/responses/StoreCustomerError"
+        409:
+          "$ref": "#/components/responses/StoreCustomerConflict"
+        422:
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
+        429:
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
+        500:
+          "$ref": "#/components/responses/StoreCustomerError"
     put:
       tags:
         - "Store"
       summary: "幂等收藏"
+      description: "仅允许收藏当前公开商品。重复收藏不产生重复事实。使用 HASH_ONLY 幂等策略，不缓存响应正文；同一 Idempotency-Key 不得重复应用命令。重放时必须重新鉴权并返回当前投影；无法安全重放时返回 409 并要求客户端刷新。"
       operationId: "putStoreFavoritesByProductId"
       security:
         -
@@ -953,36 +1006,42 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/CommandResponse"
+                "$ref": "#/components/schemas/FavoriteStateResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreCustomerError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreCustomerError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreCustomerError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreCustomerError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreCustomerConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreCustomerError"
     delete:
       tags:
         - "Store"
       summary: "幂等取消收藏"
+      description: "收藏事实不存在或商品已不可公开时仍幂等成功。使用 HASH_ONLY 幂等策略，不缓存响应正文；同一 Idempotency-Key 不得重复应用命令。重放时必须重新鉴权并返回当前投影；无法安全重放时返回 409 并要求客户端刷新。"
       operationId: "deleteStoreFavoritesByProductId"
       security:
         -
@@ -994,37 +1053,43 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/CommandResponse"
+                "$ref": "#/components/schemas/FavoriteStateResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreCustomerError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreCustomerError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreCustomerError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreCustomerError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreCustomerConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreCustomerError"
   /store/cart:
     get:
       tags:
         - "Store"
       summary: "当前客户唯一服务端购物车及最新校验结果"
+      description: "只读装配当前 CUSTOMER 的服务端购物车。没有 cart 事实时不得写数据库，返回 cart_id=null、items=[]、total_amount=0.00。已有项按 created_at ASC,id ASC 返回服务端当前商品、图片、价格、库存和闭合 sale_status；合计仅包含 selected=true 且 SALEABLE 的项。响应不得缓存。"
       operationId: "getStoreCart"
       security:
         -
@@ -1033,31 +1098,37 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/CartResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreCustomerError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreCustomerError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreCustomerError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreCustomerError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreCustomerConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreCustomerError"
   /store/cart/items/{sku_id}:
     put:
       tags:
         - "Store"
       summary: "按 SKU 新增或设置数量"
+      description: "首次写入时为当前 CUSTOMER 懒创建唯一 Cart；按 sku_id 新增或原子设置 quantity/selected。每项数量 1..99，购物车最多 100 个不同 SKU，超过返回 422 CART_ITEM_LIMIT_EXCEEDED。已存在但失效的 SKU 可保留并按当前状态投影。使用 HASH_ONLY 幂等策略，不缓存响应正文；同一 Idempotency-Key 不得重复应用命令。重放时必须重新鉴权并返回当前投影；无法安全重放时返回 409 并要求客户端刷新。"
       operationId: "putStoreCartItemsBySkuId"
       security:
         -
@@ -1069,7 +1140,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -1077,34 +1148,40 @@ paths:
         content:
           application/json:
             schema:
-              "$ref": "#/components/schemas/CartQuantityRequest"
+              "$ref": "#/components/schemas/CartItemWriteRequest"
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/CommandResponse"
+                "$ref": "#/components/schemas/CartResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreCustomerError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreCustomerError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreCustomerError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreCustomerError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreCustomerConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreCustomerError"
     delete:
       tags:
         - "Store"
       summary: "删除单个 SKU"
+      description: "删除当前 CUSTOMER 购物车中的 sku_id；目标项不存在时仍幂等成功。使用 HASH_ONLY 幂等策略，不缓存响应正文；同一 Idempotency-Key 不得重复应用命令。重放时必须重新鉴权并返回当前投影；无法安全重放时返回 409 并要求客户端刷新。"
       operationId: "deleteStoreCartItemsBySkuId"
       security:
         -
@@ -1116,37 +1193,43 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/CommandResponse"
+                "$ref": "#/components/schemas/CartResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreCustomerError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreCustomerError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreCustomerError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreCustomerError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreCustomerConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreCustomerError"
   /store/cart/merge:
     post:
       tags:
         - "Store"
       summary: "登录后把小程序本地项合入服务端购物车"
+      description: "把 1..100 个 sku_id 唯一的游客项一次性合入当前 CUSTOMER 的服务端购物车，整个请求全成全败。未知 SKU 返回 404 并整体回滚；已存在但失效的 SKU 可保存并返回当前状态。已有与传入数量相加后封顶 99，selected 使用 existing OR incoming；合并后的不同 SKU 超过 100 返回 422 CART_ITEM_LIMIT_EXCEEDED。使用 HASH_ONLY 幂等策略，不缓存响应正文；客户端丢失响应时必须以同一 Idempotency-Key 和原请求重试，新键表示新的合并命令，同一 Idempotency-Key 不得重复应用命令。重放时必须重新鉴权并返回当前投影；无法安全重放时返回 409 并要求客户端刷新。"
       operationId: "postStoreCartMerge"
       security:
         -
@@ -1163,31 +1246,37 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/CartResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreCustomerError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreCustomerError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreCustomerError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreCustomerError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreCustomerConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreCustomerError"
   /store/addresses:
     get:
       tags:
         - "Store"
-      summary: "地址列表、新增地址"
+      summary: "当前客户地址列表"
+      description: "只返回当前 CUSTOMER 的脱敏摘要，按 is_default DESC,created_at ASC,id ASC 稳定排序；不得返回完整收件人、手机号或详细地址。响应不得缓存。"
       operationId: "getStoreAddresses"
       security:
         -
@@ -1198,33 +1287,34 @@ paths:
           description: "成功"
           headers:
             Cache-Control:
-              "$ref": "#/components/headers/CacheControlNoStore"
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
             Pragma:
-              "$ref": "#/components/headers/PragmaNoCache"
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/StoreAddressSummaryResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreCustomerError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreCustomerError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreCustomerError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreCustomerError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreCustomerConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreCustomerError"
     post:
       tags:
         - "Store"
-      summary: "地址列表、新增地址"
+      summary: "新增收货地址"
+      description: "完整手机号与 detail 使用 AES-256-GCM 加密，AAD 分别绑定 customer_address:<address_id>:phone_ciphertext 与 customer_address:<address_id>:detail_ciphertext；phone_hash 使用 Store 手机密钥环和 qingxu:store-address-phone:v1 域。第一条活动地址强制成为默认地址。使用 HASH_ONLY 幂等策略，不缓存响应正文或个人信息；同一 Idempotency-Key 不得重复应用命令。重放时必须重新鉴权并返回当前投影；无法安全重放时返回 409 并要求客户端刷新。"
       operationId: "postStoreAddresses"
       security:
         -
@@ -1243,34 +1333,35 @@ paths:
           description: "成功"
           headers:
             Cache-Control:
-              "$ref": "#/components/headers/CacheControlNoStore"
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
             Pragma:
-              "$ref": "#/components/headers/PragmaNoCache"
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/StoreAddressDetailResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreCustomerError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreCustomerError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreCustomerError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreCustomerError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreCustomerConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreCustomerError"
   /store/addresses/{address_id}:
     get:
       tags:
         - "Store"
-      summary: "地址详情、修改、软删除"
+      summary: "读取本人地址详情"
+      description: "只允许当前 CUSTOMER 读取本人地址完整值，跨客户访问统一返回 404。完整收件人、手机号和 detail 不得进入日志、审计、埋点或持久化幂等响应；响应不得缓存。"
       operationId: "getStoreAddressesByAddressId"
       security:
         -
@@ -1282,39 +1373,40 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
       responses:
         200:
           description: "成功"
           headers:
             Cache-Control:
-              "$ref": "#/components/headers/CacheControlNoStore"
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
             Pragma:
-              "$ref": "#/components/headers/PragmaNoCache"
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/StoreAddressDetailResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreCustomerError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreCustomerError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreCustomerError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreCustomerError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreCustomerConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreCustomerError"
     patch:
       tags:
         - "Store"
-      summary: "地址详情、修改、软删除"
+      summary: "修改本人收货地址"
+      description: "只允许当前 CUSTOMER 修改本人地址，跨客户访问统一返回 404。If-Match 必须匹配 address.version；设置新的默认地址时原默认地址在同一事务清除。存在其他活动地址时，将当前唯一默认地址改为 is_default=false 返回 422 DEFAULT_ADDRESS_REQUIRED。使用 HASH_ONLY 幂等策略，不缓存响应正文或个人信息；同一 Idempotency-Key 不得重复应用命令。重放时必须重新鉴权并返回当前投影；无法安全重放时返回 409 并要求客户端刷新。"
       operationId: "patchStoreAddressesByAddressId"
       security:
         -
@@ -1326,7 +1418,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
         -
@@ -1342,33 +1434,34 @@ paths:
           description: "成功"
           headers:
             Cache-Control:
-              "$ref": "#/components/headers/CacheControlNoStore"
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
             Pragma:
-              "$ref": "#/components/headers/PragmaNoCache"
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/StoreAddressDetailResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreCustomerError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreCustomerError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreCustomerError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreCustomerError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreCustomerConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreCustomerError"
     delete:
       tags:
         - "Store"
-      summary: "地址详情、修改、软删除"
+      summary: "删除本人收货地址"
+      description: "只允许当前 CUSTOMER 软删除本人地址，跨客户访问统一返回 404。If-Match 必须匹配 address.version；删除默认地址后按 created_at ASC,id ASC 原子提升下一条活动地址为默认，删除最后一条后允许没有地址。使用 HASH_ONLY 幂等策略，不缓存响应正文或个人信息；同一 Idempotency-Key 不得重复应用命令。重放时必须重新鉴权并返回当前投影；无法安全重放时返回 409 并要求客户端刷新。"
       operationId: "deleteStoreAddressesByAddressId"
       security:
         -
@@ -1380,7 +1473,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
         -
@@ -1388,26 +1481,31 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/CommandResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreCustomerError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreCustomerError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreCustomerError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreCustomerError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreCustomerConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreCustomerError"
   /store/checkout/quotes:
     post:
       tags:
@@ -2692,7 +2790,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
       responses:
         200:
           description: "成功"
@@ -5705,7 +5803,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
       responses:
         200:
           description: "成功"
@@ -5745,7 +5843,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
         -
@@ -5796,7 +5894,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -5853,7 +5951,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
         -
@@ -5909,7 +6007,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
         -
@@ -5960,7 +6058,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -6009,7 +6107,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
         -
@@ -6060,7 +6158,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -6117,7 +6215,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
         -
@@ -6173,7 +6271,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
         -
@@ -6553,7 +6651,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -6610,7 +6708,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
         -
@@ -6671,7 +6769,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/Page"
         -
@@ -10450,12 +10548,12 @@ components:
       schema:
         const: "no-cache"
     StoreCacheControlNoStoreRequired:
-      description: "B7 Store 响应必返的禁止缓存指令。"
+      description: "Store 个性化或敏感响应必返的禁止缓存指令。"
       required: true
       schema:
         const: "no-store, private"
     StorePragmaNoCacheRequired:
-      description: "B7 Store 响应必返的兼容禁止缓存指令。"
+      description: "Store 个性化或敏感响应必返的兼容禁止缓存指令。"
       required: true
       schema:
         const: "no-cache"
@@ -10663,6 +10761,147 @@ components:
             properties:
               code:
                 const: "ACCOUNT_DELETION_BLOCKED"
+              message:
+                type: "string"
+              details:
+                type: "array"
+                items:
+                  type: "object"
+                  additionalProperties: false
+                  required: ["field", "reason"]
+                  properties:
+                    field:
+                      type: ["string", "null"]
+                    reason:
+                      type: "string"
+                    rejected_value:
+                      type: "null"
+              request_id:
+                type: "string"
+    StoreCustomerError:
+      description: "B8 登录后购物接口的通用错误；不得缓存或回显被拒绝的个性化值。"
+      headers:
+        Cache-Control:
+          "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+        Pragma:
+          "$ref": "#/components/headers/StorePragmaNoCacheRequired"
+      content:
+        application/json:
+          schema:
+            type: "object"
+            additionalProperties: false
+            required: ["code", "message", "request_id"]
+            properties:
+              code:
+                type: "string"
+              message:
+                type: "string"
+              details:
+                type: "array"
+                items:
+                  type: "object"
+                  additionalProperties: false
+                  required: ["field", "reason"]
+                  properties:
+                    field:
+                      type: ["string", "null"]
+                    reason:
+                      type: "string"
+                    rejected_value:
+                      type: "null"
+              request_id:
+                type: "string"
+    StoreCustomerConflict:
+      description: "B8 登录后购物接口的闭合版本、状态或幂等冲突响应。"
+      headers:
+        Cache-Control:
+          "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+        Pragma:
+          "$ref": "#/components/headers/StorePragmaNoCacheRequired"
+      content:
+        application/json:
+          schema:
+            type: "object"
+            additionalProperties: false
+            required: ["code", "message", "request_id"]
+            properties:
+              code:
+                type: "string"
+                enum: ["RESOURCE_VERSION_CONFLICT", "STATE_CONFLICT"]
+              message:
+                type: "string"
+              details:
+                type: "array"
+                items:
+                  type: "object"
+                  additionalProperties: false
+                  required: ["field", "reason"]
+                  properties:
+                    field:
+                      type: ["string", "null"]
+                    reason:
+                      type: "string"
+                    rejected_value:
+                      type: "null"
+              request_id:
+                type: "string"
+    StoreCustomerBusinessError:
+      description: "B8 登录后购物接口的闭合业务校验响应。"
+      headers:
+        Cache-Control:
+          "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+        Pragma:
+          "$ref": "#/components/headers/StorePragmaNoCacheRequired"
+      content:
+        application/json:
+          schema:
+            type: "object"
+            additionalProperties: false
+            required: ["code", "message", "request_id"]
+            properties:
+              code:
+                type: "string"
+                enum: ["CART_ITEM_LIMIT_EXCEEDED", "DEFAULT_ADDRESS_REQUIRED"]
+              message:
+                type: "string"
+              details:
+                type: "array"
+                items:
+                  type: "object"
+                  additionalProperties: false
+                  required: ["field", "reason"]
+                  properties:
+                    field:
+                      type: ["string", "null"]
+                    reason:
+                      type: "string"
+                    rejected_value:
+                      type: "null"
+              request_id:
+                type: "string"
+    StoreCustomerRateLimited:
+      description: "B8 的 13 个登录后收藏、购物车和地址 operation 共享 Redis 固定窗口；key 只保存 CUSTOMER 与规范化来源 IP 组合的用途隔离 HMAC，每个组合每 60 秒最多 120 次。超限返回准确 Retry-After；Redis 不可用时 fail closed。"
+      headers:
+        Cache-Control:
+          "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+        Pragma:
+          "$ref": "#/components/headers/StorePragmaNoCacheRequired"
+        Retry-After:
+          description: "距当前 60 秒固定窗口结束的准确剩余整数秒。"
+          required: true
+          schema:
+            type: "integer"
+            minimum: 1
+            maximum: 60
+      content:
+        application/json:
+          schema:
+            type: "object"
+            additionalProperties: false
+            required: ["code", "message", "request_id"]
+            properties:
+              code:
+                const: "RATE_LIMITED"
               message:
                 type: "string"
               details:
@@ -11712,16 +11951,36 @@ components:
         promotion_asset_id:
           type: "string"
           pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
-    CartQuantityRequest:
+    CartItemWriteRequest:
       type: "object"
       additionalProperties: false
       required:
         - "quantity"
+        - "selected"
       properties:
         quantity:
           type: "integer"
           minimum: 1
           maximum: 99
+        selected:
+          type: "boolean"
+    CartMergeItemInput:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "sku_id"
+        - "quantity"
+        - "selected"
+      properties:
+        sku_id:
+          type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+        quantity:
+          type: "integer"
+          minimum: 1
+          maximum: 99
+        selected:
+          type: "boolean"
     CartMergeRequest:
       type: "object"
       additionalProperties: false
@@ -11733,8 +11992,10 @@ components:
           minItems: 1
           maxItems: 100
           uniqueItems: true
+          x-unique-by: "sku_id"
           items:
-            "$ref": "#/components/schemas/OrderLineInput"
+            "$ref": "#/components/schemas/CartMergeItemInput"
+          description: "sku_id 必须两两不同；uniqueItems 之外，服务端 DTO 必须按 sku_id 显式拒绝重复项。"
     AddressWriteRequest:
       type: "object"
       additionalProperties: false
@@ -11751,23 +12012,32 @@ components:
           type: "string"
           minLength: 1
           maxLength: 80
+          pattern: '^[^\u0000-\u001F\u007F]*\S[^\u0000-\u001F\u007F]*$'
+          description: "服务端先 trim；纯空白或包含控制字符时拒绝。"
         phone:
           type: "string"
-          pattern: "^[0-9+ -]{6,30}$"
+          pattern: "^[0-9]{11}$"
           writeOnly: true
         province:
           type: "string"
+          minLength: 1
           maxLength: 80
+          pattern: '^[^\u0000-\u001F\u007F]*\S[^\u0000-\u001F\u007F]*$'
         city:
           type: "string"
+          minLength: 1
           maxLength: 80
+          pattern: '^[^\u0000-\u001F\u007F]*\S[^\u0000-\u001F\u007F]*$'
         district:
           type: "string"
+          minLength: 1
           maxLength: 80
+          pattern: '^[^\u0000-\u001F\u007F]*\S[^\u0000-\u001F\u007F]*$'
         detail:
           type: "string"
           minLength: 1
           maxLength: 300
+          pattern: '^[^\u0000-\u001F\u007F]*\S[^\u0000-\u001F\u007F]*$'
           writeOnly: true
         is_default:
           type: "boolean"
@@ -16004,6 +16274,43 @@ components:
               description: "分区为 UNAVAILABLE 时对应数组必须为空；单区或部分分区失败仍返回 200，四分区全部失败返回 500。"
         request_id:
           type: "string"
+    FavoriteProductView:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "product_id"
+        - "name"
+        - "primary_image_url"
+        - "minimum_active_price"
+        - "is_salable"
+        - "availability"
+      properties:
+        product_id:
+          type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+        name:
+          type: "string"
+          minLength: 1
+          maxLength: 200
+        primary_image_url:
+          oneOf:
+            -
+              type: "string"
+              format: "uri"
+            -
+              type: "null"
+        minimum_active_price:
+          oneOf:
+            -
+              "$ref": "#/components/schemas/PositiveMoney"
+            -
+              type: "null"
+        is_salable:
+          type: "boolean"
+        availability:
+          type: "string"
+          enum: ["SALEABLE", "OUT_OF_STOCK", "UNAVAILABLE"]
+      description: "收藏专用消费者安全投影。UNAVAILABLE 时 is_salable 固定 false，primary_image_url 与 minimum_active_price 允许为 null；不得返回管理状态、version、文件 ID 或内部库存。"
     FavoriteView:
       type: "object"
       additionalProperties: false
@@ -16014,11 +16321,12 @@ components:
       properties:
         favorite_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         created_at:
           type: "string"
           format: "date-time"
         product:
-          "$ref": "#/components/schemas/StoreProductListItem"
+          "$ref": "#/components/schemas/FavoriteProductView"
     FavoriteListResponse:
       type: "object"
       additionalProperties: false
@@ -16063,6 +16371,33 @@ components:
                   minimum: 0
         request_id:
           type: "string"
+    FavoriteStateResponse:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "code"
+        - "message"
+        - "data"
+        - "request_id"
+      properties:
+        code:
+          const: "OK"
+        message:
+          const: "success"
+        data:
+          type: "object"
+          additionalProperties: false
+          required:
+            - "product_id"
+            - "is_favorite"
+          properties:
+            product_id:
+              type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+            is_favorite:
+              type: "boolean"
+        request_id:
+          type: "string"
     CartItemView:
       type: "object"
       additionalProperties: false
@@ -16072,16 +16407,19 @@ components:
         - "product_name"
         - "sku_name"
         - "spec_json"
+        - "primary_image_url"
         - "quantity"
+        - "selected"
         - "retail_price"
         - "available_stock"
         - "sale_status"
-        - "change_flags"
       properties:
         sku_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         product_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         product_name:
           type: "string"
         sku_name:
@@ -16092,10 +16430,19 @@ components:
               "$ref": "#/components/schemas/SkuSpec"
             -
               type: "null"
+        primary_image_url:
+          oneOf:
+            -
+              type: "string"
+              format: "uri"
+            -
+              type: "null"
         quantity:
           type: "integer"
           minimum: 1
           maximum: 99
+        selected:
+          type: "boolean"
         retail_price:
           "$ref": "#/components/schemas/PositiveMoney"
         available_stock:
@@ -16105,18 +16452,11 @@ components:
           type: "string"
           enum:
             - "SALEABLE"
+            - "INSUFFICIENT_STOCK"
             - "OUT_OF_STOCK"
             - "INACTIVE"
             - "DELETED"
-        change_flags:
-          type: "array"
-          uniqueItems: true
-          items:
-            type: "string"
-            enum:
-              - "PRICE_CHANGED"
-              - "STOCK_CHANGED"
-              - "STATUS_CHANGED"
+      description: "始终使用服务端当前商品、公开图片、价格、库存和状态。SALEABLE 要求商品/SKU 当前公开且 quantity <= available_stock；客户端以本地游客快照自行提示变化。"
     CartResponse:
       type: "object"
       additionalProperties: false
@@ -16137,19 +16477,19 @@ components:
             - "cart_id"
             - "items"
             - "total_amount"
-            - "version"
           properties:
             cart_id:
-              type: "string"
+              type:
+                - "string"
+                - "null"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
             items:
               type: "array"
               items:
                 "$ref": "#/components/schemas/CartItemView"
             total_amount:
               "$ref": "#/components/schemas/NonNegativeMoney"
-            version:
-              type: "integer"
-              minimum: 1
+          description: "不存在服务端购物车时 cart_id=null 且 items=[]；GET 不得为此创建数据库事实。total_amount 只汇总 selected=true 且 SALEABLE 的项。"
         request_id:
           type: "string"
     StoreAddressSummaryView:
@@ -16168,16 +16508,23 @@ components:
       properties:
         address_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         recipient_name_masked:
           type: "string"
         phone_masked:
           type: "string"
         province:
           type: "string"
+          minLength: 1
+          maxLength: 80
         city:
           type: "string"
+          minLength: 1
+          maxLength: 80
         district:
           type: "string"
+          minLength: 1
+          maxLength: 80
         detail_masked:
           type: "string"
         is_default:
@@ -16212,19 +16559,31 @@ components:
       properties:
         address_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         recipient_name:
           type: "string"
+          minLength: 1
+          maxLength: 80
         phone:
           type: "string"
+          pattern: "^[0-9]{11}$"
           description: "仅当前 CUSTOMER 读取本人地址详情，完整值不得进入日志、审计摘要、埋点或持久化幂等响应。"
         province:
           type: "string"
+          minLength: 1
+          maxLength: 80
         city:
           type: "string"
+          minLength: 1
+          maxLength: 80
         district:
           type: "string"
+          minLength: 1
+          maxLength: 80
         detail:
           type: "string"
+          minLength: 1
+          maxLength: 300
           description: "仅当前 CUSTOMER 读取本人地址详情；禁止向代理或常规后台投影复用。"
         is_default:
           type: "boolean"

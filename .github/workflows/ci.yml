@@ -141,6 +141,8 @@ jobs:
           echo 'STORE_LEGAL_RATE_LIMIT_WINDOW_SECONDS=60' >> "$GITHUB_ENV"
           echo 'STORE_LOGIN_RATE_LIMIT_MAX=10' >> "$GITHUB_ENV"
           echo 'STORE_LOGIN_RATE_LIMIT_WINDOW_SECONDS=900' >> "$GITHUB_ENV"
+          echo 'STORE_CUSTOMER_RATE_LIMIT_MAX=120' >> "$GITHUB_ENV"
+          echo 'STORE_CUSTOMER_RATE_LIMIT_WINDOW_SECONDS=60' >> "$GITHUB_ENV"
 
       - name: Validate environment contract
         run: pnpm config:check
@@ -154,7 +156,7 @@ jobs:
       - name: Lint OpenAPI
         run: pnpm contracts:lint
 
-      - name: Check CH-016 contract invariants
+      - name: Check CH-018 contract invariants
         run: pnpm contracts:check
 
       - name: Check generated contract drift

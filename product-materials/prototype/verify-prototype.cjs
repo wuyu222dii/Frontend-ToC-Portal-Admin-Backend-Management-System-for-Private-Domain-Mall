@@ -9,8 +9,9 @@ const defaultChromeExecutable = "/Applications/Google Chrome.app/Contents/MacOS/
 const chromeExecutable = process.env.CHROME_EXECUTABLE_PATH || (fs.existsSync(defaultChromeExecutable) ? defaultChromeExecutable : undefined);
 const updateExports = process.env.UPDATE_PROTOTYPE_EXPORTS === "1";
 const flowFilter = process.env.PROTOTYPE_FLOW_FILTER || "";
+const caseFilter = process.env.PROTOTYPE_CASE_FILTER || "";
 const quiet = process.env.PROTOTYPE_QUIET === "1";
-const miniScreens = ["home", "category", "search", "product", "cart", "checkout", "payment-result", "orders", "order-detail", "logistics", "aftersale", "aftersale-detail", "favorites", "addresses", "address-edit", "account", "login", "phone-authorization", "account-deletion", "service-agent", "system-states"];
+const miniScreens = ["home", "category", "search", "product", "cart", "profile", "checkout", "payment-result", "orders", "order-detail", "logistics", "aftersale", "aftersale-detail", "favorites", "addresses", "address-edit", "account", "login", "phone-authorization", "account-deletion", "service-agent"];
 const adminViews = ["dashboard", "products", "product-edit", "brands", "categories", "banners", "inventory", "orders", "order-detail", "aftersales", "customers", "agents", "commission-rules", "withdrawals", "business-rules", "audit-logs"];
 const agentViews = ["dashboard", "products", "customers", "orders", "commission", "wallet", "account"];
 
@@ -46,7 +47,7 @@ const cases = [
       : screen === "login"
         ? ["当前协议", "用户协议", "隐私政策", "微信登录"]
       : screen === "profile"
-        ? ["手机号未绑定", "我的服务代理", "账户与隐私"]
+        ? ["手机号未绑定", "我的服务代理", "商品收藏", "收货地址"]
       : screen === "service-agent"
         ? ["服务代理", "绑定时间", "商城服务保障"]
       : screen === "account"
@@ -66,7 +67,7 @@ const cases = [
     viewport: { width: 375, height: 812 },
     kind: "mini-mobile"
   },
-  ...["home", "product", "cart", "checkout", "order-detail", "account-deletion"].map((screen) => ({
+  ...["home", "product", "cart", "profile", "checkout", "order-detail", "account-deletion"].map((screen) => ({
     name: `miniapp-${screen}-414`,
     file: "index.html",
     query: { screen, device: "414" },
@@ -400,18 +401,15 @@ async function runMiniInteractionChecks(browser) {
     if (!condition) throw new Error(message);
   };
 
-  await run("mini-interaction-sku-checkout", async (page) => {
+  await run("mini-interaction-sku-b8-boundary", async (page) => {
     await page.goto(miniUrl({ screen: "product", device: "375" }), { waitUntil: "load" });
     await page.click('[data-sku-intent="buy"]');
     await page.click('[data-sku-id="SKU-SER-60"]');
     await page.click('[data-action="confirm-sku"]');
-    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().screen === "checkout");
     const snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
-    expect(snapshot.buyNowLine?.skuId === "SKU-SER-60", "立即购买未保留所选 SKU ID");
-    expect(snapshot.buyNowLine?.quantity === 1, "立即购买数量快照错误");
-    const bodyText = await page.locator("body").innerText();
-    expect(bodyText.includes("30ml × 2 / 双瓶装"), "结算页未展示所选双瓶 SKU");
-    expect(bodyText.includes("¥298"), "结算页未使用双瓶 SKU 成交价");
+    expect(snapshot.screen === "product" && snapshot.selectedSkuId === "SKU-SER-60", "B8 立即购买未保留规格上下文或错误离开商品页");
+    expect(snapshot.buyNowLine === null, "B8 立即购买错误创建了结算行");
+    expect((await page.locator("#toast").innerText()).includes("B9 开放"), "B8 立即购买未明确保持阶段边界");
   });
 
   await run("mini-interaction-pending-payment", async (page) => {
@@ -511,11 +509,11 @@ async function runMiniInteractionChecks(browser) {
 
   await run("mini-interaction-cart-invalid-and-note-boundary", async (page) => {
     await page.goto(miniUrl({ screen: "cart", device: "375" }), { waitUntil: "load" });
-    expect((await page.locator(".cart-card.is-invalid").innerText()).includes("不计入结算"), "失效 SKU 未标记为不可结算");
+    expect((await page.locator(".cart-card.is-invalid").first().innerText()).includes("不计入合计"), "不可售 SKU 未标记为不计入合计");
     await page.click('[data-action="checkout"]');
-    const checkoutText = await page.locator("body").innerText();
-    expect(!checkoutText.includes("轻透防晒乳"), "失效 SKU 被带入结算页");
-    expect(!checkoutText.includes("订单备注"), "MVP 不支持的订单备注仍在结算页露出");
+    const snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.screen === "cart", "B8 购物车错误进入 checkout");
+    expect((await page.locator("#toast").innerText()).includes("B9 开放"), "B8 购物车未明确结算阶段边界");
   });
 
   await run("mini-interaction-active-public-catalog", async (page) => {
@@ -549,7 +547,7 @@ async function runMiniInteractionChecks(browser) {
     });
     expect(blocked.screen !== "product" && blocked.toast.includes("已下架"), "INACTIVE 商品仍可通过直接详情动作打开");
     await page.goto(miniUrl({ screen: "cart", device: "375" }), { waitUntil: "load" });
-    expect(await page.locator('[data-cart-sku="SKU-SUN-50"].is-invalid').count() === 1 && (await page.locator('[data-cart-sku="SKU-SUN-50"]').innerText()).includes("商品已下架"), "同一 INACTIVE SKU 未在购物车保留失效提示");
+    expect(await page.locator('[data-cart-sku="SKU-SUN-50"][data-sale-status="INACTIVE"].is-invalid').count() === 1 && (await page.locator('[data-cart-sku="SKU-SUN-50"]').innerText()).includes("已下架"), "同一 INACTIVE SKU 未在购物车保留失效提示");
   });
 
   await run("mini-interaction-aftersale-inputs", async (page) => {
@@ -609,10 +607,11 @@ async function runMiniInteractionChecks(browser) {
     await page.click('[data-action="retry-login"]');
     await page.click('[data-action="mock-login"]');
     await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().screen === "product");
+    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().favorites.filter((favorite) => favorite.productId === "shampoo").length === 1);
     snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
     expect(snapshot.loggedIn === true && snapshot.authProvider === "MOCK", "勾选当前协议后未通过开发态 Mock Provider 完成登录");
-    expect(!snapshot.favoriteProductIds.includes("shampoo"), "B7 登录错误执行了延后阶段的收藏动作");
-    expect((await page.locator("#toast").innerText()).includes("原业务动作未执行"), "登录后未返回原页面或错误暗示延后业务成功");
+    expect(snapshot.favorites.filter((favorite) => favorite.productId === "shampoo").length === 1, "B8 登录后未恢复收藏或重复执行收藏");
+    expect((await page.locator("#toast").innerText()).includes("已收藏商品"), "登录后收藏未返回明确成功反馈");
 
     await page.evaluate(() => { const probe = document.createElement("button"); probe.dataset.screen = "account"; document.body.appendChild(probe); probe.click(); probe.remove(); });
     const profileVersion = (await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState())).profile.version;
@@ -636,11 +635,15 @@ async function runMiniInteractionChecks(browser) {
     snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
     expect(snapshot.profile.city === "杭州" && snapshot.profile.avatar_url.startsWith("https://") && snapshot.profile.version === profileVersion + 2, "资料重确认未 trim 保存或 version 未递增");
     await page.evaluate(() => { const probe = document.createElement("button"); probe.dataset.screen = "profile"; document.body.appendChild(probe); probe.click(); probe.remove(); });
-    for (const feature of ["订单", "收藏", "地址"]) {
-      await page.locator(`[data-action="deferred-feature"][data-feature="${feature}"]`).first().click();
-      snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
-      expect(snapshot.screen === "profile" && (await page.locator("#toast").innerText()).includes("后续阶段开放"), `${feature}入口错误进入未实施业务或伪造成功`);
-    }
+    await page.locator('.profile-page [data-screen="favorites"]').first().click();
+    expect((await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState().screen)) === "favorites", "个人中心收藏入口未开放");
+    await page.evaluate(() => { const probe = document.createElement("button"); probe.dataset.screen = "profile"; document.body.appendChild(probe); probe.click(); probe.remove(); });
+    await page.locator('.profile-page [data-screen="addresses"]').first().click();
+    expect((await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState().screen)) === "addresses", "个人中心地址入口未开放");
+    await page.evaluate(() => { const probe = document.createElement("button"); probe.dataset.screen = "profile"; document.body.appendChild(probe); probe.click(); probe.remove(); });
+    await page.locator('[data-action="deferred-feature"][data-feature="订单"]').first().click();
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.screen === "profile" && (await page.locator("#toast").innerText()).includes("后续阶段开放"), "订单入口错误进入 B9 业务或伪造成功");
     await page.evaluate(() => { const probe = document.createElement("button"); probe.dataset.screen = "account"; document.body.appendChild(probe); probe.click(); probe.remove(); });
     await page.click('[data-action="logout"]');
     await page.click('[data-action="confirm-logout"]');
@@ -742,11 +745,15 @@ async function runMiniInteractionChecks(browser) {
     const listText = await page.locator(".address-list").innerText();
     expect(listText.includes("林*") && listText.includes("文三路 ****"), "地址列表未展示服务端掩码投影");
     expect(!listText.includes("林青") && !listText.includes("文三路 88 号 2 幢 1102 室") && !listText.includes("衡山路 26 号 6 楼"), "地址列表泄露完整收件人或门牌地址");
-    await page.click('[data-address-edit="ADDR-001"]');
+    const defaultAddressId = await page.locator('.saved-address.is-selected [data-address-edit]').getAttribute('data-address-edit');
+    expect(/^[0-9A-HJKMNP-TV-Z]{26}$/.test(defaultAddressId || ""), "地址操作未使用 ULID");
+    await page.click(`[data-address-edit="${defaultAddressId}"]`);
     await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().screen === "address-edit");
     expect(await page.inputValue('input[name="recipient"]') === "林青", "本人地址编辑页未加载完整收件人");
     expect(await page.inputValue('input[name="phone"]') === "13852185218", "本人地址编辑页未加载完整手机号");
+    expect(await page.inputValue('input[name="province"]') === "浙江省" && await page.inputValue('input[name="city"]') === "杭州市" && await page.inputValue('input[name="district"]') === "西湖区", "地址编辑页未拆分省市区字段");
     expect(await page.inputValue('textarea[name="detail"]') === "文三路 88 号 2 幢 1102 室", "本人地址编辑页未加载完整门牌地址");
+    expect(Number(await page.locator('#addressForm').getAttribute('data-if-match-version')) === 3, "地址编辑未绑定当前 If-Match 版本");
     await page.fill('input[name="phone"]', "13900001234");
     await page.click('#addressForm button[type="submit"]');
     await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().screen === "addresses");
@@ -754,6 +761,68 @@ async function runMiniInteractionChecks(browser) {
     const snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
     expect(snapshot.verifiedPhone === null, "修改收货地址手机号错误写入账户手机号");
     expect(snapshot.addresses.some((address) => address.phone === "13900001234"), "地址手机号未保存");
+  });
+
+  await run("mini-interaction-b8-shopping-states", async (page) => {
+    await page.goto(miniUrl({ screen: "favorites", device: "375" }), { waitUntil: "load" });
+    const favoriteStatuses = await page.locator('[data-favorite-status]').evaluateAll((nodes) => nodes.map((node) => node.dataset.favoriteStatus).sort());
+    expect(favoriteStatuses.join(",") === "OUT_OF_STOCK,SALEABLE,UNAVAILABLE", "收藏未覆盖闭合三状态");
+    expect(await page.locator('[data-favorite-id]').first().getAttribute('data-favorite-id') === "01ARZ3NDEKTSV4RRFFQ69G5FB1", "收藏同时间戳未按 id DESC 稳定排序");
+    expect((await page.locator('[data-favorite-status="UNAVAILABLE"]').innerText()).includes("价格不可用"), "失效收藏未保留安全空价格投影");
+    await page.fill('#favoriteSearchInput', '洗衣');
+    await page.locator('#favoriteSearchForm').evaluate((form) => form.requestSubmit());
+    expect(await page.locator('[data-favorite-status]').count() === 1 && (await page.locator('.favorite-list').innerText()).includes("洗衣凝珠"), "收藏搜索未只匹配商品名");
+    await page.click('[data-action="clear-favorite-search"]');
+    await page.locator('[data-remove-favorite="serum"]').click();
+    expect(await page.locator('[data-remove-favorite="serum"]').isDisabled(), "取消收藏 pending 未禁用重复提交");
+    await page.waitForFunction(() => !window.__MINIAPP_PROTOTYPE__.getState().favorites.some((favorite) => favorite.productId === "serum"));
+
+    await page.goto(miniUrl({ screen: "login", device: "375", auth: "guest", cart: "guest-merge" }), { waitUntil: "load" });
+    const guestCartBeforeLogin = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState().guestCart);
+    expect(guestCartBeforeLogin.length === 2, "登录前未保留精确游客购物车条目");
+    await page.click('[data-action="toggle-consent"]');
+    await page.click('[data-action="mock-login"]');
+    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().cartMergeJournal?.status === "RETRY");
+    let mergeSnapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    const mergeKey = mergeSnapshot.cartMergeJournal.idempotencyKey;
+    expect(mergeKey === "b8-guest-cart-merge-0001", "登录合并未创建固定幂等键");
+    expect(JSON.stringify(mergeSnapshot.cartMergeJournal.items) === JSON.stringify(guestCartBeforeLogin), "合并 journal 未保存精确本地条目");
+    expect(JSON.stringify(mergeSnapshot.guestCart) === JSON.stringify(guestCartBeforeLogin), "网络丢包后提前删除了本地条目");
+    expect(mergeSnapshot.cart.find((item) => item.skuId === "SKU-SER-30").quantity === 1 && !mergeSnapshot.cart.some((item) => item.skuId === "SKU-SHA-500"), "合并未确认时服务端投影被提前修改");
+    await page.evaluate(() => { const probe = document.createElement("button"); probe.dataset.screen = "cart"; document.body.appendChild(probe); probe.click(); probe.remove(); });
+    expect(await page.locator('[data-merge-status="RETRY"]').count() === 1, "游客购物车合并失败未保留同键重试提示");
+    const statuses = await page.locator('[data-sale-status]').evaluateAll((nodes) => nodes.map((node) => node.dataset.saleStatus).sort());
+    expect(statuses.join(",") === "DELETED,INACTIVE,INSUFFICIENT_STOCK,OUT_OF_STOCK,SALEABLE", "服务端购物车未覆盖闭合五状态");
+    expect((await page.locator('.summary-price').innerText()).includes("¥168"), "购物车合计错误包含未选或不可售项");
+    await page.click('[data-action="retry-cart-merge"]');
+    expect(await page.locator('[data-merge-status="MERGED"]').count() === 1, "购物车未使用原幂等键收敛合并");
+    mergeSnapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(mergeSnapshot.cartMergeJournal.idempotencyKey === mergeKey && mergeSnapshot.cartMergeJournal.serverConfirmed === true, "合并重试更换幂等键或未得到服务端确认");
+    expect(mergeSnapshot.guestCart.length === 0, "服务端确认后未精确删除已合并本地条目");
+    expect(mergeSnapshot.cart.find((item) => item.skuId === "SKU-SER-30").quantity === 3 && mergeSnapshot.cart.find((item) => item.skuId === "SKU-SER-30").selected === true, "existing OR incoming 或数量累加结果错误");
+    expect(mergeSnapshot.cart.find((item) => item.skuId === "SKU-SHA-500").quantity === 1, "新游客 SKU 未合入服务端投影");
+    const mergedCart = JSON.stringify(mergeSnapshot.cart);
+    await page.evaluate(() => { const probe = document.createElement("button"); probe.dataset.action = "retry-cart-merge"; document.body.appendChild(probe); probe.click(); probe.remove(); });
+    mergeSnapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(JSON.stringify(mergeSnapshot.cart) === mergedCart && mergeSnapshot.cartMergeJournal.idempotencyKey === mergeKey, "同键重放重复累加购物车");
+    await page.goto(miniUrl({ screen: "cart", device: "375", cart: "limit" }), { waitUntil: "load" });
+    expect((await page.locator('[data-cart-sku="SKU-SER-30"] .quantity-stepper').innerText()).includes("99"), "购物车未展示 99 数量上限");
+    await page.locator('[data-cart-sku="SKU-SER-30"] [data-delta="1"]').click();
+    expect((await page.locator('[data-cart-sku="SKU-SER-30"] .quantity-stepper').innerText()).includes("99"), "购物车允许数量超过 99");
+    await page.goto(miniUrl({ screen: "cart", device: "375", cart: "empty" }), { waitUntil: "load" });
+    expect(await page.locator('.empty-state[data-cart-id=""]').count() === 1 && (await page.locator('.empty-state').innerText()).includes("尚未创建购物车"), "空购物车 GET 未表达 cart_id=null 与无写入");
+  });
+
+  await run("mini-interaction-b8-address-conflicts", async (page) => {
+    await page.goto(miniUrl({ screen: "addresses", device: "375" }), { waitUntil: "load" });
+    const defaultAddressId = await page.locator('.saved-address.is-selected [data-address-edit]').getAttribute('data-address-edit');
+    await page.click(`[data-address-edit="${defaultAddressId}"]`);
+    await page.click('[data-action="toggle-address-default"]');
+    await page.click('#addressForm button[type="submit"]');
+    expect(await page.locator('[data-address-error-code="DEFAULT_ADDRESS_REQUIRED"]').count() === 1, "取消唯一默认地址未展示 422 约束");
+    await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.simulateAddressConflict());
+    await page.click('#addressForm button[type="submit"]');
+    expect(await page.locator('[data-address-error-code="RESOURCE_VERSION_CONFLICT"]').count() === 1, "地址 If-Match 冲突未刷新并要求重确认");
   });
 
   await run("mini-interaction-phone-privacy", async (page) => {
@@ -839,7 +908,7 @@ async function runMiniInteractionChecks(browser) {
     await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().screen === "login");
     snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
     expect(snapshot.accountDeleted === true && snapshot.loggedIn === false && snapshot.authProvider === null, "同步注销后未清除本地会话并返回未登录态");
-    expect(snapshot.verifiedPhone === null && snapshot.serviceAgent === null && snapshot.addresses.length === 0 && snapshot.favoriteProductIds.length === 0 && snapshot.cart.length === 0, "同步注销后仍保留当前资料或偏好");
+    expect(snapshot.verifiedPhone === null && snapshot.serviceAgent === null && snapshot.addresses.length === 0 && snapshot.favorites.length === 0 && snapshot.cart.length === 0, "同步注销后仍保留当前资料或偏好");
     expect(!("deletionRequested" in snapshot) && !(await page.locator("body").innerText()).includes("处理中"), "账号注销仍保留异步申请或处理中状态");
   });
 
@@ -1772,13 +1841,15 @@ async function runOpsInteractionChecks(browser) {
 
 async function main() {
   if (updateExports) fs.mkdirSync(exportDir, { recursive: true });
+  const selectedCases = caseFilter ? cases.filter(({ name }) => name === caseFilter) : cases;
+  if (caseFilter && !selectedCases.length) throw new Error(`unknown prototype render case: ${caseFilter}`);
   const browser = await chromium.launch({ ...(chromeExecutable ? { executablePath: chromeExecutable } : {}), headless: true });
   const failures = inspectSensitiveSources();
   if (!failures.length && !quiet) console.log("PASS sensitive-source-scan");
 
   try {
     if (!flowFilter) {
-      for (const testCase of cases) {
+      for (const testCase of selectedCases) {
         const context = await browser.newContext({ viewport: testCase.viewport, deviceScaleFactor: 1 });
         const page = await context.newPage();
         const pageErrors = [];
@@ -1797,10 +1868,12 @@ async function main() {
         else if (!quiet) console.log(`PASS ${testCase.name}`);
         await context.close();
       }
-      failures.push(...await runSurfaceContractChecks(browser));
+      if (!caseFilter) failures.push(...await runSurfaceContractChecks(browser));
     }
-    failures.push(...await runMiniInteractionChecks(browser));
-    failures.push(...await runOpsInteractionChecks(browser));
+    if (!caseFilter) {
+      failures.push(...await runMiniInteractionChecks(browser));
+      failures.push(...await runOpsInteractionChecks(browser));
+    }
   } finally {
     await browser.close();
   }
@@ -1810,8 +1883,10 @@ async function main() {
     process.exitCode = 1;
   } else if (flowFilter) {
     console.log(`PASS filtered flow: ${flowFilter}`);
+  } else if (caseFilter) {
+    console.log(`PASS filtered render: ${caseFilter}${updateExports ? " (export updated)" : ""}`);
   } else {
-    console.log(`PASS all ${cases.length} responsive renders, 21/9/22 surface contracts, 14 miniapp flows and 18 admin/agent flows${updateExports ? " (exports updated)" : ""}`);
+    console.log(`PASS all ${cases.length} responsive renders, 21/9/22 surface contracts, 16 miniapp flows and 18 admin/agent flows${updateExports ? " (exports updated)" : ""}`);
   }
 }
 

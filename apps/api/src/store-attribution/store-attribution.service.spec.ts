@@ -59,6 +59,8 @@ function config(): PlatformRuntimeConfig {
       legalRateLimitWindowSeconds: 60,
       loginRateLimitMax: 10,
       loginRateLimitWindowSeconds: 900,
+      customerRateLimitMax: 120,
+      customerRateLimitWindowSeconds: 60,
       phoneHashKeys: {
         current: { id: 'phone-v1', key: Buffer.alloc(32, 17) },
         previous: [],

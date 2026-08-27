@@ -2,7 +2,7 @@
 
 本目录集中管理三端商城的需求、方案、技术、风控、开发文档和可点击原型。
 
-当前交付状态：B0 至 B6 development 均已通过，B6 最终 SHA `9d8911934a5aa2b09ece2e12935bcafc9ccdcba6` 已取得普通 CI 与 Supabase rollback-only 同 SHA 双绿。CH-015/CH-016 已批准，当前产品/API 基线为 v2.4.5/CH-016；B7.0-B7.4 已完成并按批暂停，B7.4 退出复审 `P0=0/P1=0`，B7.5 尚未准入。仅允许 Mock Provider 和脱敏 development；staging、production、真实客户数据、真实微信身份及真实资金链路继续 `NO-GO`。
+当前交付状态：B0 至 B7 development 均已通过。B7 最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 已取得普通 CI Run `33055090596` 与 Supabase development rollback-only Run `33056078437` 同 SHA 双绿，B7 development `GO`，CH-015 已自动失效。CH-017/CH-018 已批准，当前产品/API 基线为 v2.4.6/CH-018；B8.0 契约与治理已完成并暂停，B8.1 未准入。仅允许 Mock Provider 和脱敏 development；staging、production、真实客户数据、真实微信身份及真实资金链路继续 `NO-GO`。
 
 ## 目录
 
@@ -25,4 +25,5 @@
 - [B5 Banner 与库存](docs/05-开发管理/B5-Banner与库存.md)
 - [B6 消费者匿名商城目录](docs/05-开发管理/B6-消费者匿名商城目录.md)
 - [B7 消费者身份、会话、服务代理与隐私](docs/05-开发管理/B7-消费者身份会话与隐私.md)
+- [B8 登录后购物基础](docs/05-开发管理/B8-登录后购物基础.md)
 - [三端可点击原型](prototype/README.md)

@@ -104,6 +104,8 @@ function integrationConfig(): PlatformRuntimeConfig {
       legalRateLimitWindowSeconds: 60,
       loginRateLimitMax: 10,
       loginRateLimitWindowSeconds: 900,
+      customerRateLimitMax: 120,
+      customerRateLimitWindowSeconds: 60,
       phoneHashKeys: {
         current: { id: 'b72-phone-hash-v2', key: Buffer.alloc(32, 7) },
         previous: [{ id: 'b72-phone-hash-v1', key: Buffer.alloc(32, 8) }],

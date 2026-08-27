@@ -11,7 +11,7 @@ const repositoryRoot = resolve(scriptDirectory, '..', '..');
 const specificationPath = join(repositoryRoot, 'product-materials/docs/03-技术设计/openapi.yaml');
 const generatedContractPath = join(repositoryRoot, 'packages/contracts/src/generated/openapi.ts');
 const redoclyCli = join(repositoryRoot, 'node_modules/@redocly/cli/bin/cli.js');
-const temporaryDirectory = mkdtempSync(join(tmpdir(), 'qingxu-ch016-contract-'));
+const temporaryDirectory = mkdtempSync(join(tmpdir(), 'qingxu-ch018-contract-'));
 const bundledPath = join(temporaryDirectory, 'openapi.json');
 
 const HTTP_METHODS = new Set(['delete', 'get', 'head', 'options', 'patch', 'post', 'put', 'trace']);
@@ -242,7 +242,7 @@ try {
 
   const document = JSON.parse(readFileSync(bundledPath, 'utf8'));
   const generatedContract = readFileSync(generatedContractPath, 'utf8');
-  assert.equal(document.info.version, '2.4.5-ch016');
+  assert.equal(document.info.version, '2.4.6-ch018');
 
   const pathCount = Object.keys(document.paths).length;
   const operations = Object.values(document.paths).flatMap((pathItem) =>
@@ -252,9 +252,36 @@ try {
   );
   const operationIds = operations.map((operation) => operation.operationId);
   assert.equal(pathCount, 173, 'OpenAPI path count drifted');
-  assert.equal(operations.length, 197, 'OpenAPI operation count drifted');
-  assert.equal(new Set(operationIds).size, 197, 'operationId values must be unique');
+  assert.equal(operations.length, 198, 'OpenAPI operation count drifted');
+  assert.equal(new Set(operationIds).size, 198, 'operationId values must be unique');
   assert.ok(operationIds.every((operationId) => typeof operationId === 'string' && operationId.length > 0));
+
+  const ulidPathParameterNames = new Set(['product_id', 'sku_id', 'address_id']);
+  for (const [path, pathItem] of Object.entries(document.paths)) {
+    const pathParameterNames = [...path.matchAll(/\{([^}]+)\}/g)]
+      .map((match) => match[1])
+      .filter((name) => ulidPathParameterNames.has(name));
+    if (pathParameterNames.length === 0) continue;
+    for (const [method, operation] of Object.entries(pathItem)) {
+      if (!HTTP_METHODS.has(method)) continue;
+      const parameters = [...(pathItem.parameters ?? []), ...(operation.parameters ?? [])]
+        .map((parameter) => parameter.$ref
+          ? resolveLocalReference(document, parameter.$ref)
+          : parameter);
+      for (const name of pathParameterNames) {
+        const parameter = parameters.find((candidate) =>
+          candidate.in === 'path' && candidate.name === name);
+        assert.ok(parameter,
+          `${method.toUpperCase()} ${path} must declare path parameter ${name}`);
+        const schema = parameter.schema?.$ref
+          ? resolveLocalReference(document, parameter.schema.$ref)
+          : parameter.schema;
+        assert.equal(schema?.pattern, ULID_PATTERN,
+          `${method.toUpperCase()} ${path} ${name} must use the ULID pattern`);
+      }
+    }
+  }
+
   const adminProductKeyword = document.paths['/admin/products'].get.parameters
     .find((parameter) => parameter.name === 'keyword');
   assert.deepEqual(
@@ -264,7 +291,7 @@ try {
   );
 
   const schemas = document.components.schemas;
-  assert.equal(Object.keys(schemas).length, 320, 'OpenAPI schema count drifted');
+  assert.equal(Object.keys(schemas).length, 323, 'OpenAPI schema count drifted');
   assert.equal(document.components.headers.CacheControlNoStore.required, undefined,
     'legacy non-Store no-store wire must remain optional');
   assert.equal(document.components.headers.PragmaNoCache.required, undefined,
@@ -1420,6 +1447,223 @@ try {
   assert.equal(downloadOperation.responses?.['200']?.headers?.Pragma?.$ref,
     '#/components/headers/PragmaNoCache');
 
+  const storeShoppingOperations = [
+    ['get', '/store/favorites'],
+    ['get', '/store/favorites/{product_id}'],
+    ['put', '/store/favorites/{product_id}'],
+    ['delete', '/store/favorites/{product_id}'],
+    ['get', '/store/cart'],
+    ['put', '/store/cart/items/{sku_id}'],
+    ['delete', '/store/cart/items/{sku_id}'],
+    ['post', '/store/cart/merge'],
+    ['get', '/store/addresses'],
+    ['post', '/store/addresses'],
+    ['get', '/store/addresses/{address_id}'],
+    ['patch', '/store/addresses/{address_id}'],
+    ['delete', '/store/addresses/{address_id}'],
+  ];
+  const storeShoppingWrites = storeShoppingOperations.filter(([method]) =>
+    method !== 'get');
+  assert.equal(storeShoppingOperations.length, 13);
+  assert.equal(storeShoppingWrites.length, 8);
+  for (const [method, path] of storeShoppingOperations) {
+    const operation = document.paths[path]?.[method];
+    const label = `${method.toUpperCase()} ${path}`;
+    assert.ok(operation, `missing B8 operation: ${label}`);
+    assert.deepEqual(operation.security, [{ bearerAuth: [] }],
+      `${label} must require CUSTOMER bearer authentication`);
+    const references = parameterReferences(operation);
+    assert.equal(references.includes('#/components/parameters/IdempotencyKey'), method !== 'get',
+      `${label} Idempotency-Key requirement drifted`);
+    assertStoreNoStore(operation.responses['200'], label);
+    for (const status of ['400', '401', '403', '404', '500']) {
+      assert.equal(operation.responses[status]?.$ref, '#/components/responses/StoreCustomerError',
+        `${label} ${status} must use the B8 no-store error wire`);
+    }
+    assert.equal(operation.responses['409']?.$ref,
+      '#/components/responses/StoreCustomerConflict');
+    assert.equal(operation.responses['422']?.$ref,
+      '#/components/responses/StoreCustomerBusinessError');
+    assert.equal(operation.responses['429']?.$ref,
+      '#/components/responses/StoreCustomerRateLimited');
+  }
+  for (const [method, path] of storeShoppingWrites) {
+    const operation = document.paths[path][method];
+    const label = `${method.toUpperCase()} ${path}`;
+    assert.match(operation.description, /HASH_ONLY 幂等策略/,
+      `${label} must use HASH_ONLY idempotency`);
+    assert.match(operation.description, /不缓存响应正文/,
+      `${label} must not persist response bodies`);
+    assert.match(operation.description, /同一 Idempotency-Key 不得重复应用命令/,
+      `${label} must not reapply a replayed command`);
+    assert.match(operation.description, /重放时必须重新鉴权并返回当前投影/,
+      `${label} must reauthorize and return the current projection`);
+    assert.match(operation.description, /无法安全重放时返回 409 并要求客户端刷新/,
+      `${label} must fail unsafe replay with 409 and require refresh`);
+  }
+  for (const [method, path] of storeShoppingOperations) {
+    const references = parameterReferences(document.paths[path][method]);
+    const mustMatchVersion = path === '/store/addresses/{address_id}' &&
+      (method === 'patch' || method === 'delete');
+    assert.equal(references.includes('#/components/parameters/IfMatch'), mustMatchVersion,
+      `${method.toUpperCase()} ${path} If-Match requirement drifted`);
+  }
+  for (const [path, parameterName] of [
+    ['/store/favorites/{product_id}', 'product_id'],
+    ['/store/cart/items/{sku_id}', 'sku_id'],
+    ['/store/addresses/{address_id}', 'address_id'],
+  ]) {
+    for (const operation of Object.entries(document.paths[path])
+      .filter(([method]) => HTTP_METHODS.has(method))
+      .map(([, value]) => value)) {
+      const parameter = operation.parameters.find((candidate) =>
+        candidate.name === parameterName && candidate.in === 'path');
+      assert.equal(parameter?.schema?.pattern, ULID_PATTERN,
+        `${path} ${parameterName} must be a ULID`);
+    }
+  }
+
+  const favoriteListKeyword = document.paths['/store/favorites'].get.parameters
+    .find((parameter) => parameter.name === 'keyword');
+  assert.deepEqual(favoriteListKeyword.schema, {
+    type: 'string', minLength: 1, maxLength: 200,
+  });
+  assert.match(document.paths['/store/favorites'].get.description,
+    /created_at DESC,id DESC/);
+  assert.match(document.paths['/store/favorites'].get.description,
+    /trim.+商品名称.+大小写不敏感/);
+  assert.equal(document.paths['/store/favorites/{product_id}'].get.operationId,
+    'getStoreFavoritesByProductId');
+  assert.equal(document.paths['/store/favorites/{product_id}'].get.responses['200']
+    .content['application/json'].schema.$ref,
+  '#/components/schemas/FavoriteStateResponse');
+  for (const method of ['put', 'delete']) {
+    const operation = document.paths['/store/favorites/{product_id}'][method];
+    assert.match(operation.description, /HASH_ONLY/);
+    assert.equal(operation.responses['200'].content['application/json'].schema.$ref,
+      '#/components/schemas/FavoriteStateResponse');
+  }
+  assert.deepEqual(schemas.FavoriteProductView.required, [
+    'product_id', 'name', 'primary_image_url', 'minimum_active_price', 'is_salable', 'availability',
+  ]);
+  assert.deepEqual(Object.keys(schemas.FavoriteProductView.properties),
+    schemas.FavoriteProductView.required);
+  assert.deepEqual(schemas.FavoriteProductView.properties.availability.enum,
+    ['SALEABLE', 'OUT_OF_STOCK', 'UNAVAILABLE']);
+  assert.equal(schemas.FavoriteView.properties.product.$ref,
+    '#/components/schemas/FavoriteProductView');
+  assert.deepEqual(schemas.FavoriteStateResponse.properties.data.required,
+    ['product_id', 'is_favorite']);
+
+  const closedB8Schemas = [
+    'FavoriteProductView', 'FavoriteView', 'FavoriteListResponse', 'FavoriteStateResponse',
+    'CartItemWriteRequest', 'CartMergeItemInput', 'CartMergeRequest', 'CartItemView', 'CartResponse',
+    'AddressWriteRequest', 'StoreAddressSummaryView', 'StoreAddressSummaryResponse',
+    'StoreAddressDetailView', 'StoreAddressDetailResponse',
+  ];
+  for (const schemaName of closedB8Schemas) {
+    assert.equal(schemas[schemaName].type, 'object', `${schemaName} must remain an object schema`);
+    assert.equal(schemas[schemaName].additionalProperties, false,
+      `${schemaName} must reject undeclared properties`);
+  }
+  assert.equal(schemas.FavoriteListResponse.properties.data.additionalProperties, false);
+  assert.equal(schemas.FavoriteListResponse.properties.data.properties.pagination.additionalProperties, false);
+  assert.equal(schemas.FavoriteStateResponse.properties.data.additionalProperties, false);
+  assert.equal(schemas.CartResponse.properties.data.additionalProperties, false);
+
+  assert.equal(Object.hasOwn(schemas, 'CartQuantityRequest'), false,
+    'legacy CartQuantityRequest must be removed');
+  assert.deepEqual(schemas.CartItemWriteRequest, {
+    type: 'object',
+    additionalProperties: false,
+    required: ['quantity', 'selected'],
+    properties: {
+      quantity: { type: 'integer', minimum: 1, maximum: 99 },
+      selected: { type: 'boolean' },
+    },
+  });
+  assert.deepEqual(schemas.CartMergeItemInput.required, ['sku_id', 'quantity', 'selected']);
+  assert.equal(schemas.CartMergeItemInput.properties.sku_id.pattern, ULID_PATTERN);
+  const mergeItems = schemas.CartMergeRequest.properties.items;
+  assert.equal(mergeItems.minItems, 1);
+  assert.equal(mergeItems.maxItems, 100);
+  assert.equal(mergeItems.uniqueItems, true);
+  assert.equal(mergeItems['x-unique-by'], 'sku_id');
+  assert.equal(mergeItems.items.$ref, '#/components/schemas/CartMergeItemInput');
+  assert.match(mergeItems.description, /sku_id 必须两两不同/);
+  assert.match(document.paths['/store/cart/merge'].post.description,
+    /全成全败.+封顶 99.+existing OR incoming.+新键表示新的合并命令/s);
+  assert.equal(document.paths['/store/cart/items/{sku_id}'].put.requestBody
+    .content['application/json'].schema.$ref, '#/components/schemas/CartItemWriteRequest');
+  for (const [method, path] of [
+    ['put', '/store/cart/items/{sku_id}'],
+    ['delete', '/store/cart/items/{sku_id}'],
+    ['post', '/store/cart/merge'],
+  ]) {
+    const operation = document.paths[path][method];
+    assert.match(operation.description, /HASH_ONLY/);
+    assert.equal(operation.responses['200'].content['application/json'].schema.$ref,
+      '#/components/schemas/CartResponse');
+  }
+  assert.deepEqual(schemas.CartItemView.required, [
+    'sku_id', 'product_id', 'product_name', 'sku_name', 'spec_json', 'primary_image_url',
+    'quantity', 'selected', 'retail_price', 'available_stock', 'sale_status',
+  ]);
+  assert.equal(Object.hasOwn(schemas.CartItemView.properties, 'change_flags'), false);
+  assert.deepEqual(schemas.CartItemView.properties.sale_status.enum,
+    ['SALEABLE', 'INSUFFICIENT_STOCK', 'OUT_OF_STOCK', 'INACTIVE', 'DELETED']);
+  const cartData = schemas.CartResponse.properties.data;
+  assert.deepEqual(cartData.required, ['cart_id', 'items', 'total_amount']);
+  assert.equal(Object.hasOwn(cartData.properties, 'version'), false);
+  assert.deepEqual(cartData.properties.cart_id.type, ['string', 'null']);
+  assert.match(document.paths['/store/cart'].get.description,
+    /不得写数据库.+cart_id=null.+items=\[\]/s);
+  assert.match(cartData.description, /selected=true.+SALEABLE/);
+
+  const addressRequest = schemas.AddressWriteRequest;
+  assert.deepEqual(addressRequest.required,
+    ['recipient_name', 'phone', 'province', 'city', 'district', 'detail', 'is_default']);
+  assert.deepEqual(addressRequest.properties.phone, {
+    type: 'string', pattern: '^[0-9]{11}$', writeOnly: true,
+  });
+  for (const field of ['recipient_name', 'province', 'city', 'district', 'detail']) {
+    assert.equal(addressRequest.properties[field].minLength, 1,
+      `${field} must be non-empty`);
+    assert.match(addressRequest.properties[field].pattern, /\\u0000/,
+      `${field} must reject control characters`);
+  }
+  for (const method of ['get', 'patch', 'delete']) {
+    const operation = document.paths['/store/addresses/{address_id}'][method];
+    assert.match(operation.description, /跨客户访问统一返回 404/);
+  }
+  assert.match(document.paths['/store/addresses'].post.description,
+    /AES-256-GCM.+customer_address:<address_id>:phone_ciphertext.+qingxu:store-address-phone:v1/s);
+  assert.match(document.paths['/store/addresses/{address_id}'].patch.description,
+    /DEFAULT_ADDRESS_REQUIRED/);
+  assert.match(document.paths['/store/addresses/{address_id}'].delete.description,
+    /created_at ASC,id ASC/);
+
+  for (const responseName of [
+    'StoreCustomerError', 'StoreCustomerConflict',
+    'StoreCustomerBusinessError', 'StoreCustomerRateLimited',
+  ]) assertStoreNoStore(document.components.responses[responseName], responseName);
+  assert.deepEqual(document.components.responses.StoreCustomerConflict.content
+    ['application/json'].schema.properties.code.enum,
+  ['RESOURCE_VERSION_CONFLICT', 'STATE_CONFLICT']);
+  assert.deepEqual(document.components.responses.StoreCustomerBusinessError.content
+    ['application/json'].schema.properties.code.enum,
+  ['CART_ITEM_LIMIT_EXCEEDED', 'DEFAULT_ADDRESS_REQUIRED']);
+  const customerRateLimit = document.components.responses.StoreCustomerRateLimited;
+  assert.equal(customerRateLimit.headers['Retry-After'].required, true);
+  assert.equal(customerRateLimit.headers['Retry-After'].schema.minimum, 1);
+  assert.equal(customerRateLimit.headers['Retry-After'].schema.maximum, 60);
+  assert.match(customerRateLimit.description, /13 个.+CUSTOMER.+HMAC.+每 60 秒最多 120 次/s);
+  assert.match(customerRateLimit.description, /fail closed/);
+  for (const typeName of [
+    'FavoriteProductView', 'FavoriteStateResponse', 'CartMergeItemInput', 'CartItemWriteRequest',
+  ]) assert.match(generatedContract, new RegExp(`\\b${typeName}\\b`),
+    `generated contract is missing ${typeName}`);
+
   const stateConflictDescription = document.components.responses.StateConflict.description;
   const businessErrorDescription = document.components.responses.BusinessError.description;
   assert.match(stateConflictDescription, /\bSOFT_DELETED_KEY_RESERVED\b/);
@@ -1442,8 +1686,8 @@ try {
   for (const reference of references) resolveLocalReference(document, reference);
   const schemaReferences = references.filter((reference) =>
     reference.startsWith('#/components/schemas/')).length;
-  assert.equal(schemaReferences, 699, 'OpenAPI schema reference count drifted');
-  assert.equal(references.length, 2_617, 'OpenAPI local reference count drifted');
+  assert.equal(schemaReferences, 701, 'OpenAPI schema reference count drifted');
+  assert.equal(references.length, 2_653, 'OpenAPI local reference count drifted');
 
   process.stdout.write(JSON.stringify({
     status: 'passed',

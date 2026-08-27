@@ -53,6 +53,8 @@ const required = [
   "STORE_LEGAL_RATE_LIMIT_WINDOW_SECONDS",
   "STORE_LOGIN_RATE_LIMIT_MAX",
   "STORE_LOGIN_RATE_LIMIT_WINDOW_SECONDS",
+  "STORE_CUSTOMER_RATE_LIMIT_MAX",
+  "STORE_CUSTOMER_RATE_LIMIT_WINDOW_SECONDS",
   "WORKER_POLL_INTERVAL_MS",
   "WORKER_BATCH_SIZE",
   "WORKER_MAX_RETRIES",
@@ -325,10 +327,12 @@ try {
     ["STORE_LEGAL_RATE_LIMIT_WINDOW_SECONDS", 60],
     ["STORE_LOGIN_RATE_LIMIT_MAX", 10],
     ["STORE_LOGIN_RATE_LIMIT_WINDOW_SECONDS", 900],
+    ["STORE_CUSTOMER_RATE_LIMIT_MAX", 120],
+    ["STORE_CUSTOMER_RATE_LIMIT_WINDOW_SECONDS", 60],
   ];
   for (const [name, expected] of fixedStoreLimits) {
     if (readBoundedInteger(name, 1, 86_400) !== expected) {
-      throw new Error(`${name} must equal the CH-016 fixed value ${expected}`);
+      throw new Error(`${name} must equal the CH-018 fixed value ${expected}`);
     }
   }
   for (const [name, minimum, maximum] of [

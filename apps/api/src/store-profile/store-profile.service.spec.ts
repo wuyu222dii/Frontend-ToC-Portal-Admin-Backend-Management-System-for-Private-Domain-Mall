@@ -77,6 +77,8 @@ function config(): PlatformRuntimeConfig {
       legalRateLimitWindowSeconds: 60,
       loginRateLimitMax: 10,
       loginRateLimitWindowSeconds: 900,
+      customerRateLimitMax: 120,
+      customerRateLimitWindowSeconds: 60,
       phoneHashKeys: { current: PHONE_HASH_CURRENT, previous: [PHONE_HASH_PREVIOUS] },
       phoneProvider: 'WECHAT',
       wechatAppId: 'wechat-app',

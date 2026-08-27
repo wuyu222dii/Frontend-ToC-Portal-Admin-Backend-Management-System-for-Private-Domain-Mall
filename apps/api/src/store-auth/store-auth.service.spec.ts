@@ -60,6 +60,8 @@ function config(): PlatformRuntimeConfig {
       legalRateLimitWindowSeconds: 60,
       loginRateLimitMax: 10,
       loginRateLimitWindowSeconds: 900,
+      customerRateLimitMax: 120,
+      customerRateLimitWindowSeconds: 60,
     },
   } as unknown as PlatformRuntimeConfig;
 }

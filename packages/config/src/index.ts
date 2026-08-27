@@ -96,6 +96,8 @@ export interface PlatformRuntimeConfig {
     legalRateLimitWindowSeconds: number;
     loginRateLimitMax: number;
     loginRateLimitWindowSeconds: number;
+    customerRateLimitMax: number;
+    customerRateLimitWindowSeconds: number;
   };
   worker: {
     pollIntervalMs: number;
@@ -779,9 +781,18 @@ function readStoreConfig(
   const legalRateLimitWindowSeconds = readInteger(source, 'STORE_LEGAL_RATE_LIMIT_WINDOW_SECONDS', 60, 1, 3_600);
   const loginRateLimitMax = readInteger(source, 'STORE_LOGIN_RATE_LIMIT_MAX', 10, 1, 1_000);
   const loginRateLimitWindowSeconds = readInteger(source, 'STORE_LOGIN_RATE_LIMIT_WINDOW_SECONDS', 900, 1, 86_400);
+  const customerRateLimitMax = readInteger(source, 'STORE_CUSTOMER_RATE_LIMIT_MAX', 120, 1, 10_000);
+  const customerRateLimitWindowSeconds = readInteger(
+    source,
+    'STORE_CUSTOMER_RATE_LIMIT_WINDOW_SECONDS',
+    60,
+    1,
+    3_600,
+  );
   if (legalRateLimitMax !== 120 || legalRateLimitWindowSeconds !== 60 ||
-    loginRateLimitMax !== 10 || loginRateLimitWindowSeconds !== 900) {
-    throw new Error('Store legal and login rate limits must match the CH-016 fixed values');
+    loginRateLimitMax !== 10 || loginRateLimitWindowSeconds !== 900 ||
+    customerRateLimitMax !== 120 || customerRateLimitWindowSeconds !== 60) {
+    throw new Error('Store rate limits must match the CH-018 fixed values');
   }
 
   const document = (prefix: 'USER_AGREEMENT' | 'PRIVACY_POLICY' | 'PHONE_AUTHORIZATION') => ({
@@ -811,6 +822,8 @@ function readStoreConfig(
     legalRateLimitWindowSeconds,
     loginRateLimitMax,
     loginRateLimitWindowSeconds,
+    customerRateLimitMax,
+    customerRateLimitWindowSeconds,
   };
 }
 

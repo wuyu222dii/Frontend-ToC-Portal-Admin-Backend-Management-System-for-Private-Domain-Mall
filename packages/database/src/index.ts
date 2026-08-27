@@ -13,6 +13,7 @@ export * from './product-catalog.repository';
 export * from './store-attribution.repository';
 export * from './store-catalog.repository';
 export * from './store-auth.repository';
+export * from './store-cart.repository';
 export * from './store-favorites.repository';
 export * from './store-profile.repository';
 export * from './store-privacy.repository';

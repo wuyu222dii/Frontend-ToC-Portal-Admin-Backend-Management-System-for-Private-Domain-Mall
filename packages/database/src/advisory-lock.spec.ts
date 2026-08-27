@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Pool, PoolClient } from 'pg';
 
-import { withSessionAdvisoryLock } from './advisory-lock';
+import {
+  acquireTransactionLock,
+  acquireTransactionLocks,
+  withSessionAdvisoryLock,
+} from './advisory-lock';
 
 function poolWithClient(client: PoolClient): Pool {
   return { connect: vi.fn(async () => client) } as unknown as Pool;
@@ -13,6 +17,51 @@ function clientWithQuery(query: (sql: string) => Promise<unknown>): PoolClient {
     release: vi.fn(),
   } as unknown as PoolClient;
 }
+
+describe('transaction advisory locks', () => {
+  it('keeps the single-lock hash contract unchanged', async () => {
+    const transaction = { $queryRawUnsafe: vi.fn().mockResolvedValue([{ acquired: 1 }]) };
+
+    await acquireTransactionLock(transaction, 'store-cart-item', ['cart-1', 'sku-1']);
+
+    expect(transaction.$queryRawUnsafe).toHaveBeenCalledTimes(1);
+    const [query, namespace, parts] = transaction.$queryRawUnsafe.mock.calls[0] ?? [];
+    expect(query).toContain('jsonb_build_array($1::text, $2::text)::text');
+    expect(query).toContain('781930482013421::bigint');
+    expect(namespace).toBe('store-cart-item');
+    expect(parts).toBe(JSON.stringify(['cart-1', 'sku-1']));
+  });
+
+  it('acquires a caller-ordered batch in one query with the identical namespace-parts hash', async () => {
+    const transaction = { $queryRawUnsafe: vi.fn().mockResolvedValue([{ acquired: 3 }]) };
+    const locks = [
+      { namespace: 'product-catalog-sku', parts: ['sku-2'] },
+      { namespace: 'product-catalog-sku', parts: ['sku-1'] },
+      { namespace: 'store-cart-item', parts: ['cart-1', 'sku-1'] },
+    ] as const;
+
+    await acquireTransactionLocks(transaction, locks);
+
+    expect(transaction.$queryRawUnsafe).toHaveBeenCalledTimes(1);
+    const [query, payload] = transaction.$queryRawUnsafe.mock.calls[0] ?? [];
+    expect(query).toContain('WITH RECURSIVE requested_locks AS MATERIALIZED');
+    expect(query).toContain('requested.position = previous.position + 1');
+    expect(query).toContain('jsonb_build_array(requested.namespace, requested.parts)::text');
+    expect(query).toContain('781930482013421::bigint');
+    expect(JSON.parse(payload as string)).toEqual(locks.map(({ namespace, parts }) => ({
+      namespace,
+      parts: JSON.stringify(parts),
+    })));
+  });
+
+  it('does not query PostgreSQL for an empty batch', async () => {
+    const transaction = { $queryRawUnsafe: vi.fn() };
+
+    await acquireTransactionLocks(transaction, []);
+
+    expect(transaction.$queryRawUnsafe).not.toHaveBeenCalled();
+  });
+});
 
 describe('withSessionAdvisoryLock', () => {
   it('returns a busy result without executing work when another session owns the lock', async () => {

@@ -1,6 +1,6 @@
 # 技术设计交付索引
 
-> 当前基线：MVP/PRD v2.4.6、线协议 CH-018（2026-08-27）。B0-B7 development 已完成；B7 最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 的普通 CI Run `33055090596` 与 Supabase development rollback-only Run `33056078437` 同 SHA 双绿，B7 development `GO`，CH-015 已失效。CH-017/CH-018 已批准，B8.1 收藏已完成并暂停，B8.2 未准入。仅允许 Mock Provider 和脱敏 development，staging/production 均为 `NO-GO`。
+> 当前基线：MVP/PRD v2.4.6、线协议 CH-018（2026-08-27）。B0-B7 development 已完成；B7 最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 的普通 CI Run `33055090596` 与 Supabase development rollback-only Run `33056078437` 同 SHA 双绿，B7 development `GO`，CH-015 已失效。CH-017/CH-018 已批准，B8.1 收藏与 B8.2 服务端购物车已完成并暂停，B8.3 未准入。仅允许 Mock Provider 和脱敏 development，staging/production 均为 `NO-GO`。
 
 | 文件 | 用途 |
 |---|---|
@@ -70,7 +70,7 @@
 - 冻结统计为 173 paths / 198 operations / 198 unique operationId / 323 schemas / 701 schema refs / 2,653 local refs / 0 dangling refs；Redocly、解析、生成漂移和闭合 Schema 门禁已实测通过。
 - CH-018 闭合收藏失效投影、服务端购物车懒创建/选择/合并、地址加密与所有权、CUSTOMER + 来源 IP 组合限流、个性化 no-store 和 HASH_ONLY 幂等语义；订单、预占、结算、支付与履约不在 B8。
 - Prisma、两份 `0001_initial`、76 models / 59 enums 必须逐字节不变，不新增 migration，`migration diff=0`。
-- B8.0 治理与契约已完成并暂停，退出复审 `P0=0/P1=0/P2=0`；B8.1 收藏业务代码未准入。完整门禁与批次状态见 `../05-开发管理/B8-登录后购物基础.md`。
+- B8.0 治理与契约、B8.1 收藏、B8.2 服务端购物车已依次完成并暂停；B8.2 退出复审 `P0=0/P1=0/P2=1`，B8.3 未准入。完整门禁与批次状态见 `../05-开发管理/B8-登录后购物基础.md`。
 
 ## B3.1 当前验证状态
 
@@ -97,7 +97,7 @@ B0 已在工程根建立 `prisma.config.ts`、`prisma/` 和五应用脚手架；
 
 B3-B6 历史交付见各自开发记录；B7 的 CH-015/CH-016、契约和最终证据见 `../05-开发管理/B7-消费者身份会话与隐私.md`。B7.0-B7.5 已完成，最终实现 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 同 SHA 双绿，B7 development `GO`，CH-015 已自动失效。
 
-B8 的 CH-017/CH-018、冻结契约、串行批次与暂停条件见 `../05-开发管理/B8-登录后购物基础.md`。B8.0 治理与契约已完成并暂停；B8.1 收藏业务代码未准入。CH-017 仅补偿 B8 脱敏 development 的单人 reviewer 条件，staging 前外部独立复核不得豁免。
+B8 的 CH-017/CH-018、冻结契约、串行批次与暂停条件见 `../05-开发管理/B8-登录后购物基础.md`。B8.0-B8.2 已依次完成并暂停，B8.3 收货地址未准入。CH-017 仅补偿 B8 脱敏 development 的单人 reviewer 条件，staging 前外部独立复核不得豁免。
 
 ## 剩余上线门禁
 

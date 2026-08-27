@@ -27,6 +27,8 @@ import { StoreProfileController } from './store-profile/store-profile.controller
 import { StoreProfileService } from './store-profile/store-profile.service';
 import { StoreFavoritesController } from './store-favorites/store-favorites.controller';
 import { StoreFavoritesService } from './store-favorites/store-favorites.service';
+import { StoreCartController } from './store-cart/store-cart.controller';
+import { StoreCartService } from './store-cart/store-cart.service';
 
 function runtimeConfig(): PlatformRuntimeConfig {
   const key = (byte: number) => Buffer.alloc(32, byte);
@@ -113,6 +115,7 @@ describe('ApiRuntimeModule authentication wiring', () => {
       'favorites',
       moduleRef.get(StoreFavoritesService),
     );
+    expect(moduleRef.get(StoreCartController)).toHaveProperty('cart', moduleRef.get(StoreCartService));
     await moduleRef.close();
   });
 

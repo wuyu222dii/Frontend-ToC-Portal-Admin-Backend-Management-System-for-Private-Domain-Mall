@@ -2,6 +2,11 @@ import type { Pool, PoolClient } from 'pg';
 
 const LOCK_HASH_SEED = '781930482013421';
 
+export interface TransactionLockInput {
+  namespace: string;
+  parts: readonly string[];
+}
+
 export async function acquireTransactionLock(
   transaction: { $queryRawUnsafe<T>(query: string, ...values: unknown[]): Promise<T> },
   namespace: string,
@@ -14,6 +19,53 @@ export async function acquireTransactionLock(
        )`,
     namespace,
     JSON.stringify(parts),
+  );
+}
+
+export async function acquireTransactionLocks(
+  transaction: { $queryRawUnsafe<T>(query: string, ...values: unknown[]): Promise<T> },
+  locks: readonly TransactionLockInput[],
+): Promise<void> {
+  if (locks.length === 0) return;
+  const encoded = locks.map(({ namespace, parts }) => ({
+    namespace,
+    parts: JSON.stringify(parts),
+  }));
+  await transaction.$queryRawUnsafe(
+    `WITH RECURSIVE requested_locks AS MATERIALIZED (
+       SELECT
+         entry.value ->> 'namespace' AS namespace,
+         entry.value ->> 'parts' AS parts,
+         entry.position
+       FROM jsonb_array_elements($1::jsonb) WITH ORDINALITY AS entry(value, position)
+     ), acquired(position, lock_result) AS (
+       SELECT
+         requested.position,
+         pg_advisory_xact_lock(
+           hashtextextended(
+             jsonb_build_array(requested.namespace, requested.parts)::text,
+             ${LOCK_HASH_SEED}::bigint
+           )
+         )
+       FROM requested_locks AS requested
+       WHERE requested.position = 1
+
+       UNION ALL
+
+       SELECT
+         requested.position,
+         pg_advisory_xact_lock(
+           hashtextextended(
+             jsonb_build_array(requested.namespace, requested.parts)::text,
+             ${LOCK_HASH_SEED}::bigint
+           )
+         )
+       FROM acquired AS previous
+       INNER JOIN requested_locks AS requested ON requested.position = previous.position + 1
+     )
+     SELECT COUNT(*)::integer AS acquired
+     FROM acquired`,
+    JSON.stringify(encoded),
   );
 }
 

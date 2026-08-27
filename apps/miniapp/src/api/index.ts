@@ -1,4 +1,5 @@
 export * from './store-catalog';
+export * from './store-identity';
 export type {
   StoreBanner,
   StoreBrand,

@@ -10,6 +10,7 @@ import {
   parseStoreSuccessEnvelope,
   resolveStoreApiBaseUrl,
   storeApiGet,
+  storeApiRequest,
 } from './store-client';
 
 describe('Store API pure helpers', () => {
@@ -174,6 +175,38 @@ describe('Store API uni.request adapter', () => {
       cookies: [],
     });
     await expect(pending.promise).resolves.toEqual({ items: [] });
+  });
+
+  it('sends a JSON mutation with caller-controlled security headers', async () => {
+    const current = stubRequest();
+    const pending = storeApiRequest<{ saved: true }>('/store/profile', {
+      data: { nickname: '青序用户' },
+      headers: {
+        Authorization: 'Bearer customer-access',
+        'Idempotency-Key': '00000000-0000-4000-8000-000000000001',
+        'If-Match': '"3"',
+      },
+      method: 'PATCH',
+    });
+    expect(current.options()).toMatchObject({
+      data: { nickname: '青序用户' },
+      header: {
+        Accept: 'application/json',
+        Authorization: 'Bearer customer-access',
+        'Content-Type': 'application/json',
+        'Idempotency-Key': '00000000-0000-4000-8000-000000000001',
+        'If-Match': '"3"',
+      },
+      method: 'PATCH',
+      url: '/api/v1/store/profile',
+    });
+    current.options().success?.({
+      data: { code: 'OK', message: 'success', data: { saved: true }, request_id: 'req_patch' },
+      statusCode: 200,
+      header: { 'Cache-Control': 'no-store, private' },
+      cookies: [],
+    });
+    await expect(pending.promise).resolves.toEqual({ saved: true });
   });
 
   it('exposes a valid Retry-After value on a 429 error', async () => {

@@ -122,7 +122,7 @@ jobs:
           DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
         run: pnpm db:test-b6-store-catalog
 
-      - name: Run rollback-only B7 Store authentication, profile, attribution and privacy smoke
+      - name: Run rollback-only B7.1-B7.5 Store authentication, profile, attribution and privacy smoke
         env:
           B7_STORE_AUTH_DATABASE_TEST_MODE: rollback
           DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}

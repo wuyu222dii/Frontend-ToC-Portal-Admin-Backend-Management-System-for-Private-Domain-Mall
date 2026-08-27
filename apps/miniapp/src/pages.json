@@ -36,6 +36,48 @@
       }
     },
     {
+      "path": "pages/auth/login",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "微信登录"
+      }
+    },
+    {
+      "path": "pages/profile/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "个人中心"
+      }
+    },
+    {
+      "path": "pages/profile/edit",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "编辑资料"
+      }
+    },
+    {
+      "path": "pages/profile/agent",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "服务代理"
+      }
+    },
+    {
+      "path": "pages/profile/phone",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "手机号授权"
+      }
+    },
+    {
+      "path": "pages/profile/privacy",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "账号删除"
+      }
+    },
+    {
       "path": "pages/webview/index",
       "style": {
         "navigationBarBackgroundColor": "#ffffff",

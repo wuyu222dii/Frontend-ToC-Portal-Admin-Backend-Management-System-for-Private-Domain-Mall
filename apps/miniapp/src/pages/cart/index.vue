@@ -227,7 +227,7 @@ function checkout(): void {
     void uni.showToast({ icon: 'none', title: '请选择可购买商品' });
     return;
   }
-  showLoginPrompt();
+  showLoginPrompt({ type: 'CHECKOUT' });
 }
 
 onShow(() => {

@@ -56,7 +56,15 @@ export class StoreApiError extends Error {
 }
 
 type PlainRecord = Record<string, unknown>;
-type QueryValue = boolean | number | string | undefined;
+export type StoreQueryValue = boolean | number | string | undefined;
+
+export interface StoreRequestOptions<T = unknown> {
+  readonly data?: unknown;
+  readonly decode?: (value: unknown) => T;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly method?: 'DELETE' | 'GET' | 'PATCH' | 'POST';
+  readonly query?: Readonly<Record<string, StoreQueryValue>>;
+}
 
 function isPlainRecord(value: unknown): value is PlainRecord {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
@@ -202,9 +210,9 @@ export function resolveStoreApiBaseUrl(
   return configured.replace(/\/+$/, '');
 }
 
-export function encodeStoreQuery(query: Readonly<Record<string, QueryValue>>): string {
+export function encodeStoreQuery(query: Readonly<Record<string, StoreQueryValue>>): string {
   const entries = Object.entries(query)
-    .filter((entry): entry is [string, Exclude<QueryValue, undefined>] => entry[1] !== undefined)
+    .filter((entry): entry is [string, Exclude<StoreQueryValue, undefined>] => entry[1] !== undefined)
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
   return entries.length > 0 ? `?${entries.join('&')}` : '';
 }
@@ -213,7 +221,7 @@ function runtimePlatform(): StoreApiPlatform {
   return process.env.UNI_PLATFORM === 'mp-weixin' ? 'mp-weixin' : 'h5';
 }
 
-function requestUrl(path: string, query: Readonly<Record<string, QueryValue>>): string {
+function requestUrl(path: string, query: Readonly<Record<string, StoreQueryValue>>): string {
   const baseUrl = resolveStoreApiBaseUrl(
     runtimePlatform(),
     import.meta.env.VITE_MINIAPP_API_BASE_URL,
@@ -245,13 +253,13 @@ function httpError(status: number, payload: unknown, headers: unknown): StoreApi
   }
 }
 
-export function storeApiGet<T>(
+export function storeApiRequest<T>(
   path: string,
-  query: Readonly<Record<string, QueryValue>> = {},
+  options: StoreRequestOptions<T> = {},
 ): StoreCancelableRequest<T> {
   let url: string;
   try {
-    url = requestUrl(path, query);
+    url = requestUrl(path, options.query ?? {});
   } catch (error) {
     return {
       promise: Promise.reject(error),
@@ -264,13 +272,22 @@ export function storeApiGet<T>(
   let abortRequested = false;
   const promise = new Promise<T>((resolve, reject) => {
     try {
-      task = uni.request({
+      const method = options.method ?? 'GET';
+      const headers: Record<string, string> = {
+        Accept: 'application/json',
+        ...options.headers,
+      };
+      if (options.data !== undefined) headers['Content-Type'] = 'application/json';
+      const requestOptions: UniNamespace.RequestOptions = {
         url,
-        method: 'GET',
+        method: method as NonNullable<UniNamespace.RequestOptions['method']>,
+        ...(options.data === undefined
+          ? {}
+          : { data: options.data as NonNullable<UniNamespace.RequestOptions['data']> }),
         dataType: 'json',
         responseType: 'text',
         withCredentials: false,
-        header: { Accept: 'application/json' },
+        header: headers,
         success(response) {
           if (settled) return;
           settled = true;
@@ -279,7 +296,8 @@ export function storeApiGet<T>(
             return;
           }
           try {
-            resolve(parseStoreSuccessEnvelope<T>(response.data));
+            const data = parseStoreSuccessEnvelope<unknown>(response.data);
+            resolve(options.decode ? options.decode(data) : data as T);
           } catch (error) {
             reject(error instanceof StoreEnvelopeFormatError
               ? invalidResponse(response.statusCode, response.header)
@@ -299,7 +317,8 @@ export function storeApiGet<T>(
             },
           ));
         },
-      });
+      };
+      task = uni.request(requestOptions) as unknown as UniNamespace.RequestTask;
     } catch {
       settled = true;
       reject(new StoreApiError('网络连接失败，请检查网络后重试', { status: 0 }));
@@ -314,4 +333,11 @@ export function storeApiGet<T>(
       task?.abort();
     },
   };
+}
+
+export function storeApiGet<T>(
+  path: string,
+  query: Readonly<Record<string, StoreQueryValue>> = {},
+): StoreCancelableRequest<T> {
+  return storeApiRequest(path, { query });
 }

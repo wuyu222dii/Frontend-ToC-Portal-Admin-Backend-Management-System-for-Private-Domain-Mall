@@ -193,6 +193,11 @@ jobs:
           B6_VERTICAL_TEST_MODE: full
         run: pnpm e2e:b6:vertical
 
+      - name: Run B7 browser to Nest, PostgreSQL and Redis Mock Provider vertical smoke
+        env:
+          B7_VERTICAL_TEST_MODE: full
+        run: pnpm e2e:b7:vertical
+
       - name: Test B1 persistence and worker concurrency
         env:
           B1_DATABASE_TEST_MODE: full
@@ -288,3 +293,6 @@ jobs:
 
       - name: Run B6 anonymous storefront browser E2E
         run: pnpm e2e:b6
+
+      - name: Run B7 Store identity and privacy browser E2E
+        run: pnpm e2e:b7

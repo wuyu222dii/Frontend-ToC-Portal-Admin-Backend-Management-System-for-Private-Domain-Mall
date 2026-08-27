@@ -1,0 +1,169 @@
+.qx-account-page {
+  min-height: 100vh;
+  background: var(--qx-store-background);
+}
+
+.qx-account-page__body {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 20rpx;
+  padding: 24rpx 24rpx calc(40rpx + env(safe-area-inset-bottom));
+}
+
+.qx-account-panel {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--qx-store-line);
+  border-radius: 12rpx;
+  background: var(--qx-store-surface);
+}
+
+.qx-account-panel__heading {
+  display: block;
+  padding: 24rpx 28rpx;
+  border-bottom: 1px solid var(--qx-store-line);
+  font-size: 24rpx;
+  font-weight: 800;
+}
+
+.qx-account-row {
+  display: flex;
+  width: 100%;
+  min-height: 92rpx;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  padding: 20rpx 28rpx;
+  border-bottom: 1px solid var(--qx-store-line);
+  color: var(--qx-store-text);
+  background: var(--qx-store-surface);
+  text-align: left;
+}
+
+.qx-account-row:last-child {
+  border-bottom: 0;
+}
+
+.qx-account-row__value {
+  min-width: 0;
+  color: var(--qx-store-text-soft);
+  font-size: 23rpx;
+  text-align: right;
+  word-break: break-word;
+}
+
+.qx-account-field {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.qx-account-field__label {
+  color: var(--qx-store-text-soft);
+  font-size: 23rpx;
+  font-weight: 700;
+}
+
+.qx-account-field__input {
+  width: 100%;
+  min-height: 88rpx;
+  padding: 0 24rpx;
+  border: 1px solid var(--qx-store-line-strong);
+  border-radius: 10rpx;
+  color: var(--qx-store-text);
+  background: var(--qx-store-surface);
+  font-size: 26rpx;
+}
+
+.qx-account-check {
+  display: flex;
+  min-height: 64rpx;
+  align-items: flex-start;
+  gap: 14rpx;
+  color: var(--qx-store-text-soft);
+  font-size: 22rpx;
+  line-height: 1.55;
+}
+
+.qx-account-check checkbox {
+  flex: 0 0 auto;
+  transform: scale(0.82);
+  transform-origin: top left;
+}
+
+.qx-account-button {
+  display: flex;
+  width: 100%;
+  min-height: 88rpx;
+  align-items: center;
+  justify-content: center;
+  padding: 18rpx 24rpx;
+  border-radius: 10rpx;
+  color: #ffffff;
+  background: var(--qx-store-brand);
+  font-size: 26rpx;
+  font-weight: 800;
+}
+
+.qx-account-button[disabled] {
+  color: #ffffff;
+  background: #aeb8b2;
+}
+
+.qx-account-button--secondary {
+  border: 1px solid var(--qx-store-brand);
+  color: var(--qx-store-brand);
+  background: var(--qx-store-surface);
+}
+
+.qx-account-button--danger {
+  background: var(--qx-store-accent);
+}
+
+.qx-account-link {
+  display: inline-flex;
+  min-height: 64rpx;
+  align-items: center;
+  color: var(--qx-store-brand);
+  background: transparent;
+  font-size: 22rpx;
+  text-decoration: underline;
+}
+
+.qx-account-notice {
+  display: block;
+  padding: 22rpx 24rpx;
+  border: 1px solid #cfddd5;
+  border-radius: 10rpx;
+  color: var(--qx-store-brand-strong);
+  background: var(--qx-store-surface-soft);
+  font-size: 22rpx;
+  line-height: 1.65;
+}
+
+.qx-account-notice--error {
+  border-color: #edc8c0;
+  color: var(--qx-store-danger);
+  background: var(--qx-store-accent-soft);
+}
+
+.qx-account-muted {
+  display: block;
+  color: var(--qx-store-muted);
+  font-size: 22rpx;
+  line-height: 1.6;
+}
+
+.qx-account-actions {
+  display: grid;
+  gap: 16rpx;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 768px) {
+  .qx-account-page__body {
+    padding-top: 32rpx;
+  }
+}

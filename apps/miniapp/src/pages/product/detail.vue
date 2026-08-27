@@ -172,7 +172,12 @@ function confirmSkuSelection() {
 
 function buyNow() {
   if (allSoldOut.value || !selectedSku.value?.is_salable) return;
-  showLoginPrompt();
+  showLoginPrompt({ type: 'BUY_NOW', product_id: productId.value });
+}
+
+function favoriteProduct() {
+  if (state.value !== 'ready' || product.value === null) return;
+  showLoginPrompt({ type: 'FAVORITE', product_id: productId.value });
 }
 
 function goBack() {
@@ -212,7 +217,8 @@ onUnload(() => {
         <button
           class="detail-header__button"
           aria-label="收藏"
-          @click="showLoginPrompt"
+          :disabled="state !== 'ready' || product === null"
+          @click="favoriteProduct"
         >
           ☆
         </button>
@@ -369,7 +375,7 @@ onUnload(() => {
           <button
             class="detail-actions__favorite"
             aria-label="收藏商品"
-            @click="showLoginPrompt"
+            @click="favoriteProduct"
           >
             ☆
           </button>

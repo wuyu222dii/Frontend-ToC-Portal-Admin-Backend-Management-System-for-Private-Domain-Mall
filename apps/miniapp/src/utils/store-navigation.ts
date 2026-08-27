@@ -1,3 +1,6 @@
+import { hasRefreshableCustomerSession } from './customer-session';
+import { openLoginForAction, type ProtectedAction } from './protected-action';
+
 export type StoreNavTarget = 'home' | 'category' | 'cart' | 'profile';
 
 export interface StoreBannerTarget {
@@ -34,18 +37,53 @@ export function openCart(): void {
   void uni.reLaunch({ url: '/pages/cart/index' });
 }
 
+export function openProfile(): void {
+  if (hasRefreshableCustomerSession()) {
+    void uni.reLaunch({ url: '/pages/profile/index' });
+    return;
+  }
+  openLoginForAction({ type: 'PROFILE' });
+}
+
 export function goBackOrHome(): void {
+  if (getCurrentPages().length <= 1) {
+    openHome();
+    return;
+  }
   void uni.navigateBack({
     fail: openHome,
   });
 }
 
-export function showLoginPrompt(): void {
+export function showLoginPrompt(action: ProtectedAction = { type: 'PROFILE' }): void {
+  if (hasRefreshableCustomerSession()) {
+    if (action.type === 'PROFILE') return openProfile();
+    if (action.type === 'SERVICE_AGENT') {
+      void uni.navigateTo({ url: '/pages/profile/agent' });
+      return;
+    }
+    const title = action.type === 'FAVORITE'
+      ? '收藏尚未开放'
+      : action.type === 'BUY_NOW'
+        ? '立即购买尚未开放'
+        : '结算尚未开放';
+    void uni.showModal({
+      confirmText: '知道了',
+      content: '此功能将在后续阶段开放。',
+      showCancel: false,
+      title,
+    });
+    return;
+  }
   void uni.showModal({
-    confirmText: '知道了',
+    cancelText: '暂不登录',
+    confirmText: '去登录',
     content: '登录后可继续此操作。',
-    showCancel: false,
+    showCancel: true,
     title: '请先登录',
+    success: (result) => {
+      if (result.confirm) openLoginForAction(action);
+    },
   });
 }
 
@@ -53,7 +91,7 @@ export function handleBottomNavigation(target: StoreNavTarget): void {
   if (target === 'home') return openHome();
   if (target === 'category') return openCategory();
   if (target === 'cart') return openCart();
-  if (target === 'profile') return showLoginPrompt();
+  if (target === 'profile') return openProfile();
 }
 
 export function isSafeHttpsUrl(value: string): boolean {

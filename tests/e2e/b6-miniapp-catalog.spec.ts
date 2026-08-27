@@ -464,7 +464,7 @@ test('MP-06 refreshes price and stock, clamps quantity and keeps checkout local'
 
   await page.locator('.cart-summary__checkout').click();
   await expect(page.getByText('请先登录')).toBeVisible();
-  await page.getByText('知道了', { exact: true }).click();
+  await page.getByText('暂不登录', { exact: true }).click();
   await page.reload();
   await expect(page.locator('.cart-item')).toHaveCount(1);
   expect(transactionRequests).toEqual([]);

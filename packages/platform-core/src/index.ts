@@ -11,5 +11,6 @@ export * from './password';
 export * from './rbac';
 export * from './redaction';
 export * from './store-phone';
+export * from './store-address';
 export * from './store-attribution';
 export * from './totp';

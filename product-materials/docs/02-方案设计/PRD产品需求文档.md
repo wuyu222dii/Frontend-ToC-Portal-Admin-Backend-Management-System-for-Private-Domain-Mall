@@ -8,8 +8,8 @@
 | 文档类型 | Product Requirements Document |
 | 文档版本 | v2.4.6 |
 | 对应阶段 | 三端标准 MVP |
-| 更新日期 | 2026-08-27 |
-| 当前状态 | B0 至 B7 development 已完成，B7 最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 的普通 CI/Supabase rollback-only 同 SHA 双绿，CH-015 已失效；CH-017/CH-018 已批准，产品/API 基线为 v2.4.6/CH-018，B8.1 收藏与 B8.2 服务端购物车已完成并暂停，B8.3 尚未准入；仅允许 Mock Provider 和脱敏 development，staging/production `NO-GO` |
+| 更新日期 | 2026-08-28 |
+| 当前状态 | B0 至 B7 development 已完成，B7 最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 的普通 CI/Supabase rollback-only 同 SHA 双绿，CH-015 已失效；CH-017/CH-018 已批准，产品/API 基线为 v2.4.6/CH-018，B8.1 收藏、B8.2 服务端购物车与 B8.3 收货地址已完成并暂停，B8.4 未准入，B8 整体尚未 `GO`；仅允许 Mock Provider 和脱敏 development，staging/production `NO-GO` |
 | 产品终端 | 消费者微信小程序、一级代理工作台、总部管理后台 |
 | 人员角色 | `CUSTOMER`、`AGENT_ADMIN`、`SUPER_ADMIN` |
 
@@ -28,7 +28,7 @@
 | v2.4.3 | 2026-08-25 | 落实 CH-012：Banner 闭合生命周期/幂等、有效投影与安全目标，库存统一公式、HR-07 preview-confirm、整数边界和闭合流水类型 | 已归档；B5 development 已完成 |
 | v2.4.4 | 2026-08-25 | 落实 CH-014：匿名目录售罄投影、综合排序、商品名搜索、无分页主数据、首页分区状态和公共限流 | 已归档；B6.0-B6.4 已完成，B6 development `GO` |
 | v2.4.5 | 2026-08-26 | 落实 CH-016：服务端法律文本、角色感知 Store 会话、资料手机号、归因/服务代理与同步账号注销契约 | 已归档；B7 development 已在最终同 SHA 双绿后 `GO`，CH-015 已失效 |
-| v2.4.6 | 2026-08-27 | 落实 CH-018：登录后收藏、服务端购物车、游客合并、收货地址隐私与共享客户限流契约 | 当前产品版本；B8.1 收藏与 B8.2 服务端购物车已完成并暂停，B8.3 尚未准入 |
+| v2.4.6 | 2026-08-27 | 落实 CH-018：登录后收藏、服务端购物车、游客合并、收货地址隐私与共享客户限流契约 | 当前产品版本；B8.1 收藏、B8.2 服务端购物车与 B8.3 收货地址已完成并暂停，B8.4 未准入，B8 整体尚未 `GO` |
 
 ### 文档使用约定
 
@@ -1514,8 +1514,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | 验收场景 AC | 116 | 0 |
 | 用户故事 US | 24 | 0 |
 
-当前准入结论：B0 至 B7 development 已通过。B7 最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 的普通 CI Run `33055090596` 与 Supabase rollback-only Run `33056078437` 同 SHA 双绿，CH-015 已失效。CH-017/CH-018 已批准；CH-018 契约实测 173 paths/198 operations/198 unique operationId/323 schemas/701 schema refs/2,653 local refs/0 dangling refs，Prisma/首迁移保持冻结。B8.0 已完成并暂停，B8.1、staging 和 production 均未放行。
+当前准入结论：B0 至 B7 development 已通过。B7 最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 的普通 CI Run `33055090596` 与 Supabase rollback-only Run `33056078437` 同 SHA 双绿，CH-015 已失效。CH-017/CH-018 已批准；CH-018 契约实测 173 paths/198 operations/198 unique operationId/323 schemas/701 schema refs/2,653 local refs/0 dangling refs，Prisma/首迁移保持冻结。B8.0-B8.3 已完成并按批暂停，B8.4、staging 和 production 均未放行，B8 整体尚未 `GO`。
 
 ---
 
-PRD 状态：v2.4.6/CH-018 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B7 development 已通过，B8.1 收藏与 B8.2 服务端购物车已完成并暂停，B8.3 尚未准入。目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。
+PRD 状态：v2.4.6/CH-018 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B7 development 已通过，B8.1 收藏、B8.2 服务端购物车与 B8.3 收货地址已完成并暂停，B8.4 未准入，B8 development 尚未整体 `GO`。目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。

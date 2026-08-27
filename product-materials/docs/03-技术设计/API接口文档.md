@@ -6,7 +6,7 @@
 |---|---|
 | 文档版本 | v2.4.6 |
 | 对应产品基线 | MVP/PRD v2.4.6、CH-001 至 CH-018 |
-| 接口阶段 | B0-B7 development 已完成；最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 的普通 CI Run `33055090596` 与 Supabase development rollback-only Run `33056078437` 双绿，B7 development `GO`，CH-015 已失效；CH-017/CH-018 已批准，B8.1 收藏与 B8.2 服务端购物车 repository/API 已完成并暂停，B8.3 未准入；仅允许 Mock Provider 和脱敏 development，staging/production 未批准 |
+| 接口阶段 | B0-B7 development 已完成；最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 的普通 CI Run `33055090596` 与 Supabase development rollback-only Run `33056078437` 双绿，B7 development `GO`，CH-015 已失效；CH-017/CH-018 已批准，B8.1 收藏、B8.2 服务端购物车与 B8.3 收货地址 repository/API 已完成并暂停，B8.4 未准入，B8 整体尚未 `GO`；仅允许 Mock Provider 和脱敏 development，staging/production 未批准 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
 | 更新时间 | 2026-08-27 |
 
@@ -938,7 +938,7 @@ Provider 回调先写入回调收件箱，再由幂等处理器消费；领域�
 - `pnpm contracts:check` 的 CH-014 历史实测为 172 paths、196 operations、196 unique operationId、312 schemas、691 schema refs、2,577 local refs 和 0 dangling refs。B6 售罄投影、五种排序、搜索边界、无分页品牌/分类、首页分区状态与 Store 专用 429/Retry-After 均已形成可机器校验契约；CH-012 Banner/库存和 Product/SKU 专用 DTO 的历史闭合结论继续有效。
 - CH-016 专项实测为 173 paths、197 operations、197 unique operationId、320 schemas、699 schema refs、2,617 local refs 和 0 dangling refs，Redocly 0 warning。专项门禁已覆盖三份法律文本、登录固定双 consent、手机号第三 consent、Store/Admin audience 隔离、Provider 服务端选择、If-Match、候选目标解析、查询不消费与替换/迁移原子失效、服务代理三字段投影和同步注销。
 - 最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 的普通 CI Run `33055090596` 与 Supabase development rollback-only Run `33056078437` 同 SHA 双绿，B7 development 已标记 `GO`，CH-015 已自动失效。CH-017 仅覆盖 B8 脱敏 development 的单人 reviewer 例外，B8.5 后自动失效，不放行 staging/production。
-- CH-018 专项实测为 173 paths、198 operations、198 unique operationId、323 schemas、701 schema refs、2,653 local refs 和 0 dangling refs，Redocly 0 warning。B8.1 已实现收藏投影与状态；B8.2 已实现购物车 selected/五状态/100 项限制/全成全败 merge、HASH_ONLY 重放、no-store 和 120/60 fail-closed 限流，并通过 Supabase rollback-only 实测；地址 API 仍属 B8.3 未准入范围。
+- CH-018 专项实测为 173 paths、198 operations、198 unique operationId、323 schemas、701 schema refs、2,653 local refs 和 0 dangling refs，Redocly 0 warning。B8.1 已实现收藏投影与状态；B8.2 已实现购物车 selected/五状态/100 项限制/全成全败 merge、HASH_ONLY 重放、no-store 和 120/60 fail-closed 限流；B8.3 已实现地址 CRUD、PII 加密/掩码、所有权 404、If-Match、默认地址原子变更和最小审计，并通过 Supabase rollback-only 实测后暂停。B8.4 未准入。
 - B7.4 已实现注销后端：不合格 preview 返回 200、完整 blockers/impacts 及 null token/hash/expiry；合格预览才签发 5 分钟能力。confirm 后出现新阻断返回 422 且不消费能力、不产生部分去标识化；成功后在单事务清除登录主体/非交易 PII、结束绑定、使候选失效、匿名化代理隐私投影、写审计与 durable `PENDING account.anonymized` Outbox 事实，并将全部 session 留作 revoked tombstone。这里只证明事件事实已持久化，不宣称已投递或消费。全部旧 token 失效，HASH_ONLY 不重放完成响应；full 与受控 Supabase development rollback-only 门禁已通过，退出复审 `P0=0/P1=0`。
 - Product/SKU 固定创建状态、完整状态矩阵、恢复目标、不级联、首次 `published_at`、nullable 最低活动价、8 图、归档 SKU、零库存余额、不可变 code、201 SKU create 和四个新 422 均有契约及集成测试。
 - 非 `APPROVED` 提现无法请求完整银行卡号；短时授权不可跨提现单、跨会话或重复使用。

@@ -16,6 +16,9 @@ const syntheticPrototypePhoneFiles = new Set([
   "product-materials/prototype/verify-prototype.cjs",
 ]);
 const syntheticStorePhoneFixtures = new Map([
+  ["apps/api/src/store-address/store-address.dto.spec.ts", new Set(["13800000000"])],
+  ["apps/api/src/store-address/store-address.routes.e2e.spec.ts", new Set(["13800000000"])],
+  ["apps/api/src/store-address/store-address.service.spec.ts", new Set(["13800006821"])],
   ["apps/api/src/store-profile/store-phone-provider.spec.ts", new Set(["13800000000"])],
   ["apps/api/src/store-profile/store-profile.dto.spec.ts", new Set(["13800000000"])],
   ["apps/api/src/store-profile/store-profile.integration.spec.ts", new Set([
@@ -33,6 +36,7 @@ const syntheticStorePhoneFixtures = new Map([
     "13800006821",
     "13900006821",
   ])],
+  ["packages/platform-core/test/store-address.test.ts", new Set(["13800006821"])],
 ]);
 const exactSyntheticSecrets = new Map([
   ["apps/api/src/admin-auth/admin-auth.controller.spec.ts", new Set([

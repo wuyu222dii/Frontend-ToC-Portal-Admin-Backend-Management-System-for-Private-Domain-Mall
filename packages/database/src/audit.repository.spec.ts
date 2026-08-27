@@ -182,6 +182,54 @@ describe('AuditRepository', () => {
     }));
   });
 
+  it('stores only the closed address state for customer address audit events', async () => {
+    const transaction = transactionStub();
+    await new AuditRepository(ipHashKey).append(transaction, {
+      ...baseInput,
+      after: { is_default: true, status: 'ACTIVE', version: 2 },
+      before: { is_default: false, status: 'ACTIVE', version: 1 },
+      module: 'customer',
+      objectType: 'address',
+      summaryPolicy: 'ADDRESS_STATE',
+    });
+
+    expect(transaction.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        after_json: { is_default: true, status: 'ACTIVE', version: 2 },
+        before_json: { is_default: false, status: 'ACTIVE', version: 1 },
+        module: 'customer',
+        object_type: 'address',
+      }),
+    }));
+  });
+
+  it.each([
+    { is_default: true, phone: sensitivePhone, status: 'ACTIVE', version: 2 },
+    { is_default: 'true', status: 'ACTIVE', version: 2 },
+    { is_default: true, status: 'ACTIVE' },
+    { is_default: true, status: 'UNKNOWN', version: 2 },
+  ])('rejects invalid or sensitive address audit state: %j', async (after) => {
+    await expect(new AuditRepository(ipHashKey).append(transactionStub(), {
+      ...baseInput,
+      after,
+      module: 'customer',
+      objectType: 'address',
+      summaryPolicy: 'ADDRESS_STATE',
+    } as never)).rejects.toThrow();
+  });
+
+  it.each([
+    { module: 'catalog', objectType: 'product', summaryPolicy: 'ADDRESS_STATE' },
+    { module: 'customer', objectType: 'address', summaryPolicy: 'STATUS_VERSION' },
+    { module: 'privacy', objectType: 'address', summaryPolicy: 'ADDRESS_STATE' },
+  ])('rejects address summary policy outside its closed owner: %j', async (override) => {
+    await expect(new AuditRepository(ipHashKey).append(transactionStub(), {
+      ...baseInput,
+      after: { is_default: true, status: 'ACTIVE', version: 2 },
+      ...override,
+    } as never)).rejects.toThrow();
+  });
+
   it.each([
     { after: { status: ['138', '0013', '8000'].join('-') } },
     { after: { status: 'RECOVERY-CODE-ABC123' } },

@@ -23,7 +23,7 @@ export interface AppendAuditLogInput {
   reasonCode?: string;
   before?: unknown;
   after?: unknown;
-  summaryPolicy: 'NONE' | 'STATUS_VERSION';
+  summaryPolicy: 'ADDRESS_STATE' | 'NONE' | 'STATUS_VERSION';
   result: AuditResult;
   requestId: string;
   idempotencyKey?: string;
@@ -85,6 +85,7 @@ const AUDIT_MODULE = new Set([
 ]);
 const AUDIT_OBJECT_TYPE = new Set([
   'account',
+  'address',
   'agent',
   'aftersale',
   'banner',
@@ -173,7 +174,12 @@ function auditJson(
     if (keys.length > 0) throw new TypeError('NONE audit summaries must not contain fields');
     return Prisma.DbNull;
   }
-  if (keys.some((key) => key !== 'status' && key !== 'version')) {
+  if (policy === 'ADDRESS_STATE') {
+    if (keys.length !== 3 || keys.some((key) =>
+      key !== 'is_default' && key !== 'status' && key !== 'version')) {
+      throw new TypeError('ADDRESS_STATE audit summaries require only status, version, and is_default');
+    }
+  } else if (keys.some((key) => key !== 'status' && key !== 'version')) {
     throw new TypeError('STATUS_VERSION audit summaries accept only status and version');
   }
   const output: Record<string, Prisma.InputJsonValue> = {};
@@ -188,6 +194,9 @@ function auditJson(
         throw new TypeError('Audit version summary must be a positive integer');
       }
       output[key] = nested as number;
+    } else if (key === 'is_default') {
+      if (typeof nested !== 'boolean') throw new TypeError('Audit default-address summary must be a boolean');
+      output[key] = nested;
     }
   }
   return output;
@@ -237,6 +246,14 @@ function assertStructuredMetadata(input: AppendAuditLogInput): void {
   if (!AUDIT_OBJECT_TYPE.has(input.objectType)) {
     throw new TypeError('Audit object type is not registered');
   }
+  const isCustomerAddress = input.module === 'customer' && input.objectType === 'address';
+  if (input.summaryPolicy === 'ADDRESS_STATE' && !isCustomerAddress) {
+    throw new TypeError('ADDRESS_STATE audit summaries are restricted to customer addresses');
+  }
+  if (isCustomerAddress && ['CREATE', 'DELETE', 'UPDATE'].includes(input.action) &&
+    input.summaryPolicy !== 'ADDRESS_STATE') {
+    throw new TypeError('Customer address writes require ADDRESS_STATE audit summaries');
+  }
   if (!(isValidUlid(input.objectId) || UUID.test(input.objectId))) {
     throw new TypeError('Audit object ID must be a ULID or UUID');
   }
@@ -266,7 +283,8 @@ function assertStructuredMetadata(input: AppendAuditLogInput): void {
   if (input.ipAddress !== undefined && isIP(input.ipAddress) === 0) {
     throw new TypeError('Audit IP address must be an IPv4 or IPv6 literal');
   }
-  if (input.summaryPolicy !== 'NONE' && input.summaryPolicy !== 'STATUS_VERSION') {
+  if (input.summaryPolicy !== 'ADDRESS_STATE' && input.summaryPolicy !== 'NONE' &&
+    input.summaryPolicy !== 'STATUS_VERSION') {
     throw new TypeError('Audit summary policy is invalid');
   }
 }

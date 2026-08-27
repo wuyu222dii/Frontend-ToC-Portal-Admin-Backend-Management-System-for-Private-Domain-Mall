@@ -1,6 +1,6 @@
 # 青序生活三端私域商城
 
-本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。当前开发按 `B0` 至 `B19` 小批次推进；B0 至 B7 已完成 development 验收。B7 最终实现 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 的 [普通 CI Run 33055090596](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33055090596) 和 [Supabase rollback-only Run 33056078437](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33056078437) 为同一 SHA 双绿，B7 development `GO`，CH-015 已失效。当前基线为 `v2.4.6 / CH-018`；CH-017/CH-018 已批准，B8.1 收藏与 B8.2 服务端购物车已完成并按批暂停，B8.2 退出为 `P0=0/P1=0/P2=1`，B8.3 收货地址未准入。仅允许 Mock Provider 和脱敏 development，staging、production、真实客户数据、真实微信身份和资金链路继续 `NO-GO`。
+本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。当前开发按 `B0` 至 `B19` 小批次推进；B0 至 B7 已完成 development 验收。B7 最终实现 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 的 [普通 CI Run 33055090596](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33055090596) 和 [Supabase rollback-only Run 33056078437](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33056078437) 为同一 SHA 双绿，B7 development `GO`，CH-015 已失效。当前基线为 `v2.4.6 / CH-018`；CH-017/CH-018 已批准，B8.1 收藏、B8.2 服务端购物车与 B8.3 收货地址均已完成并按批暂停，B8.3 退出为 `P0=0/P1=0/P2=1`，B8.4 小程序未准入，B8 整体尚未 `GO`。仅允许 Mock Provider 和脱敏 development，staging、production、真实客户数据、真实微信身份和资金链路继续 `NO-GO`。
 
 ## 工程结构
 
@@ -69,4 +69,4 @@ B7.2 账户手机号 HMAC 轮换是受控维护操作，不是日常启动命令
 
 Supabase 项目创建、连接分权和受保护烟测见 [B0 工程与 Supabase](product-materials/docs/05-开发管理/B0-工程与Supabase.md)，公共内核边界见 [B1 平台公共内核](product-materials/docs/05-开发管理/B1-平台公共内核.md)，总部认证实现与安全操作见 [B2 总部安全入口](product-materials/docs/05-开发管理/B2-总部安全入口.md)，B3-B7 历史批次见对应开发记录；B8 的 CH-017/CH-018、串行批次和准入边界见 [B8 登录后购物基础](product-materials/docs/05-开发管理/B8-登录后购物基础.md)。普通 PR 只使用 CI 的临时 PostgreSQL，不读取 Supabase 凭据。
 
-B3.1 至 B3.3 的文件、品牌/分类与 ADM-05/06 证据继续有效；B4 已交付 Product/SKU，B5 已交付 Banner/库存，B6 已交付匿名 Store API、MP-01 至 MP-06，B7 已交付消费者身份、资料手机号、归因/服务代理、同步注销及小程序身份页面。B8.0 已冻结收藏、服务端购物车、游客合并和地址契约/静态原型；B8.1 已交付收藏，B8.2 已交付服务端购物车、游客 merge API、HASH_ONLY 精确重放和 rollback-only 数据库验证；B8.3-B8.5、订单、结算和支付尚未开始。
+B3.1 至 B3.3 的文件、品牌/分类与 ADM-05/06 证据继续有效；B4 已交付 Product/SKU，B5 已交付 Banner/库存，B6 已交付匿名 Store API、MP-01 至 MP-06，B7 已交付消费者身份、资料手机号、归因/服务代理、同步注销及小程序身份页面。B8.0 已冻结收藏、服务端购物车、游客合并和地址契约/静态原型；B8.1 已交付收藏，B8.2 已交付服务端购物车、游客 merge API、HASH_ONLY 精确重放和 rollback-only 数据库验证，B8.3 已交付收货地址 repository/API、PII 加密/掩码、默认地址与乐观锁；B8.4-B8.5、订单、结算和支付尚未开始。

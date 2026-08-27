@@ -14,6 +14,7 @@ import { AccessLogMiddleware } from './platform/http/access-log.middleware';
 import { ErrorEnvelopeFilter } from './platform/http/error-envelope.filter';
 import { RequestIdMiddleware } from './platform/http/request-id.middleware';
 import { SuccessEnvelopeInterceptor } from './platform/http/success-envelope.interceptor';
+import { StoreAddressModule } from './store-address/store-address.module';
 import { StoreCatalogModule } from './store-catalog/store-catalog.module';
 import { StoreCartModule } from './store-cart/store-cart.module';
 import { StoreFavoritesModule } from './store-favorites/store-favorites.module';
@@ -31,6 +32,7 @@ import { StorePrivacyModule } from './store-privacy/store-privacy.module';
     AdminProductsModule,
     FilesModule,
     HealthModule,
+    StoreAddressModule,
     StoreAttributionModule,
     StoreCatalogModule,
     StoreCartModule,

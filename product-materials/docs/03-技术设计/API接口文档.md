@@ -6,7 +6,7 @@
 |---|---|
 | 文档版本 | v2.4.5 |
 | 对应产品基线 | MVP/PRD v2.4.5、CH-001 至 CH-016 |
-| 接口阶段 | B0-B6 development 已完成；CH-015/CH-016 已批准，B7.0-B7.4 已完成并按批暂停，B7.4 退出复审 `P0=0/P1=0`，B7.5 尚未准入；仅允许 Mock Provider 和脱敏 development，staging/production 未批准 |
+| 接口阶段 | B0-B6 development 已完成；CH-015/CH-016 已批准，B7.0-B7.4 已完成并按批暂停，B7.5 已获准并完成小程序工程实现，本地自动化验收与最终只读复审已通过 `P0=0/P1=0`，等待同 SHA 普通 CI/Supabase rollback-only 双绿，B7 development 尚不可标记 `GO`；仅允许 Mock Provider 和脱敏 development，staging/production 未批准 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
 | 更新时间 | 2026-08-27 |
 

@@ -2,17 +2,21 @@ import type { PlatformRuntimeConfig } from '@qingxu/config';
 import type {
   CurrentStoreSession,
   StoreCheckoutQuoteSnapshot,
+  StoreOrderCloseResult,
   StoreOrderCreationResult,
+  StoreOrderDetailSnapshot,
+  StoreOrderListItemSnapshot,
   StoreOrderSnapshot,
 } from '@qingxu/database';
 import {
   ApplicationError,
   createStoreAddressSecurityMaterial,
+  createStoreOrderAddressSecurityMaterial,
   verifyStoreOrderAddressSecurityMaterial,
 } from '@qingxu/platform-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { StoreOrderSubmitRequest } from './store-orders.dto';
+import type { StoreOrderListQuery, StoreOrderSubmitRequest } from './store-orders.dto';
 import { StoreOrdersService } from './store-orders.service';
 
 const ACCOUNT_ID = '01J00000000000000000000001';
@@ -215,6 +219,67 @@ function creationResult(order = orderSnapshot()): StoreOrderCreationResult {
   };
 }
 
+function listItemSnapshot(overrides: Partial<StoreOrderListItemSnapshot> = {}): StoreOrderListItemSnapshot {
+  return {
+    aftersaleSummary: {
+      activeCount: 0,
+      latestAftersaleId: null,
+      latestStatus: null,
+      refundedAmount: '0.00',
+    },
+    canCancel: true,
+    itemImages: [{ objectKey: `public/${FILE_ID}`, orderItemId: ORDER_ITEM_ID }],
+    order: orderSnapshot(),
+    ...overrides,
+  };
+}
+
+function detailSnapshot(overrides: Partial<StoreOrderDetailSnapshot> = {}): StoreOrderDetailSnapshot {
+  const protectedAddress = createStoreOrderAddressSecurityMaterial({
+    detail: DETAIL,
+    phone: PHONE,
+    snapshotId: ADDRESS_SNAPSHOT_ID,
+  }, fieldPrevious);
+  return {
+    address: {
+      city: 'Auckland',
+      detailCiphertext: protectedAddress.detailCiphertext,
+      district: 'Central',
+      encryptionKeyId: protectedAddress.encryptionKeyId,
+      phoneCiphertext: protectedAddress.phoneCiphertext,
+      phoneLast4: protectedAddress.phoneLast4,
+      province: 'Auckland',
+      recipientName: RECIPIENT,
+      snapshotId: ADDRESS_SNAPSHOT_ID,
+    },
+    canCancel: true,
+    closedAt: null,
+    order: orderSnapshot(),
+    ...overrides,
+  };
+}
+
+function closedOrder(): StoreOrderSnapshot {
+  const closedAt = new Date('2026-08-28T00:10:00.000Z');
+  return orderSnapshot({
+    closeReason: 'USER_CANCELLED',
+    orderStatus: 'CLOSED',
+    serverTime: closedAt,
+    updatedAt: closedAt,
+    version: 2,
+  });
+}
+
+function closeResult(changed = true): StoreOrderCloseResult {
+  const order = closedOrder();
+  return {
+    before: changed ? orderSnapshot() : order,
+    changed,
+    order,
+    reservationId: changed ? RESERVATION_ID : null,
+  };
+}
+
 function harness() {
   const sequence: string[] = [];
   const snapshot = quoteSnapshot();
@@ -247,6 +312,10 @@ function harness() {
     }),
   };
   const orders = {
+    cancelOwnedOrderInTransaction: vi.fn(async () => {
+      sequence.push('cancel');
+      return closeResult();
+    }),
     createOrderInTransaction: vi.fn(async (_transaction, _input, hooks) => {
       sequence.push('create');
       hooks.verifyQuote(snapshot);
@@ -257,6 +326,8 @@ function harness() {
       sequence.push('getReplay');
       return orderSnapshot();
     }),
+    getOwnedOrderDetailInTransaction: vi.fn(async () => detailSnapshot()),
+    listOwnedOrdersInTransaction: vi.fn(async () => ({ items: [listItemSnapshot()], total: 1 })),
   };
   const audit = {
     append: vi.fn(async () => {
@@ -268,8 +339,11 @@ function harness() {
       sequence.push('outbox');
     }),
   };
+  const storage = {
+    publicUrl: vi.fn((objectKey: string) => `https://assets.example.test/${objectKey}`),
+  };
   const service = new StoreOrdersService();
-  Object.assign(service, { audit, config, credentials, database, idempotency, orders, outbox });
+  Object.assign(service, { audit, config, credentials, database, idempotency, orders, outbox, storage });
   return {
     audit,
     credentials,
@@ -281,11 +355,12 @@ function harness() {
     sequence,
     service,
     snapshot,
+    storage,
     transaction,
   };
 }
 
-describe('B9.2 StoreOrdersService', () => {
+describe('B9.2-B9.3 StoreOrdersService', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('creates, protects and records an order in the required transaction order without persisting secrets', async () => {
@@ -466,6 +541,293 @@ describe('B9.2 StoreOrdersService', () => {
 
     expect(current.audit.append).not.toHaveBeenCalled();
     expect(current.outbox.append).not.toHaveBeenCalled();
+    expect(current.idempotency.complete).not.toHaveBeenCalled();
+  });
+
+  it('projects only the current customer list and resolves current public image keys', async () => {
+    const current = harness();
+    const query: StoreOrderListQuery = {
+      createdAtFrom: new Date('2026-08-24T16:00:00.000Z'),
+      createdAtToExclusive: new Date('2026-08-26T16:00:00.000Z'),
+      displayGroup: 'PENDING_PAYMENT',
+      minAmount: '19.90',
+      page: 2,
+      pageSize: 20,
+      sort: 'CREATED_DESC',
+    };
+
+    await expect(current.service.listOrders(session, query)).resolves.toEqual({
+      items: [expect.objectContaining({
+        aftersale_summary: {
+          active_count: 0,
+          latest_aftersale_id: null,
+          latest_status: null,
+          refunded_amount: '0.00',
+        },
+        available_actions: ['CANCEL'],
+        display_status: '待付款',
+        items: [expect.objectContaining({
+          order_item_id: ORDER_ITEM_ID,
+          primary_image_url: `https://assets.example.test/public/${FILE_ID}`,
+          product_id: PRODUCT_ID,
+          sku_id: SKU_ID,
+        })],
+        order_id: ORDER_ID,
+      })],
+      pagination: { page: 2, page_size: 20, total: 1 },
+    });
+
+    expect(current.database.prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: 'RepeatableRead',
+    });
+    expect(current.orders.listOwnedOrdersInTransaction).toHaveBeenCalledWith(current.transaction, {
+      customerId: CUSTOMER_ID,
+      ...query,
+    });
+    expect(current.storage.publicUrl).toHaveBeenCalledOnce();
+    expect(current.storage.publicUrl).toHaveBeenCalledWith(`public/${FILE_ID}`);
+  });
+
+  it('returns only the owned detail projection and decrypts the frozen address through key rotation', async () => {
+    const current = harness();
+
+    await expect(current.service.getOrder(session, ORDER_ID)).resolves.toMatchObject({
+      aftersales: [],
+      available_actions: ['CANCEL'],
+      errors: [],
+      order_id: ORDER_ID,
+      packages: [],
+      payment_attempts: [],
+      refund_attempts: [],
+      shipping_address: {
+        city: 'Auckland',
+        detail: DETAIL,
+        district: 'Central',
+        phone: PHONE,
+        province: 'Auckland',
+        recipient_name: RECIPIENT,
+      },
+      timeline: [{
+        axis: 'ORDER',
+        event: 'ORDER_CREATED',
+        event_id: `${ORDER_ID}:created`,
+        from_status: null,
+        occurred_at: NOW.toISOString(),
+        to_status: 'PENDING_PAYMENT',
+      }],
+      version: 1,
+    });
+
+    expect(current.database.prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: 'RepeatableRead',
+    });
+    expect(current.orders.getOwnedOrderDetailInTransaction).toHaveBeenCalledWith(current.transaction, {
+      customerId: CUSTOMER_ID,
+      orderId: ORDER_ID,
+    });
+  });
+
+  it('fails closed with a generic error when the frozen address ciphertext is unreadable', async () => {
+    const current = harness();
+    const detail = detailSnapshot();
+    detail.address.phoneCiphertext = Buffer.from(detail.address.phoneCiphertext);
+    detail.address.phoneCiphertext[0] = (detail.address.phoneCiphertext[0] ?? 0) ^ 0xff;
+    const ciphertext = Buffer.from(detail.address.phoneCiphertext).toString('base64');
+    current.orders.getOwnedOrderDetailInTransaction.mockResolvedValueOnce(detail);
+
+    const error = await current.service.getOrder(session, ORDER_ID).then(
+      () => undefined,
+      (cause: unknown) => cause,
+    );
+    expect(error).toBeInstanceOf(ApplicationError);
+    const response = (error as ApplicationError).toResponse(REQUEST_ID);
+    expect(response).toEqual({
+      code: 'INTERNAL_ERROR',
+      message: 'An unexpected error occurred',
+      request_id: REQUEST_ID,
+    });
+    const serialized = JSON.stringify(response);
+    for (const privateValue of [PHONE, DETAIL, RECIPIENT, ciphertext, 'cause']) {
+      expect(serialized).not.toContain(privateValue);
+    }
+  });
+
+  it('cancels once and records only closed status/version metadata in HASH_ONLY, audit and Outbox facts', async () => {
+    const current = harness();
+
+    await expect(current.service.cancelOrder(
+      session,
+      ORDER_ID,
+      1,
+      IDEMPOTENCY_KEY,
+      REQUEST_ID,
+      IP_ADDRESS,
+    )).resolves.toMatchObject({
+      close_reason: 'USER_CANCELLED',
+      display_status: '已关闭',
+      order_id: ORDER_ID,
+      order_status: 'CLOSED',
+      server_time: '2026-08-28T00:10:00.000Z',
+    });
+
+    expect(current.sequence).toEqual(['claim', 'cancel', 'audit', 'outbox', 'complete']);
+    expect(current.orders.cancelOwnedOrderInTransaction).toHaveBeenCalledWith(current.transaction, {
+      accountId: ACCOUNT_ID,
+      customerId: CUSTOMER_ID,
+      expectedVersion: 1,
+      orderId: ORDER_ID,
+    });
+    expect(current.audit.append).toHaveBeenCalledWith(current.transaction, expect.objectContaining({
+      action: 'CANCEL',
+      actorAccountId: ACCOUNT_ID,
+      after: { status: 'CLOSED', version: 2 },
+      before: { status: 'PENDING_PAYMENT', version: 1 },
+      idempotencyKey: IDEMPOTENCY_KEY,
+      objectId: ORDER_ID,
+      requestId: REQUEST_ID,
+    }));
+    expect(current.outbox.append).toHaveBeenCalledWith(current.transaction, {
+      aggregateId: ORDER_ID,
+      aggregateType: 'order',
+      eventType: 'order.closed',
+      payload: {
+        event_version: 1,
+        resource_id: ORDER_ID,
+        resource_type: 'order',
+        resource_version: 2,
+      },
+    });
+    expect(current.idempotency.complete).toHaveBeenCalledWith(
+      current.transaction,
+      expect.objectContaining({
+        actorId: ACCOUNT_ID,
+        idempotencyKey: IDEMPOTENCY_KEY,
+        request: {
+          body: { expected_version: 1 },
+          method: 'POST',
+          pathParameters: { order_id: ORDER_ID },
+          route: '/store/orders/{order_id}/cancel',
+        },
+      }),
+      {
+        resourceId: ORDER_ID,
+        responseForHash: { order_closed: { order_id: ORDER_ID } },
+        responseStatus: 200,
+        storage: 'HASH_ONLY',
+      },
+    );
+
+    const persistedMetadata = JSON.stringify([
+      current.audit.append.mock.calls,
+      current.outbox.append.mock.calls,
+      current.idempotency.complete.mock.calls.map((call) => call[2]),
+    ]);
+    for (const privateValue of [PHONE, DETAIL, RECIPIENT]) {
+      expect(persistedMetadata).not.toContain(privateValue);
+    }
+  });
+
+  it('replays a complete cancellation before stale If-Match reaches the repository', async () => {
+    const current = harness();
+    const record = { resource_id: ORDER_ID, response_body: null, response_status: 200 };
+    current.idempotency.claim.mockImplementationOnce(async () => {
+      current.sequence.push('claim');
+      return { kind: 'replay' as const, record };
+    });
+    current.orders.getOwnedOrderForReplayInTransaction.mockImplementationOnce(async () => {
+      current.sequence.push('getReplay');
+      return closedOrder();
+    });
+
+    await expect(current.service.cancelOrder(
+      session,
+      ORDER_ID,
+      1,
+      IDEMPOTENCY_KEY,
+      REQUEST_ID,
+      IP_ADDRESS,
+    )).resolves.toMatchObject({ order_id: ORDER_ID, order_status: 'CLOSED' });
+
+    expect(current.sequence).toEqual(['claim', 'getReplay', 'assertHashOnlyReplay']);
+    expect(current.idempotency.assertHashOnlyReplay).toHaveBeenCalledWith(record, {
+      resourceId: ORDER_ID,
+      responseForHash: { order_closed: { order_id: ORDER_ID } },
+      responseStatus: 200,
+      storage: 'HASH_ONLY',
+    });
+    expect(current.orders.cancelOwnedOrderInTransaction).not.toHaveBeenCalled();
+    expect(current.audit.append).not.toHaveBeenCalled();
+    expect(current.outbox.append).not.toHaveBeenCalled();
+    expect(current.idempotency.complete).not.toHaveBeenCalled();
+  });
+
+  it('completes a new key for an already USER_CANCELLED order without duplicate close facts', async () => {
+    const current = harness();
+    current.orders.cancelOwnedOrderInTransaction.mockImplementationOnce(async () => {
+      current.sequence.push('cancel');
+      return closeResult(false);
+    });
+
+    await expect(current.service.cancelOrder(
+      session,
+      ORDER_ID,
+      2,
+      '00000000-0000-4000-8000-000000000002',
+      REQUEST_ID,
+      IP_ADDRESS,
+    )).resolves.toMatchObject({ order_id: ORDER_ID, order_status: 'CLOSED' });
+
+    expect(current.sequence).toEqual(['claim', 'cancel', 'complete']);
+    expect(current.audit.append).not.toHaveBeenCalled();
+    expect(current.outbox.append).not.toHaveBeenCalled();
+    expect(current.idempotency.complete).toHaveBeenCalledWith(
+      current.transaction,
+      expect.anything(),
+      expect.objectContaining({ responseStatus: 200, storage: 'HASH_ONLY' }),
+    );
+  });
+
+  it('does not append close metadata or complete idempotency when cancellation fails', async () => {
+    const current = harness();
+    current.orders.cancelOwnedOrderInTransaction.mockImplementationOnce(async () => {
+      current.sequence.push('cancel');
+      throw new ApplicationError('ORDER_NOT_CANCELLABLE', 'not cancellable');
+    });
+
+    await expect(current.service.cancelOrder(
+      session,
+      ORDER_ID,
+      1,
+      IDEMPOTENCY_KEY,
+      REQUEST_ID,
+      IP_ADDRESS,
+    )).rejects.toMatchObject({ code: 'ORDER_NOT_CANCELLABLE' });
+
+    expect(current.sequence).toEqual(['claim', 'cancel']);
+    expect(current.audit.append).not.toHaveBeenCalled();
+    expect(current.outbox.append).not.toHaveBeenCalled();
+    expect(current.idempotency.complete).not.toHaveBeenCalled();
+  });
+
+  it('leaves the idempotency fact incomplete when an in-transaction closed Outbox append fails', async () => {
+    const current = harness();
+    current.outbox.append.mockImplementationOnce(async () => {
+      current.sequence.push('outbox');
+      throw new Error('outbox unavailable');
+    });
+
+    await expect(current.service.cancelOrder(
+      session,
+      ORDER_ID,
+      1,
+      IDEMPOTENCY_KEY,
+      REQUEST_ID,
+      IP_ADDRESS,
+    )).rejects.toThrow('outbox unavailable');
+
+    expect(current.sequence).toEqual(['claim', 'cancel', 'audit', 'outbox']);
+    expect(current.audit.append).toHaveBeenCalledWith(current.transaction, expect.anything());
+    expect(current.outbox.append).toHaveBeenCalledWith(current.transaction, expect.anything());
     expect(current.idempotency.complete).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,7 @@
 import { generateUlid } from '@qingxu/platform-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { Prisma } from '../.generated/prisma/client';
 import type { DatabaseTransaction } from './idempotency.repository';
 import { InventoryRepository } from './inventory.repository';
 import { ProductCatalogRepository } from './product-catalog.repository';
@@ -24,6 +25,16 @@ const transactionOptions = {
   timeout: 90_000,
 };
 const rollbackSentinel = Object.freeze({ code: 'B9_STORE_ORDER_ROLLBACK_SENTINEL' });
+const PAYMENT_INTENT_STATUSES = [
+  'CREATING',
+  'OPEN',
+  'CLOSE_PENDING',
+  'CLOSED',
+  'SUCCEEDED',
+  'FAILED',
+  'CANCELLED',
+  'EXPIRED',
+] as const;
 
 interface CatalogFixture {
   balanceId: string;
@@ -308,6 +319,144 @@ async function seedCart(
   });
 }
 
+async function seedPendingOrder(
+  transaction: DatabaseTransaction,
+  customer: CustomerFixture,
+  catalog: CatalogFixture,
+  createdAt: Date,
+): Promise<CreatedOrderFacts> {
+  const payExpiresAt = new Date(createdAt.getTime() + 30 * 60 * 1_000);
+  const orderId = generateUlid(createdAt.getTime());
+  const orderItemId = generateUlid(createdAt.getTime());
+  const addressSnapshotId = generateUlid(createdAt.getTime());
+  const attributionCandidateId = generateUlid(createdAt.getTime());
+  const reservationId = generateUlid(createdAt.getTime());
+  const reservationItemId = generateUlid(createdAt.getTime());
+  const ledgerId = generateUlid(createdAt.getTime());
+  const balance = await transaction.inventoryBalance.findUniqueOrThrow({ where: { id: catalog.balanceId } });
+  const lockedAfter = balance.locked_qty + 1;
+  if (lockedAfter > balance.physical_qty) throw new TypeError('B9 pending order fixture has insufficient stock');
+
+  await transaction.salesOrder.create({
+    data: {
+      close_reason: null,
+      completion_reason: null,
+      created_at: createdAt,
+      customer_id: customer.customerId,
+      fulfillment_status: 'NOT_STARTED',
+      goods_amount: new Prisma.Decimal('12.50'),
+      id: orderId,
+      order_no: `QX${orderId}`,
+      order_status: 'PENDING_PAYMENT',
+      paid_amount: new Prisma.Decimal(0),
+      pay_expires_at: payExpiresAt,
+      payable_amount: new Prisma.Decimal('12.50'),
+      payment_resolution: 'NORMAL',
+      payment_status: 'UNPAID',
+      refund_processing_status: 'IDLE',
+      refund_progress_status: 'NONE',
+      refunded_amount: new Prisma.Decimal(0),
+      shipping_amount: new Prisma.Decimal(0),
+      source: 'BUY_NOW',
+      updated_at: createdAt,
+      version: 1,
+    },
+  });
+  await transaction.orderItem.create({
+    data: {
+      aftersale_reserved_amount: new Prisma.Decimal(0),
+      aftersale_reserved_qty: 0,
+      brand_name_snapshot: `B92 Order Brand ${catalog.brandId}`,
+      category_id: catalog.categoryId,
+      category_name_snapshot: `B92 Order Category ${catalog.categoryId}`,
+      created_at: createdAt,
+      id: orderItemId,
+      line_paid_amount: new Prisma.Decimal('12.50'),
+      order_id: orderId,
+      pre_shipment_refunded_qty: 0,
+      product_id: catalog.productId,
+      product_name_snapshot: `B92 Order Product ${catalog.productId}`,
+      quantity: 1,
+      refunded_amount: new Prisma.Decimal(0),
+      refunded_qty: 0,
+      shipped_qty: 0,
+      sku_code_snapshot: `B92-SKU-${catalog.skuId}`,
+      sku_id: catalog.skuId,
+      sku_name_snapshot: 'B92 Order SKU',
+      unit_price: new Prisma.Decimal('12.50'),
+      version: 1,
+    },
+  });
+  await transaction.orderAddressSnapshot.create({
+    data: {
+      city: 'Auckland',
+      created_at: createdAt,
+      detail_ciphertext: Buffer.from(`b92-pending-detail-${addressSnapshotId}`),
+      district: 'Central',
+      encryption_key_id: 'b92-order-snapshot-key',
+      id: addressSnapshotId,
+      order_id: orderId,
+      phone_ciphertext: Buffer.from(`b92-pending-phone-${addressSnapshotId}`),
+      phone_last4: '2468',
+      province: 'Auckland',
+      recipient_name: `B9 Order Recipient ${customer.customerId}`,
+    },
+  });
+  await transaction.orderAttributionCandidate.create({
+    data: {
+      id: attributionCandidateId,
+      order_id: orderId,
+      submit_channel: 'DIRECT',
+      submitted_at: createdAt,
+    },
+  });
+  await transaction.inventoryReservation.create({
+    data: {
+      created_at: createdAt,
+      expires_at: payExpiresAt,
+      id: reservationId,
+      order_id: orderId,
+      status: 'ACTIVE',
+    },
+  });
+  await transaction.inventoryReservationItem.create({
+    data: {
+      created_at: createdAt,
+      id: reservationItemId,
+      quantity: 1,
+      reservation_id: reservationId,
+      sku_id: catalog.skuId,
+    },
+  });
+  const updated = await transaction.inventoryBalance.updateMany({
+    data: { locked_qty: lockedAfter, updated_at: createdAt, version: { increment: 1 } },
+    where: {
+      id: catalog.balanceId,
+      locked_qty: balance.locked_qty,
+      physical_qty: balance.physical_qty,
+      sku_id: catalog.skuId,
+      version: balance.version,
+    },
+  });
+  if (updated.count !== 1) throw new TypeError('B9 pending order fixture lost its inventory balance');
+  await transaction.inventoryLedger.create({
+    data: {
+      actor_account_id: customer.accountId,
+      business_id: reservationId,
+      id: ledgerId,
+      ledger_type: 'ORDER_RESERVE',
+      locked_after: lockedAfter,
+      locked_change: 1,
+      occurred_at: createdAt,
+      physical_after: balance.physical_qty,
+      physical_change: 0,
+      reason: 'ORDER_RESERVE',
+      sku_id: catalog.skuId,
+    },
+  });
+  return { attributionCandidateId, orderId, reservationId };
+}
+
 function createHooks(): StoreOrderCreateHooks {
   return {
     protectAddress: (addressSnapshotId, address): StoreOrderAddressSnapshotMaterial => ({
@@ -350,6 +499,10 @@ async function runSerializableWithoutDeadlockRetry<T>(
       if (hasPostgresCode(error, '40P01') || attempt >= 5 || !hasPostgresCode(error, '40001')) throw error;
     }
   }
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 databaseDescribe('B9 Store order database integration', () => {
@@ -507,6 +660,615 @@ databaseDescribe('B9 Store order database integration', () => {
       runtime.prisma.customerProfile.count({ where: { id: customer.customerId } }),
       runtime.prisma.account.count({ where: { id: customer.accountId } }),
     ])).resolves.toEqual(Array.from({ length: 19 }, () => 0));
+  }, 120_000);
+
+  it('reads owned orders, closes by customer and timeout, and leaves no B9.3 facts after rollback', async () => {
+    const catalog = createCatalogFixture();
+    const owner = createCustomerFixture();
+    const otherCustomer = createCustomerFixture();
+    const created: CreatedOrderFacts[] = [];
+
+    await expect(runtime.withPrismaTransaction(async (transaction) => {
+      await seedCatalog(transaction, catalog, { physicalQty: 5 });
+      await seedCustomer(transaction, owner, `owner-${owner.customerId}`);
+      await seedCustomer(transaction, otherCustomer, `other-${otherCustomer.customerId}`);
+
+      const cancellable = await repository.createOrderInTransaction(
+        transaction,
+        buyNowInput(owner, catalog),
+        createHooks(),
+      );
+      created.push({
+        attributionCandidateId: cancellable.attribution.candidateId,
+        orderId: cancellable.order.orderId,
+        reservationId: cancellable.reservation.reservationId,
+      });
+      created.push(await seedPendingOrder(
+        transaction,
+        owner,
+        catalog,
+        new Date(Date.now() - 60 * 60 * 1_000),
+      ));
+      const cancelFacts = created[0];
+      const timeoutFacts = created[1];
+      if (!cancelFacts || !timeoutFacts) throw new TypeError('B9.3 rollback orders were not created');
+
+      const listInput = {
+        customerId: owner.customerId,
+        displayGroup: 'ALL' as const,
+        page: 1,
+        pageSize: 20,
+        sort: 'CREATED_DESC' as const,
+      };
+      const list = await repository.listOwnedOrdersInTransaction(transaction, listInput);
+      expect(list.total).toBe(2);
+      expect(list.items.map(({ order }) => order.orderId).sort())
+        .toEqual(created.map(({ orderId }) => orderId).sort());
+      expect(new Map(list.items.map(({ canCancel, order }) => [order.orderId, canCancel])))
+        .toEqual(new Map([
+          [cancelFacts.orderId, true],
+          [timeoutFacts.orderId, false],
+        ]));
+      expect(list.items.flatMap(({ itemImages }) => itemImages))
+        .toEqual(expect.arrayContaining([
+          { objectKey: `public/${catalog.fileId}`, orderItemId: expect.any(String) },
+        ]));
+
+      const expectImagesHidden = async (): Promise<void> => {
+        const hidden = await repository.listOwnedOrdersInTransaction(transaction, listInput);
+        expect(hidden.items).toHaveLength(2);
+        expect(hidden.items.flatMap(({ itemImages }) => itemImages)
+          .every(({ objectKey }) => objectKey === null)).toBe(true);
+      };
+      await transaction.fileAsset.update({
+        data: { object_key: `public/not-${catalog.fileId}` },
+        where: { id: catalog.fileId },
+      });
+      await expectImagesHidden();
+      await transaction.fileAsset.update({
+        data: { object_key: `public/${catalog.fileId}`, status: 'REJECTED' },
+        where: { id: catalog.fileId },
+      });
+      await expectImagesHidden();
+      await transaction.fileAsset.update({
+        data: { status: 'READY', visibility: 'PRIVATE' },
+        where: { id: catalog.fileId },
+      });
+      await expectImagesHidden();
+      await transaction.fileAsset.update({
+        data: { purpose: 'BRAND_LOGO', visibility: 'PUBLIC' },
+        where: { id: catalog.fileId },
+      });
+      await expectImagesHidden();
+      await transaction.fileAsset.update({
+        data: { purpose: 'PRODUCT_IMAGE' },
+        where: { id: catalog.fileId },
+      });
+
+      await expect(repository.listOwnedOrdersInTransaction(transaction, {
+        customerId: otherCustomer.customerId,
+        displayGroup: 'ALL',
+        page: 1,
+        pageSize: 20,
+        sort: 'CREATED_DESC',
+      })).resolves.toEqual({ items: [], total: 0 });
+
+      const detail = await repository.getOwnedOrderDetailInTransaction(transaction, {
+        customerId: owner.customerId,
+        orderId: cancelFacts.orderId,
+      });
+      expect(detail).toMatchObject({
+        address: {
+          city: 'Auckland',
+          district: 'Central',
+          phoneLast4: '2468',
+          province: 'Auckland',
+          recipientName: `B9 Order Recipient owner-${owner.customerId}`,
+        },
+        canCancel: true,
+        closedAt: null,
+        order: { customerId: owner.customerId, orderId: cancelFacts.orderId, version: 1 },
+      });
+      await expect(repository.getOwnedOrderDetailInTransaction(transaction, {
+        customerId: otherCustomer.customerId,
+        orderId: cancelFacts.orderId,
+      })).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND' });
+
+      const cancelled = await repository.cancelOwnedOrderInTransaction(transaction, {
+        accountId: owner.accountId,
+        customerId: owner.customerId,
+        expectedVersion: 1,
+        orderId: cancelFacts.orderId,
+      });
+      expect(cancelled).toMatchObject({
+        changed: true,
+        order: {
+          closeReason: 'USER_CANCELLED',
+          fulfillmentStatus: 'NOT_STARTED',
+          orderStatus: 'CLOSED',
+          version: 2,
+        },
+        reservationId: cancelFacts.reservationId,
+      });
+
+      const expired = await repository.expireNextOrderInTransaction(transaction);
+      expect(expired).toMatchObject({
+        kind: 'closed',
+        result: {
+          changed: true,
+          order: {
+            closeReason: 'PAYMENT_TIMEOUT',
+            fulfillmentStatus: 'NOT_STARTED',
+            orderId: timeoutFacts.orderId,
+            orderStatus: 'CLOSED',
+            version: 2,
+          },
+          reservationId: timeoutFacts.reservationId,
+        },
+      });
+      await expect(repository.expireNextOrderInTransaction(transaction)).resolves.toEqual({ kind: 'none' });
+
+      await expect(transaction.inventoryReservation.findMany({
+        orderBy: [{ id: 'asc' }],
+        where: { id: { in: created.map(({ reservationId }) => reservationId) } },
+      })).resolves.toMatchObject([
+        expect.objectContaining({ released_at: expect.any(Date), status: expect.any(String) }),
+        expect.objectContaining({ released_at: expect.any(Date), status: expect.any(String) }),
+      ]);
+      const reservations = await transaction.inventoryReservation.findMany({
+        where: { id: { in: created.map(({ reservationId }) => reservationId) } },
+      });
+      expect(new Map(reservations.map(({ id, status }) => [id, status]))).toEqual(new Map([
+        [cancelFacts.reservationId, 'RELEASED'],
+        [timeoutFacts.reservationId, 'EXPIRED'],
+      ]));
+
+      const releases = await transaction.inventoryLedger.findMany({
+        orderBy: [{ business_id: 'asc' }, { sku_id: 'asc' }],
+        where: {
+          business_id: { in: created.map(({ reservationId }) => reservationId) },
+          ledger_type: 'ORDER_RELEASE',
+        },
+      });
+      expect(releases).toHaveLength(2);
+      for (const facts of created) {
+        expect(releases.filter(({ business_id, sku_id }) =>
+          business_id === facts.reservationId && sku_id === catalog.skuId)).toHaveLength(1);
+      }
+      expect(releases).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          actor_account_id: owner.accountId,
+          locked_change: -1,
+          physical_change: 0,
+          reason: 'USER_CANCELLED',
+        }),
+        expect.objectContaining({
+          actor_account_id: null,
+          locked_change: -1,
+          physical_change: 0,
+          reason: 'PAYMENT_TIMEOUT',
+        }),
+      ]));
+      const balance = await transaction.inventoryBalance.findUniqueOrThrow({ where: { id: catalog.balanceId } });
+      expect(balance).toMatchObject({ locked_qty: 0, physical_qty: 5 });
+      expect(balance.physical_qty).toBeGreaterThanOrEqual(balance.locked_qty);
+      expect(balance.locked_qty).toBeGreaterThanOrEqual(0);
+      throw rollbackSentinel;
+    }, transactionOptions)).rejects.toBe(rollbackSentinel);
+
+    expect(created).toHaveLength(2);
+    await expect(Promise.all([
+      runtime.prisma.salesOrder.count({ where: { id: { in: created.map(({ orderId }) => orderId) } } }),
+      runtime.prisma.orderItem.count({ where: { order_id: { in: created.map(({ orderId }) => orderId) } } }),
+      runtime.prisma.orderAddressSnapshot.count({
+        where: { order_id: { in: created.map(({ orderId }) => orderId) } },
+      }),
+      runtime.prisma.orderAttributionCandidate.count({
+        where: { id: { in: created.map(({ attributionCandidateId }) => attributionCandidateId) } },
+      }),
+      runtime.prisma.inventoryReservation.count({
+        where: { id: { in: created.map(({ reservationId }) => reservationId) } },
+      }),
+      runtime.prisma.inventoryReservationItem.count({
+        where: { reservation_id: { in: created.map(({ reservationId }) => reservationId) } },
+      }),
+      runtime.prisma.inventoryLedger.count({
+        where: { business_id: { in: created.map(({ reservationId }) => reservationId) } },
+      }),
+      runtime.prisma.inventoryBalance.count({ where: { id: catalog.balanceId } }),
+      runtime.prisma.sku.count({ where: { id: catalog.skuId } }),
+      runtime.prisma.productImage.count({ where: { id: catalog.imageId } }),
+      runtime.prisma.fileAsset.count({ where: { id: catalog.fileId } }),
+      runtime.prisma.product.count({ where: { id: catalog.productId } }),
+      runtime.prisma.category.count({ where: { id: catalog.categoryId } }),
+      runtime.prisma.brand.count({ where: { id: catalog.brandId } }),
+      runtime.prisma.customerAddress.count({
+        where: { id: { in: [owner.addressId, otherCustomer.addressId] } },
+      }),
+      runtime.prisma.customerProfile.count({
+        where: { id: { in: [owner.customerId, otherCustomer.customerId] } },
+      }),
+      runtime.prisma.account.count({ where: { id: { in: [owner.accountId, otherCustomer.accountId] } } }),
+    ])).resolves.toEqual(Array.from({ length: 17 }, () => 0));
+  }, 120_000);
+
+  fullIt('fails closed for every payment intent status in customer cancellation and timeout claiming', async () => {
+    const catalog = createCatalogFixture();
+    const created: Array<{
+      cancelIntentId: string;
+      cancelOrderId: string;
+      cancelReservationId: string;
+      customer: CustomerFixture;
+      status: (typeof PAYMENT_INTENT_STATUSES)[number];
+      timeoutIntentId: string;
+      timeoutOrderId: string;
+      timeoutReservationId: string;
+    }> = [];
+    await runtime.withPrismaTransaction(
+      (transaction) => seedCatalog(transaction, catalog, { physicalQty: 40 }),
+      transactionOptions,
+    );
+
+    for (const status of PAYMENT_INTENT_STATUSES) {
+      const customer = createCustomerFixture();
+      const facts = await runtime.withPrismaTransaction(async (transaction) => {
+        await seedCustomer(transaction, customer, `${status}-${customer.customerId}`);
+        const cancellable = await repository.createOrderInTransaction(
+          transaction,
+          buyNowInput(customer, catalog),
+          createHooks(),
+        );
+        const expiredCreatedAt = new Date(Date.now() - 60 * 60 * 1_000);
+        const expired = await seedPendingOrder(transaction, customer, catalog, expiredCreatedAt);
+        const cancelIntentId = generateUlid();
+        const timeoutIntentId = generateUlid();
+        await transaction.paymentIntent.createMany({
+          data: [{
+            amount: '12.50',
+            create_requested_at: cancellable.order.serverTime,
+            expires_at: new Date(cancellable.order.serverTime.getTime() + 60 * 60 * 1_000),
+            id: cancelIntentId,
+            intent_no: `B9PI${cancelIntentId}`,
+            order_id: cancellable.order.orderId,
+            provider: 'MOCK',
+            status,
+            updated_at: cancellable.order.serverTime,
+            version: 1,
+          }, {
+            amount: '12.50',
+            create_requested_at: expiredCreatedAt,
+            expires_at: new Date(expiredCreatedAt.getTime() + 60 * 60 * 1_000),
+            id: timeoutIntentId,
+            intent_no: `B9PI${timeoutIntentId}`,
+            order_id: expired.orderId,
+            provider: 'MOCK',
+            status,
+            updated_at: expiredCreatedAt,
+            version: 1,
+          }],
+        });
+        return {
+          cancelIntentId,
+          cancelOrderId: cancellable.order.orderId,
+          cancelReservationId: cancellable.reservation.reservationId,
+          customer,
+          status,
+          timeoutIntentId,
+          timeoutOrderId: expired.orderId,
+          timeoutReservationId: expired.reservationId,
+        };
+      }, transactionOptions);
+      created.push(facts);
+
+      await expect(runSerializableWithoutDeadlockRetry(runtime, (transaction) =>
+        repository.cancelOwnedOrderInTransaction(transaction, {
+          accountId: customer.accountId,
+          customerId: customer.customerId,
+          expectedVersion: 1,
+          orderId: facts.cancelOrderId,
+        }))).rejects.toMatchObject({ code: 'ORDER_NOT_CANCELLABLE' });
+      await expect(runSerializableWithoutDeadlockRetry(
+        runtime,
+        (transaction) => repository.expireNextOrderInTransaction(transaction),
+      )).resolves.toEqual({ kind: 'none' });
+    }
+
+    for (const facts of created) {
+      for (const [intentId, orderId, reservationId] of [
+        [facts.cancelIntentId, facts.cancelOrderId, facts.cancelReservationId],
+        [facts.timeoutIntentId, facts.timeoutOrderId, facts.timeoutReservationId],
+      ] as const) {
+        await expect(runtime.prisma.paymentIntent.findUniqueOrThrow({ where: { id: intentId } }))
+          .resolves.toMatchObject({ order_id: orderId, status: facts.status });
+        await expect(runtime.prisma.salesOrder.findUniqueOrThrow({ where: { id: orderId } }))
+          .resolves.toMatchObject({ close_reason: null, order_status: 'PENDING_PAYMENT', version: 1 });
+        await expect(runtime.prisma.inventoryReservation.findUniqueOrThrow({ where: { id: reservationId } }))
+          .resolves.toMatchObject({ released_at: null, status: 'ACTIVE' });
+      }
+    }
+    const balance = await runtime.prisma.inventoryBalance.findUniqueOrThrow({ where: { id: catalog.balanceId } });
+    expect(balance).toMatchObject({ locked_qty: PAYMENT_INTENT_STATUSES.length * 2, physical_qty: 40 });
+    expect(balance.physical_qty).toBeGreaterThanOrEqual(balance.locked_qty);
+    expect(balance.locked_qty).toBeGreaterThanOrEqual(0);
+    await expect(runtime.prisma.inventoryLedger.count({
+      where: {
+        business_id: {
+          in: created.flatMap(({ cancelReservationId, timeoutReservationId }) =>
+            [cancelReservationId, timeoutReservationId]),
+        },
+        ledger_type: 'ORDER_RELEASE',
+      },
+    })).resolves.toBe(0);
+  }, 120_000);
+
+  fullIt('allows exactly one close while cancellation races multiple timeout workers', async () => {
+    const catalog = createCatalogFixture();
+    const customer = createCustomerFixture();
+    const expiresAt = new Date(Date.now() + 5_000);
+    const createdAt = new Date(expiresAt.getTime() - 30 * 60 * 1_000);
+    const facts = await runtime.withPrismaTransaction(async (transaction) => {
+      await seedCatalog(transaction, catalog, { physicalQty: 5 });
+      await seedCustomer(transaction, customer, customer.customerId);
+      return seedPendingOrder(transaction, customer, catalog, createdAt);
+    }, transactionOptions);
+
+    let cancelAttemptCount = 0;
+    let resolveCancelReady: () => void = () => undefined;
+    const cancelReady = new Promise<void>((resolve) => {
+      resolveCancelReady = resolve;
+    });
+    let releaseCancel: () => void = () => undefined;
+    const cancelGate = new Promise<void>((resolve) => {
+      releaseCancel = resolve;
+    });
+    const cancelPromise = runSerializableWithoutDeadlockRetry(runtime, async (transaction) => {
+      cancelAttemptCount += 1;
+      if (cancelAttemptCount === 1) {
+        const clocks = await transaction.$queryRaw<Array<{ transaction_time: Date }>>(Prisma.sql`
+          SELECT transaction_timestamp() AS transaction_time
+        `);
+        const transactionTime = clocks[0]?.transaction_time;
+        resolveCancelReady();
+        expect(transactionTime).toBeInstanceOf(Date);
+        expect(transactionTime?.getTime()).toBeLessThan(expiresAt.getTime());
+        await cancelGate;
+      }
+      return repository.cancelOwnedOrderInTransaction(transaction, {
+        accountId: customer.accountId,
+        customerId: customer.customerId,
+        expectedVersion: 1,
+        orderId: facts.orderId,
+      });
+    });
+    await Promise.race([
+      cancelReady,
+      cancelPromise.then(() => undefined, () => undefined),
+    ]);
+    await wait(Math.max(expiresAt.getTime() - Date.now() + 100, 25));
+
+    const workerPromises = Array.from({ length: 4 }, () => runSerializableWithoutDeadlockRetry(
+      runtime,
+      (transaction) => repository.expireNextOrderInTransaction(transaction),
+    ));
+    const cancelAttemptPromise = Promise.allSettled([cancelPromise]);
+    const workerAttemptsPromise = Promise.allSettled(workerPromises);
+    releaseCancel();
+    const [[cancelAttempt], workerAttempts] = await Promise.all([
+      cancelAttemptPromise,
+      workerAttemptsPromise,
+    ]);
+    if (!cancelAttempt) throw new TypeError('B9.3 cancellation race did not settle');
+    expect([cancelAttempt, ...workerAttempts].some((attempt) =>
+      attempt.status === 'rejected' && hasPostgresCode(attempt.reason, '40P01'))).toBe(false);
+    expect(workerAttempts.every(({ status }) => status === 'fulfilled')).toBe(true);
+    if (cancelAttempt.status === 'rejected') {
+      expect(cancelAttempt.reason).toMatchObject({ code: 'ORDER_NOT_CANCELLABLE' });
+    }
+    const cancellationWins = cancelAttempt.status === 'fulfilled' && cancelAttempt.value.changed ? 1 : 0;
+    const timeoutWins = workerAttempts.filter((attempt) =>
+      attempt.status === 'fulfilled' && attempt.value.kind === 'closed').length;
+    expect(cancellationWins + timeoutWins).toBe(1);
+
+    const order = await runtime.prisma.salesOrder.findUniqueOrThrow({ where: { id: facts.orderId } });
+    expect(order).toMatchObject({
+      fulfillment_status: 'NOT_STARTED',
+      order_status: 'CLOSED',
+      version: 2,
+    });
+    expect(['PAYMENT_TIMEOUT', 'USER_CANCELLED']).toContain(order.close_reason);
+    const reservation = await runtime.prisma.inventoryReservation.findUniqueOrThrow({
+      where: { id: facts.reservationId },
+    });
+    expect(reservation).toMatchObject({
+      status: order.close_reason === 'USER_CANCELLED' ? 'RELEASED' : 'EXPIRED',
+    });
+    expect(reservation.released_at).toBeInstanceOf(Date);
+
+    const releases = await runtime.prisma.inventoryLedger.findMany({
+      where: {
+        business_id: facts.reservationId,
+        ledger_type: 'ORDER_RELEASE',
+        sku_id: catalog.skuId,
+      },
+    });
+    expect(releases).toHaveLength(1);
+    expect(releases[0]).toMatchObject({
+      actor_account_id: order.close_reason === 'USER_CANCELLED' ? customer.accountId : null,
+      locked_after: 0,
+      locked_change: -1,
+      physical_after: 5,
+      physical_change: 0,
+      reason: order.close_reason,
+    });
+    const balance = await runtime.prisma.inventoryBalance.findUniqueOrThrow({ where: { id: catalog.balanceId } });
+    expect(balance).toMatchObject({ locked_qty: 0, physical_qty: 5, version: 3 });
+    expect(balance.physical_qty).toBeGreaterThanOrEqual(balance.locked_qty);
+    expect(balance.locked_qty).toBeGreaterThanOrEqual(0);
+
+    const repeatWorkers = await Promise.allSettled(Array.from({ length: 4 }, () =>
+      runSerializableWithoutDeadlockRetry(
+        runtime,
+        (transaction) => repository.expireNextOrderInTransaction(transaction),
+      )));
+    expect(repeatWorkers.some((attempt) =>
+      attempt.status === 'rejected' && hasPostgresCode(attempt.reason, '40P01'))).toBe(false);
+    expect(repeatWorkers.every((attempt) =>
+      attempt.status === 'fulfilled' && attempt.value.kind === 'none')).toBe(true);
+    await expect(runtime.prisma.inventoryLedger.count({
+      where: {
+        business_id: facts.reservationId,
+        ledger_type: 'ORDER_RELEASE',
+        sku_id: catalog.skuId,
+      },
+    })).resolves.toBe(1);
+  }, 120_000);
+
+  fullIt('converges without deadlock when order cancellation races an inventory adjustment', async () => {
+    const catalog = createCatalogFixture();
+    const customer = createCustomerFixture();
+    const facts = await runtime.withPrismaTransaction(async (transaction) => {
+      await seedCatalog(transaction, catalog, { physicalQty: 5 });
+      await seedCustomer(transaction, customer, customer.customerId);
+      const created = await repository.createOrderInTransaction(
+        transaction,
+        buyNowInput(customer, catalog),
+        createHooks(),
+      );
+      return {
+        orderId: created.order.orderId,
+        reservationId: created.reservation.reservationId,
+      };
+    }, transactionOptions);
+    const inventory = new InventoryRepository(runtime.prisma);
+    const adjustmentLedgerId = generateUlid();
+
+    const attempts = await Promise.allSettled([
+      runSerializableWithoutDeadlockRetry(runtime, (transaction) =>
+        repository.cancelOwnedOrderInTransaction(transaction, {
+          accountId: customer.accountId,
+          customerId: customer.customerId,
+          expectedVersion: 1,
+          orderId: facts.orderId,
+        })),
+      runSerializableWithoutDeadlockRetry(runtime, (transaction) =>
+        inventory.applyAdjustmentInTransaction(transaction, {
+          actorId: customer.accountId,
+          expectedVersion: 2,
+          ledgerId: adjustmentLedgerId,
+          physicalDelta: 1,
+          reason: 'B9 close concurrency integration adjustment',
+          skuId: catalog.skuId,
+        })),
+    ]);
+    expect(attempts.some(({ status, ...attempt }) =>
+      status === 'rejected' && hasPostgresCode(attempt.reason, '40P01'))).toBe(false);
+    expect(attempts[0]).toMatchObject({ status: 'fulfilled', value: { changed: true } });
+    if (attempts[1]?.status === 'rejected') {
+      expect(attempts[1].reason).toMatchObject({ code: 'RESOURCE_VERSION_CONFLICT' });
+    }
+    const adjustmentSucceeded = attempts[1]?.status === 'fulfilled';
+
+    await expect(runtime.prisma.salesOrder.findUniqueOrThrow({ where: { id: facts.orderId } }))
+      .resolves.toMatchObject({
+        close_reason: 'USER_CANCELLED',
+        fulfillment_status: 'NOT_STARTED',
+        order_status: 'CLOSED',
+        version: 2,
+      });
+    await expect(runtime.prisma.inventoryReservation.findUniqueOrThrow({
+      where: { id: facts.reservationId },
+    })).resolves.toMatchObject({ released_at: expect.any(Date), status: 'RELEASED' });
+    const balance = await runtime.prisma.inventoryBalance.findUniqueOrThrow({ where: { id: catalog.balanceId } });
+    expect(balance).toMatchObject({
+      locked_qty: 0,
+      physical_qty: adjustmentSucceeded ? 6 : 5,
+      version: adjustmentSucceeded ? 4 : 3,
+    });
+    expect(balance.physical_qty).toBeGreaterThanOrEqual(balance.locked_qty);
+    expect(balance.locked_qty).toBeGreaterThanOrEqual(0);
+    await expect(runtime.prisma.inventoryLedger.count({
+      where: {
+        business_id: facts.reservationId,
+        ledger_type: 'ORDER_RELEASE',
+        sku_id: catalog.skuId,
+      },
+    })).resolves.toBe(1);
+    await expect(runtime.prisma.inventoryLedger.count({
+      where: { id: adjustmentLedgerId, ledger_type: 'MANUAL_INCREASE', sku_id: catalog.skuId },
+    })).resolves.toBe(adjustmentSucceeded ? 1 : 0);
+  }, 120_000);
+
+  fullIt('converges without deadlock when order cancellation races Product and SKU deactivation', async () => {
+    for (const targetType of ['PRODUCT', 'SKU'] as const) {
+      const catalog = createCatalogFixture();
+      const customer = createCustomerFixture();
+      const facts = await runtime.withPrismaTransaction(async (transaction) => {
+        await seedCatalog(transaction, catalog, { physicalQty: 5 });
+        await seedCustomer(transaction, customer, `${targetType}-${customer.customerId}`);
+        const created = await repository.createOrderInTransaction(
+          transaction,
+          buyNowInput(customer, catalog),
+          createHooks(),
+        );
+        return {
+          orderId: created.order.orderId,
+          reservationId: created.reservation.reservationId,
+        };
+      }, transactionOptions);
+      const products = new ProductCatalogRepository(runtime.prisma);
+      const targetId = targetType === 'PRODUCT' ? catalog.productId : catalog.skuId;
+
+      const attempts = await Promise.allSettled([
+        runSerializableWithoutDeadlockRetry(runtime, (transaction) =>
+          repository.cancelOwnedOrderInTransaction(transaction, {
+            accountId: customer.accountId,
+            customerId: customer.customerId,
+            expectedVersion: 1,
+            orderId: facts.orderId,
+          })),
+        runSerializableWithoutDeadlockRetry(runtime, (transaction) =>
+          products.applyLifecycleInTransaction(transaction, {
+            action: 'DEACTIVATE',
+            expectedVersion: 1,
+            targetId,
+            targetType,
+          })),
+      ]);
+      expect(attempts.some(({ status, ...attempt }) =>
+        status === 'rejected' && hasPostgresCode(attempt.reason, '40P01'))).toBe(false);
+      expect(attempts).toMatchObject([
+        { status: 'fulfilled', value: { changed: true } },
+        { status: 'fulfilled' },
+      ]);
+
+      await expect(runtime.prisma.salesOrder.findUniqueOrThrow({ where: { id: facts.orderId } }))
+        .resolves.toMatchObject({
+          close_reason: 'USER_CANCELLED',
+          fulfillment_status: 'NOT_STARTED',
+          order_status: 'CLOSED',
+          version: 2,
+        });
+      await expect(runtime.prisma.inventoryReservation.findUniqueOrThrow({
+        where: { id: facts.reservationId },
+      })).resolves.toMatchObject({ released_at: expect.any(Date), status: 'RELEASED' });
+      const balance = await runtime.prisma.inventoryBalance.findUniqueOrThrow({
+        where: { id: catalog.balanceId },
+      });
+      expect(balance).toMatchObject({ locked_qty: 0, physical_qty: 5, version: 3 });
+      expect(balance.physical_qty).toBeGreaterThanOrEqual(balance.locked_qty);
+      expect(balance.locked_qty).toBeGreaterThanOrEqual(0);
+      await expect(targetType === 'PRODUCT'
+        ? runtime.prisma.product.findUniqueOrThrow({ where: { id: targetId } })
+        : runtime.prisma.sku.findUniqueOrThrow({ where: { id: targetId } }))
+        .resolves.toMatchObject({ status: 'INACTIVE', version: 2 });
+      await expect(runtime.prisma.inventoryLedger.count({
+        where: {
+          business_id: facts.reservationId,
+          ledger_type: 'ORDER_RELEASE',
+          sku_id: catalog.skuId,
+        },
+      })).resolves.toBe(1);
+    }
   }, 120_000);
 
   fullIt('allows at most one order to reserve the same final unit and preserves the balance invariant', async () => {

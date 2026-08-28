@@ -10,7 +10,7 @@
 | 目标用户 | 终端消费者、一级代理、总部商城经营人员 |
 | 人员角色 | `SUPER_ADMIN`、`AGENT_ADMIN`、`CUSTOMER` |
 | 更新日期 | 2026-08-28 |
-| 文档状态 | B0 至 B8 development 已完成；B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 同 SHA 双绿，CH-017 已失效；CH-019/CH-020 已批准，产品/API 基线为 v2.4.7/CH-020；B9.0-B9.2 已完成，B9.2 经三路独立复审达到 `P0=0/P1=0/P2=0` 后暂停，B9.3-B9.5 未开始并等待用户批准 B9.3；仅允许 Mock Provider 和脱敏 development，staging/production 均为 `NO-GO` |
+| 文档状态 | B0 至 B8 development 已完成；B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 同 SHA 双绿，CH-017 已失效；CH-019/CH-020 已批准，产品/API 基线为 v2.4.7/CH-020；B9.0-B9.3 已完成，B9.3 经独立复审达到 `P0=0/P1=0` 后暂停，B9.4-B9.5 未开始并等待用户批准 B9.4；B9 development 尚未 `GO`，仅允许 Mock Provider 和脱敏 development，staging/production 均为 `NO-GO` |
 
 ## 1. MVP 概述
 
@@ -400,14 +400,14 @@ Supabase 在当前 MVP 中仅作为 PostgreSQL 托管服务。消费者小程序
 
 ## 9. 里程碑建议
 
-B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 的普通 CI Run `33141704459` 与 Supabase rollback-only Run `33142971501` 同 SHA 双绿，B8 development `GO`，CH-017 已失效。CH-019/CH-020 已批准；B9.0 已完成三项远端门禁，B9.1/B9.2 已完成并在各自独立复审达到 `P0=0/P1=0` 后暂停。B9.3-B9.5 未开始，等待用户批准 B9.3；任何 development 结果都不等同于 staging 或生产许可。
+B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 的普通 CI Run `33141704459` 与 Supabase rollback-only Run `33142971501` 同 SHA 双绿，B8 development `GO`，CH-017 已失效。CH-019/CH-020 已批准；B9.0 已完成三项远端门禁，B9.1-B9.3 已完成并在各自独立复审达到 `P0=0/P1=0` 后暂停。B9.4-B9.5 未开始，等待用户批准 B9.4；任何 development 结果都不等同于 staging 或生产许可。
 
 | 阶段 | 主要交付物 | 当前状态 |
 |---|---|---|
 | 需求确认 | MVP、三端角色确认、变更记录 | CH-019/CH-020 与 v2.4.7 基线已登记 |
 | 产品设计 | PRD、三端信息架构、可点击原型、Figma 重建规范 | B8 收藏、服务端购物车、游客合并和地址边界已同步；页面仍为 21/9/22 |
 | 技术设计 | 系统架构、数据库 ERD、接口文档、OpenAPI、Prisma 草案与部署拓扑 | CH-020 实测 173 paths/198 operations/198 unique operationId/325 schemas/703 schema refs/2,665 local refs/0 dangling refs，Redocly 0 warning；0001 不变，允许 0002 索引迁移 |
-| 开发与测试 | 三端工程、API、数据库、自动化测试 | B0-B8 development 已通过；B9.0-B9.2 已完成，B9.2 `P0=0/P1=0/P2=0` 后暂停；B9.3-B9.5 未开始 |
+| 开发与测试 | 三端工程、API、数据库、自动化测试 | B0-B8 development 已通过；B9.0-B9.3 已完成，B9.3 `P0=0/P1=0` 后暂停；B9.4-B9.5 未开始 |
 | 上线准备 | 微信资质、真实支付退款、隐私合规、部署与验收 | 未开始 |
 
 ## 10. 风险与应对
@@ -485,15 +485,15 @@ B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 的普通 CI Run `33141
 
 - 尚无真实用户访谈、历史订单、代理规模、佣金预算、商品规模和并发数据；指标阈值需试运行后校准。
 - 尚无微信正式参数、物流合同、隐私文本、线下打款财务制度和法律审核结论。
-- 当前交付物仍不是完整可用商城业务系统。B0-B8 development 与 B9.0-B9.2 已完成；B9.3-B9.5 的查询/取消/超时、小程序和总验收尚未开始。支付、退款、履约和售后继续排除。
+- 当前交付物仍不是完整可用商城业务系统。B0-B8 development 与 B9.0-B9.3 已完成；订单查询、主动取消和超时释放已具备，B9.4 小程序和 B9.5 总验收尚未开始。支付、退款、履约和售后继续排除。
 
 ## 13. 后续建议
 
 1. B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 的普通 CI Run `33141704459` 与 Supabase rollback-only Run `33142971501` 同 SHA 双绿，B8 development `GO`，CH-017 已失效。
-2. B9.0-B9.2 已完成；B9.2 经三路独立复审达到 `P0=0/P1=0/P2=0` 后暂停，当前等待用户批准 B9.3。
-3. B9.3-B9.5 在获批后依次交付查询/取消/超时 Worker、小程序和总验收，每批 `P0=0/P1=0` 后暂停。
+2. B9.0-B9.3 已完成；B9.3 经独立复审达到 `P0=0/P1=0` 后暂停，当前等待用户批准 B9.4。
+3. B9.4-B9.5 在获批后依次交付小程序和总验收，每批 `P0=0/P1=0` 后暂停。
 4. CH-019 只适用于脱敏 development 并在 B9.5 后失效；第一次进入 staging 前仍须外部独立复核。
 
 ---
 
-项目状态：三端 MVP 产品/API 基线为 v2.4.7（CH-020）。B0 至 B8 development 已通过；B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 同 SHA 双绿，CH-017 已失效。CH-019/CH-020 已批准；B9.0-B9.2 已完成，B9.2 经三路独立复审达到 `P0=0/P1=0/P2=0` 后暂停。B9.3-B9.5 未开始，等待用户批准 B9.3。目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线还须通过真实 Provider、恢复演练和合规门禁。
+项目状态：三端 MVP 产品/API 基线为 v2.4.7（CH-020）。B0 至 B8 development 已通过；B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 同 SHA 双绿，CH-017 已失效。CH-019/CH-020 已批准；B9.0-B9.3 已完成，B9.3 经独立复审达到 `P0=0/P1=0` 后暂停。B9.4-B9.5 未开始，等待用户批准 B9.4；B9 development 尚未 `GO`。目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线还须通过真实 Provider、恢复演练和合规门禁。

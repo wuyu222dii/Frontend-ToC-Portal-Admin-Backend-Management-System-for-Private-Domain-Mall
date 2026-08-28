@@ -6,6 +6,7 @@ import {
   FILE_STAGING_CLEANUP_EVENT_TYPE,
   FileAssetRepository,
   OutboxRepository,
+  StoreOrderRepository,
 } from '@qingxu/database';
 import { createS3ObjectStorage } from '@qingxu/storage';
 import { createClient } from 'redis';
@@ -30,6 +31,11 @@ import {
   WORKER_HANDLER_REGISTRY,
   type WorkerHandlerRegistry,
 } from './outbox-dispatcher.service';
+import {
+  ORDER_TIMEOUT_AUDIT_REPOSITORY,
+  ORDER_TIMEOUT_REPOSITORY,
+  OrderTimeoutService,
+} from './order-timeout.service';
 import { WorkerController } from './worker.controller';
 
 export function workerRedisReconnectDelay(retries: number): number {
@@ -74,6 +80,18 @@ export class WorkerModule {
           useFactory: (database: ReturnType<typeof createWorkerDatabaseRuntime>) => new CallbackInboxRepository(database),
         },
         {
+          provide: ORDER_TIMEOUT_REPOSITORY,
+          inject: [DATABASE_RUNTIME],
+          useFactory: (database: ReturnType<typeof createWorkerDatabaseRuntime>) =>
+            new StoreOrderRepository(database.prisma),
+        },
+        {
+          provide: ORDER_TIMEOUT_AUDIT_REPOSITORY,
+          inject: [WORKER_CONFIG],
+          useFactory: (runtimeConfig: PlatformRuntimeConfig) =>
+            new AuditRepository(runtimeConfig.encryption.ipHashKey),
+        },
+        {
           provide: FILE_CLEANUP_REPOSITORY,
           inject: [DATABASE_RUNTIME],
           useFactory: (database: ReturnType<typeof createWorkerDatabaseRuntime>) =>
@@ -103,6 +121,7 @@ export class WorkerModule {
         },
         OutboxDispatcherService,
         FileCleanupService,
+        OrderTimeoutService,
       ],
     };
   }

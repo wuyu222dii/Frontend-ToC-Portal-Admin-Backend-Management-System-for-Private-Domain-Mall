@@ -116,8 +116,35 @@ const orderResponse = {
   refund_progress_status: 'NONE',
   server_time: '2026-08-28T00:00:00.000Z',
 };
+const listResponse = {
+  items: [],
+  pagination: { page: 1, page_size: 20, total: 0 },
+};
+const detailResponse = {
+  ...orderResponse,
+  aftersales: [],
+  available_actions: ['CANCEL'],
+  errors: [],
+  packages: [],
+  payment_attempts: [],
+  refund_attempts: [],
+  shipping_address: {
+    city: 'Hangzhou',
+    detail: 'Development fixture detail',
+    district: 'Binjiang',
+    phone: '00000000000',
+    province: 'Zhejiang',
+    recipient_name: 'Development Fixture',
+  },
+  timeline: [],
+  version: 3,
+};
 
 const createOrder = vi.fn();
+const listOrders = vi.fn();
+const getOrder = vi.fn();
+const cancelOrder = vi.fn();
+const orderService = { cancelOrder, createOrder, getOrder, listOrders };
 const findUnique = vi.fn();
 const redisEval = vi.fn();
 const database = {
@@ -157,7 +184,7 @@ function expectNoStore(response: { headers: Record<string, string | string[] | u
   controllers: [StoreOrdersController],
   providers: [
     StoreCustomerRateLimitGuard,
-    { provide: StoreOrdersService, useValue: { createOrder } },
+    { provide: StoreOrdersService, useValue: orderService },
     { provide: API_RUNTIME_CONFIG, useValue: runtimeConfig },
     { provide: API_DATABASE_RUNTIME, useValue: database },
     { provide: API_REDIS_CLIENT, useValue: redis },
@@ -196,7 +223,7 @@ class SuperAdminTestGuard implements CanActivate {
   controllers: [StoreOrdersController],
   providers: [
     StoreCustomerRateLimitGuard,
-    { provide: StoreOrdersService, useValue: { createOrder } },
+    { provide: StoreOrdersService, useValue: orderService },
     { provide: APP_FILTER, useClass: ErrorEnvelopeFilter },
     { provide: APP_GUARD, useClass: SuperAdminTestGuard },
     { provide: APP_GUARD, useClass: RbacGuard },
@@ -209,7 +236,7 @@ class StoreOrdersForbiddenTestModule implements NestModule {
   }
 }
 
-describe('B9.2 Store order creation HTTP boundary', () => {
+describe('B9.2-B9.3 Store order HTTP boundary', () => {
   let app: INestApplication;
   let forbiddenApp: INestApplication;
 
@@ -235,6 +262,9 @@ describe('B9.2 Store order creation HTTP boundary', () => {
     findUnique.mockResolvedValue(sessionRow());
     redisEval.mockResolvedValue([1, 60]);
     createOrder.mockResolvedValue(orderResponse);
+    listOrders.mockResolvedValue(listResponse);
+    getOrder.mockResolvedValue(detailResponse);
+    cancelOrder.mockResolvedValue(orderResponse);
   });
 
   it('returns 201 no-store and passes the authenticated command context', async () => {
@@ -264,6 +294,79 @@ describe('B9.2 Store order creation HTTP boundary', () => {
     expectNoStore(response);
   });
 
+  it('maps B9.3 list, detail and cancel through CUSTOMER no-store boundaries', async () => {
+    const bearer = `Bearer ${storeToken}`;
+    const listed = await request(app.getHttpServer())
+      .get('/api/v1/store/orders?page=3&page_size=50&display_group=REFUND_AFTERSALE' +
+        '&order_no=%20QX01J00000000000000000000008%20&order_status=SHIPPING&payment_status=PAID' +
+        '&refund_progress_status=PARTIAL&refund_processing_status=REFUNDING' +
+        '&fulfillment_status=IN_TRANSIT&date_from=2026-08-25&date_to=2026-08-26' +
+        '&min_amount=19.90&max_amount=99.90&sort=AMOUNT_DESC')
+      .set('Authorization', bearer)
+      .expect(200);
+    expect(listed.body.data).toEqual(listResponse);
+    expect(listOrders).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: ACCOUNT_ID, customerId: CUSTOMER_ID, sessionId: SESSION_ID }),
+      {
+        createdAtFrom: new Date('2026-08-24T16:00:00.000Z'),
+        createdAtToExclusive: new Date('2026-08-26T16:00:00.000Z'),
+        displayGroup: 'REFUND_AFTERSALE',
+        fulfillmentStatus: 'IN_TRANSIT',
+        maxAmount: '99.90',
+        minAmount: '19.90',
+        orderNo: `QX${ORDER_ID}`,
+        orderStatus: 'SHIPPING',
+        page: 3,
+        pageSize: 50,
+        paymentStatus: 'PAID',
+        refundProcessingStatus: 'REFUNDING',
+        refundProgressStatus: 'PARTIAL',
+        sort: 'AMOUNT_DESC',
+      },
+    );
+    expectNoStore(listed);
+
+    const fetched = await request(app.getHttpServer())
+      .get(`/api/v1/store/orders/${ORDER_ID}`)
+      .set('Authorization', bearer)
+      .expect(200);
+    expect(fetched.body.data).toEqual(detailResponse);
+    expect(getOrder).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: ACCOUNT_ID, customerId: CUSTOMER_ID, sessionId: SESSION_ID }),
+      ORDER_ID,
+    );
+    expectNoStore(fetched);
+
+    const cancelled = await request(app.getHttpServer())
+      .post(`/api/v1/store/orders/${ORDER_ID}/cancel`)
+      .set('Authorization', bearer)
+      .set('Idempotency-Key', IDEMPOTENCY_KEY)
+      .set('If-Match', '"3"')
+      .send({})
+      .expect(200);
+    expect(cancelled.body.data).toEqual(orderResponse);
+    expect(cancelOrder).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: ACCOUNT_ID, customerId: CUSTOMER_ID, sessionId: SESSION_ID }),
+      ORDER_ID,
+      3,
+      IDEMPOTENCY_KEY,
+      expect.stringMatching(/^req_[0-9a-f]{32}$/),
+      expect.any(String),
+    );
+    expectNoStore(cancelled);
+  });
+
+  it('applies B9.3 list defaults at the HTTP boundary', async () => {
+    await request(app.getHttpServer())
+      .get('/api/v1/store/orders')
+      .set('Authorization', `Bearer ${storeToken}`)
+      .expect(200);
+    expect(listOrders).toHaveBeenCalledWith(
+      expect.objectContaining({ customerId: CUSTOMER_ID }),
+      { displayGroup: 'ALL', page: 1, pageSize: 20, sort: 'CREATED_DESC' },
+    );
+  });
+
   it.each([
     ['missing Idempotency-Key', undefined, submitBody, ''],
     ['malformed Idempotency-Key', 'not-a-uuid', submitBody, ''],
@@ -281,6 +384,63 @@ describe('B9.2 Store order creation HTTP boundary', () => {
     expectNoStore(response);
   });
 
+  it('rejects open B9.3 queries, bodies, path IDs and mutation headers before dispatch', async () => {
+    const bearer = `Bearer ${storeToken}`;
+    const probes = [
+      () => request(app.getHttpServer()).get('/api/v1/store/orders?include_deleted=true'),
+      () => request(app.getHttpServer()).get('/api/v1/store/orders?page=0'),
+      () => request(app.getHttpServer()).get('/api/v1/store/orders?display_group=CLOSED'),
+      () => request(app.getHttpServer()).get('/api/v1/store/orders?date_from=2026-08-27&date_to=2026-08-26'),
+      () => request(app.getHttpServer()).get('/api/v1/store/orders?min_amount=100.00&max_amount=99.99'),
+      () => request(app.getHttpServer()).get('/api/v1/store/orders').send({ include: 'items' }),
+      () => request(app.getHttpServer()).get('/api/v1/store/orders/not-an-ulid'),
+      () => request(app.getHttpServer()).get(`/api/v1/store/orders/${ORDER_ID}?expand=payment`),
+      () => request(app.getHttpServer()).get(`/api/v1/store/orders/${ORDER_ID}`).send({ reveal: true }),
+      () => request(app.getHttpServer())
+        .post(`/api/v1/store/orders/${ORDER_ID}/cancel`)
+        .set('Idempotency-Key', IDEMPOTENCY_KEY)
+        .send({}),
+      () => request(app.getHttpServer())
+        .post(`/api/v1/store/orders/${ORDER_ID}/cancel`)
+        .set('If-Match', '"3"')
+        .send({}),
+      () => request(app.getHttpServer())
+        .post(`/api/v1/store/orders/${ORDER_ID}/cancel`)
+        .set('Idempotency-Key', 'not-a-uuid')
+        .set('If-Match', '"3"')
+        .send({}),
+      () => request(app.getHttpServer())
+        .post(`/api/v1/store/orders/${ORDER_ID}/cancel`)
+        .set('Idempotency-Key', IDEMPOTENCY_KEY)
+        .set('If-Match', 'W/"3"')
+        .send({}),
+      () => request(app.getHttpServer())
+        .post('/api/v1/store/orders/not-an-ulid/cancel')
+        .set('Idempotency-Key', IDEMPOTENCY_KEY)
+        .set('If-Match', '"3"')
+        .send({}),
+      () => request(app.getHttpServer())
+        .post(`/api/v1/store/orders/${ORDER_ID}/cancel?force=true`)
+        .set('Idempotency-Key', IDEMPOTENCY_KEY)
+        .set('If-Match', '"3"')
+        .send({}),
+      () => request(app.getHttpServer())
+        .post(`/api/v1/store/orders/${ORDER_ID}/cancel`)
+        .set('Idempotency-Key', IDEMPOTENCY_KEY)
+        .set('If-Match', '"3"')
+        .send({ reason: 'open body' }),
+    ];
+
+    for (const createProbe of probes) {
+      const response = await createProbe().set('Authorization', bearer).expect(400);
+      expect(response.body.code).toBe('INVALID_ARGUMENT');
+      expectNoStore(response);
+    }
+    expect(listOrders).not.toHaveBeenCalled();
+    expect(getOrder).not.toHaveBeenCalled();
+    expect(cancelOrder).not.toHaveBeenCalled();
+  });
+
   it('keeps malformed JSON no-store before guards and service dispatch', async () => {
     const response = await request(app.getHttpServer())
       .post('/api/v1/store/orders')
@@ -295,27 +455,47 @@ describe('B9.2 Store order creation HTTP boundary', () => {
     expectNoStore(response);
   });
 
-  it('requires a valid CUSTOMER session before rate limiting or dispatch', async () => {
-    const response = await request(app.getHttpServer())
-      .post('/api/v1/store/orders')
-      .set('Idempotency-Key', IDEMPOTENCY_KEY)
-      .send(submitBody)
-      .expect(401);
-    expect(response.body.code).toBe('AUTH_REQUIRED');
+  it('requires a valid CUSTOMER session before rate limiting or dispatch on all B9 routes', async () => {
+    const probes = [
+      () => request(app.getHttpServer()).get('/api/v1/store/orders'),
+      () => request(app.getHttpServer())
+        .post('/api/v1/store/orders').set('Idempotency-Key', IDEMPOTENCY_KEY).send(submitBody),
+      () => request(app.getHttpServer()).get(`/api/v1/store/orders/${ORDER_ID}`),
+      () => request(app.getHttpServer())
+        .post(`/api/v1/store/orders/${ORDER_ID}/cancel`)
+        .set('Idempotency-Key', IDEMPOTENCY_KEY).set('If-Match', '"3"').send({}),
+    ];
+    for (const createProbe of probes) {
+      const response = await createProbe().expect(401);
+      expect(response.body.code).toBe('AUTH_REQUIRED');
+      expectNoStore(response);
+    }
     expect(redisEval).not.toHaveBeenCalled();
     expect(createOrder).not.toHaveBeenCalled();
-    expectNoStore(response);
+    expect(listOrders).not.toHaveBeenCalled();
+    expect(getOrder).not.toHaveBeenCalled();
+    expect(cancelOrder).not.toHaveBeenCalled();
   });
 
-  it('rejects a non-CUSTOMER principal before controller guards or dispatch', async () => {
-    const response = await request(forbiddenApp.getHttpServer())
-      .post('/api/v1/store/orders')
-      .set('Idempotency-Key', IDEMPOTENCY_KEY)
-      .send(submitBody)
-      .expect(403);
-    expect(response.body.code).toBe('PERMISSION_DENIED');
+  it('rejects a non-CUSTOMER principal before controller guards or dispatch on all B9 routes', async () => {
+    const probes = [
+      () => request(forbiddenApp.getHttpServer()).get('/api/v1/store/orders'),
+      () => request(forbiddenApp.getHttpServer())
+        .post('/api/v1/store/orders').set('Idempotency-Key', IDEMPOTENCY_KEY).send(submitBody),
+      () => request(forbiddenApp.getHttpServer()).get(`/api/v1/store/orders/${ORDER_ID}`),
+      () => request(forbiddenApp.getHttpServer())
+        .post(`/api/v1/store/orders/${ORDER_ID}/cancel`)
+        .set('Idempotency-Key', IDEMPOTENCY_KEY).set('If-Match', '"3"').send({}),
+    ];
+    for (const createProbe of probes) {
+      const response = await createProbe().expect(403);
+      expect(response.body.code).toBe('PERMISSION_DENIED');
+      expectNoStore(response);
+    }
     expect(createOrder).not.toHaveBeenCalled();
-    expectNoStore(response);
+    expect(listOrders).not.toHaveBeenCalled();
+    expect(getOrder).not.toHaveBeenCalled();
+    expect(cancelOrder).not.toHaveBeenCalled();
   });
 
   it('preserves exact Retry-After from the shared limiter', async () => {
@@ -329,6 +509,18 @@ describe('B9.2 Store order creation HTTP boundary', () => {
     expect(response.body.code).toBe('RATE_LIMITED');
     expect(response.headers['retry-after']).toBe('17');
     expect(createOrder).not.toHaveBeenCalled();
+    expectNoStore(response);
+  });
+
+  it('preserves exact Retry-After on the B9.3 read boundary', async () => {
+    redisEval.mockResolvedValueOnce([121, 19]);
+    const response = await request(app.getHttpServer())
+      .get('/api/v1/store/orders')
+      .set('Authorization', `Bearer ${storeToken}`)
+      .expect(429);
+    expect(response.body.code).toBe('RATE_LIMITED');
+    expect(response.headers['retry-after']).toBe('19');
+    expect(listOrders).not.toHaveBeenCalled();
     expectNoStore(response);
   });
 

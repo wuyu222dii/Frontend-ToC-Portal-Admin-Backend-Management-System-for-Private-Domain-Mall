@@ -10,7 +10,7 @@ const FAVORITE_ID = '01J60000000000000000000000';
 const ADDRESS_ID = '01J70000000000000000000000';
 const ACCESS_TOKEN = `access_${'a'.repeat(48)}`;
 const REFRESH_TOKEN = `refresh_${'b'.repeat(48)}`;
-const PHONE = '13800000000';
+const PHONE = '10000000000';
 const LOGIN_CODE = 'mock:b8_ui_customer';
 
 function delay(milliseconds: number): Promise<void> {
@@ -132,7 +132,7 @@ class MockB8Backend {
     return [{
       address_id: this.address.address_id,
       recipient_name_masked: '青***',
-      phone_masked: '138 **** 0000',
+      phone_masked: '100 **** 0000',
       province: this.address.province,
       city: this.address.city,
       district: this.address.district,
@@ -442,7 +442,7 @@ test('B8.4 authenticated shopping surfaces fit every acceptance viewport', async
 
   await page.getByLabel('返回').click();
   await page.getByLabel('收货地址').click();
-  await expect(page.getByText('138 **** 0000', { exact: true })).toBeVisible();
+  await expect(page.getByText('100 **** 0000', { exact: true })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await page.screenshot({ fullPage: true, path: testInfo.outputPath('addresses.png') });
 

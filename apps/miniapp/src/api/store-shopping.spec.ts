@@ -69,11 +69,11 @@ describe('B8 shopping authenticated client', () => {
     void putStoreCartItem(SKU_ID, { quantity: 3, selected: true }, 'cart-write-key');
     void mergeStoreCart({ items: [{ sku_id: SKU_ID, quantity: 2, selected: false }] }, 'merge-key');
     void createStoreAddress({
-      recipient_name: '张三', phone: '13800000000', province: '浙江省', city: '杭州市',
+      recipient_name: '张三', phone: '10000000000', province: '浙江省', city: '杭州市',
       district: '西湖区', detail: '文一路 1 号', is_default: true,
     }, 'address-create-key');
     void updateStoreAddress(ADDRESS_ID, {
-      recipient_name: '张三', phone: '13800000000', province: '浙江省', city: '杭州市',
+      recipient_name: '张三', phone: '10000000000', province: '浙江省', city: '杭州市',
       district: '西湖区', detail: '文一路 2 号', is_default: true,
     }, 4, 'address-update-key');
     void deleteStoreAddress(ADDRESS_ID, 5, 'address-delete-key');
@@ -100,7 +100,7 @@ describe('B8 shopping authenticated client', () => {
     expect(() => putFavorite('not-a-product')).toThrow('product_id is invalid');
     expect(() => putFavorite(PRODUCT_ID.toLowerCase())).toThrow('product_id is invalid');
     expect(() => updateStoreAddress('not-an-address', {
-      recipient_name: '张三', phone: '13800000000', province: '浙江省', city: '杭州市',
+      recipient_name: '张三', phone: '10000000000', province: '浙江省', city: '杭州市',
       district: '西湖区', detail: '文一路 2 号', is_default: false,
     }, 1)).toThrow('address_id is invalid');
     expect(requests).toHaveLength(0);

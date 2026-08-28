@@ -55,7 +55,7 @@ describe('B8 shopping response decoders', () => {
     expect(decodeStoreAddressList([{
       address_id: ADDRESS_ID,
       recipient_name_masked: '张*',
-      phone_masked: '138 **** 0000',
+      phone_masked: '100 **** 0000',
       province: '浙江省',
       city: '杭州市',
       district: '西湖区',
@@ -66,14 +66,14 @@ describe('B8 shopping response decoders', () => {
     expect(decodeStoreAddressDetail({
       address_id: ADDRESS_ID,
       recipient_name: '张三',
-      phone: '13800000000',
+      phone: '10000000000',
       province: '浙江省',
       city: '杭州市',
       district: '西湖区',
       detail: '文一路 1 号',
       is_default: true,
       version: 2,
-    }).phone).toBe('13800000000');
+    }).phone).toBe('10000000000');
   });
 
   it.each([

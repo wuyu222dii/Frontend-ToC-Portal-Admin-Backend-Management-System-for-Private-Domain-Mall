@@ -97,10 +97,8 @@ function integrationConfig(): PlatformRuntimeConfig {
 }
 
 function assertSafeFullDatabaseName(databaseName: string): void {
-  if (!/(?:^|[-_])b83(?:[-_]|$)/i.test(databaseName) ||
-    !/(?:^|[-_])address(?:[-_]|$)/i.test(databaseName) ||
-    !/(?:^|[-_])(?:test|ephemeral)(?:[-_]|$)/i.test(databaseName)) {
-    throw new TypeError('Full B8 Store address tests require a b83-address test/ephemeral database');
+  if (!/(?:^|[-_])(?:test|ephemeral|ci)(?:[-_]|$)/i.test(databaseName)) {
+    throw new TypeError('Full B8 Store address tests require an explicit test/ephemeral/CI database');
   }
 }
 

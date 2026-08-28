@@ -127,3 +127,9 @@ jobs:
           B7_STORE_AUTH_DATABASE_TEST_MODE: rollback
           DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
         run: pnpm db:test-b7-store-auth
+
+      - name: Run rollback-only B8 favorites, cart, address and account-deletion cleanup smoke
+        env:
+          B8_STORE_SHOPPING_DATABASE_TEST_MODE: rollback
+          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
+        run: pnpm db:test-b8-store-shopping

@@ -40,7 +40,7 @@ jobs:
       DIRECT_URL: postgresql://mall_migrator:ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}@127.0.0.1:5432/mall_ci_test
       REPLAY_DATABASE_URL: postgresql://postgres:ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}@127.0.0.1:5432/mall_ci_test
       REDIS_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
-      REDIS_URL: redis://:ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}@127.0.0.1:6379/0
+      REDIS_URL: redis://:ci-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}@127.0.0.1:6379/15
       MINIO_ROOT_USER: ci-${{ github.run_id }}
       MINIO_ROOT_PASSWORD: ci-minio-root-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
       S3_ENDPOINT: http://127.0.0.1:9000
@@ -200,6 +200,11 @@ jobs:
           B7_VERTICAL_TEST_MODE: full
         run: pnpm e2e:b7:vertical
 
+      - name: Run B8 browser to Nest, PostgreSQL, Redis and MinIO vertical smoke
+        env:
+          B8_VERTICAL_TEST_MODE: full
+        run: pnpm e2e:b8:vertical
+
       - name: Test B1 persistence and worker concurrency
         env:
           B1_DATABASE_TEST_MODE: full
@@ -266,6 +271,11 @@ jobs:
           B7_STORE_AUTH_DATABASE_TEST_MODE: full
         run: pnpm db:test-b7-store-auth
 
+      - name: Test B8 Store favorites, cart, address and account-deletion cleanup with PostgreSQL
+        env:
+          B8_STORE_SHOPPING_DATABASE_TEST_MODE: full
+        run: pnpm db:test-b8-store-shopping
+
       - name: Verify Prisma migration drift
         run: pnpm db:diff
 
@@ -298,3 +308,6 @@ jobs:
 
       - name: Run B7 Store identity and privacy browser E2E
         run: pnpm e2e:b7
+
+      - name: Run B8 authenticated shopping browser E2E
+        run: pnpm e2e:b8

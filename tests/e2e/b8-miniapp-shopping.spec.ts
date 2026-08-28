@@ -2,6 +2,7 @@ import { expect, test, type Page, type Route } from '@playwright/test';
 
 const PRODUCT_ID = '01J00000000000000000000000';
 const SKU_ID = '01J10000000000000000000000';
+const SECOND_SKU_ID = '01J80000000000000000000000';
 const CUSTOMER_ID = '01J20000000000000000000000';
 const BRAND_ID = '01J30000000000000000000000';
 const CATEGORY_ID = '01J40000000000000000000000';
@@ -72,12 +73,18 @@ class MockB8Backend {
   favoriteMutationConflictOnce = false;
   favoriteMutationDelayMs = 0;
   favoriteStateDelayOnceMs = 0;
+  favoriteListItemCount = 1;
+  favoriteStateFailurePlan: Array<429 | 500> = [];
+  favoritePutProjectionOnce: boolean | null = null;
   addressConflictOnce = false;
   addressCreateConflictOnce = false;
   addressDetailDelayOnceMs = 0;
   addressMutationBusinessErrorOnce = false;
   cartGetFailureOnce = false;
   cartWriteConflictOnce = false;
+  cartWriteDelayMs = 0;
+  activeCartWrites = 0;
+  maxConcurrentCartWrites = 0;
   mergeDelayMs = 0;
   mergeLoseResponseOnce = false;
   mergeUnauthorizedOnce = false;
@@ -110,21 +117,46 @@ class MockB8Backend {
       sku_id: item.sku_id,
       product_id: PRODUCT_ID,
       product_name: 'B8 洗护套装',
-      sku_name: '标准装',
-      spec_json: { attributes: [{ name: '容量', value: '500ml' }] },
+      sku_name: item.sku_id === SECOND_SKU_ID ? '补充装' : '标准装',
+      spec_json: {
+        attributes: [{ name: '容量', value: item.sku_id === SECOND_SKU_ID ? '300ml' : '500ml' }],
+      },
       primary_image_url: null,
       quantity: item.quantity,
       selected: item.selected,
-      retail_price: '39.00',
-      available_stock: 8,
+      retail_price: item.sku_id === SECOND_SKU_ID ? '29.00' : '39.00',
+      available_stock: item.sku_id === SECOND_SKU_ID ? 6 : 8,
       sale_status: 'SALEABLE',
     }));
-    const amount = items.reduce((total, item) => item.selected ? total + 3_900 * item.quantity : total, 0);
+    const amount = items.reduce(
+      (total, item) =>
+        item.selected
+          ? total + (item.sku_id === SECOND_SKU_ID ? 2_900 : 3_900) * item.quantity
+          : total,
+      0,
+    );
     return {
       cart_id: items.length === 0 ? null : CART_ID,
       items,
       total_amount: `${Math.floor(amount / 100)}.${String(amount % 100).padStart(2, '0')}`,
     };
+  }
+
+  private favoriteViews() {
+    return Array.from({ length: this.favoriteListItemCount }, (_, index) => ({
+      favorite_id: index === 0 ? FAVORITE_ID : `01JA${String(index).padStart(22, '0')}`,
+      created_at: '2026-08-28T01:00:00.000Z',
+      product: {
+        product_id: index === 0 ? PRODUCT_ID : `01J9${String(index).padStart(22, '0')}`,
+        name: index === 0 ? 'B8 洗护套装' : `B8 收藏商品 ${index + 1}`,
+        primary_image_url: null,
+        minimum_active_price: index === 0 && this.favoriteAvailability === 'UNAVAILABLE'
+          ? null
+          : '39.00',
+        is_salable: index === 0 ? this.favoriteAvailability === 'SALEABLE' : true,
+        availability: index === 0 ? this.favoriteAvailability : 'SALEABLE',
+      },
+    })).filter((_, index) => index !== 0 || this.favorite);
   }
 
   private addressSummary() {
@@ -228,25 +260,26 @@ class MockB8Backend {
         await fulfill(route, 500, failure('INTERNAL_ERROR', 'favorite list failed'));
         return;
       }
+      const pageNumber = Number(url.searchParams.get('page') ?? '1');
+      const pageSize = Number(url.searchParams.get('page_size') ?? '20');
+      const favorites = this.favoriteViews();
       await fulfill(route, 200, success({
-        items: this.favorite ? [{
-          favorite_id: FAVORITE_ID,
-          created_at: '2026-08-28T01:00:00.000Z',
-          product: {
-            product_id: PRODUCT_ID,
-            name: 'B8 洗护套装',
-            primary_image_url: null,
-            minimum_active_price: this.favoriteAvailability === 'UNAVAILABLE' ? null : '39.00',
-            is_salable: this.favoriteAvailability === 'SALEABLE',
-            availability: this.favoriteAvailability,
-          },
-        }] : [],
-        pagination: { page: 1, page_size: 20, total: this.favorite ? 1 : 0 },
+        items: favorites.slice((pageNumber - 1) * pageSize, pageNumber * pageSize),
+        pagination: { page: pageNumber, page_size: pageSize, total: favorites.length },
       }));
       return;
     }
     if (url.pathname === `/api/v1/store/favorites/${PRODUCT_ID}` &&
       ['DELETE', 'GET', 'PUT'].includes(method)) {
+      if (method === 'GET' && this.favoriteStateFailurePlan.length > 0) {
+        const status = this.favoriteStateFailurePlan.shift();
+        if (status === 429) {
+          await fulfill(route, 429, failure('RATE_LIMITED', 'retry later'), { 'Retry-After': '1' });
+        } else {
+          await fulfill(route, 500, failure('INTERNAL_ERROR', 'favorite state failed'));
+        }
+        return;
+      }
       if (method === 'GET' && this.favoriteStateDelayOnceMs > 0) {
         const snapshot = this.favorite;
         const wait = this.favoriteStateDelayOnceMs;
@@ -263,7 +296,10 @@ class MockB8Backend {
       if (method !== 'GET' && this.favoriteMutationDelayMs > 0) {
         await delay(this.favoriteMutationDelayMs);
       }
-      if (method === 'PUT') this.favorite = true;
+      if (method === 'PUT' && this.favoritePutProjectionOnce !== null) {
+        this.favorite = this.favoritePutProjectionOnce;
+        this.favoritePutProjectionOnce = null;
+      } else if (method === 'PUT') this.favorite = true;
       if (method === 'DELETE') this.favorite = false;
       await fulfill(route, 200, success({ product_id: PRODUCT_ID, is_favorite: this.favorite }));
       return;
@@ -312,19 +348,36 @@ class MockB8Backend {
       await fulfill(route, 200, success(this.cartView()));
       return;
     }
-    if (url.pathname === `/api/v1/store/cart/items/${SKU_ID}` && method === 'PUT') {
+    const cartItemSkuId = [SKU_ID, SECOND_SKU_ID].find(
+      (skuId) => url.pathname === `/api/v1/store/cart/items/${skuId}`,
+    );
+    if (cartItemSkuId && method === 'PUT') {
       if (this.cartWriteConflictOnce) {
         this.cartWriteConflictOnce = false;
         await fulfill(route, 409, failure('STATE_CONFLICT', 'cart changed'));
         return;
       }
-      const input = body as { quantity: number; selected: boolean };
-      this.cartItems = [{ sku_id: SKU_ID, quantity: input.quantity, selected: input.selected }];
-      await fulfill(route, 200, success(this.cartView()));
+      this.activeCartWrites += 1;
+      this.maxConcurrentCartWrites = Math.max(this.maxConcurrentCartWrites, this.activeCartWrites);
+      try {
+        if (this.cartWriteDelayMs > 0) await delay(this.cartWriteDelayMs);
+        const input = body as { quantity: number; selected: boolean };
+        const itemIndex = this.cartItems.findIndex(({ sku_id }) => sku_id === cartItemSkuId);
+        const nextItem = {
+          sku_id: cartItemSkuId,
+          quantity: input.quantity,
+          selected: input.selected,
+        };
+        if (itemIndex === -1) this.cartItems.push(nextItem);
+        else this.cartItems.splice(itemIndex, 1, nextItem);
+        await fulfill(route, 200, success(this.cartView()));
+      } finally {
+        this.activeCartWrites -= 1;
+      }
       return;
     }
-    if (url.pathname === `/api/v1/store/cart/items/${SKU_ID}` && method === 'DELETE') {
-      this.cartItems = [];
+    if (cartItemSkuId && method === 'DELETE') {
+      this.cartItems = this.cartItems.filter(({ sku_id }) => sku_id !== cartItemSkuId);
       await fulfill(route, 200, success(this.cartView()));
       return;
     }
@@ -624,6 +677,116 @@ test('B8.4 serializes favorite writes and handles search, unavailable and confli
   await expect(page.getByText('收藏加载失败', { exact: true })).toBeVisible();
   await uniButton(page, '重新加载').click();
   await expect(page.getByText('商品已失效', { exact: true })).toBeVisible();
+});
+
+test('B8.5 retries a failed favorite next page and suppresses duplicate list removal', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-390', 'Favorite pagination and mutation run once.');
+  const backend = new MockB8Backend();
+  backend.favoriteListItemCount = 21;
+  await backend.install(page);
+  await login(page);
+  await navigate(page, '/pages/favorites/index');
+
+  await expect(page.getByText('21 件', { exact: true })).toBeVisible();
+  await expect(page.getByText('B8 收藏商品 20', { exact: true })).toBeVisible();
+  await expect(page.getByText('B8 收藏商品 21', { exact: true })).toHaveCount(0);
+  backend.favoriteListFailureOnce = true;
+  await uniButton(page, '加载更多').click();
+  await expect(page.getByText('下一页加载失败', { exact: true })).toBeVisible();
+  await expect(page.getByText('B8 洗护套装', { exact: true })).toBeVisible();
+  await uniButton(page, '重新加载').click();
+  await expect(page.getByText('B8 收藏商品 21', { exact: true })).toBeVisible();
+  await expect(page.getByText('已展示全部收藏', { exact: true })).toBeVisible();
+
+  backend.favoriteMutationDelayMs = 250;
+  const removeFavorite = page.getByLabel('取消收藏B8 洗护套装');
+  await removeFavorite.evaluate((element: HTMLElement) => {
+    element.click();
+    element.click();
+  });
+  await expect(page.getByText('B8 洗护套装', { exact: true })).toHaveCount(0);
+  expect(backend.count(`/api/v1/store/favorites/${PRODUCT_ID}`, 'DELETE')).toBe(1);
+  await expect(page.getByText('20 件', { exact: true })).toBeVisible();
+});
+
+test('B8.5 recovers the product favorite projection after consecutive 429 and 500 responses', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-390', 'Favorite state recovery runs once.');
+  const backend = new MockB8Backend();
+  backend.favoriteStateFailurePlan = [429, 500];
+  await backend.install(page);
+  await login(page);
+  await navigate(page, `/pages/product/detail?product_id=${PRODUCT_ID}`);
+
+  const favoriteButton = page.locator('uni-button.detail-actions__favorite');
+  await expect(favoriteButton).toHaveAttribute('aria-label', '重新加载收藏状态');
+  await favoriteButton.click();
+  await expect.poll(() => backend.count(`/api/v1/store/favorites/${PRODUCT_ID}`, 'GET')).toBe(2);
+  await expect(favoriteButton).toHaveAttribute('aria-label', '重新加载收藏状态');
+  await favoriteButton.click();
+  await expect(favoriteButton).toHaveAttribute('aria-label', '取消收藏');
+  expect(backend.count(`/api/v1/store/favorites/${PRODUCT_ID}`, 'GET')).toBe(3);
+  expect(backend.count(`/api/v1/store/favorites/${PRODUCT_ID}`, 'PUT')).toBe(0);
+  expect(backend.count(`/api/v1/store/favorites/${PRODUCT_ID}`, 'DELETE')).toBe(0);
+});
+
+test('B8.5 honors an is_favorite false projection when resuming a protected favorite', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-390', 'Favorite login recovery runs once.');
+  const backend = new MockB8Backend();
+  backend.favorite = false;
+  backend.favoritePutProjectionOnce = false;
+  await backend.install(page);
+
+  await page.goto(`/#/pages/product/detail?product_id=${PRODUCT_ID}`);
+  await expect(page.getByText('B8 洗护套装', { exact: true })).toBeVisible();
+  await page.locator('uni-button.detail-actions__favorite').click();
+  await page.getByText('去登录', { exact: true }).last().click();
+  await inputByLabel(page, 'Mock 微信 code').fill(LOGIN_CODE);
+  await page.getByLabel('用户协议').click();
+  await page.getByLabel('隐私政策').click();
+  await uniButton(page, '微信授权登录').click();
+
+  await expect(page).toHaveURL(new RegExp(`/pages/product/detail\\?product_id=${PRODUCT_ID}$`));
+  await expect(page.getByText('收藏状态已变化，请再次操作', { exact: true })).toBeVisible();
+  await expect(page.locator('uni-button.detail-actions__favorite')).toHaveAttribute(
+    'aria-label',
+    '收藏商品',
+  );
+  expect(backend.count(`/api/v1/store/favorites/${PRODUCT_ID}`, 'PUT')).toBe(1);
+});
+
+test('B8.5 serializes delayed server-cart writes globally across two SKUs', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-390', 'Global cart serialization runs once.');
+  const backend = new MockB8Backend();
+  backend.cartItems = [
+    { quantity: 2, selected: true, sku_id: SKU_ID },
+    { quantity: 1, selected: true, sku_id: SECOND_SKU_ID },
+  ];
+  backend.cartWriteDelayMs = 800;
+  await backend.install(page);
+  await login(page);
+  await navigate(page, '/pages/cart/index', 'reLaunch');
+
+  const itemChecks = page.locator('uni-button.cart-item__check');
+  await expect(itemChecks).toHaveCount(2);
+  await itemChecks.evaluateAll((elements) => {
+    for (const element of elements) (element as HTMLElement).click();
+  });
+  await expect.poll(() => backend.calls.filter(({ method, path }) =>
+    method === 'PUT' && path.startsWith('/api/v1/store/cart/items/')).length).toBe(1);
+  await expect(itemChecks.nth(1)).toHaveAttribute('disabled', 'true');
+  await expect(itemChecks.nth(0)).toHaveAttribute('aria-label', '选择商品');
+  await expect(itemChecks.nth(1)).toHaveAttribute('aria-label', '取消选择商品');
+
+  await itemChecks.nth(1).click();
+  await expect(itemChecks.nth(0)).toHaveAttribute('aria-label', '选择商品');
+  await expect(itemChecks.nth(1)).toHaveAttribute('aria-label', '选择商品');
+  expect(backend.calls.filter(({ method, path }) =>
+    method === 'PUT' && path.startsWith('/api/v1/store/cart/items/'))).toHaveLength(2);
+  expect(backend.maxConcurrentCartWrites).toBe(1);
+  expect(backend.cartItems).toEqual([
+    { quantity: 2, selected: false, sku_id: SKU_ID },
+    { quantity: 1, selected: false, sku_id: SECOND_SKU_ID },
+  ]);
 });
 
 test('B8.4 retries authenticated add-to-cart with the same command after response loss', async ({ page }, testInfo) => {

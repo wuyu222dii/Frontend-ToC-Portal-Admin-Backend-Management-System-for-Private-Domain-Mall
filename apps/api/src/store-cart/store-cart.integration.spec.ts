@@ -213,7 +213,6 @@ function cleanupFullFixture(connection: FullCleanupConnection, fixture: CartFixt
     '-v', `account_ids=${csv(fixture.accountIds)}`,
     '-v', `balance_ids=${csv(fixture.balanceIds)}`,
     '-v', `brand_ids=${csv([fixture.activeBrandId, fixture.inactiveBrandId])}`,
-    '-v', `cart_ids=${csv(fixture.cartIds)}`,
     '-v', `category_ids=${csv([fixture.activeCategoryId, fixture.inactiveCategoryId])}`,
     '-v', `customer_ids=${csv(fixture.customerIds)}`,
     '-v', `file_ids=${csv(Object.values(fixture.fileIds))}`,
@@ -235,8 +234,11 @@ function cleanupFullFixture(connection: FullCleanupConnection, fixture: CartFixt
 BEGIN;
 DELETE FROM public.audit_log WHERE actor_account_id::text = ANY(string_to_array(:'account_ids', ','));
 DELETE FROM public.idempotency_record WHERE actor_id::text = ANY(string_to_array(:'account_ids', ','));
-DELETE FROM public.cart_item WHERE cart_id::text = ANY(string_to_array(:'cart_ids', ','));
-DELETE FROM public.cart WHERE id::text = ANY(string_to_array(:'cart_ids', ','));
+DELETE FROM public.cart_item
+WHERE cart_id IN (
+  SELECT id FROM public.cart WHERE customer_id::text = ANY(string_to_array(:'customer_ids', ','))
+);
+DELETE FROM public.cart WHERE customer_id::text = ANY(string_to_array(:'customer_ids', ','));
 DELETE FROM public.inventory_balance WHERE id::text = ANY(string_to_array(:'balance_ids', ','));
 DELETE FROM public.sku WHERE id::text = ANY(string_to_array(:'sku_ids', ','));
 DELETE FROM public.product_image WHERE id::text = ANY(string_to_array(:'image_ids', ','));
@@ -738,8 +740,8 @@ async function assertNoFixtureFacts(runtime: DatabaseRuntime, fixture: CartFixtu
   await expect(Promise.all([
     runtime.prisma.account.count({ where: { id: { in: fixture.accountIds } } }),
     runtime.prisma.customerProfile.count({ where: { id: { in: fixture.customerIds } } }),
-    runtime.prisma.cart.count({ where: { id: { in: fixture.cartIds } } }),
-    runtime.prisma.cartItem.count({ where: { cart_id: { in: fixture.cartIds } } }),
+    runtime.prisma.cart.count({ where: { customer_id: { in: fixture.customerIds } } }),
+    runtime.prisma.cartItem.count({ where: { cart: { customer_id: { in: fixture.customerIds } } } }),
     runtime.prisma.product.count({ where: { id: { in: productIds } } }),
     runtime.prisma.sku.count({ where: { id: { in: skuIds } } }),
     runtime.prisma.inventoryBalance.count({ where: { id: { in: fixture.balanceIds } } }),
@@ -1088,6 +1090,59 @@ async function exerciseCartWorkflow(
   expect(persistedPreferenceSafeFacts).not.toContain('"selected"');
 }
 
+async function exerciseConcurrentLazyCartCreation(
+  config: PlatformRuntimeConfig,
+  runtime: DatabaseRuntime,
+  storage: ObjectStoragePort,
+  fixture: CartFixture,
+): Promise<void> {
+  const service = new StoreCartService(config, runtime, storage);
+  const session = fixture.sessions[0];
+  const keys = [randomUUID(), randomUUID()];
+  const [first, second] = await Promise.all([
+    service.putItem(
+      session,
+      fixture.skuIds.saleableSelected,
+      { quantity: 1, selected: true },
+      keys[0]!,
+      requestId(),
+      '127.0.0.1',
+    ),
+    service.putItem(
+      session,
+      fixture.skuIds.saleableUnselected,
+      { quantity: 2, selected: false },
+      keys[1]!,
+      requestId(),
+      '127.0.0.1',
+    ),
+  ]);
+
+  expect(first.cart_id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+  expect(second.cart_id).toBe(first.cart_id);
+  const carts = await runtime.prisma.cart.findMany({
+    where: { customer_id: fixture.customerIds[0] },
+  });
+  expect(carts).toHaveLength(1);
+  const items = await runtime.prisma.cartItem.findMany({
+    orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
+    where: { cart_id: carts[0]!.id },
+  });
+  expect(items).toHaveLength(2);
+  expect(items.map(({ sku_id }) => sku_id).sort()).toEqual([
+    fixture.skuIds.saleableSelected,
+    fixture.skuIds.saleableUnselected,
+  ].sort());
+  await expect(Promise.all([
+    runtime.prisma.idempotencyRecord.count({
+      where: { actor_id: session.accountId, idempotency_key: { in: keys } },
+    }),
+    runtime.prisma.auditLog.count({
+      where: { actor_account_id: session.accountId, idempotency_key: { in: keys } },
+    }),
+  ])).resolves.toEqual([2, 2]);
+}
+
 integrationDescribe('B8.2 Store cart service and PostgreSQL integration', () => {
   let cleanupConnection: FullCleanupConnection | undefined;
   let config: PlatformRuntimeConfig;
@@ -1125,6 +1180,20 @@ integrationDescribe('B8.2 Store cart service and PostgreSQL integration', () => 
         transactionOptions,
       );
       await exerciseCartWorkflow(config, runtime, storage, runtime.prisma, fixture, keys);
+    } finally {
+      if (cleanupConnection) cleanupFullFixture(cleanupConnection, fixture);
+    }
+    await assertNoFixtureFacts(runtime, fixture);
+  }, 210_000);
+
+  fullIt('serializes concurrent first writes into one lazily created cart and leaves no fixture facts', async () => {
+    const fixture = createFixture();
+    try {
+      await runtime.withPrismaTransaction(
+        (transaction) => seedFixture(transaction, fixture),
+        transactionOptions,
+      );
+      await exerciseConcurrentLazyCartCreation(config, runtime, storage, fixture);
     } finally {
       if (cleanupConnection) cleanupFullFixture(cleanupConnection, fixture);
     }

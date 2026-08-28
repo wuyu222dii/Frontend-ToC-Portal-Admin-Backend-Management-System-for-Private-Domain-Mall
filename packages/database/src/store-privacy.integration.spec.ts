@@ -3,7 +3,13 @@ import { randomUUID } from 'node:crypto';
 import { generateUlid } from '@qingxu/platform-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import type { DatabaseTransaction, IdempotencyHashKeyRing } from './idempotency.repository';
+import {
+  deriveIdempotencyScope,
+  type DatabaseTransaction,
+  type IdempotencyClaim,
+  type IdempotencyHashKeyRing,
+  IdempotencyRepository,
+} from './idempotency.repository';
 import { createDatabaseRuntime, type DatabaseRuntime } from './runtime';
 import { StorePrivacyRepository } from './store-privacy.repository';
 
@@ -25,6 +31,8 @@ const hashKeys: IdempotencyHashKeyRing = {
   current: { id: 'b74-privacy-v1', key: Buffer.alloc(32, 0x74) },
   previous: [],
 };
+const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1_000;
+const SHOPPING_PHONE = ['138', '0012', '5678'].join('');
 
 interface FixtureIds {
   accountId: string;
@@ -48,6 +56,7 @@ interface FixtureIds {
   sessionIds: [string, string];
   skuId: string;
   snapshotId: string;
+  shoppingIdempotencyKeys: string[];
   phoneId: string;
   brandId: string;
 }
@@ -123,9 +132,99 @@ function ids(): FixtureIds {
     projectionId: generateUlid(),
     promotionId: generateUlid(),
     sessionIds: [generateUlid(), generateUlid()],
+    shoppingIdempotencyKeys: Array.from({ length: 8 }, () => randomUUID()),
     skuId: generateUlid(),
     snapshotId: generateUlid(),
   };
+}
+
+function shoppingClaims(fixture: FixtureIds): IdempotencyClaim[] {
+  const addressBody = {
+    city: 'Auckland',
+    detail: '99 Privacy Street',
+    district: 'Central',
+    is_default: true,
+    phone: SHOPPING_PHONE,
+    province: 'Auckland',
+    recipient_name: 'Fixture Recipient',
+  };
+  const requests: IdempotencyClaim['request'][] = [
+    {
+      body: {},
+      method: 'PUT',
+      pathParameters: { product_id: fixture.productId },
+      route: '/store/favorites/{product_id}',
+    },
+    {
+      body: {},
+      method: 'DELETE',
+      pathParameters: { product_id: fixture.productId },
+      route: '/store/favorites/{product_id}',
+    },
+    {
+      body: { quantity: 2, selected: true },
+      method: 'PUT',
+      pathParameters: { sku_id: fixture.skuId },
+      route: '/store/cart/items/{sku_id}',
+    },
+    {
+      body: {},
+      method: 'DELETE',
+      pathParameters: { sku_id: fixture.skuId },
+      route: '/store/cart/items/{sku_id}',
+    },
+    {
+      body: { items: [{ quantity: 2, selected: true, sku_id: fixture.skuId }] },
+      method: 'POST',
+      pathParameters: {},
+      route: '/store/cart/merge',
+    },
+    { body: addressBody, method: 'POST', pathParameters: {}, route: '/store/addresses' },
+    {
+      body: { ...addressBody, expected_version: 1 },
+      method: 'PATCH',
+      pathParameters: { address_id: fixture.addressId },
+      route: '/store/addresses/{address_id}',
+    },
+    {
+      body: { expected_version: 1 },
+      method: 'DELETE',
+      pathParameters: { address_id: fixture.addressId },
+      route: '/store/addresses/{address_id}',
+    },
+  ];
+  return requests.map((request, index) => ({
+    actorId: fixture.accountId,
+    idempotencyKey: fixture.shoppingIdempotencyKeys[index]!,
+    request,
+  }));
+}
+
+async function seedShoppingIdempotencyFacts(
+  transaction: DatabaseTransaction,
+  fixture: FixtureIds,
+  now: Date,
+): Promise<void> {
+  const idempotency = new IdempotencyRepository(hashKeys, () => now);
+  for (const claim of shoppingClaims(fixture)) {
+    const resourceId = claim.request.route.startsWith('/store/addresses')
+      ? fixture.addressId
+      : undefined;
+    await idempotency.complete(transaction, claim, {
+      ...(resourceId ? { resourceId } : {}),
+      responseForHash: {
+        detail: '99 Privacy Street',
+        phone: SHOPPING_PHONE,
+        product_id: fixture.productId,
+        quantity: 2,
+        recipient_name: 'Fixture Recipient',
+        selected: true,
+        sku_id: fixture.skuId,
+      },
+      responseStatus: 200,
+      storage: 'HASH_ONLY',
+    });
+  }
 }
 
 async function createFixture(transaction: DatabaseTransaction, fixture: FixtureIds, now: Date): Promise<void> {
@@ -405,6 +504,7 @@ async function createFixture(transaction: DatabaseTransaction, fixture: FixtureI
       updated_at: now,
     },
   });
+  await seedShoppingIdempotencyFacts(transaction, fixture, now);
 }
 
 async function assertNoFixtureFacts(runtime: DatabaseRuntime, fixture: FixtureIds): Promise<void> {
@@ -415,8 +515,13 @@ async function assertNoFixtureFacts(runtime: DatabaseRuntime, fixture: FixtureId
     runtime.prisma.highRiskOperationPreview.count({ where: { actor_account_id: fixture.accountId } }),
     runtime.prisma.bindingChangeLog.count({ where: { id: fixture.changeId } }),
     runtime.prisma.product.count({ where: { id: fixture.productId } }),
+    runtime.prisma.favorite.count({ where: { customer_id: fixture.customerId } }),
+    runtime.prisma.cart.count({ where: { customer_id: fixture.customerId } }),
+    runtime.prisma.cartItem.count({ where: { cart_id: fixture.cartId } }),
+    runtime.prisma.customerAddress.count({ where: { customer_id: fixture.customerId } }),
+    runtime.prisma.idempotencyRecord.count({ where: { actor_id: fixture.accountId } }),
   ]);
-  expect(counts).toEqual([0, 0, 0, 0, 0, 0]);
+  expect(counts).toEqual(Array.from({ length: 11 }, () => 0));
 }
 
 integrationDescribe('B7.4 Store privacy repository PostgreSQL integration', () => {
@@ -502,7 +607,53 @@ integrationDescribe('B7.4 Store privacy repository PostgreSQL integration', () =
         transaction.favorite.count({ where: { customer_id: fixture.customerId } }),
         transaction.cartItem.count({ where: { cart_id: fixture.cartId } }),
       ])).toEqual([0, 0, 0, 0]);
-      expect(await transaction.cart.count({ where: { id: fixture.cartId } })).toBe(1);
+      const retainedCart = await transaction.cart.findUniqueOrThrow({ where: { id: fixture.cartId } });
+      expect(Object.keys(retainedCart).sort()).toEqual([
+        'created_at',
+        'customer_id',
+        'id',
+        'updated_at',
+      ]);
+      expect(retainedCart.customer_id).toBe(fixture.customerId);
+      const retainedShoppingFacts = await transaction.idempotencyRecord.findMany({
+        orderBy: { idempotency_key: 'asc' },
+        where: { idempotency_key: { in: fixture.shoppingIdempotencyKeys } },
+      });
+      expect(retainedShoppingFacts).toHaveLength(8);
+      expect(new Set(retainedShoppingFacts.map(({ scope }) => scope))).toEqual(new Set(
+        shoppingClaims(fixture).map(({ request }) => deriveIdempotencyScope(request)),
+      ));
+      const addressIdempotencyKeys = new Set(fixture.shoppingIdempotencyKeys.slice(5));
+      for (const record of retainedShoppingFacts) {
+        expect(record).toMatchObject({
+          actor_id: fixture.accountId,
+          created_at: now,
+          expires_at: new Date(now.getTime() + IDEMPOTENCY_TTL_MS),
+          resource_id: addressIdempotencyKeys.has(record.idempotency_key) ? fixture.addressId : null,
+          response_body: null,
+          response_status: 200,
+        });
+        expect(record.request_hash).toMatch(/^[a-f0-9]{64}$/);
+        expect(record.response_body_hash).toMatch(/^[a-f0-9]{64}$/);
+      }
+      const retainedSafeFacts = JSON.stringify({ cart: retainedCart, idempotency: retainedShoppingFacts });
+      for (const sensitive of [
+        fixture.productId,
+        fixture.skuId,
+        'Fixture Recipient',
+        SHOPPING_PHONE,
+        '99 Privacy Street',
+        'quantity',
+        'selected',
+      ]) {
+        expect(retainedSafeFacts).not.toContain(sensitive);
+      }
+      const expiredIdempotency = new IdempotencyRepository(
+        hashKeys,
+        () => new Date(now.getTime() + IDEMPOTENCY_TTL_MS),
+      );
+      await expect(expiredIdempotency.claim(transaction, shoppingClaims(fixture)[0]!))
+        .resolves.toEqual({ kind: 'execute' });
       expect(await transaction.attributionCandidate.findUnique({ where: { id: fixture.candidateId } })).toMatchObject({
         candidate_token_hash: null,
         invalid_reason: 'ACCOUNT_DELETED',

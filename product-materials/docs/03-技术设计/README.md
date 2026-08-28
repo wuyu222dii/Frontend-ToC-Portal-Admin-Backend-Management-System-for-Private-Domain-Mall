@@ -1,6 +1,6 @@
 # 技术设计交付索引
 
-> 当前基线：MVP/PRD v2.4.6、线协议 CH-018（2026-08-27）。B0-B7 development 已完成；B7 最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 的普通 CI Run `33055090596` 与 Supabase development rollback-only Run `33056078437` 同 SHA 双绿，B7 development `GO`，CH-015 已失效。CH-017/CH-018 已批准，B8.1 收藏、B8.2 服务端购物车与 B8.3 收货地址已完成并暂停，B8.4 未准入，B8 整体尚未 `GO`。仅允许 Mock Provider 和脱敏 development，staging/production 均为 `NO-GO`。
+> 当前基线：MVP/PRD v2.4.6、线协议 CH-018（2026-08-28）。B0-B7 development 已完成。CH-017/CH-018 已批准，B8.0-B8.5 本地实现与验收已完成并暂停，最终同一 SHA 的普通 CI 与 Supabase rollback-only 双绿待取得，B8 整体尚未 `GO`，CH-017 继续有效。仅允许 Mock Provider 和脱敏 development，staging/production 均为 `NO-GO`。
 
 | 文件 | 用途 |
 |---|---|
@@ -70,7 +70,7 @@
 - 冻结统计为 173 paths / 198 operations / 198 unique operationId / 323 schemas / 701 schema refs / 2,653 local refs / 0 dangling refs；Redocly、解析、生成漂移和闭合 Schema 门禁已实测通过。
 - CH-018 闭合收藏失效投影、服务端购物车懒创建/选择/合并、地址加密与所有权、CUSTOMER + 来源 IP 组合限流、个性化 no-store 和 HASH_ONLY 幂等语义；订单、预占、结算、支付与履约不在 B8。
 - Prisma、两份 `0001_initial`、76 models / 59 enums 必须逐字节不变，不新增 migration，`migration diff=0`。
-- B8.0 治理与契约、B8.1 收藏、B8.2 服务端购物车、B8.3 收货地址已依次完成并暂停；B8.3 退出复审 `P0=0/P1=0/P2=1`，B8.4 未准入，B8 整体尚未 `GO`。完整门禁与批次状态见 `../05-开发管理/B8-登录后购物基础.md`。
+- B8.0-B8.5 本地实现、数据库/API/浏览器纵向、全仓回归与最终只读复审均已完成并暂停，结论 `P0=0/P1=0/P2=0`；等待最终同一 SHA 远端双绿后标记 B8 development `GO`。完整门禁与批次状态见 `../05-开发管理/B8-登录后购物基础.md`。
 
 ## B3.1 当前验证状态
 

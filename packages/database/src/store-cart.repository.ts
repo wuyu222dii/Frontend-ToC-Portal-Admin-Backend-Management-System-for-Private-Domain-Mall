@@ -172,11 +172,20 @@ function cartItemLimitExceeded(): ApplicationError {
   return new ApplicationError('CART_ITEM_LIMIT_EXCEEDED', 'Store cart contains too many distinct SKUs');
 }
 
-function assertStoredCartItem(item: { quantity: number; selected: boolean }): void {
-  if (!Number.isSafeInteger(item.quantity) || item.quantity < 1 || item.quantity > CART_QUANTITY_LIMIT ||
+function assertStoredCartItem(item: { id: string; quantity: number; selected: boolean; sku_id: string }): void {
+  if (!isValidUlid(item.id) || !isValidUlid(item.sku_id) ||
+    !Number.isSafeInteger(item.quantity) || item.quantity < 1 || item.quantity > CART_QUANTITY_LIMIT ||
     typeof item.selected !== 'boolean') {
     throw new ApplicationError('INTERNAL_ERROR', 'Stored cart item is invalid');
   }
+}
+
+function compareStoredCartItemIdentity(
+  left: { id: string; sku_id: string },
+  right: { id: string; sku_id: string },
+): number {
+  return left.sku_id < right.sku_id ? -1 : left.sku_id > right.sku_id ? 1 :
+    left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
 }
 
 function safeAvailableStock(value: bigint): number {
@@ -366,13 +375,56 @@ export class StoreCartRepository {
     })));
   }
 
-  private async createCart(transaction: DatabaseTransaction, customerId: string): Promise<{ id: string }> {
+  private async readLockedItems(
+    transaction: DatabaseTransaction,
+    cartId: string,
+    skuIds?: readonly string[],
+  ) {
+    const orderedSkuIds = skuIds === undefined ? undefined : [...new Set(skuIds)].sort();
+    const items = await transaction.cartItem.findMany({
+      orderBy: [{ sku_id: 'asc' }, { id: 'asc' }],
+      select: { id: true, quantity: true, selected: true, sku_id: true },
+      where: orderedSkuIds === undefined ? { cart_id: cartId } :
+        { cart_id: cartId, sku_id: { in: orderedSkuIds } },
+    });
+    items.sort(compareStoredCartItemIdentity);
+    items.forEach(assertStoredCartItem);
+    if (new Set(items.map(({ sku_id: skuId }) => skuId)).size !== items.length ||
+      orderedSkuIds !== undefined && items.some(({ sku_id: skuId }) => !orderedSkuIds.includes(skuId))) {
+      throw new ApplicationError('INTERNAL_ERROR', 'Stored cart item identity is invalid');
+    }
+    return items;
+  }
+
+  private async readLockedSkus(
+    transaction: DatabaseTransaction,
+    skuIds: readonly string[],
+  ): Promise<string[]> {
+    const orderedSkuIds = [...new Set(skuIds)].sort();
+    const skus = await transaction.sku.findMany({
+      orderBy: { id: 'asc' },
+      select: { id: true },
+      where: { id: { in: orderedSkuIds } },
+    });
+    const storedSkuIds = skus.map(({ id }) => id).sort();
+    if (storedSkuIds.some((id) => !isValidUlid(id)) || new Set(storedSkuIds).size !== storedSkuIds.length ||
+      storedSkuIds.some((id) => !orderedSkuIds.includes(id))) {
+      throw new ApplicationError('INTERNAL_ERROR', 'Stored SKU identity is invalid');
+    }
+    return storedSkuIds;
+  }
+
+  private async createCart(
+    transaction: DatabaseTransaction,
+    customerId: string,
+    cartId = generateUlid(this.currentTime().getTime()),
+  ): Promise<{ id: string }> {
     const now = this.currentTime();
     return transaction.cart.create({
       data: {
         created_at: now,
         customer_id: customerId,
-        id: generateUlid(now.getTime()),
+        id: cartId,
         updated_at: now,
       },
       select: { id: true },
@@ -404,11 +456,22 @@ export class StoreCartRepository {
     if (!cart) return cartSnapshot(null, []);
     const items = await transaction.cartItem.findMany({
       where: { cart_id: cart.id },
-      select: { sku_id: true },
+      select: { id: true, sku_id: true },
     });
-    const skuIds = items.map(({ sku_id }) => sku_id);
-    await this.acquireSkuLocks(transaction, skuIds);
+    items.sort(compareStoredCartItemIdentity);
+    const skuIds = [...new Set(items.map(({ sku_id }) => sku_id))].sort();
     await this.acquireItemLocks(transaction, cart.id, skuIds);
+    const lockedItems = await this.readLockedItems(transaction, cart.id);
+    if (lockedItems.length !== items.length ||
+      lockedItems.some(({ id, sku_id: lockedSkuId }, index) =>
+        id !== items[index]?.id || lockedSkuId !== items[index]?.sku_id)) {
+      throw new ApplicationError('INTERNAL_ERROR', 'Stored cart item set changed while locked');
+    }
+    await this.acquireSkuLocks(transaction, skuIds);
+    const storedSkuIds = await this.readLockedSkus(transaction, skuIds);
+    if (storedSkuIds.length !== skuIds.length || storedSkuIds.some((id, index) => id !== skuIds[index])) {
+      throw new ApplicationError('INTERNAL_ERROR', 'Stored cart SKU set is invalid');
+    }
     return this.projectCart(transaction, cart.id);
   }
 
@@ -418,18 +481,16 @@ export class StoreCartRepository {
   ): Promise<StoreCartMutationResult> {
     validateItemWriteInput(input);
     let cart = await this.acquireIdentityAndCartLocks(transaction, input);
+    const cartId = cart?.id ?? generateUlid(this.currentTime().getTime());
+    await this.acquireItemLocks(transaction, cartId, [input.skuId]);
+    const [existing] = await this.readLockedItems(transaction, cartId, [input.skuId]);
     await this.acquireSkuLocks(transaction, [input.skuId]);
-    const sku = await transaction.sku.findUnique({ where: { id: input.skuId }, select: { id: true } });
-    if (!sku) throw new ApplicationError('RESOURCE_NOT_FOUND', 'SKU not found');
+    const storedSkuIds = await this.readLockedSkus(transaction, [input.skuId]);
+    if (storedSkuIds.length !== 1 || storedSkuIds[0] !== input.skuId) {
+      throw new ApplicationError('RESOURCE_NOT_FOUND', 'SKU not found');
+    }
 
-    if (cart === null) cart = await this.createCart(transaction, input.customerId);
-    await this.acquireItemLocks(transaction, cart.id, [input.skuId]);
-
-    const existing = await transaction.cartItem.findUnique({
-      where: { cart_id_sku_id: { cart_id: cart.id, sku_id: input.skuId } },
-      select: { id: true, quantity: true, selected: true },
-    });
-    if (existing) assertStoredCartItem(existing);
+    if (cart === null) cart = await this.createCart(transaction, input.customerId, cartId);
     if (existing && existing.quantity === input.quantity && existing.selected === input.selected) {
       return { changed: false, cart: await this.projectCart(transaction, cart!.id) };
     }
@@ -476,8 +537,13 @@ export class StoreCartRepository {
     requireUlid(input.skuId, 'Store cart SKU ID');
     const cart = await this.acquireIdentityAndCartLocks(transaction, input);
     if (!cart) return { changed: false, cart: cartSnapshot(null, []) };
-    await this.acquireSkuLocks(transaction, [input.skuId]);
     await this.acquireItemLocks(transaction, cart.id, [input.skuId]);
+    const lockedItems = await this.readLockedItems(transaction, cart.id, [input.skuId]);
+    await this.acquireSkuLocks(transaction, [input.skuId]);
+    const storedSkuIds = await this.readLockedSkus(transaction, [input.skuId]);
+    if (lockedItems.length > 0 && (storedSkuIds.length !== 1 || storedSkuIds[0] !== input.skuId)) {
+      throw new ApplicationError('INTERNAL_ERROR', 'Stored cart SKU relationship is invalid');
+    }
     const deleted = await transaction.cartItem.deleteMany({
       where: { cart_id: cart.id, sku_id: input.skuId },
     });
@@ -494,23 +560,16 @@ export class StoreCartRepository {
     const orderedItems = [...input.items].sort((left, right) =>
       left.skuId < right.skuId ? -1 : left.skuId > right.skuId ? 1 : 0);
     const skuIds = orderedItems.map(({ skuId }) => skuId);
+    const cartId = cart?.id ?? generateUlid(this.currentTime().getTime());
+    await this.acquireItemLocks(transaction, cartId, skuIds);
+    const existingItems = await this.readLockedItems(transaction, cartId, skuIds);
     await this.acquireSkuLocks(transaction, skuIds);
-    const skus = await transaction.sku.findMany({
-      where: { id: { in: skuIds } },
-      select: { id: true },
-    });
-    if (skus.length !== skuIds.length || skus.some(({ id }) => !skuIds.includes(id))) {
+    const storedSkuIds = await this.readLockedSkus(transaction, skuIds);
+    if (storedSkuIds.length !== skuIds.length || storedSkuIds.some((id, index) => id !== skuIds[index])) {
       throw new ApplicationError('RESOURCE_NOT_FOUND', 'SKU not found');
     }
 
-    if (cart === null) cart = await this.createCart(transaction, input.customerId);
-    await this.acquireItemLocks(transaction, cart.id, skuIds);
-
-    const existingItems = await transaction.cartItem.findMany({
-      where: { cart_id: cart.id, sku_id: { in: skuIds } },
-      select: { id: true, quantity: true, selected: true, sku_id: true },
-    });
-    existingItems.forEach(assertStoredCartItem);
+    if (cart === null) cart = await this.createCart(transaction, input.customerId, cartId);
     const existingBySku = new Map(existingItems.map((item) => [item.sku_id, item]));
     const existingCount = await transaction.cartItem.count({ where: { cart_id: cart.id } });
     const additions = orderedItems.filter(({ skuId }) => !existingBySku.has(skuId)).length;

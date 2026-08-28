@@ -646,6 +646,37 @@ describe('IdempotencyRepository', () => {
     }));
   });
 
+  it('authenticates HASH_ONLY replay status, resource identity and stable response facts', () => {
+    const resourceId = generateUlid();
+    const responseForHash = { order_created: { order_id: resourceId, order_no: `QX${resourceId}` } };
+    const record = {
+      ...recordContext(),
+      expires_at: new Date('2099-08-14T00:00:00.000Z'),
+      resource_id: resourceId,
+      response_body: null,
+      response_body_hash: responseHash(currentHashKey, responseForHash),
+      response_status: 201,
+    } as never;
+    const result = {
+      resourceId,
+      responseForHash,
+      responseStatus: 201,
+      storage: 'HASH_ONLY' as const,
+    };
+
+    expect(() => repository().assertHashOnlyReplay(record, result)).not.toThrow();
+    expect(() => repository().assertHashOnlyReplay(
+      { ...record, resource_id: generateUlid() },
+      { ...result, resourceId: generateUlid() },
+    )).toThrow(expect.objectContaining({ code: 'INTERNAL_ERROR' }));
+    expect(() => repository().assertHashOnlyReplay(record, {
+      ...result,
+      responseForHash: { order_created: { order_id: resourceId, order_no: 'tampered' } },
+    })).toThrow(expect.objectContaining({ code: 'INTERNAL_ERROR' }));
+    expect(() => repository().assertHashOnlyReplay(record, { ...result, responseStatus: 200 }))
+      .toThrow(expect.objectContaining({ code: 'INTERNAL_ERROR' }));
+  });
+
   it('requires a strong repository-owned HMAC key and a normalized mutation descriptor', async () => {
     expect(() => new IdempotencyRepository({
       current: { id: 'test-short', key: Buffer.alloc(31) },

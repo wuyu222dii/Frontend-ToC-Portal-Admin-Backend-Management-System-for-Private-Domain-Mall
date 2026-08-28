@@ -60,10 +60,13 @@ export interface StoreCheckoutLineFact {
   productVersion: number;
   productName: string;
   brandId: string;
+  brandName: string;
   brandVersion: number;
   categoryId: string;
+  categoryName: string;
   categoryVersion: number;
   skuId: string;
+  skuCode: string;
   skuVersion: number;
   skuName: string;
   specification: Prisma.JsonValue | null;
@@ -75,6 +78,8 @@ export interface StoreCheckoutLineFact {
   lineAmount: string;
   inventoryBalanceId: string | null;
   inventoryVersion: number | null;
+  physicalQty: number | null;
+  lockedQty: number | null;
   availableStock: number;
   saleable: boolean;
 }
@@ -93,15 +98,19 @@ export interface StoreCheckoutQuoteSnapshot {
 
 interface CheckoutLineRow {
   brand_id: string;
+  brand_name: string;
   brand_status: string;
   brand_deleted_at: Date | null;
   brand_version: number;
   category_id: string;
+  category_name: string;
   category_status: string;
   category_deleted_at: Date | null;
   category_version: number;
   inventory_balance_id: string | null;
   inventory_version: number | null;
+  locked_qty: number | null;
+  physical_qty: number | null;
   available_stock: bigint;
   primary_image_id: string | null;
   primary_image_file_id: string | null;
@@ -113,6 +122,7 @@ interface CheckoutLineRow {
   product_version: number;
   retail_price: Prisma.Decimal;
   sku_id: string;
+  sku_code: string;
   sku_name: string;
   sku_status: string;
   sku_deleted_at: Date | null;
@@ -232,6 +242,14 @@ function safeAvailableStock(value: bigint): number {
     throw internalError('Store checkout inventory projection is invalid');
   }
   return stock;
+}
+
+function safeInventoryQuantity(value: number | null, label: string): number | null {
+  if (value === null) return null;
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw internalError(`${label} quantity is invalid`);
+  }
+  return value;
 }
 
 function safeFactUlid(value: string, label: string): string {
@@ -368,6 +386,7 @@ export class StoreCheckoutRepository {
     const rows = await client.$queryRaw<CheckoutLineRow[]>(Prisma.sql`
       SELECT
         s.id AS sku_id,
+        s.code AS sku_code,
         s.version AS sku_version,
         s.name AS sku_name,
         s.spec_json,
@@ -380,15 +399,19 @@ export class StoreCheckoutRepository {
         p.status::text AS product_status,
         p.deleted_at AS product_deleted_at,
         b.id AS brand_id,
+        b.name AS brand_name,
         b.version AS brand_version,
         b.status::text AS brand_status,
         b.deleted_at AS brand_deleted_at,
         c.id AS category_id,
+        c.name AS category_name,
         c.version AS category_version,
         c.status::text AS category_status,
         c.deleted_at AS category_deleted_at,
         ib.id AS inventory_balance_id,
         ib.version AS inventory_version,
+        ib.physical_qty,
+        ib.locked_qty,
         GREATEST(
           COALESCE(ib.physical_qty, 0)::bigint - COALESCE(ib.locked_qty, 0)::bigint,
           0::bigint
@@ -447,6 +470,17 @@ export class StoreCheckoutRepository {
       const inventoryBalanceId = row.inventory_balance_id === null
         ? null
         : safeFactUlid(row.inventory_balance_id, 'Store checkout inventory');
+      const availableStock = safeAvailableStock(row.available_stock);
+      const physicalQty = safeInventoryQuantity(row.physical_qty, 'Store checkout physical inventory');
+      const lockedQty = safeInventoryQuantity(row.locked_qty, 'Store checkout locked inventory');
+      if (inventoryBalanceId === null) {
+        if (physicalQty !== null || lockedQty !== null || availableStock !== 0) {
+          throw internalError('Store checkout missing inventory projection is inconsistent');
+        }
+      } else if (physicalQty === null || lockedQty === null || lockedQty > physicalQty ||
+        physicalQty - lockedQty !== safeAvailableStock(row.available_stock)) {
+        throw internalError('Store checkout inventory quantities are inconsistent');
+      }
       const imageValues = [row.primary_image_id, row.primary_image_file_id, row.primary_image_object_key];
       const imageMissing = imageValues.every((value) => value === null);
       const imageComplete = imageValues.every((value) => value !== null);
@@ -467,7 +501,6 @@ export class StoreCheckoutRepository {
         unitPrice.mul(requested.quantity),
         'Store checkout line',
       );
-      const availableStock = safeAvailableStock(row.available_stock);
       const publiclyAvailable = row.sku_status === 'ACTIVE' && row.sku_deleted_at === null &&
         row.product_status === 'ACTIVE' && row.product_deleted_at === null &&
         row.brand_status === 'ACTIVE' && row.brand_deleted_at === null &&
@@ -479,8 +512,10 @@ export class StoreCheckoutRepository {
       return {
         availableStock,
         brandId,
+        brandName: row.brand_name,
         brandVersion,
         categoryId,
+        categoryName: row.category_name,
         categoryVersion,
         inventoryBalanceId,
         inventoryVersion,
@@ -493,6 +528,9 @@ export class StoreCheckoutRepository {
         productVersion,
         quantity: requested.quantity,
         saleable: publiclyAvailable && hasStock,
+        lockedQty,
+        physicalQty,
+        skuCode: row.sku_code,
         skuId,
         skuName: row.sku_name,
         skuVersion,

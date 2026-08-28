@@ -45,6 +45,22 @@ export interface VerifiedStoreAddressSecurityMaterial {
   requiresPhoneHashUpgrade: boolean;
 }
 
+export interface StoreOrderAddressSecurityMaterial {
+  detailCiphertext: Uint8Array;
+  encryptionKeyId: string;
+  phoneCiphertext: Uint8Array;
+  phoneLast4: string;
+  snapshotId: string;
+}
+
+export interface VerifiedStoreOrderAddressSecurityMaterial {
+  detail: string;
+  detailMasked: string;
+  phone: string;
+  phoneMasked: string;
+  requiresFieldKeyUpgrade: boolean;
+}
+
 function requirePlainObject(value: unknown, label: string): asserts value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value) ||
     Object.getPrototypeOf(value) !== Object.prototype) {
@@ -249,5 +265,80 @@ export function verifyStoreAddressSecurityMaterial(
     phoneMasked: maskStoreAddressPhone(phone),
     requiresFieldKeyUpgrade: material.encryptionKeyId !== fieldKeys.current.id,
     requiresPhoneHashUpgrade: matched.id !== phoneHashKeys.current.id,
+  };
+}
+
+export function createStoreOrderAddressSecurityMaterial(
+  input: { detail: string; phone: string; snapshotId: string },
+  fieldKey: StoreAddressSecurityKey,
+): StoreOrderAddressSecurityMaterial {
+  requirePlainObject(input, 'Store order address security input');
+  requireExactKeys(input, ['detail', 'phone', 'snapshotId'], 'Store order address security input');
+  if (!isValidUlid(input.snapshotId)) throw new TypeError('Store order address snapshot ID must be a ULID');
+  validateKey(fieldKey, 'Field encryption key');
+  const phone = normalizeStoreAddressPhone(input.phone);
+  const detail = normalizeStoreAddressDetail(input.detail);
+  const envelopeKey = { key: fieldKey.key, keyId: fieldKey.id };
+  const phoneEnvelope = encryptEnvelope(phone, envelopeKey,
+    createEncryptionContext('order_address_snapshot', input.snapshotId, 'phone_ciphertext'));
+  const detailEnvelope = encryptEnvelope(detail, envelopeKey,
+    createEncryptionContext('order_address_snapshot', input.snapshotId, 'detail_ciphertext'));
+  return {
+    detailCiphertext: serializeEnvelope(detailEnvelope),
+    encryptionKeyId: fieldKey.id,
+    phoneCiphertext: serializeEnvelope(phoneEnvelope),
+    phoneLast4: phone.slice(-4),
+    snapshotId: input.snapshotId,
+  };
+}
+
+export function verifyStoreOrderAddressSecurityMaterial(
+  material: StoreOrderAddressSecurityMaterial,
+  fieldKeys: StoreAddressSecurityKeyRing,
+): VerifiedStoreOrderAddressSecurityMaterial {
+  requirePlainObject(material, 'Stored order address security material');
+  requireExactKeys(material, [
+    'detailCiphertext',
+    'encryptionKeyId',
+    'phoneCiphertext',
+    'phoneLast4',
+    'snapshotId',
+  ], 'Stored order address security material');
+  if (!isValidUlid(material.snapshotId) || typeof material.encryptionKeyId !== 'string' ||
+    typeof material.phoneLast4 !== 'string' || !PHONE_LAST4_PATTERN.test(material.phoneLast4)) {
+    throw new TypeError('Stored order address security material is invalid');
+  }
+  const availableFieldKeys = validateKeyRing(fieldKeys, 'Field encryption');
+  const phoneEnvelope = parseEnvelope(material.phoneCiphertext, 'Stored order address phone ciphertext');
+  const detailEnvelope = parseEnvelope(material.detailCiphertext, 'Stored order address detail ciphertext');
+  if (phoneEnvelope.keyId !== material.encryptionKeyId || detailEnvelope.keyId !== material.encryptionKeyId) {
+    throw new TypeError('Stored order address encryption key is inconsistent');
+  }
+  const resolveFieldKey = (keyId: string): Uint8Array => {
+    const key = availableFieldKeys.find((candidate) => candidate.id === keyId);
+    if (!key) throw new TypeError('Stored order address encryption key is unavailable');
+    return key.key;
+  };
+  const phonePlaintext = decryptEnvelopeText(
+    phoneEnvelope,
+    resolveFieldKey,
+    createEncryptionContext('order_address_snapshot', material.snapshotId, 'phone_ciphertext'),
+  );
+  const detailPlaintext = decryptEnvelopeText(
+    detailEnvelope,
+    resolveFieldKey,
+    createEncryptionContext('order_address_snapshot', material.snapshotId, 'detail_ciphertext'),
+  );
+  const phone = normalizeStoreAddressPhone(phonePlaintext);
+  const detail = normalizeStoreAddressDetail(detailPlaintext);
+  if (phone !== phonePlaintext || detail !== detailPlaintext || phone.slice(-4) !== material.phoneLast4) {
+    throw new TypeError('Stored order address plaintext metadata is inconsistent');
+  }
+  return {
+    detail,
+    detailMasked: maskStoreAddressDetail(detail),
+    phone,
+    phoneMasked: maskStoreAddressPhone(phone),
+    requiresFieldKeyUpgrade: material.encryptionKeyId !== fieldKeys.current.id,
   };
 }

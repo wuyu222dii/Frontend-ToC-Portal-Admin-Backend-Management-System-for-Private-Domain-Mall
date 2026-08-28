@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   createStoreAddressSecurityMaterial,
+  createStoreOrderAddressSecurityMaterial,
   generateUlid,
   hmacStoreAddressPhone,
   maskStoreAddressDetail,
@@ -11,6 +12,7 @@ import {
   maskStoreAddressRecipient,
   normalizeStoreAddressPhone,
   verifyStoreAddressSecurityMaterial,
+  verifyStoreOrderAddressSecurityMaterial,
 } from '../src';
 
 describe('Store address security primitives', () => {
@@ -130,5 +132,32 @@ describe('Store address security primitives', () => {
     for (const value of cases) {
       expect(() => verifyStoreAddressSecurityMaterial(value, rings, hashRings)).toThrow();
     }
+  });
+
+  it('re-encrypts order address snapshots under snapshot-and-column AAD', () => {
+    const snapshotId = generateUlid();
+    const material = createStoreOrderAddressSecurityMaterial({
+      detail: '18 Example Road',
+      phone: '13800006821',
+      snapshotId,
+    }, fieldKey);
+    expect(verifyStoreOrderAddressSecurityMaterial(material, {
+      current: { id: 'address-field-v2', key: Buffer.alloc(32, 13) },
+      previous: [fieldKey],
+    })).toEqual({
+      detail: '18 Example Road',
+      detailMasked: '18 ****',
+      phone: '13800006821',
+      phoneMasked: '138 **** 6821',
+      requiresFieldKeyUpgrade: true,
+    });
+    expect(() => verifyStoreOrderAddressSecurityMaterial({
+      ...material,
+      snapshotId: generateUlid(),
+    }, { current: fieldKey, previous: [] })).toThrow();
+    expect(() => verifyStoreOrderAddressSecurityMaterial({
+      ...material,
+      phoneCiphertext: material.detailCiphertext,
+    }, { current: fieldKey, previous: [] })).toThrow();
   });
 });

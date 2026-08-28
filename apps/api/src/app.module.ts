@@ -19,6 +19,7 @@ import { StoreCatalogModule } from './store-catalog/store-catalog.module';
 import { StoreCartModule } from './store-cart/store-cart.module';
 import { StoreCheckoutModule } from './store-checkout/store-checkout.module';
 import { StoreFavoritesModule } from './store-favorites/store-favorites.module';
+import { StoreOrdersModule } from './store-orders/store-orders.module';
 import { StoreAttributionModule } from './store-attribution/store-attribution.module';
 import { StoreAuthModule } from './store-auth/store-auth.module';
 import { StoreProfileModule } from './store-profile/store-profile.module';
@@ -39,6 +40,7 @@ import { StorePrivacyModule } from './store-privacy/store-privacy.module';
     StoreCartModule,
     StoreCheckoutModule,
     StoreFavoritesModule,
+    StoreOrdersModule,
     StoreAuthModule,
     StorePrivacyModule,
     StoreProfileModule,

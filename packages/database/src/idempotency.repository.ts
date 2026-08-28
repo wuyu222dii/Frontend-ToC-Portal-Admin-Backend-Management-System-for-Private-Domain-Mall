@@ -847,6 +847,22 @@ export class IdempotencyRepository {
     return record.response_body;
   }
 
+  assertHashOnlyReplay(
+    record: IdempotencyRecord,
+    result: Extract<IdempotencyResult, { storage: 'HASH_ONLY' }>,
+  ): void {
+    validateResult(result);
+    this.assertReplayIntegrity(record);
+    const integrityContext = this.responseIntegrityContext(record);
+    if (record.response_body !== null ||
+      record.response_status !== result.responseStatus ||
+      record.resource_id !== (result.resourceId ?? null) ||
+      integrityContext === undefined ||
+      !this.responseHashMatches(result.responseForHash, integrityContext, record.response_body_hash)) {
+      throw new ApplicationError('INTERNAL_ERROR', 'HASH_ONLY idempotency replay integrity check failed');
+    }
+  }
+
   catalogResourceReplay(record: IdempotencyRecord): CacheableCatalogResourceResponse {
     this.assertReplayIntegrity(record);
     if (!isCacheableCatalogResourceResponse(record.response_body)) {

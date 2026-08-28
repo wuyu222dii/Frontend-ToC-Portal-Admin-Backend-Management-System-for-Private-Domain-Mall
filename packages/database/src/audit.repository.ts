@@ -47,6 +47,7 @@ const AUDIT_STATUS = new Set([
   'INACTIVE',
   'PAID',
   'PENDING',
+  'PENDING_PAYMENT',
   'PROCESSED',
   'PUBLISHED',
   'READY',

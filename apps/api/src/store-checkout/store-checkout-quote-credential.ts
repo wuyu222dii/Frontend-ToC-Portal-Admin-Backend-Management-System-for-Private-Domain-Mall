@@ -47,6 +47,12 @@ export interface VerifyStoreCheckoutQuoteCredentialInput extends StoreCheckoutQu
   quoteToken: string;
 }
 
+export interface AuthenticateStoreCheckoutQuoteCredentialInput
+  extends Omit<StoreCheckoutQuoteCredentialInput, 'facts'> {
+  confirmationHash: string;
+  quoteToken: string;
+}
+
 export interface VerifiedStoreCheckoutQuoteCredential {
   expiresAt: Date;
   keyId: string;
@@ -68,6 +74,10 @@ function mismatch(): ApplicationError {
 
 function expired(): ApplicationError {
   return new ApplicationError('CHECKOUT_QUOTE_EXPIRED', 'Checkout quote credential has expired');
+}
+
+function requote(): ApplicationError {
+  return new ApplicationError('CHECKOUT_REQUOTE_REQUIRED', 'Checkout quote facts have changed');
 }
 
 function derive(key: Uint8Array, purpose: 'confirmation' | 'signature'): Buffer {
@@ -115,11 +125,17 @@ function validPayload(value: unknown): value is QuoteTokenPayload {
     typeof payload.f === 'string' && DIGEST.test(payload.f);
 }
 
-function validateIdentity(input: StoreCheckoutQuoteCredentialInput): void {
+function validateAuthenticationIdentity(
+  input: Pick<StoreCheckoutQuoteCredentialInput, 'customerId' | 'quoteId' | 'request' | 'sessionId'>,
+): void {
   if (!isValidUlid(input.customerId) || !isValidUlid(input.sessionId) || !isValidUlid(input.quoteId)) {
     throw new TypeError('Checkout quote credential identifiers must be ULIDs');
   }
   canonicalJson(input.request);
+}
+
+function validateIdentity(input: StoreCheckoutQuoteCredentialInput): void {
+  validateAuthenticationIdentity(input);
   canonicalJson(input.facts);
 }
 
@@ -191,8 +207,11 @@ export class StoreCheckoutQuoteCredential {
     };
   }
 
-  verify(input: VerifyStoreCheckoutQuoteCredentialInput): VerifiedStoreCheckoutQuoteCredential {
-    validateIdentity(input);
+  private authenticatePayload(input: AuthenticateStoreCheckoutQuoteCredentialInput): {
+    credential: VerifiedStoreCheckoutQuoteCredential;
+    key: IdempotencyHashKeyConfig;
+    payload: QuoteTokenPayload;
+  } {
     if (typeof input.quoteToken !== 'string' || typeof input.confirmationHash !== 'string' ||
       !HASH.test(input.confirmationHash)) throw mismatch();
     const tokenMatch = TOKEN.exec(input.quoteToken);
@@ -219,14 +238,13 @@ export class StoreCheckoutQuoteCredential {
     }
     if (receivedSignature.toString('base64url') !== encodedSignature) throw mismatch();
     if (!safeEqual(receivedSignature, signature(encodedPayload, key.key))) throw mismatch();
-    const expected: Omit<QuoteTokenPayload, 'e' | 'i' | 'k' | 'v'> = {
+    const expected: Omit<QuoteTokenPayload, 'e' | 'f' | 'i' | 'k' | 'v'> = {
       c: input.customerId,
-      f: bindingDigest(input.facts),
       q: input.quoteId,
       r: bindingDigest(input.request),
       s: input.sessionId,
     };
-    if (parsed.c !== expected.c || parsed.f !== expected.f || parsed.q !== expected.q ||
+    if (parsed.c !== expected.c || parsed.q !== expected.q ||
       parsed.r !== expected.r || parsed.s !== expected.s ||
       !safeEqual(Buffer.from(input.confirmationHash, 'hex'), Buffer.from(confirmation(parsed, input.quoteToken, key.key), 'hex'))) {
       throw mismatch();
@@ -234,6 +252,22 @@ export class StoreCheckoutQuoteCredential {
     const nowEpochSeconds = Math.floor(currentDate(this.clock).getTime() / 1_000);
     if (parsed.i > nowEpochSeconds) throw mismatch();
     if (nowEpochSeconds >= parsed.e) throw expired();
-    return { expiresAt: new Date(parsed.e * 1_000), keyId: parsed.k, quoteId: parsed.q };
+    return {
+      credential: { expiresAt: new Date(parsed.e * 1_000), keyId: parsed.k, quoteId: parsed.q },
+      key,
+      payload: parsed,
+    };
+  }
+
+  authenticate(input: AuthenticateStoreCheckoutQuoteCredentialInput): VerifiedStoreCheckoutQuoteCredential {
+    validateAuthenticationIdentity(input);
+    return this.authenticatePayload(input).credential;
+  }
+
+  verify(input: VerifyStoreCheckoutQuoteCredentialInput): VerifiedStoreCheckoutQuoteCredential {
+    validateIdentity(input);
+    const authenticated = this.authenticatePayload(input);
+    if (authenticated.payload.f !== bindingDigest(input.facts)) throw requote();
+    return authenticated.credential;
   }
 }

@@ -1,6 +1,6 @@
 # 技术设计交付索引
 
-> 当前基线：MVP/PRD v2.4.7、线协议 CH-020（2026-08-28）。B0-B8 development 已完成；B8 最终实现 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 已取得普通 CI 与 Supabase rollback-only 双绿，CH-017 已自动失效。CH-019/CH-020 已批准；B9.0 与 B9.1 已完成，B9.1 经三路独立复审达到 `P0=0/P1=0` 后暂停。B9.2-B9.5 未开始，等待用户批准 B9.2；B9 development 尚未 `GO`，CH-019 仍有效。仅允许 Mock Provider 和脱敏 development，staging/production 均为 `NO-GO`。
+> 当前基线：MVP/PRD v2.4.7、线协议 CH-020（2026-08-28）。B0-B8 development 已完成；B8 最终实现 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 已取得普通 CI 与 Supabase rollback-only 双绿，CH-017 已自动失效。CH-019/CH-020 已批准；B9.0-B9.2 已完成，B9.2 经三路独立复审达到 `P0=0/P1=0/P2=0` 后暂停。B9.3-B9.5 未开始，等待用户批准 B9.3；B9 development 尚未 `GO`，CH-019 仍有效。仅允许 Mock Provider 和脱敏 development，staging/production 均为 `NO-GO`。
 
 | 文件 | 用途 |
 |---|---|
@@ -80,7 +80,7 @@
 - `CreateOrderRequest` 等量替换为 `CheckoutQuoteRequest`，新增 `OrderSubmitRequest` 与 `CheckoutQuoteBlocker`；实测保持 173 paths / 198 operations / 198 unique operationId，并固化为 325 schemas / 703 schema refs / 2,665 local refs / 0 dangling refs，Redocly 0 warning。
 - CH-020 首次允许在原始基线之后增加前向 migration：两份 `0001_initial` 继续逐字节不变，`0002_b9_inventory_fact_indexes` 只增加 `inventory_reservation_item(sku_id,reservation_id)` 与非空 `business_id` 库存流水条件唯一索引，不增表、列或枚举。
 - 候选 reservation/SKU ID 只可无锁定位。首次下单使用 customer/cart/address/catalog→SKU/balance→insert order/reservation；主动取消/Worker 才使用 `idempotency（Worker 跳过） -> order -> payment_intent -> SKU ID ASC -> inventory_balance ID ASC -> inventory_reservation ID ASC -> ledger -> audit/outbox`。两条路径不得混用或让 reservation 先于 SKU/balance；Product/SKU lifecycle 与库存调整共享 SKU→balance→reservation 尾部，并须通过交叉并发无死锁回归。
-- B9.0 已完成治理、契约、生成类型、迁移链及受控 Supabase development migration Workflow；B9.1 报价 repository/API 随后完成全部门禁并暂停，B9.2 尚未开始。
+- B9.0 已完成治理、契约、生成类型、迁移链及受控 Supabase development migration Workflow；B9.1 报价 repository/API 与 B9.2 待付款下单/预占 repository/API 均已完成全部门禁并暂停，B9.3 尚未开始。
 
 ## B3.1 当前验证状态
 
@@ -109,7 +109,7 @@ B3-B6 历史交付见各自开发记录；B7 的 CH-015/CH-016、契约和最终
 
 B8 的 CH-017/CH-018、冻结契约、串行批次与最终证据见 `../05-开发管理/B8-登录后购物基础.md`。B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 已同 SHA 双绿，B8 development `GO`，CH-017 已自动失效。
 
-B9 的 CH-019/CH-020、契约/迁移边界及暂停条件见 `../05-开发管理/B9-订单报价与库存预占.md`。CH-019 只补偿 B9 脱敏 development 的单人 reviewer 条件并在 B9.5 后失效；staging 前外部独立复核不得豁免。B9.0 与 B9.1 已完成，B9.1 `P0=0/P1=0` 后暂停；当前等待用户批准 B9.2，B9.3-B9.5 仍须等待各自前序批次暂停与明确批准。
+B9 的 CH-019/CH-020、契约/迁移边界及暂停条件见 `../05-开发管理/B9-订单报价与库存预占.md`。CH-019 只补偿 B9 脱敏 development 的单人 reviewer 条件并在 B9.5 后失效；staging 前外部独立复核不得豁免。B9.0-B9.2 已完成，B9.2 `P0=0/P1=0/P2=0` 后暂停；当前等待用户批准 B9.3，B9.4-B9.5 仍须等待各自前序批次暂停与明确批准。
 
 ## 剩余上线门禁
 

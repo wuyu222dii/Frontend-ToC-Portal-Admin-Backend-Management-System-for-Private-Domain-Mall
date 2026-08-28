@@ -330,7 +330,7 @@ describe('StoreCartRepository', () => {
     expect(state.queryRaw).not.toHaveBeenCalled();
   });
 
-  it('rejects an unknown SKU before lazy creation and locks account, customer, cart then SKU', async () => {
+  it('rejects an unknown SKU before lazy creation after locking the prospective item then SKU', async () => {
     const state = harness({ hasCart: false });
     const unknownSkuId = generateUlid(NOW.getTime() - 3_000);
 
@@ -339,12 +339,18 @@ describe('StoreCartRepository', () => {
     })).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND' });
 
     expect(state.cart.create).not.toHaveBeenCalled();
-    expect(lockRequests(state.transactionStub.$queryRawUnsafe.mock.calls)).toEqual([
+    const locks = lockRequests(state.transactionStub.$queryRawUnsafe.mock.calls);
+    expect(locks.slice(0, 3)).toEqual([
       { namespace: 'store-auth-account', parts: [accountId] },
       { namespace: 'store-auth-customer', parts: [customerId] },
       { namespace: 'store-cart', parts: [customerId] },
-      { namespace: 'product-catalog-sku', parts: [unknownSkuId] },
     ]);
+    expect(locks[3]?.namespace).toBe('store-cart-item');
+    expect(locks[3]?.parts[0]).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+    expect(locks[3]?.parts[1]).toBe(unknownSkuId);
+    expect(locks[4]).toEqual(
+      { namespace: 'product-catalog-sku', parts: [unknownSkuId] },
+    );
   });
 
   it('lazily creates a cart and item under the real cart-item lock, including inactive existing SKUs', async () => {
@@ -369,9 +375,13 @@ describe('StoreCartRepository', () => {
       { namespace: 'store-auth-account', parts: [accountId] },
       { namespace: 'store-auth-customer', parts: [customerId] },
       { namespace: 'store-cart', parts: [customerId] },
-      { namespace: 'product-catalog-sku', parts: [skuId] },
       { namespace: 'store-cart-item', parts: [createdCartId, skuId] },
+      { namespace: 'product-catalog-sku', parts: [skuId] },
     ]);
+    expect(state.cartItem.findMany.mock.invocationCallOrder[0])
+      .toBeGreaterThan(state.transactionStub.$queryRawUnsafe.mock.invocationCallOrder[3] as number);
+    expect(state.transactionStub.sku.findMany.mock.invocationCallOrder[0])
+      .toBeGreaterThan(state.transactionStub.$queryRawUnsafe.mock.invocationCallOrder[4] as number);
   });
 
   it('returns changed=false for an exact PUT and rejects a 101st distinct item', async () => {
@@ -411,6 +421,17 @@ describe('StoreCartRepository', () => {
       where: { cart_id: cartId, sku_id: skuId },
     });
     expect(present.cart.update).toHaveBeenCalledTimes(1);
+    expect(lockRequests(present.transactionStub.$queryRawUnsafe.mock.calls)).toEqual([
+      { namespace: 'store-auth-account', parts: [accountId] },
+      { namespace: 'store-auth-customer', parts: [customerId] },
+      { namespace: 'store-cart', parts: [customerId] },
+      { namespace: 'store-cart-item', parts: [cartId, skuId] },
+      { namespace: 'product-catalog-sku', parts: [skuId] },
+    ]);
+    expect(present.cartItem.findMany.mock.invocationCallOrder[0])
+      .toBeGreaterThan(present.transactionStub.$queryRawUnsafe.mock.invocationCallOrder[3] as number);
+    expect(present.transactionStub.sku.findMany.mock.invocationCallOrder[0])
+      .toBeGreaterThan(present.transactionStub.$queryRawUnsafe.mock.invocationCallOrder[4] as number);
   });
 
   it('validates every merge SKU before creating a cart so an unknown SKU is all-or-nothing', async () => {
@@ -462,12 +483,16 @@ describe('StoreCartRepository', () => {
     });
     const sortedSkuIds = [skuId, secondSkuId].sort();
     expect(lockRequests(state.transactionStub.$queryRawUnsafe.mock.calls).slice(3)).toEqual([
-      { namespace: 'product-catalog-sku', parts: [sortedSkuIds[0] as string] },
-      { namespace: 'product-catalog-sku', parts: [sortedSkuIds[1] as string] },
       { namespace: 'store-cart-item', parts: [cartId, sortedSkuIds[0] as string] },
       { namespace: 'store-cart-item', parts: [cartId, sortedSkuIds[1] as string] },
+      { namespace: 'product-catalog-sku', parts: [sortedSkuIds[0] as string] },
+      { namespace: 'product-catalog-sku', parts: [sortedSkuIds[1] as string] },
     ]);
     expect(state.transactionStub.$queryRawUnsafe).toHaveBeenCalledTimes(5);
+    expect(state.cartItem.findMany.mock.invocationCallOrder[0])
+      .toBeGreaterThan(state.transactionStub.$queryRawUnsafe.mock.invocationCallOrder[3] as number);
+    expect(state.transactionStub.sku.findMany.mock.invocationCallOrder[0])
+      .toBeGreaterThan(state.transactionStub.$queryRawUnsafe.mock.invocationCallOrder[4] as number);
     expect(state.cartItem.update).not.toHaveBeenCalled();
     expect(state.cartItem.create).not.toHaveBeenCalled();
     expect(state.cart.update).toHaveBeenCalledTimes(1);
@@ -506,12 +531,43 @@ describe('StoreCartRepository', () => {
       { namespace: 'store-auth-account', parts: [accountId] },
       { namespace: 'store-auth-customer', parts: [customerId] },
       { namespace: 'store-cart', parts: [customerId] },
-      { namespace: 'product-catalog-sku', parts: [sortedSkuIds[0] as string] },
-      { namespace: 'product-catalog-sku', parts: [sortedSkuIds[1] as string] },
       { namespace: 'store-cart-item', parts: [cartId, sortedSkuIds[0] as string] },
       { namespace: 'store-cart-item', parts: [cartId, sortedSkuIds[1] as string] },
+      { namespace: 'product-catalog-sku', parts: [sortedSkuIds[0] as string] },
+      { namespace: 'product-catalog-sku', parts: [sortedSkuIds[1] as string] },
     ]);
     expect(state.transactionStub.$queryRawUnsafe).toHaveBeenCalledTimes(5);
+    expect(state.cartItem.findMany).toHaveBeenCalledTimes(2);
+    expect(state.transactionStub.sku.findMany).toHaveBeenCalledTimes(1);
+    expect(state.cartItem.findMany.mock.invocationCallOrder[1])
+      .toBeGreaterThan(state.transactionStub.$queryRawUnsafe.mock.invocationCallOrder[3] as number);
+    expect(state.transactionStub.sku.findMany.mock.invocationCallOrder[0])
+      .toBeGreaterThan(state.transactionStub.$queryRawUnsafe.mock.invocationCallOrder[4] as number);
+  });
+
+  it('fails closed when the cart item set changes between discovery and the post-lock re-read', async () => {
+    const initialItem = storedItem(generateUlid(NOW.getTime() + 5_000), skuId);
+    const insertedItem = storedItem(generateUlid(NOW.getTime() + 6_000), secondSkuId);
+    const state = harness({ items: [initialItem] });
+    state.cartItem.findMany.mockImplementationOnce(async () => {
+      state.items.set(insertedItem.sku_id, insertedItem);
+      return [initialItem];
+    });
+
+    await expect(state.repository.getCartForMutationInTransaction(state.transaction, { accountId, customerId }))
+      .rejects.toMatchObject({ code: 'INTERNAL_ERROR' });
+
+    expect(lockRequests(state.transactionStub.$queryRawUnsafe.mock.calls)).toEqual([
+      { namespace: 'store-auth-account', parts: [accountId] },
+      { namespace: 'store-auth-customer', parts: [customerId] },
+      { namespace: 'store-cart', parts: [customerId] },
+      { namespace: 'store-cart-item', parts: [cartId, skuId] },
+    ]);
+    expect(state.cartItem.findMany).toHaveBeenCalledTimes(2);
+    expect(state.cartItem.findMany.mock.invocationCallOrder[1])
+      .toBeGreaterThan(state.transactionStub.$queryRawUnsafe.mock.invocationCallOrder[3] as number);
+    expect(state.transactionStub.sku.findMany).not.toHaveBeenCalled();
+    expect(state.queryRaw).not.toHaveBeenCalled();
   });
 
   it('merges 100 items with two batch locks and at most two set-based item writes', async () => {
@@ -537,22 +593,22 @@ describe('StoreCartRepository', () => {
     expect(result.cart.items).toHaveLength(100);
     expect(incoming.map(({ skuId: id }) => id)).toEqual(originalRequestOrder);
     expect(state.transactionStub.$queryRawUnsafe).toHaveBeenCalledTimes(5);
-    const skuBatch = JSON.parse(state.transactionStub.$queryRawUnsafe.mock.calls[3]?.[1] as string) as {
+    const itemBatch = JSON.parse(state.transactionStub.$queryRawUnsafe.mock.calls[3]?.[1] as string) as {
       namespace: string;
       parts: string;
     }[];
-    const itemBatch = JSON.parse(state.transactionStub.$queryRawUnsafe.mock.calls[4]?.[1] as string) as {
+    const skuBatch = JSON.parse(state.transactionStub.$queryRawUnsafe.mock.calls[4]?.[1] as string) as {
       namespace: string;
       parts: string;
     }[];
     const sortedSkuIds = [...skuIds].sort();
-    expect(skuBatch).toEqual(sortedSkuIds.map((id) => ({
-      namespace: 'product-catalog-sku',
-      parts: JSON.stringify([id]),
-    })));
     expect(itemBatch).toEqual(sortedSkuIds.map((id) => ({
       namespace: 'store-cart-item',
       parts: JSON.stringify([cartId, id]),
+    })));
+    expect(skuBatch).toEqual(sortedSkuIds.map((id) => ({
+      namespace: 'product-catalog-sku',
+      parts: JSON.stringify([id]),
     })));
     expect(state.transactionStub.$executeRaw).toHaveBeenCalledTimes(1);
     expect(state.cartItem.createMany).toHaveBeenCalledTimes(1);

@@ -23,15 +23,19 @@ const imageFileId = generateUlid(NOW.getTime() - 17_000);
 
 interface CheckoutRow {
   brand_id: string;
+  brand_name: string;
   brand_status: string;
   brand_deleted_at: Date | null;
   brand_version: number;
   category_id: string;
+  category_name: string;
   category_status: string;
   category_deleted_at: Date | null;
   category_version: number;
   inventory_balance_id: string | null;
   inventory_version: number | null;
+  locked_qty: number | null;
+  physical_qty: number | null;
   available_stock: bigint;
   primary_image_id: string | null;
   primary_image_file_id: string | null;
@@ -43,6 +47,7 @@ interface CheckoutRow {
   product_version: number;
   retail_price: Prisma.Decimal;
   sku_id: string;
+  sku_code: string;
   sku_name: string;
   sku_status: string;
   sku_deleted_at: Date | null;
@@ -89,14 +94,18 @@ function checkoutRow(overrides: Partial<CheckoutRow> = {}): CheckoutRow {
     available_stock: 8n,
     brand_deleted_at: null,
     brand_id: brandId,
+    brand_name: 'Checkout Brand',
     brand_status: 'ACTIVE',
     brand_version: 2,
     category_deleted_at: null,
     category_id: categoryId,
+    category_name: 'Checkout Category',
     category_status: 'ACTIVE',
     category_version: 4,
     inventory_balance_id: balanceId,
     inventory_version: 6,
+    locked_qty: 2,
+    physical_qty: 10,
     primary_image_file_id: imageFileId,
     primary_image_id: imageId,
     primary_image_object_key: `public/${imageFileId}`,
@@ -107,6 +116,7 @@ function checkoutRow(overrides: Partial<CheckoutRow> = {}): CheckoutRow {
     product_version: 5,
     retail_price: new Prisma.Decimal('19.90'),
     sku_deleted_at: null,
+    sku_code: 'CHECKOUT-SKU',
     sku_id: skuId,
     sku_name: 'Checkout SKU',
     sku_status: 'ACTIVE',
@@ -138,6 +148,8 @@ function harness() {
       available_stock: 3n,
       inventory_balance_id: secondBalanceId,
       inventory_version: 2,
+      locked_qty: 2,
+      physical_qty: 5,
       product_id: secondProductId,
       product_name: 'Second Checkout Product',
       retail_price: new Prisma.Decimal('5.25'),
@@ -242,6 +254,8 @@ describe('StoreCheckoutRepository', () => {
     expect(result.items).toEqual(expect.arrayContaining([
       expect.objectContaining({
         availableStock: 8,
+        brandName: 'Checkout Brand',
+        categoryName: 'Checkout Category',
         inventoryBalanceId: balanceId,
         inventoryVersion: 6,
         lineAmount: '39.80',
@@ -250,6 +264,9 @@ describe('StoreCheckoutRepository', () => {
         primaryImageObjectKey: `public/${imageFileId}`,
         productVersion: 5,
         saleable: true,
+        lockedQty: 2,
+        physicalQty: 10,
+        skuCode: 'CHECKOUT-SKU',
         skuId,
         skuVersion: 7,
         unitPrice: '19.90',
@@ -286,6 +303,8 @@ describe('StoreCheckoutRepository', () => {
         available_stock: 0n,
         inventory_balance_id: null,
         inventory_version: null,
+        locked_qty: null,
+        physical_qty: null,
         product_id: secondProductId,
         retail_price: new Prisma.Decimal('5.25'),
         sku_id: secondSkuId,

@@ -67,7 +67,6 @@ describe('StoreCheckoutQuoteCredential', () => {
     ['signature', { mutateToken: true }],
     ['confirmation', { confirmationHash: '0'.repeat(64) }],
     ['request', { request: { ...requestBinding, source: 'CART' } }],
-    ['facts', { facts: { ...factBinding, payable_amount: '40.00' } }],
     ['quote', { quoteId: '01J00000000000000000000007' }],
     ['customer', { customerId: '01J00000000000000000000008' }],
     ['session', { sessionId: OTHER_SESSION_ID }],
@@ -91,6 +90,46 @@ describe('StoreCheckoutQuoteCredential', () => {
     })).toThrowError(expect.objectContaining({ code: 'CHECKOUT_QUOTE_MISMATCH' }));
   });
 
+  it('requires a new quote when authenticated current facts have drifted', () => {
+    const credential = new StoreCheckoutQuoteCredential(
+      { current: OLD_KEY, previous: [] },
+      { clock: () => NOW },
+    );
+    const issued = credential.issue(input());
+
+    expect(() => credential.verify({
+      ...input({ facts: { ...factBinding, payable_amount: '40.00' } }),
+      confirmationHash: issued.confirmationHash,
+      quoteToken: issued.quoteToken,
+    })).toThrowError(expect.objectContaining({ code: 'CHECKOUT_REQUOTE_REQUIRED' }));
+  });
+
+  it('authenticates the signed request before current checkout facts are available', () => {
+    const credential = new StoreCheckoutQuoteCredential(
+      { current: OLD_KEY, previous: [] },
+      { clock: () => NOW },
+    );
+    const issued = credential.issue(input());
+    const authentication = {
+      confirmationHash: issued.confirmationHash,
+      customerId: CUSTOMER_ID,
+      quoteId: QUOTE_ID,
+      quoteToken: issued.quoteToken,
+      request: requestBinding,
+      sessionId: SESSION_ID,
+    };
+
+    expect(credential.authenticate(authentication)).toEqual({
+      expiresAt: issued.expiresAt,
+      keyId: OLD_KEY.id,
+      quoteId: QUOTE_ID,
+    });
+    expect(() => credential.authenticate({
+      ...authentication,
+      request: { ...requestBinding, items: [{ ...requestBinding.items[0], quantity: 3 }] },
+    })).toThrowError(expect.objectContaining({ code: 'CHECKOUT_QUOTE_MISMATCH' }));
+  });
+
   it('rejects the credential at its exact expiry boundary', () => {
     let now = NOW;
     const credential = new StoreCheckoutQuoteCredential(
@@ -102,6 +141,22 @@ describe('StoreCheckoutQuoteCredential', () => {
 
     expect(() => credential.verify({
       ...input(),
+      confirmationHash: issued.confirmationHash,
+      quoteToken: issued.quoteToken,
+    })).toThrowError(expect.objectContaining({ code: 'CHECKOUT_QUOTE_EXPIRED' }));
+  });
+
+  it('reports expiry before comparing current facts', () => {
+    let now = NOW;
+    const credential = new StoreCheckoutQuoteCredential(
+      { current: OLD_KEY, previous: [] },
+      { clock: () => now },
+    );
+    const issued = credential.issue(input());
+    now = issued.expiresAt;
+
+    expect(() => credential.verify({
+      ...input({ facts: { ...factBinding, payable_amount: '40.00' } }),
       confirmationHash: issued.confirmationHash,
       quoteToken: issued.quoteToken,
     })).toThrowError(expect.objectContaining({ code: 'CHECKOUT_QUOTE_EXPIRED' }));

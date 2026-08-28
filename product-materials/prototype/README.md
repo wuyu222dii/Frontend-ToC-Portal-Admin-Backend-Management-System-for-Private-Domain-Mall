@@ -32,7 +32,7 @@ CH-016 同步了 MP-07/18/19/20/21：登录展示服务端 current legal snapsho
 
 CH-018 同步了 B8 的 MP-04/06/15/16/17/18：登录后的收藏动作返回原商品并只执行一次；收藏列表可按商品名搜索，同时保留 `SALEABLE / OUT_OF_STOCK / UNAVAILABLE` 三种当前状态。购物车区分游客本地记录和服务端权威投影，合并失败保留原条目与同一幂等键；服务端项闭合为 `SALEABLE / INSUFFICIENT_STOCK / OUT_OF_STOCK / INACTIVE / DELETED`，只统计已选可售项，数量固定不超过 `min(99, available_stock)`，空购物车不产生服务端记录。地址列表只展示脱敏摘要，详情拆分省、市、区并演示 If-Match 409、默认地址 422 和稳定提升。个人中心开放收藏和地址；结算、立即购买、订单、支付和履约仍只提示后续阶段，不从 B8 主流程进入历史交易画板。
 
-CH-020 在不增加页面数量的前提下冻结 B9 的 MP-04/06/08/10/11/18：`BUY_NOW` 恰好一个 SKU，`CART` 精确匹配当前已选服务端购物车；MP-08 展示脱敏地址、价格/库存快照、固定零运费、闭合 blocker 和 5 分钟报价倒计时，变化或 409 后必须重新报价并再次确认。提交使用保存精确请求和固定幂等键的短期 journal，响应丢失只按原请求原键重试。MP-10/11 只开放本人订单列表、详情和合法 `CANCEL`，支付、MP-09 支付结果、物流、售后及 Admin/Agent 订单继续关闭。CH-020 契约实测为 `173 paths / 198 operations / 198 unique operationId / 325 schemas / 703 schema refs / 2,665 local refs / 0 dangling refs`，Redocly 0 warning；受控 Supabase development 0002 migration 与随后 rollback-only smoke 待执行，B9.0 仍为进行中。
+CH-020 在不增加页面数量的前提下冻结 B9 的 MP-04/06/08/10/11/18：`BUY_NOW` 恰好一个 SKU，`CART` 精确匹配当前已选服务端购物车；MP-08 展示脱敏地址、价格/库存快照、固定零运费、闭合 blocker 和 5 分钟报价倒计时，变化或 409 后必须重新报价并再次确认。提交使用保存精确请求和固定幂等键的短期 journal，响应丢失只按原请求原键重试。MP-10/11 只开放本人订单列表、详情和合法 `CANCEL`，支付、MP-09 支付结果、物流、售后及 Admin/Agent 订单继续关闭。CH-020 契约实测为 `173 paths / 198 operations / 198 unique operationId / 325 schemas / 703 schema refs / 2,665 local refs / 0 dangling refs`，Redocly 0 warning；准确 SHA `97d5f979e63994c4fc136217d870a726f92b3d93` 的三项远端门禁均成功。B9.0 与 B9.1 已完成，B9.1 `P0=0/P1=0` 后暂停；B9.2-B9.5 未开始，等待用户批准 B9.2。
 
 库存页只展示 `physical_qty`、`locked_qty`、活动预占、`available_qty = physical_qty - locked_qty` 和版本；不再展示低库存阈值、预警值、售后占用或独立备注。调整必须提交非零整数 `physical_delta` 与原因，先 preview 再 confirm；重复确认只产生一条闭合类型流水，版本冲突返回 409，数量不足或越界返回 422，归档 SKU 保持只读。
 

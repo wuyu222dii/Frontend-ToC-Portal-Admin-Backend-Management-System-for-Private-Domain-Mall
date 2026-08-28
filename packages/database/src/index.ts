@@ -15,6 +15,7 @@ export * from './store-address.repository';
 export * from './store-catalog.repository';
 export * from './store-auth.repository';
 export * from './store-cart.repository';
+export * from './store-checkout.repository';
 export * from './store-favorites.repository';
 export * from './store-profile.repository';
 export * from './store-privacy.repository';

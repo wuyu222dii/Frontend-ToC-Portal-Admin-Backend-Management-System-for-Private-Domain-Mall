@@ -51,6 +51,7 @@ const SENSITIVE_STORE_EXACT_PATHS = new Set([
   '/api/v1/store/addresses',
   '/api/v1/store/legal-documents',
   '/api/v1/store/cart',
+  '/api/v1/store/checkout/quotes',
   '/api/v1/store/favorites',
   '/api/v1/store/profile',
   '/api/v1/store/service-agent',

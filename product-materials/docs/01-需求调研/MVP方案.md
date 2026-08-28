@@ -10,7 +10,7 @@
 | 目标用户 | 终端消费者、一级代理、总部商城经营人员 |
 | 人员角色 | `SUPER_ADMIN`、`AGENT_ADMIN`、`CUSTOMER` |
 | 更新日期 | 2026-08-28 |
-| 文档状态 | B0 至 B8 development 已完成；B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 同 SHA 双绿，CH-017 已失效；CH-019/CH-020 已批准，产品/API 基线为 v2.4.7/CH-020，当前仅 B9.0 进行中，B9.1-B9.5 未开始；仅允许 Mock Provider 和脱敏 development，staging/production 均为 `NO-GO` |
+| 文档状态 | B0 至 B8 development 已完成；B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 同 SHA 双绿，CH-017 已失效；CH-019/CH-020 已批准，产品/API 基线为 v2.4.7/CH-020；B9.0 与 B9.1 已完成，B9.1 经三路独立复审达到 `P0=0/P1=0` 后暂停，B9.2-B9.5 未开始并等待用户批准 B9.2；仅允许 Mock Provider 和脱敏 development，staging/production 均为 `NO-GO` |
 
 ## 1. MVP 概述
 
@@ -125,7 +125,7 @@
 - 收藏使用专用消费者安全投影，商品失效后仍可见 `UNAVAILABLE`；服务端购物车空读不建行，购物项始终返回当前价格、库存和闭合状态，合计只包含已选且可售项。
 - 游客购物车在登录后以固定幂等键和精确 journal 合并；丢失响应必须同键重试，服务端确认成功前不得清除本地项。每项最多 99 件，购物车最多 100 个不同 SKU。
 - 地址列表只返回脱敏摘要，详情只向本人返回完整值；手机号和详细地址加密，写入使用 HASH_ONLY，修改/删除要求 `If-Match`，默认地址切换和删除提升在同一事务完成。
-- B8 交付时明确排除结算报价、库存预占、订单、支付、履约和售后。当前 CH-020 静态原型已把购物车结算、立即购买和订单入口推进到 B9 报价/重新报价/待付款下单/取消边界，但 B9.1 业务实现尚未开始，仍不调用支付、物流或售后 API。
+- B8 交付时明确排除结算报价、库存预占、订单、支付、履约和售后。当前 CH-020 静态原型已把购物车结算、立即购买和订单入口推进到 B9 报价/重新报价/待付款下单/取消边界，B9.1 已完成结算报价；B9.2 下单、支付、物流和售后 API 仍未开放。
 
 ### 2.6 B9 订单、报价与库存预占边界
 
@@ -400,14 +400,14 @@ Supabase 在当前 MVP 中仅作为 PostgreSQL 托管服务。消费者小程序
 
 ## 9. 里程碑建议
 
-B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 的普通 CI Run `33141704459` 与 Supabase rollback-only Run `33142971501` 同 SHA 双绿，B8 development `GO`，CH-017 已失效。CH-019/CH-020 已批准，当前仅 B9.0 进行中，B9.1-B9.5 未开始；任何 development 结果都不等同于 staging 或生产许可。
+B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 的普通 CI Run `33141704459` 与 Supabase rollback-only Run `33142971501` 同 SHA 双绿，B8 development `GO`，CH-017 已失效。CH-019/CH-020 已批准；B9.0 已完成三项远端门禁，B9.1 已完成并经三路独立复审达到 `P0=0/P1=0` 后暂停。B9.2-B9.5 未开始，等待用户批准 B9.2；任何 development 结果都不等同于 staging 或生产许可。
 
 | 阶段 | 主要交付物 | 当前状态 |
 |---|---|---|
 | 需求确认 | MVP、三端角色确认、变更记录 | CH-019/CH-020 与 v2.4.7 基线已登记 |
 | 产品设计 | PRD、三端信息架构、可点击原型、Figma 重建规范 | B8 收藏、服务端购物车、游客合并和地址边界已同步；页面仍为 21/9/22 |
 | 技术设计 | 系统架构、数据库 ERD、接口文档、OpenAPI、Prisma 草案与部署拓扑 | CH-020 实测 173 paths/198 operations/198 unique operationId/325 schemas/703 schema refs/2,665 local refs/0 dangling refs，Redocly 0 warning；0001 不变，允许 0002 索引迁移 |
-| 开发与测试 | 三端工程、API、数据库、自动化测试 | B0-B8 development 已通过；B9.0 治理、契约和迁移进行中，B9.1-B9.5 未开始 |
+| 开发与测试 | 三端工程、API、数据库、自动化测试 | B0-B8 development 已通过；B9.0/B9.1 已完成，B9.1 `P0=0/P1=0` 后暂停；B9.2-B9.5 未开始 |
 | 上线准备 | 微信资质、真实支付退款、隐私合规、部署与验收 | 未开始 |
 
 ## 10. 风险与应对
@@ -485,15 +485,15 @@ B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 的普通 CI Run `33141
 
 - 尚无真实用户访谈、历史订单、代理规模、佣金预算、商品规模和并发数据；指标阈值需试运行后校准。
 - 尚无微信正式参数、物流合同、隐私文本、线下打款财务制度和法律审核结论。
-- 当前交付物仍不是完整可用商城业务系统。B0-B8 development 已完成；B9.0 仅处理治理、契约与 0002 索引迁移，B9.1-B9.5 报价、下单、预占、取消/超时、小程序和总验收尚未开始。支付、退款、履约和售后继续排除。
+- 当前交付物仍不是完整可用商城业务系统。B0-B8 development 与 B9.0/B9.1 已完成；B9.2-B9.5 下单、预占、取消/超时、小程序和总验收尚未开始。支付、退款、履约和售后继续排除。
 
 ## 13. 后续建议
 
 1. B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 的普通 CI Run `33141704459` 与 Supabase rollback-only Run `33142971501` 同 SHA 双绿，B8 development `GO`，CH-017 已失效。
-2. 先完成 B9.0 的文档、OpenAPI、generated contracts、0002 迁移链、受控 Supabase development migration 与 rollback-only 门禁；`P0=0/P1=0` 后暂停，未经明确批准不得开始 B9.1。
-3. B9.1-B9.5 依次交付报价、下单/预占、查询/取消/超时 Worker、小程序和总验收；每批验收后暂停。
+2. B9.0 与 B9.1 已完成；B9.1 经三路独立复审达到 `P0=0/P1=0` 后暂停，当前等待用户批准 B9.2。
+3. B9.2-B9.5 在获批后依次交付下单/预占、查询/取消/超时 Worker、小程序和总验收，每批 `P0=0/P1=0` 后暂停。
 4. CH-019 只适用于脱敏 development 并在 B9.5 后失效；第一次进入 staging 前仍须外部独立复核。
 
 ---
 
-项目状态：三端 MVP 产品/API 基线为 v2.4.7（CH-020）。B0 至 B8 development 已通过；B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 同 SHA 双绿，CH-017 已失效。CH-019/CH-020 已批准，当前仅 B9.0 进行中，B9.1-B9.5 未开始。目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线还须通过真实 Provider、恢复演练和合规门禁。
+项目状态：三端 MVP 产品/API 基线为 v2.4.7（CH-020）。B0 至 B8 development 已通过；B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 同 SHA 双绿，CH-017 已失效。CH-019/CH-020 已批准；B9.0 与 B9.1 已完成，B9.1 经三路独立复审达到 `P0=0/P1=0` 后暂停。B9.2-B9.5 未开始，等待用户批准 B9.2。目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线还须通过真实 Provider、恢复演练和合规门禁。

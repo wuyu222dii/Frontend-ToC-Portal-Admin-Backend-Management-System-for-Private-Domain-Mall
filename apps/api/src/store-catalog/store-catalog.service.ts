@@ -18,6 +18,7 @@ import { API_RUNTIME_CONFIG } from '../platform/config/api-runtime-config';
 import { API_DATABASE_RUNTIME } from '../platform/database/api-database-runtime';
 import { API_OBJECT_STORAGE } from '../platform/storage/api-object-storage';
 import type { StoreProductListInput } from './store-catalog.dto';
+import { storeSkuSpecification } from './store-sku-specification';
 
 type SectionStatus = 'READY' | 'UNAVAILABLE';
 
@@ -164,33 +165,8 @@ export class StoreCatalogService {
       name: resource.name,
       retail_price: resource.retailPrice,
       sku_id: resource.id,
-      spec_json: this.skuSpecification(resource.specification),
+      spec_json: storeSkuSpecification(resource.specification),
     };
-  }
-
-  private skuSpecification(value: StoreCatalogSkuSnapshot['specification']) {
-    if (value === null) return null;
-    if (typeof value !== 'object' || Array.isArray(value) || !Object.hasOwn(value, 'attributes') ||
-      Object.keys(value).length !== 1 || !Array.isArray(value.attributes) || value.attributes.length === 0) {
-      throw new ApplicationError('INTERNAL_ERROR', 'Stored SKU specification is invalid');
-    }
-    const seen = new Set<string>();
-    const attributes = value.attributes.map((item) => {
-      if (typeof item !== 'object' || item === null || Array.isArray(item) ||
-        Object.keys(item).length !== 2 || !Object.hasOwn(item, 'name') || !Object.hasOwn(item, 'value') ||
-        typeof item.name !== 'string' || typeof item.value !== 'string' ||
-        item.name.trim().length === 0 || item.value.trim().length === 0 ||
-        Array.from(item.name).length > 80 || Array.from(item.value).length > 160) {
-        throw new ApplicationError('INTERNAL_ERROR', 'Stored SKU specification is invalid');
-      }
-      const identity = JSON.stringify([item.name, item.value]);
-      if (seen.has(identity)) {
-        throw new ApplicationError('INTERNAL_ERROR', 'Stored SKU specification is invalid');
-      }
-      seen.add(identity);
-      return { name: item.name, value: item.value };
-    });
-    return { attributes };
   }
 
   private productListItemView(resource: StoreCatalogProductListItem) {

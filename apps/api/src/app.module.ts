@@ -17,6 +17,7 @@ import { SuccessEnvelopeInterceptor } from './platform/http/success-envelope.int
 import { StoreAddressModule } from './store-address/store-address.module';
 import { StoreCatalogModule } from './store-catalog/store-catalog.module';
 import { StoreCartModule } from './store-cart/store-cart.module';
+import { StoreCheckoutModule } from './store-checkout/store-checkout.module';
 import { StoreFavoritesModule } from './store-favorites/store-favorites.module';
 import { StoreAttributionModule } from './store-attribution/store-attribution.module';
 import { StoreAuthModule } from './store-auth/store-auth.module';
@@ -36,6 +37,7 @@ import { StorePrivacyModule } from './store-privacy/store-privacy.module';
     StoreAttributionModule,
     StoreCatalogModule,
     StoreCartModule,
+    StoreCheckoutModule,
     StoreFavoritesModule,
     StoreAuthModule,
     StorePrivacyModule,

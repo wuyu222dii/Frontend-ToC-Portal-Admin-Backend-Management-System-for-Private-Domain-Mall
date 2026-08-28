@@ -1,9 +1,16 @@
 <script setup lang="ts">
 /* global uni */
-import { onLoad, onUnload } from '@dcloudio/uni-app';
+import { onLoad, onShow, onUnload } from '@dcloudio/uni-app';
 import { computed, ref } from 'vue';
 
-import { getStoreProduct } from '../../api';
+import {
+  createIdempotencyKey,
+  deleteFavorite,
+  getFavoriteState,
+  getStoreProduct,
+  mergeStoreCart,
+  putFavorite,
+} from '../../api';
 import { StoreApiError, type StoreCancelableRequest } from '../../api/store-client';
 import QxCatalogState from '../../components/storefront/QxCatalogState.vue';
 import QxPrice from '../../components/storefront/QxPrice.vue';
@@ -17,6 +24,7 @@ import {
   setGuestCartQuantity,
 } from '../../utils/guest-cart';
 import { guestCartSnapshot } from '../../utils/guest-cart-refresh';
+import { hasRefreshableCustomerSession } from '../../utils/customer-session';
 import { goBackOrHome, openHome, showLoginPrompt } from '../../utils/store-navigation';
 
 type DetailState = 'loading' | 'ready' | 'not-found' | 'error' | 'rate-limited';
@@ -33,10 +41,21 @@ const currentImage = ref(0);
 const activeTab = ref<DetailTab>('introduction');
 const retryAfterSeconds = ref(0);
 const slowRequest = ref(false);
+const favoriteState = ref<boolean | null>(null);
+const favoriteStateLoading = ref(false);
+const favoriteStateError = ref(false);
+const favoritePending = ref(false);
+const cartPending = ref(false);
 
 let currentRequest: StoreCancelableRequest<StoreProductDetail> | undefined;
 let requestGeneration = 0;
+let favoriteStateGeneration = 0;
 let slowTimer: ReturnType<typeof setTimeout> | undefined;
+let customerCartAuthoritative = hasRefreshableCustomerSession();
+let pendingCartAdd: {
+  fingerprint: string;
+  idempotencyKey: string;
+} | null = null;
 
 const selectedSku = computed(() => product.value?.skus.find(
   (sku) => sku.sku_id === selectedSkuId.value,
@@ -77,8 +96,10 @@ function initialSku(skus: readonly StoreSku[]): StoreSku | undefined {
 }
 
 function selectSku(sku: StoreSku) {
+  if (cartPending.value) return;
   selectedSkuId.value = sku.sku_id;
   quantity.value = sku.is_salable ? 1 : 0;
+  pendingCartAdd = null;
 }
 
 function skuDescription(sku: StoreSku): string {
@@ -113,6 +134,7 @@ async function loadProduct() {
     selectedSkuId.value = sku?.sku_id ?? '';
     quantity.value = sku?.is_salable ? 1 : 0;
     state.value = 'ready';
+    void loadFavoriteState();
   } catch (error) {
     if (generation !== requestGeneration || (error instanceof StoreApiError && error.aborted)) return;
     product.value = null;
@@ -132,10 +154,35 @@ async function loadProduct() {
   }
 }
 
+async function loadFavoriteState() {
+  const generation = ++favoriteStateGeneration;
+  if (!isUlid(productId.value) || !hasRefreshableCustomerSession()) {
+    favoriteState.value = null;
+    favoriteStateLoading.value = false;
+    favoriteStateError.value = false;
+    return;
+  }
+  favoriteStateLoading.value = true;
+  favoriteStateError.value = false;
+  try {
+    const result = await getFavoriteState(productId.value);
+    if (generation !== favoriteStateGeneration) return;
+    favoriteState.value = result.is_favorite;
+  } catch (error) {
+    if (generation !== favoriteStateGeneration) return;
+    favoriteState.value = null;
+    favoriteStateError.value = !(error instanceof StoreApiError && error.status === 401);
+  } finally {
+    if (generation === favoriteStateGeneration) favoriteStateLoading.value = false;
+  }
+}
+
 function changeQuantity(delta: number) {
+  if (cartPending.value) return;
   const maximum = quantityMaximum.value;
   if (maximum === 0) return;
   quantity.value = Math.min(maximum, Math.max(1, quantity.value + delta));
+  pendingCartAdd = null;
 }
 
 function openSkuSheet(purpose: 'select' | 'cart') {
@@ -144,27 +191,63 @@ function openSkuSheet(purpose: 'select' | 'cart') {
   sheetOpen.value = true;
 }
 
-function confirmSkuSelection() {
+async function confirmSkuSelection() {
   const currentProduct = product.value;
   const currentSku = selectedSku.value;
-  if (!currentProduct || !currentSku?.is_salable || quantity.value < 1) return;
+  if (!currentProduct || !currentSku?.is_salable || quantity.value < 1 || cartPending.value) return;
   if (sheetPurpose.value === 'cart') {
-    try {
-      const merged = addOrMergeGuestCartItem(
-        loadGuestCart(),
-        guestCartSnapshot(currentProduct, currentSku),
-        quantity.value,
-      );
-      const mergedItem = merged.items.find((item) => item.snapshot.sku_id === currentSku.sku_id);
-      const maximum = Math.min(99, currentSku.available_stock);
-      const capped = mergedItem === undefined || mergedItem.quantity <= maximum
-        ? merged
-        : setGuestCartQuantity(merged, currentSku.sku_id, maximum);
-      saveGuestCart(capped);
-      void uni.showToast({ icon: 'success', title: '已加入购物车' });
-    } catch {
-      void uni.showToast({ icon: 'none', title: '本地存储不可用，加购失败' });
+    const authenticated = hasRefreshableCustomerSession();
+    if (authenticated) customerCartAuthoritative = true;
+    if (customerCartAuthoritative && !authenticated) {
+      showLoginPrompt({ type: 'CART_ADD', product_id: productId.value });
       return;
+    }
+    cartPending.value = true;
+    try {
+      if (customerCartAuthoritative) {
+        const input = {
+          items: [{ sku_id: currentSku.sku_id, quantity: quantity.value, selected: true }],
+        };
+        const fingerprint = JSON.stringify(input);
+        if (pendingCartAdd?.fingerprint !== fingerprint) {
+          pendingCartAdd = { fingerprint, idempotencyKey: createIdempotencyKey() };
+        }
+        await mergeStoreCart(input, pendingCartAdd.idempotencyKey);
+        pendingCartAdd = null;
+      } else {
+        const merged = addOrMergeGuestCartItem(
+          loadGuestCart(),
+          guestCartSnapshot(currentProduct, currentSku),
+          quantity.value,
+        );
+        const mergedItem = merged.items.find((item) => item.snapshot.sku_id === currentSku.sku_id);
+        const maximum = Math.min(99, currentSku.available_stock);
+        const capped = mergedItem === undefined || mergedItem.quantity <= maximum
+          ? merged
+          : setGuestCartQuantity(merged, currentSku.sku_id, maximum);
+        saveGuestCart(capped);
+      }
+      void uni.showToast({ icon: 'success', title: '已加入购物车' });
+    } catch (error) {
+      if (error instanceof StoreApiError &&
+        (error.status === 409 || error.code === 'CART_ITEM_LIMIT_EXCEEDED')) {
+        pendingCartAdd = null;
+      }
+      if (error instanceof StoreApiError && error.status === 401) {
+        customerCartAuthoritative = true;
+        showLoginPrompt({ type: 'CART_ADD', product_id: productId.value });
+      }
+      const title = error instanceof StoreApiError && error.status === 401
+        ? '登录已失效，请重新登录'
+        : error instanceof StoreApiError && error.code === 'CART_ITEM_LIMIT_EXCEEDED'
+          ? '购物车商品种类已达上限'
+          : customerCartAuthoritative
+            ? '服务端购物车暂不可用，请重试'
+            : '本地存储不可用，加购失败';
+      void uni.showToast({ icon: 'none', title });
+      return;
+    } finally {
+      cartPending.value = false;
     }
   }
   sheetOpen.value = false;
@@ -175,9 +258,44 @@ function buyNow() {
   showLoginPrompt({ type: 'BUY_NOW', product_id: productId.value });
 }
 
-function favoriteProduct() {
-  if (state.value !== 'ready' || product.value === null) return;
-  showLoginPrompt({ type: 'FAVORITE', product_id: productId.value });
+async function favoriteProduct() {
+  if (state.value !== 'ready' || product.value === null || favoritePending.value ||
+    favoriteStateLoading.value) return;
+  if (!hasRefreshableCustomerSession()) {
+    showLoginPrompt({ type: 'FAVORITE', product_id: productId.value });
+    return;
+  }
+  if (favoriteStateError.value) {
+    await loadFavoriteState();
+    if (favoriteStateError.value) {
+      void uni.showToast({ icon: 'none', title: '收藏状态加载失败，请重试' });
+    }
+    return;
+  }
+  favoriteStateGeneration += 1;
+  favoriteStateLoading.value = false;
+  favoritePending.value = true;
+  const nextFavorite = favoriteState.value !== true;
+  try {
+    const result = nextFavorite
+      ? await putFavorite(productId.value, createIdempotencyKey())
+      : await deleteFavorite(productId.value, createIdempotencyKey());
+    favoriteState.value = result.is_favorite;
+    favoriteStateError.value = false;
+    void uni.showToast({ icon: 'none', title: result.is_favorite ? '已收藏' : '已取消收藏' });
+  } catch (error) {
+    if (error instanceof StoreApiError && error.status === 409) {
+      await loadFavoriteState();
+      void uni.showToast({ icon: 'none', title: '收藏状态已变化，请再次操作' });
+    } else if (error instanceof StoreApiError && error.status === 401) {
+      favoriteState.value = null;
+      showLoginPrompt({ type: 'FAVORITE', product_id: productId.value });
+    } else {
+      void uni.showToast({ icon: 'none', title: '收藏操作失败，请重试' });
+    }
+  } finally {
+    favoritePending.value = false;
+  }
 }
 
 function goBack() {
@@ -193,8 +311,14 @@ onLoad((query) => {
   void loadProduct();
 });
 
+onShow(() => {
+  if (hasRefreshableCustomerSession()) customerCartAuthoritative = true;
+  if (state.value === 'ready' && !favoritePending.value) void loadFavoriteState();
+});
+
 onUnload(() => {
   requestGeneration += 1;
+  favoriteStateGeneration += 1;
   currentRequest?.abort();
   clearSlowTimer();
 });
@@ -216,11 +340,12 @@ onUnload(() => {
         </text>
         <button
           class="detail-header__button"
-          aria-label="收藏"
-          :disabled="state !== 'ready' || product === null"
+          :aria-label="favoriteStateError ? '重新加载收藏状态' : '收藏'"
+          :aria-pressed="favoriteState === true"
+          :disabled="state !== 'ready' || product === null || favoritePending || favoriteStateLoading"
           @click="favoriteProduct"
         >
-          ☆
+          {{ favoriteStateError ? '↻' : favoriteState === true ? '★' : '☆' }}
         </button>
       </header>
 
@@ -374,14 +499,16 @@ onUnload(() => {
         <view class="detail-actions">
           <button
             class="detail-actions__favorite"
-            aria-label="收藏商品"
+            :aria-label="favoriteStateError ? '重新加载收藏状态' : favoriteState === true ? '取消收藏' : '收藏商品'"
+            :aria-pressed="favoriteState === true"
+            :disabled="favoritePending || favoriteStateLoading"
             @click="favoriteProduct"
           >
-            ☆
+            {{ favoriteStateError ? '↻' : favoriteState === true ? '★' : '☆' }}
           </button>
           <button
             class="detail-actions__secondary"
-            :disabled="allSoldOut"
+            :disabled="allSoldOut || cartPending"
             @click="openSkuSheet('cart')"
           >
             {{ allSoldOut ? '暂时售罄' : '加入购物车' }}
@@ -405,6 +532,7 @@ onUnload(() => {
         <button
           class="sku-sheet__mask"
           aria-label="关闭规格选择"
+          :disabled="cartPending"
           @click="sheetOpen = false"
         />
         <view class="sku-sheet__panel">
@@ -425,6 +553,7 @@ onUnload(() => {
             <button
               class="sku-sheet__close"
               aria-label="关闭"
+              :disabled="cartPending"
               @click="sheetOpen = false"
             >
               ×
@@ -448,6 +577,7 @@ onUnload(() => {
                   'sku-option--sold-out': !sku.is_salable,
                 }"
                 :aria-pressed="selectedSkuId === sku.sku_id"
+                :disabled="cartPending"
                 @click="selectSku(sku)"
               >
                 <view class="sku-option__copy">
@@ -479,7 +609,7 @@ onUnload(() => {
                 aria-label="购买数量"
               >
                 <button
-                  :disabled="quantity <= 1"
+                  :disabled="cartPending || quantity <= 1"
                   aria-label="减少数量"
                   @click="changeQuantity(-1)"
                 >
@@ -487,7 +617,7 @@ onUnload(() => {
                 </button>
                 <text>{{ quantity }}</text>
                 <button
-                  :disabled="quantityMaximum === 0 || quantity >= quantityMaximum"
+                  :disabled="cartPending || quantityMaximum === 0 || quantity >= quantityMaximum"
                   aria-label="增加数量"
                   @click="changeQuantity(1)"
                 >
@@ -499,10 +629,10 @@ onUnload(() => {
 
           <button
             class="sku-sheet__confirm"
-            :disabled="!selectedSku?.is_salable || quantity < 1"
+            :disabled="!selectedSku?.is_salable || quantity < 1 || cartPending"
             @click="confirmSkuSelection"
           >
-            {{ selectedSku?.is_salable ? (sheetPurpose === 'cart' ? '加入购物车' : '确认规格') : '该规格已售罄' }}
+            {{ cartPending ? '正在加入…' : selectedSku?.is_salable ? (sheetPurpose === 'cart' ? '加入购物车' : '确认规格') : '该规格已售罄' }}
           </button>
         </view>
       </view>

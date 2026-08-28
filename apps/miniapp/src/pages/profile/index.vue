@@ -143,11 +143,11 @@ onShow(() => {
 
         <view class="qx-account-panel">
           <text class="qx-account-panel__heading">消费服务</text>
-          <button class="qx-account-row" @click="showUnavailable('收藏尚未开放')">
-            <text>商品收藏</text><text class="qx-account-row__value">尚未开放</text>
+          <button aria-label="商品收藏" class="qx-account-row" @click="openPage('/pages/favorites/index')">
+            <text>商品收藏</text><text class="qx-account-row__value">›</text>
           </button>
-          <button class="qx-account-row" @click="showUnavailable('收货地址尚未开放')">
-            <text>收货地址</text><text class="qx-account-row__value">尚未开放</text>
+          <button aria-label="收货地址" class="qx-account-row" @click="openPage('/pages/address/index')">
+            <text>收货地址</text><text class="qx-account-row__value">›</text>
           </button>
           <button class="qx-account-row" @click="showUnavailable('订单尚未开放')">
             <text>我的订单</text><text class="qx-account-row__value">尚未开放</text>

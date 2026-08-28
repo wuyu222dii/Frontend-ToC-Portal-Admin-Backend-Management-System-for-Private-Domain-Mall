@@ -1,6 +1,14 @@
+import { createIdempotencyKey, putFavorite } from '../api';
+import { StoreApiError } from '../api/store-client';
+
 export type ProtectedAction =
+  | { readonly type: 'ADDRESS_EDIT'; readonly address_id?: string }
+  | { readonly type: 'ADDRESS_LIST' }
+  | { readonly type: 'CART' }
+  | { readonly type: 'CART_ADD'; readonly product_id: string }
   | { readonly type: 'CHECKOUT' }
   | { readonly type: 'FAVORITE'; readonly product_id: string }
+  | { readonly type: 'FAVORITES' }
   | { readonly type: 'PROFILE' }
   | { readonly type: 'SERVICE_AGENT' }
   | { readonly type: 'BUY_NOW'; readonly product_id: string };
@@ -12,8 +20,13 @@ function isUlid(value: string): boolean {
 }
 
 export function setProtectedAction(action: ProtectedAction): void {
-  if ((action.type === 'FAVORITE' || action.type === 'BUY_NOW') && !isUlid(action.product_id)) {
+  if ((action.type === 'CART_ADD' || action.type === 'FAVORITE' || action.type === 'BUY_NOW') &&
+    !isUlid(action.product_id)) {
     throw new Error('Protected action product ID is invalid');
+  }
+  if (action.type === 'ADDRESS_EDIT' && action.address_id !== undefined &&
+    !isUlid(action.address_id)) {
+    throw new Error('Protected action address ID is invalid');
   }
   pendingAction = action;
 }
@@ -77,10 +90,43 @@ function returnToOrigin(fallbackUrl: string, unavailableTitle?: string): void {
   });
 }
 
-export function resumeProtectedAction(): void {
+function showResumeResult(title: string): void {
+  setTimeout(() => {
+    void uni.showToast({ icon: 'none', title });
+  }, 0);
+}
+
+async function resumeFavorite(productId: string): Promise<void> {
+  const idempotencyKey = createIdempotencyKey();
+  try {
+    const result = await putFavorite(productId, idempotencyKey);
+    returnToOrigin(`/pages/product/detail?product_id=${encodeURIComponent(productId)}`);
+    showResumeResult(result.is_favorite ? '已收藏' : '收藏状态已变化，请再次操作');
+  } catch (error) {
+    returnToOrigin(`/pages/product/detail?product_id=${encodeURIComponent(productId)}`);
+    showResumeResult(error instanceof StoreApiError && error.status === 409
+      ? '收藏状态已变化，请再次操作'
+      : '收藏失败，请稍后重试');
+  }
+}
+
+export async function resumeProtectedAction(): Promise<void> {
   const action = consumeProtectedAction();
   if (action === null || action.type === 'PROFILE') {
     void uni.reLaunch({ url: '/pages/profile/index' });
+    return;
+  }
+  if (action.type === 'ADDRESS_LIST' || action.type === 'ADDRESS_EDIT') {
+    const fallback = action.type === 'ADDRESS_LIST'
+      ? '/pages/address/index'
+      : `/pages/address/edit${action.address_id === undefined
+        ? ''
+        : `?address_id=${encodeURIComponent(action.address_id)}`}`;
+    returnToOrigin(fallback);
+    return;
+  }
+  if (action.type === 'CART' || action.type === 'FAVORITES') {
+    returnToOrigin(action.type === 'CART' ? '/pages/cart/index' : '/pages/favorites/index');
     return;
   }
   if (action.type === 'SERVICE_AGENT') {
@@ -91,9 +137,18 @@ export function resumeProtectedAction(): void {
     returnToOrigin('/pages/cart/index', '结算尚未开放');
     return;
   }
+  if (action.type === 'FAVORITE') {
+    await resumeFavorite(action.product_id);
+    return;
+  }
+  if (action.type === 'CART_ADD') {
+    returnToOrigin(`/pages/product/detail?product_id=${encodeURIComponent(action.product_id)}`);
+    showResumeResult('请重新确认加入购物车');
+    return;
+  }
   returnToOrigin(
     `/pages/product/detail?product_id=${encodeURIComponent(action.product_id)}`,
-    action.type === 'FAVORITE' ? '收藏尚未开放' : '立即购买尚未开放',
+    '立即购买尚未开放',
   );
 }
 

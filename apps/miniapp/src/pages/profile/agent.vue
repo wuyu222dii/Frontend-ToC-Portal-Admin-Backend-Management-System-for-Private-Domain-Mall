@@ -75,10 +75,10 @@ function replaceWithPublicTargetOrHome(publicTargetUrl: string | null) {
   // #endif
 }
 
-function returnAfterCandidateDecision(publicTargetUrl: string | null) {
+async function returnAfterCandidateDecision(publicTargetUrl: string | null) {
   if (clearsHandoffOnUnload || peekProtectedAction() !== null) {
     clearsHandoffOnUnload = false;
-    resumeProtectedAction();
+    await resumeProtectedAction();
     return;
   }
   if (getCurrentPages().length <= 1) {

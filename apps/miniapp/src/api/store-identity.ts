@@ -138,7 +138,7 @@ function clearSessionIfCurrent(session: CustomerSession): void {
   if (loadCustomerSession()?.refresh_token === session.refresh_token) clearCustomerSession();
 }
 
-async function authenticatedRequest<T>(
+export async function authenticatedRequest<T>(
   path: string,
   options: StoreRequestOptions<T> = {},
 ): Promise<T> {

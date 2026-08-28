@@ -62,7 +62,7 @@ export interface StoreRequestOptions<T = unknown> {
   readonly data?: unknown;
   readonly decode?: (value: unknown) => T;
   readonly headers?: Readonly<Record<string, string>>;
-  readonly method?: 'DELETE' | 'GET' | 'PATCH' | 'POST';
+  readonly method?: 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
   readonly query?: Readonly<Record<string, StoreQueryValue>>;
 }
 

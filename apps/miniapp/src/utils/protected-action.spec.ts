@@ -9,10 +9,12 @@ import {
   resumeProtectedAction,
   setProtectedAction,
 } from './protected-action';
+import { clearCustomerSession, saveCustomerSession } from './customer-session';
 
 describe('closed protected action handoff', () => {
   afterEach(() => {
     clearProtectedAction();
+    clearCustomerSession();
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -85,6 +87,76 @@ describe('closed protected action handoff', () => {
     resumeProtectedAction();
     expect(reLaunch).toHaveBeenCalledWith({ url: '/pages/profile/index' });
     expect(consumeProtectedAction()).toBeNull();
+  });
+
+  it('executes a favorite handoff once with one idempotent PUT', async () => {
+    vi.useFakeTimers();
+    let request: UniNamespace.RequestOptions | undefined;
+    const navigateBack = vi.fn((options: UniNamespace.NavigateBackOptions) => options.success?.({
+      errMsg: 'navigateBack:ok',
+    }));
+    const showToast = vi.fn();
+    vi.stubGlobal('uni', {
+      navigateBack,
+      removeStorageSync: vi.fn(),
+      request: (options: UniNamespace.RequestOptions) => {
+        request = options;
+        return { abort() {} } as UniNamespace.RequestTask;
+      },
+      showToast,
+    });
+    saveCustomerSession({
+      access_token: 'favorite-access-token-1',
+      refresh_token: 'favorite-refresh-token-1',
+      role: 'CUSTOMER',
+      assurance: 'WECHAT',
+      access_expires_at: '2030-01-01T00:00:00.000Z',
+      refresh_expires_at: '2030-02-01T00:00:00.000Z',
+    });
+    const productId = '01J00000000000000000000000';
+    setProtectedAction({ type: 'FAVORITE', product_id: productId });
+    const pending = resumeProtectedAction();
+    expect(request).toMatchObject({ method: 'PUT', url: `/api/v1/store/favorites/${productId}` });
+    request?.success?.({
+      data: {
+        code: 'OK', message: 'success',
+        data: { product_id: productId, is_favorite: true }, request_id: 'req_favorite',
+      },
+      statusCode: 200,
+      header: {},
+      cookies: [],
+    });
+    await pending;
+    expect(navigateBack).toHaveBeenCalledOnce();
+    expect(consumeProtectedAction()).toBeNull();
+    vi.runAllTimers();
+    expect(showToast).toHaveBeenCalledWith({ icon: 'none', title: '已收藏' });
+  });
+
+  it('returns an address handoff without carrying address PII', async () => {
+    const navigateBack = vi.fn((options: UniNamespace.NavigateBackOptions) => options.success?.({
+      errMsg: 'navigateBack:ok',
+    }));
+    vi.stubGlobal('uni', { navigateBack });
+    setProtectedAction({ type: 'ADDRESS_EDIT', address_id: '01J70000000000000000000000' });
+    await resumeProtectedAction();
+    expect(navigateBack).toHaveBeenCalledOnce();
+    expect(consumeProtectedAction()).toBeNull();
+  });
+
+  it('returns an authenticated cart-add handoff without applying the command', async () => {
+    vi.useFakeTimers();
+    const navigateBack = vi.fn((options: UniNamespace.NavigateBackOptions) => options.success?.({
+      errMsg: 'navigateBack:ok',
+    }));
+    const showToast = vi.fn();
+    vi.stubGlobal('uni', { navigateBack, showToast });
+    setProtectedAction({ type: 'CART_ADD', product_id: '01J00000000000000000000000' });
+    await resumeProtectedAction();
+    expect(navigateBack).toHaveBeenCalledOnce();
+    expect(consumeProtectedAction()).toBeNull();
+    vi.runAllTimers();
+    expect(showToast).toHaveBeenCalledWith({ icon: 'none', title: '请重新确认加入购物车' });
   });
 
   it('falls back to a page reset when opening candidate confirmation fails', () => {

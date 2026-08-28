@@ -16,6 +16,7 @@ import {
   resumeProtectedAction,
 } from '../../utils/protected-action';
 import { isSafeHttpsUrl } from '../../utils/store-navigation';
+import { synchronizeGuestCartAfterAuthentication } from '../../utils/guest-cart-merge-journal';
 
 type PageState = 'loading' | 'ready' | 'error' | 'rate-limited';
 
@@ -154,12 +155,17 @@ async function submitLogin() {
         },
       ],
     });
+    try {
+      await synchronizeGuestCartAfterAuthentication();
+    } catch {
+      void uni.showToast({ icon: 'none', title: '购物车将在进入页面后继续同步' });
+    }
     if (result.confirmation_required || resumeCandidateDecisionAfterLogin) {
       preserveProtectedActionOnUnload = true;
       authenticationCompleted.value = true;
       openCandidateDecision();
     } else {
-      resumeProtectedAction();
+      await resumeProtectedAction();
     }
   } catch (error) {
     errorMessage.value = errorCopy(error);

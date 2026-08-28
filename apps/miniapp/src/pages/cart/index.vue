@@ -3,7 +3,13 @@
 import { onHide, onShow, onUnload } from '@dcloudio/uni-app';
 import { computed, ref } from 'vue';
 
-import { getStoreProduct } from '../../api';
+import {
+  createIdempotencyKey,
+  deleteStoreCartItem,
+  getStoreCart,
+  getStoreProduct,
+  putStoreCartItem,
+} from '../../api';
 import { StoreApiError, type StoreCancelableRequest } from '../../api/store-client';
 import QxBottomNav from '../../components/storefront/QxBottomNav.vue';
 import QxCatalogState from '../../components/storefront/QxCatalogState.vue';
@@ -11,6 +17,12 @@ import QxPrice from '../../components/storefront/QxPrice.vue';
 import QxProductImage from '../../components/storefront/QxProductImage.vue';
 import QxStoreShell from '../../components/storefront/QxStoreShell.vue';
 import type { StoreProductDetail } from '../../types/store-catalog';
+import type { StoreCart, StoreCartItem } from '../../types/store-shopping';
+import { hasRefreshableCustomerSession } from '../../utils/customer-session';
+import {
+  consumeConfirmedGuestCartMergeSnapshots,
+  synchronizeGuestCartAfterAuthentication,
+} from '../../utils/guest-cart-merge-journal';
 import {
   loadGuestCart,
   removeGuestCartItem,
@@ -38,9 +50,16 @@ const cart = ref<GuestCart>({ version: 1, items: [] });
 const viewItems = ref<GuestCartViewItem[]>([]);
 const refreshing = ref(false);
 const storageFailure = ref(false);
+const mode = ref<'customer' | 'guest'>('guest');
+const serverCart = ref<StoreCart | null>(null);
+const serverLoadError = ref<'auth-required' | 'error' | 'rate-limited' | null>(null);
+const serverRetryAfterSeconds = ref(0);
+const serverStatuses = ref(new Map<string, StoreCartItem['sale_status']>());
+const serverMutationPending = ref(false);
 
 let currentRequest: StoreCancelableRequest<StoreProductDetail> | undefined;
 let refreshGeneration = 0;
+let customerModeRequired = false;
 
 const readyItems = computed(() => viewItems.value.filter(
   (view) => view.availability === 'ready' || view.availability === 'unverified',
@@ -52,13 +71,15 @@ const cartSections = computed(() => [
   { key: 'current', title: '购物车商品', items: readyItems.value },
   { key: 'unavailable', title: '售罄或失效', items: unavailableItems.value },
 ].filter((section) => section.items.length > 0));
-const eligibleItems = computed(() => viewItems.value.filter(
-  (view) => view.availability === 'ready',
-));
+const eligibleItems = computed(() => viewItems.value.filter((view) =>
+  view.availability === 'ready' && (mode.value === 'guest' ||
+    serverStatuses.value.get(view.item.snapshot.sku_id) === 'SALEABLE')));
 const selectedItems = computed(() => eligibleItems.value.filter((view) => view.item.selected));
 const allSelected = computed(() => eligibleItems.value.length > 0 &&
   eligibleItems.value.every((view) => view.item.selected));
-const totalAmount = computed(() => guestCartTotalAmount(viewItems.value));
+const totalAmount = computed(() => mode.value === 'customer'
+  ? serverCart.value?.total_amount ?? '0.00'
+  : guestCartTotalAmount(viewItems.value));
 const refreshErrorCount = computed(() => viewItems.value.filter((view) => view.refresh_error).length);
 
 function synchronizeViews(): void {
@@ -66,6 +87,53 @@ function synchronizeViews(): void {
   viewItems.value = cart.value.items.map((item) => {
     const current = previous.get(item.snapshot.sku_id);
     return current === undefined ? unverifiedGuestCartView(item) : { ...current, item };
+  });
+}
+
+function serverSpecLabel(item: StoreCartItem): string {
+  const attributes = item.spec_json?.attributes ?? [];
+  return attributes.length > 0
+    ? attributes.map((attribute) => `${attribute.name}：${attribute.value}`).join(' · ')
+    : item.sku_name;
+}
+
+function serverAvailability(item: StoreCartItem): GuestCartViewItem['availability'] {
+  if (item.sale_status === 'SALEABLE' || item.sale_status === 'INSUFFICIENT_STOCK') return 'ready';
+  if (item.sale_status === 'OUT_OF_STOCK') return 'sold-out';
+  return 'invalid';
+}
+
+function applyServerCart(next: StoreCart, confirmedItems: readonly GuestCartItem[] = []): void {
+  const confirmed = new Map(confirmedItems.map((item) => [item.snapshot.sku_id, item]));
+  mode.value = 'customer';
+  serverCart.value = next;
+  serverStatuses.value = new Map(next.items.map((item) => [item.sku_id, item.sale_status]));
+  viewItems.value = next.items.map((item) => {
+    const previous = confirmed.get(item.sku_id);
+    return {
+      availability: serverAvailability(item),
+      available_stock: item.available_stock,
+      item: {
+        quantity: item.quantity,
+        selected: item.selected,
+        snapshot: {
+          product_id: item.product_id,
+          product_name: item.product_name,
+          sku_id: item.sku_id,
+          sku_name: item.sku_name,
+          spec_label: serverSpecLabel(item),
+          image_url: item.primary_image_url,
+          retail_price: item.retail_price,
+          available_stock: item.available_stock,
+          is_salable: item.sale_status === 'SALEABLE',
+        },
+      },
+      price_changed: previous !== undefined && previous.snapshot.retail_price !== item.retail_price,
+      refresh_error: false,
+      stock_changed: previous !== undefined &&
+        (previous.snapshot.available_stock !== item.available_stock ||
+          previous.snapshot.is_salable !== (item.sale_status === 'SALEABLE')),
+    };
   });
 }
 
@@ -128,8 +196,57 @@ function markProductRefreshFailed(productId: string): void {
 }
 
 async function refreshCart(): Promise<void> {
+  if (serverMutationPending.value) return;
   const generation = ++refreshGeneration;
   currentRequest?.abort();
+  serverLoadError.value = null;
+  serverRetryAfterSeconds.value = 0;
+  const authenticated = hasRefreshableCustomerSession();
+  if (authenticated) {
+    customerModeRequired = true;
+  }
+  if (customerModeRequired && !authenticated) {
+    mode.value = 'customer';
+    serverCart.value = null;
+    viewItems.value = [];
+    refreshing.value = false;
+    serverLoadError.value = 'auth-required';
+    return;
+  }
+  if (authenticated) {
+    mode.value = 'customer';
+    refreshing.value = true;
+    storageFailure.value = false;
+    viewItems.value = [];
+    try {
+      const merged = await synchronizeGuestCartAfterAuthentication();
+      const next = merged ?? await getStoreCart();
+      const confirmed = await consumeConfirmedGuestCartMergeSnapshots();
+      if (generation !== refreshGeneration) return;
+      applyServerCart(next, confirmed);
+    } catch (error) {
+      if (generation !== refreshGeneration) return;
+      serverCart.value = null;
+      viewItems.value = [];
+      if (error instanceof StoreApiError && error.status === 429) {
+        serverRetryAfterSeconds.value = error.retryAfterSeconds ?? 1;
+        serverLoadError.value = 'rate-limited';
+      } else {
+        serverLoadError.value = 'error';
+        if (error instanceof StoreApiError && error.status === 401) {
+          serverLoadError.value = 'auth-required';
+          showLoginPrompt({ type: 'CART' });
+        }
+      }
+    } finally {
+      if (generation === refreshGeneration) refreshing.value = false;
+    }
+    return;
+  }
+
+  mode.value = 'guest';
+  serverCart.value = null;
+  serverStatuses.value = new Map();
   cart.value = loadGuestCart();
   viewItems.value = cart.value.items.map((item) => unverifiedGuestCartView(item));
   refreshing.value = cart.value.items.length > 0;
@@ -167,8 +284,55 @@ async function refreshCart(): Promise<void> {
   }
 }
 
+function mutationPending(): boolean {
+  return serverMutationPending.value;
+}
+
+async function applyServerMutation(
+  operation: () => Promise<StoreCart>,
+): Promise<void> {
+  if (serverMutationPending.value) return;
+  serverMutationPending.value = true;
+  try {
+    applyServerCart(await operation());
+  } catch (error) {
+    if (error instanceof StoreApiError && error.status === 409) {
+      void uni.showToast({ icon: 'none', title: '购物车已变化，请重新操作' });
+    } else if (error instanceof StoreApiError && error.status === 401) {
+      serverLoadError.value = 'error';
+      showLoginPrompt({ type: 'CART' });
+    } else if (error instanceof StoreApiError && error.code === 'CART_ITEM_LIMIT_EXCEEDED') {
+      void uni.showToast({ icon: 'none', title: '购物车商品种类已达上限' });
+    } else {
+      void uni.showToast({ icon: 'none', title: '购物车更新失败，请重试' });
+    }
+    if (!(error instanceof StoreApiError && error.status === 401)) {
+      try {
+        applyServerCart(await getStoreCart());
+      } catch (refreshError) {
+        serverLoadError.value = refreshError instanceof StoreApiError && refreshError.status === 429
+          ? 'rate-limited'
+          : 'error';
+        serverRetryAfterSeconds.value = refreshError instanceof StoreApiError
+          ? refreshError.retryAfterSeconds ?? 0
+          : 0;
+      }
+    }
+  } finally {
+    serverMutationPending.value = false;
+  }
+}
+
 function toggleItem(view: GuestCartViewItem): void {
   if (view.availability !== 'ready') return;
+  if (mode.value === 'customer') {
+    void applyServerMutation(() => putStoreCartItem(
+      view.item.snapshot.sku_id,
+      { quantity: view.item.quantity, selected: !view.item.selected },
+      createIdempotencyKey(),
+    ));
+    return;
+  }
   saveMutation(setGuestCartItemSelected(
     cart.value,
     view.item.snapshot.sku_id,
@@ -178,6 +342,21 @@ function toggleItem(view: GuestCartViewItem): void {
 
 function toggleAll(): void {
   const nextSelected = !allSelected.value;
+  if (mode.value === 'customer') {
+    const candidates = viewItems.value.filter((view) =>
+      view.availability === 'ready' && view.item.selected !== nextSelected);
+    void applyServerMutation(async () => {
+      let latest: StoreCart | null = null;
+      for (const view of candidates) {
+        latest = await putStoreCartItem(view.item.snapshot.sku_id, {
+          quantity: view.item.quantity,
+          selected: nextSelected,
+        }, createIdempotencyKey());
+      }
+      return latest ?? await getStoreCart();
+    });
+    return;
+  }
   const eligibleIds = new Set(eligibleItems.value.map((view) => view.item.snapshot.sku_id));
   let next = cart.value;
   for (const item of cart.value.items) {
@@ -195,6 +374,14 @@ function changeQuantity(view: GuestCartViewItem, delta: number): void {
   const maximum = Math.min(99, view.available_stock);
   const quantity = Math.min(maximum, Math.max(1, view.item.quantity + delta));
   if (quantity === view.item.quantity) return;
+  if (mode.value === 'customer') {
+    void applyServerMutation(() => putStoreCartItem(
+      view.item.snapshot.sku_id,
+      { quantity, selected: view.item.selected },
+      createIdempotencyKey(),
+    ));
+    return;
+  }
   saveMutation(setGuestCartQuantity(cart.value, view.item.snapshot.sku_id, quantity));
 }
 
@@ -206,12 +393,25 @@ function removeItem(view: GuestCartViewItem): void {
     title: '删除商品',
     success: (result) => {
       if (!result.confirm) return;
+      if (mode.value === 'customer') {
+        void applyServerMutation(() => deleteStoreCartItem(
+          view.item.snapshot.sku_id,
+          createIdempotencyKey(),
+        ));
+        return;
+      }
       saveMutation(removeGuestCartItem(cart.value, view.item.snapshot.sku_id));
     },
   });
 }
 
 function statusText(view: GuestCartViewItem): string {
+  const serverStatus = mode.value === 'customer'
+    ? serverStatuses.value.get(view.item.snapshot.sku_id)
+    : undefined;
+  if (serverStatus === 'INSUFFICIENT_STOCK') return `库存仅剩 ${view.available_stock ?? 0} 件，请减少数量`;
+  if (serverStatus === 'INACTIVE') return '当前规格已下架';
+  if (serverStatus === 'DELETED') return '当前规格已失效';
   if (view.availability === 'invalid') return '商品已下架或规格已失效';
   if (view.availability === 'sold-out') return '当前规格已售罄';
   if (view.refresh_error) return '刷新失败，商品仍保留在购物车';
@@ -228,6 +428,18 @@ function checkout(): void {
     return;
   }
   showLoginPrompt({ type: 'CHECKOUT' });
+}
+
+function retryCartLogin(): void {
+  showLoginPrompt({ type: 'CART' });
+}
+
+function retryServerCart(): void {
+  if (serverLoadError.value === 'auth-required') {
+    retryCartLogin();
+    return;
+  }
+  void refreshCart();
 }
 
 onShow(() => {
@@ -255,7 +467,7 @@ onUnload(cancelRefresh);
         <button
           class="cart-header__refresh"
           aria-label="刷新购物车"
-          :disabled="refreshing"
+          :disabled="refreshing || serverMutationPending"
           title="刷新最新价格与库存"
           @click="refreshCart"
         >
@@ -288,7 +500,19 @@ onUnload(cancelRefresh);
       </view>
 
       <QxCatalogState
-        v-if="cart.items.length === 0"
+        v-if="serverLoadError"
+        :kind="serverLoadError === 'auth-required' ? 'empty' : serverLoadError"
+        :retry-after-seconds="serverRetryAfterSeconds"
+        :title="serverLoadError === 'auth-required' ? '登录后查看购物车' : '服务端购物车加载失败'"
+        :description="serverLoadError === 'auth-required'
+          ? '你已取消登录，本页不会回退到游客购物车。'
+          : '登录后的购物车以服务端为准，请重试恢复最新数据。'"
+        :action-label="serverLoadError === 'auth-required' ? '去登录' : '重新加载'"
+        @action="retryServerCart"
+      />
+
+      <QxCatalogState
+        v-else-if="viewItems.length === 0 && !refreshing"
         class="cart-empty"
         kind="empty"
         title="购物车还是空的"
@@ -320,7 +544,7 @@ onUnload(cancelRefresh);
               :class="{ 'cart-item__check--selected': view.item.selected && view.availability === 'ready' }"
               :aria-label="view.item.selected ? '取消选择商品' : '选择商品'"
               :aria-pressed="view.item.selected && view.availability === 'ready'"
-              :disabled="view.availability !== 'ready'"
+              :disabled="view.availability !== 'ready' || serverMutationPending"
               @click="toggleItem(view)"
             >
               <text aria-hidden="true">
@@ -370,7 +594,7 @@ onUnload(cancelRefresh);
                 >
                   <button
                     aria-label="减少数量"
-                    :disabled="view.availability !== 'ready' || view.item.quantity <= 1"
+                    :disabled="view.availability !== 'ready' || view.item.quantity <= 1 || mutationPending()"
                     @click="changeQuantity(view, -1)"
                   >
                     −
@@ -378,7 +602,7 @@ onUnload(cancelRefresh);
                   <text>{{ view.item.quantity }}</text>
                   <button
                     aria-label="增加数量"
-                    :disabled="view.availability !== 'ready' || view.available_stock === null || view.item.quantity >= Math.min(99, view.available_stock)"
+                    :disabled="view.availability !== 'ready' || view.available_stock === null || view.item.quantity >= Math.min(99, view.available_stock) || mutationPending()"
                     @click="changeQuantity(view, 1)"
                   >
                     +
@@ -388,6 +612,7 @@ onUnload(cancelRefresh);
                   class="cart-item__delete"
                   aria-label="删除商品"
                   title="删除"
+                  :disabled="mutationPending()"
                   @click="removeItem(view)"
                 >
                   ×
@@ -399,12 +624,12 @@ onUnload(cancelRefresh);
       </section>
 
       <view
-        v-if="cart.items.length > 0"
+        v-if="viewItems.length > 0"
         class="cart-summary"
       >
         <button
           class="cart-summary__select-all"
-          :disabled="eligibleItems.length === 0"
+          :disabled="eligibleItems.length === 0 || serverMutationPending"
           :aria-pressed="allSelected"
           @click="toggleAll"
         >
@@ -423,7 +648,7 @@ onUnload(cancelRefresh);
         </view>
         <button
           class="cart-summary__checkout"
-          :disabled="selectedItems.length === 0"
+          :disabled="selectedItems.length === 0 || serverMutationPending"
           @click="checkout"
         >
           去结算{{ selectedItems.length > 0 ? ` (${selectedItems.length})` : '' }}

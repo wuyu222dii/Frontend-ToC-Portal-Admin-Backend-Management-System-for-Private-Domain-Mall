@@ -58,6 +58,7 @@ export function goBackOrHome(): void {
 export function showLoginPrompt(action: ProtectedAction = { type: 'PROFILE' }): void {
   if (hasRefreshableCustomerSession()) {
     if (action.type === 'PROFILE') return openProfile();
+    if (action.type === 'CART_ADD') return;
     if (action.type === 'SERVICE_AGENT') {
       void uni.navigateTo({ url: '/pages/profile/agent' });
       return;

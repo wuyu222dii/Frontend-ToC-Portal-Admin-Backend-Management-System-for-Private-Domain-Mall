@@ -17,6 +17,8 @@ const AGENT_ID = '01J20000000000000000000000';
 const CUSTOMER_ID = '01J30000000000000000000000';
 const SKU_TWO_ID = '01J50000000000000000000000';
 const PROMOTION_ASSET_ID = '01J60000000000000000000000';
+const CART_ID = '01J70000000000000000000000';
+const FAVORITE_ID = '01J80000000000000000000000';
 const PREVIEW_TOKEN = `pvw_${'e'.repeat(43)}`;
 const CONFIRMATION_HASH = 'f'.repeat(64);
 const CANDIDATE_TOKEN = `candidate_${'g'.repeat(48)}`;
@@ -116,6 +118,8 @@ class MockB7Backend {
   deletionPlan: Array<'blocked' | 'eligible'> = ['eligible'];
   deletionExpiryMs: number | null = null;
   legalGeneration = 1;
+  favorite = false;
+  cartItems: Array<{ quantity: number; selected: boolean; sku_id: string }> = [];
   private expiredProtectedPaths = new Set<string>();
 
   install(page: Page): Promise<void> {
@@ -150,6 +154,33 @@ class MockB7Backend {
         content_url: 'https://example.invalid/legal/user',
         required: true,
       },
+    };
+  }
+
+  private cartView() {
+    const items = this.cartItems.map((item) => {
+      const second = item.sku_id === SKU_TWO_ID;
+      return {
+        sku_id: item.sku_id,
+        product_id: PRODUCT_ID,
+        product_name: 'B7 测试商品',
+        sku_name: second ? '旅行装' : '标准装',
+        spec_json: { attributes: second ? [{ name: '容量', value: '100ml' }] : [] },
+        primary_image_url: null,
+        quantity: item.quantity,
+        selected: item.selected,
+        retail_price: second ? '49.00' : '39.00',
+        available_stock: second ? 6 : 3,
+        sale_status: 'SALEABLE',
+      };
+    });
+    const cents = items.reduce((total, item) => item.selected
+      ? total + Number(item.retail_price) * 100 * item.quantity
+      : total, 0);
+    return {
+      cart_id: items.length === 0 ? null : CART_ID,
+      items,
+      total_amount: `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`,
     };
   }
 
@@ -208,6 +239,55 @@ class MockB7Backend {
         is_hot: false,
         is_new: false,
       }));
+      return;
+    }
+    if (url.pathname === '/api/v1/store/favorites' && method === 'GET') {
+      await fulfill(route, 200, success({
+        items: this.favorite ? [{
+          favorite_id: FAVORITE_ID,
+          created_at: '2026-08-28T01:00:00.000Z',
+          product: {
+            product_id: PRODUCT_ID,
+            name: 'B7 测试商品',
+            primary_image_url: null,
+            minimum_active_price: '39.00',
+            is_salable: true,
+            availability: 'SALEABLE',
+          },
+        }] : [],
+        pagination: { page: 1, page_size: 20, total: this.favorite ? 1 : 0 },
+      }));
+      return;
+    }
+    if (url.pathname === `/api/v1/store/favorites/${PRODUCT_ID}` &&
+      ['DELETE', 'GET', 'PUT'].includes(method)) {
+      if (method === 'PUT') this.favorite = true;
+      if (method === 'DELETE') this.favorite = false;
+      await fulfill(route, 200, success({ product_id: PRODUCT_ID, is_favorite: this.favorite }));
+      return;
+    }
+    if (url.pathname === '/api/v1/store/cart/merge' && method === 'POST') {
+      const incoming = Array.isArray(body?.items)
+        ? body.items as Array<{ quantity: number; selected: boolean; sku_id: string }>
+        : [];
+      for (const item of incoming) {
+        const existing = this.cartItems.find((current) => current.sku_id === item.sku_id);
+        if (existing) {
+          existing.quantity = Math.min(99, existing.quantity + item.quantity);
+          existing.selected ||= item.selected;
+        } else {
+          this.cartItems.push({ ...item });
+        }
+      }
+      await fulfill(route, 200, success(this.cartView()));
+      return;
+    }
+    if (url.pathname === '/api/v1/store/cart' && method === 'GET') {
+      await fulfill(route, 200, success(this.cartView()));
+      return;
+    }
+    if (url.pathname === '/api/v1/store/addresses' && method === 'GET') {
+      await fulfill(route, 200, success([]));
       return;
     }
     if (url.pathname === '/api/v1/store/legal-documents' && method === 'GET') {
@@ -586,10 +666,10 @@ async function expectConfiguredProductState(page: Page): Promise<void> {
 
 function forbiddenBusinessCalls(backend: MockB7Backend): ApiCall[] {
   return backend.calls.filter(({ path }) =>
-    /^\/api\/v1\/(?:store\/)?(?:favorites|cart|checkout|orders?)(?:\/|$)/.test(path));
+    /^\/api\/v1\/(?:store\/)?(?:checkout|orders?)(?:\/|$)/.test(path));
 }
 
-test('restores the typed PROFILE action once and keeps unopened features inert at every viewport',
+test('restores the typed PROFILE action and exposes only the implemented shopping entries at every viewport',
   async ({ page }, testInfo) => {
     const backend = new MockB7Backend();
     await backend.install(page);
@@ -607,12 +687,18 @@ test('restores the typed PROFILE action once and keeps unopened features inert a
     expect(backend.count('/api/v1/store/auth/wechat/login', 'POST')).toBe(1);
     expect(backend.count('/api/v1/store/profile', 'GET')).toBe(1);
 
-    for (const label of ['商品收藏', '收货地址', '我的订单']) {
-      await accountRow(page, label).click();
-      await expect(page.getByText(/尚未开放/, { exact: false }).last()).toBeVisible();
-      await visibleText(page, '知道了').click();
-    }
-    expect(backend.calls.some(({ path }) => /\/(?:favorites|addresses|orders)(?:\/|$)/.test(path))).toBe(false);
+    await accountRow(page, '商品收藏').click();
+    await expect(page.getByText('还没有收藏商品', { exact: true })).toBeVisible();
+    await page.getByLabel('返回').click();
+    await accountRow(page, '收货地址').click();
+    await expect(page.getByText('暂无收货地址', { exact: true })).toBeVisible();
+    await page.getByLabel('返回').click();
+    await accountRow(page, '我的订单').click();
+    await expect(page.getByText(/尚未开放/, { exact: false }).last()).toBeVisible();
+    await visibleText(page, '知道了').click();
+    expect(backend.count('/api/v1/store/favorites', 'GET')).toBe(1);
+    expect(backend.count('/api/v1/store/addresses', 'GET')).toBe(1);
+    expect(backend.calls.some(({ path }) => /\/orders(?:\/|$)/.test(path))).toBe(false);
     await page.screenshot({ fullPage: true, path: testInfo.outputPath('profile.png') });
 
     await page.getByLabel('编辑资料').click();
@@ -646,7 +732,7 @@ test('restores the typed PROFILE action once and keeps unopened features inert a
   });
 
 for (const action of [
-  { control: '收藏商品', modal: '收藏尚未开放', type: 'favorite' },
+  { control: '收藏商品', modal: null, type: 'favorite' },
   { control: '立即购买', modal: '立即购买尚未开放', type: 'buy-now' },
 ] as const) {
   test(`restores the existing product instance after ${action.type} login`, async ({ page }, testInfo) => {
@@ -663,8 +749,13 @@ for (const action of [
     await expect(page).toHaveURL(/\/pages\/auth\/login/);
     await submitLogin(page);
     await expect(page).toHaveURL(new RegExp(`/pages/product/detail\\?product_id=${PRODUCT_ID}$`));
-    await expect(page.getByText(action.modal, { exact: true })).toBeVisible();
-    await visibleText(page, '知道了').click();
+    if (action.modal === null) {
+      await expect(page.getByLabel('取消收藏')).toBeVisible();
+      expect(backend.count(`/api/v1/store/favorites/${PRODUCT_ID}`, 'PUT')).toBe(1);
+    } else {
+      await expect(page.getByText(action.modal, { exact: true })).toBeVisible();
+      await visibleText(page, '知道了').click();
+    }
 
     await page.locator('uni-button.detail-choice__row').first().click();
     const secondSku = page.locator('uni-button.sku-option').filter({ hasText: '容量：100ml' });
@@ -718,6 +809,7 @@ test('restores the existing guest cart after checkout login', async ({ page }, t
   await expect(page.getByText('结算尚未开放', { exact: true })).toBeVisible();
   await visibleText(page, '知道了').click();
   await expect(cartItem.locator('.cart-stepper')).toContainText('3');
+  expect(backend.count('/api/v1/store/cart/merge', 'POST')).toBe(1);
   expect(forbiddenBusinessCalls(backend)).toEqual([]);
   const stored = await webStorage(page);
   expect(stored).not.toContain(ACCESS_TOKEN);
@@ -1167,8 +1259,8 @@ test('preserves a product handoff when candidate confirmation and refresh requir
     expect(loginCallsBeforeConfirmation[1]?.body?.candidate_token).toBeUndefined();
     await uniButton(page, '确认服务关系').click();
     await expect(page).toHaveURL(new RegExp(`/pages/product/detail\\?product_id=${PRODUCT_ID}$`));
-    await expect(page.getByText('收藏尚未开放', { exact: true })).toBeVisible();
-    await visibleText(page, '知道了').click();
+    await expect(page.getByLabel('取消收藏')).toBeVisible();
+    expect(backend.count(`/api/v1/store/favorites/${PRODUCT_ID}`, 'PUT')).toBe(1);
 
     await page.locator('uni-button.detail-choice__row').first().click();
     const secondSku = page.locator('uni-button.sku-option').filter({ hasText: '容量：100ml' });
@@ -1222,8 +1314,8 @@ test('resumes a product handoff when the candidate disappears during session rec
     backend.candidate = null;
     await submitLogin(page);
     await expect(page).toHaveURL(new RegExp(`/pages/product/detail\\?product_id=${PRODUCT_ID}$`));
-    await expect(page.getByText('收藏尚未开放', { exact: true })).toBeVisible();
-    await visibleText(page, '知道了').click();
+    await expect(page.getByLabel('取消收藏')).toBeVisible();
+    expect(backend.count(`/api/v1/store/favorites/${PRODUCT_ID}`, 'PUT')).toBe(1);
 
     const loginCalls = backend.calls.filter(({ method, path }) =>
       method === 'POST' && path === '/api/v1/store/auth/wechat/login');

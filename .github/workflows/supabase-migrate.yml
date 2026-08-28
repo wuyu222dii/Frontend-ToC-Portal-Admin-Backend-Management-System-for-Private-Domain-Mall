@@ -1,23 +1,23 @@
-name: Supabase development smoke
+name: Supabase development migration
 
 on:
   workflow_dispatch:
     inputs:
       project_ref:
-        description: Supabase development project reference being checked
+        description: Supabase development project reference being migrated
         required: true
         type: string
       target_sha:
-        description: Exact main commit SHA being checked
+        description: Exact main commit SHA to migrate
         required: true
         type: string
       confirmation:
-        description: Confirm this is the Singapore development project with no real customer data
+        description: Approve the controlled development database migration
         required: true
         type: choice
         options:
           - CANCEL
-          - DEVELOPMENT_SMOKE_APPROVED
+          - DEVELOPMENT_MIGRATION_APPROVED
 
 permissions:
   actions: read
@@ -28,17 +28,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  smoke:
-    if: github.ref == 'refs/heads/main' && inputs.confirmation == 'DEVELOPMENT_SMOKE_APPROVED'
-    name: Protected rollback-only smoke
+  migrate:
+    if: github.ref == 'refs/heads/main' && inputs.confirmation == 'DEVELOPMENT_MIGRATION_APPROVED'
+    name: Protected development migration
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 20
     environment: supabase-development
     env:
       CI: "true"
       NODE_ENV: test
       PGSSLROOTCERT: /tmp/supabase-prod-ca.crt
       SUPABASE_PROJECT_REF: ${{ inputs.project_ref }}
+      SUPABASE_MIGRATION_CONFIRM: ${{ inputs.confirmation }}
     steps:
       - name: Check out the approved commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -108,72 +109,15 @@ jobs:
           echo "700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7  $PGSSLROOTCERT" \
             | sha256sum --check --strict
 
+      - name: Validate frozen database artifacts
+        run: pnpm db:check-frozen
+
       - name: Validate Prisma schema
         env:
           DIRECT_URL: postgresql://mall_migrator:prisma-validate-only@127.0.0.1:5432/schema_validation
         run: pnpm prisma:validate
 
-      - name: Run read-only Supabase checks
+      - name: Deploy and post-verify the migration
         env:
           DIRECT_URL: ${{ secrets.SUPABASE_DIRECT_URL }}
-        run: scripts/ci/supabase-smoke.sh
-
-      - name: Run rollback-only B1 runtime smoke
-        env:
-          B1_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b1
-
-      - name: Run rollback-only B2 administrator-authentication smoke
-        env:
-          B2_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b2
-
-      - name: Run rollback-only B3 file-assets smoke
-        env:
-          B3_FILE_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b3-files
-
-      - name: Run rollback-only B3 master-data smoke
-        env:
-          B3_MASTER_DATA_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b3-master-data
-
-      - name: Run rollback-only B4 Product and SKU catalog smoke
-        env:
-          B4_PRODUCT_CATALOG_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b4-product-catalog
-
-      - name: Run rollback-only B5 Banner smoke
-        env:
-          B5_BANNER_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b5-banners
-
-      - name: Run rollback-only B5 Inventory smoke
-        env:
-          B5_INVENTORY_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b5-inventory
-
-      - name: Run rollback-only B6 Store catalog smoke
-        env:
-          B6_STORE_CATALOG_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b6-store-catalog
-
-      - name: Run rollback-only B7.1-B7.5 Store authentication, profile, attribution and privacy smoke
-        env:
-          B7_STORE_AUTH_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b7-store-auth
-
-      - name: Run rollback-only B8 favorites, cart, address and account-deletion cleanup smoke
-        env:
-          B8_STORE_SHOPPING_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b8-store-shopping
+        run: node scripts/db/deploy-development.mjs

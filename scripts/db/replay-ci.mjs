@@ -23,6 +23,104 @@ function runPsql(connection, args, input, capture = false) {
   return capture ? result.stdout.trim() : undefined;
 }
 
+function verifyB9MigrationFailurePath(replay, migrator) {
+  const fixtureIds = {
+    firstLedger: "01J00000000000000000000001",
+    secondLedger: "01J00000000000000000000002",
+    sku: "01J00000000000000000000003",
+    business: "01J00000000000000000000004",
+  };
+  const indexNames = [
+    "inventory_reservation_item_sku_id_reservation_id_idx",
+    "uq_inventory_ledger_business_fact",
+  ];
+
+  runPsql(replay, [], `
+    SET session_replication_role = replica;
+    INSERT INTO public.inventory_ledger (
+      id, sku_id, ledger_type, business_id, physical_change, locked_change,
+      physical_after, locked_after, reason
+    ) VALUES
+      ('${fixtureIds.firstLedger}', '${fixtureIds.sku}', 'ORDER_RESERVE', '${fixtureIds.business}', 0, 0, 0, 0, 'B9 migration duplicate preflight fixture'),
+      ('${fixtureIds.secondLedger}', '${fixtureIds.sku}', 'ORDER_RESERVE', '${fixtureIds.business}', 0, 0, 0, 0, 'B9 migration duplicate preflight fixture');
+    SET session_replication_role = origin;
+  `);
+
+  let migrationUnexpectedlySucceeded = false;
+  let expectedPreflightFailure = false;
+  let residue;
+  try {
+    const failure = spawnSync(
+      "psql",
+      ["-X", "-v", "ON_ERROR_STOP=1", "-f", "prisma/migrations/0002_b9_inventory_fact_indexes/migration.sql"],
+      {
+        env: postgresEnvironment(migrator),
+        encoding: "utf8",
+        stdio: ["ignore", "ignore", "pipe"],
+      },
+    );
+    if (failure.error) throw failure.error;
+    migrationUnexpectedlySucceeded = failure.status === 0;
+    expectedPreflightFailure = failure.stderr.includes(
+      "inventory ledger contains duplicate non-null business facts",
+    );
+    residue = runPsql(replay, [
+      "-Atqc",
+      `SELECT count(*) FROM pg_class
+       WHERE relkind = 'i' AND relname IN (${indexNames.map((name) => `'${name}'`).join(", ")})`,
+    ], undefined, true);
+  } finally {
+    runPsql(replay, [], `
+      DROP INDEX IF EXISTS public."${indexNames[0]}";
+      DROP INDEX IF EXISTS public."${indexNames[1]}";
+      SET session_replication_role = replica;
+      DELETE FROM public.inventory_ledger
+      WHERE id IN ('${fixtureIds.firstLedger}', '${fixtureIds.secondLedger}');
+      SET session_replication_role = origin;
+    `);
+  }
+
+  if (migrationUnexpectedlySucceeded) {
+    throw new Error("B9 migration accepted duplicate inventory business facts");
+  }
+  if (!expectedPreflightFailure) {
+    throw new Error("B9 migration failed for an unexpected reason during duplicate preflight testing");
+  }
+  if (residue !== "0") {
+    throw new Error("B9 migration failure left an index outside its transaction");
+  }
+  console.log("B9 duplicate-fact preflight failed atomically as expected");
+}
+
+function verifyB9IndexPlans(connection) {
+  const reservationPlan = runPsql(connection, [
+    "-Atqc",
+    `SET enable_seqscan = off;
+     EXPLAIN (COSTS OFF)
+     SELECT reservation_id
+     FROM public.inventory_reservation_item
+     WHERE sku_id = '01J00000000000000000000003'
+     ORDER BY reservation_id`,
+  ], undefined, true);
+  if (!reservationPlan.includes("inventory_reservation_item_sku_id_reservation_id_idx")) {
+    throw new Error("B9 SKU-first reservation query does not use the new index");
+  }
+
+  const ledgerPlan = runPsql(connection, [
+    "-Atqc",
+    `SET enable_seqscan = off;
+     EXPLAIN (COSTS OFF)
+     SELECT business_id, sku_id, ledger_type
+     FROM public.inventory_ledger
+     WHERE business_id IS NOT NULL
+     ORDER BY business_id, sku_id, ledger_type`,
+  ], undefined, true);
+  if (!ledgerPlan.includes("uq_inventory_ledger_business_fact")) {
+    throw new Error("B9 inventory business-fact query does not use the unique index");
+  }
+  console.log("B9 migration index plans verified");
+}
+
 try {
   const replayRaw = process.env.REPLAY_DATABASE_URL || process.env.DIRECT_URL;
   if (!replayRaw) throw new Error("REPLAY_DATABASE_URL (or CI DIRECT_URL) is required");
@@ -77,8 +175,41 @@ try {
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error("Prisma baseline registration failed");
 
+  verifyB9MigrationFailurePath(replay, migratorConnection);
+
+  const deploy = prismaInvocation([
+    "migrate",
+    "deploy",
+    "--config",
+    "prisma.config.ts",
+  ]);
+  const deployResult = spawnSync(deploy.command, deploy.args, {
+    env: prismaEnvironment(migratorUrl.toString(), postgresEnvironment(migratorConnection)),
+    stdio: "inherit",
+  });
+  if (deployResult.error) throw deployResult.error;
+  if (deployResult.status !== 0) throw new Error("Prisma post-baseline migration deployment failed");
+
   runPsql(replay, ["-f", "scripts/db/sql/post-bootstrap.sql"]);
   runPsql(replay, ["-At", "-f", "scripts/db/sql/verify.sql"]);
+  verifyB9IndexPlans(migratorConnection);
+  const diff = prismaInvocation([
+    "migrate",
+    "diff",
+    "--from-schema",
+    "prisma/schema.prisma",
+    "--to-config-datasource",
+    "--exit-code",
+    "--config",
+    "prisma.config.ts",
+  ]);
+  const diffResult = spawnSync(diff.command, diff.args, {
+    env: prismaEnvironment(migratorUrl.toString(), postgresEnvironment(migratorConnection)),
+    stdio: "inherit",
+  });
+  if (diffResult.error) throw diffResult.error;
+  if (diffResult.status === 2) throw new Error("Prisma datamodel drift detected after migration replay");
+  if (diffResult.status !== 0) throw new Error("Prisma migration diff failed after replay");
   console.log("CI ephemeral PostgreSQL migration replay passed");
 } catch (error) {
   console.error(`CI migration replay failed: ${error.message}`);

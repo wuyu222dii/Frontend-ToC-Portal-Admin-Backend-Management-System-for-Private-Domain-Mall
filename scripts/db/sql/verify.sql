@@ -32,7 +32,36 @@ BEGIN
     AND pg_get_userbyid(c.relowner) = 'mall_migrator'
     AND c.relname <> '_prisma_migrations'
     AND i.indpred IS NOT NULL;
-  IF actual <> 17 THEN RAISE EXCEPTION 'expected 17 partial indexes, found %', actual; END IF;
+  IF actual <> 18 THEN RAISE EXCEPTION 'expected 18 partial indexes, found %', actual; END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_index i
+    JOIN pg_class c ON c.oid = i.indrelid
+    JOIN pg_class ic ON ic.oid = i.indexrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = 'inventory_reservation_item'
+      AND ic.relname = 'inventory_reservation_item_sku_id_reservation_id_idx'
+      AND NOT i.indisunique
+      AND i.indpred IS NULL
+  ) THEN
+    RAISE EXCEPTION 'B9 SKU-first inventory reservation index is missing';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_index i
+    JOIN pg_class c ON c.oid = i.indrelid
+    JOIN pg_class ic ON ic.oid = i.indexrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = 'inventory_ledger'
+      AND ic.relname = 'uq_inventory_ledger_business_fact'
+      AND i.indisunique
+      AND pg_get_expr(i.indpred, i.indrelid) = '(business_id IS NOT NULL)'
+  ) THEN
+    RAISE EXCEPTION 'B9 inventory ledger business-fact uniqueness index is missing or malformed';
+  END IF;
 
   SELECT count(*) INTO actual
   FROM pg_constraint c
@@ -185,7 +214,7 @@ BEGIN
   JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public' AND i.indpred IS NOT NULL
     AND pg_get_userbyid(c.relowner) = 'mall_migrator';
-  IF actual_hash <> '1ffa09b8b035e9185b7645e67c8f7e20' THEN
+  IF actual_hash <> 'b83d50e52994b898a386b842f355d7fc' THEN
     RAISE EXCEPTION 'partial-index definitions differ from the frozen baseline: %', actual_hash;
   END IF;
   IF EXISTS (
@@ -216,11 +245,26 @@ BEGIN
      <> 'mall_migrator' THEN
     RAISE EXCEPTION 'Prisma migration history is not owned by mall_migrator';
   END IF;
-  SELECT count(*) INTO actual FROM public._prisma_migrations
-  WHERE migration_name = '0001_initial'
-    AND finished_at IS NOT NULL
-    AND rolled_back_at IS NULL;
-  IF actual <> 1 THEN RAISE EXCEPTION 'expected one completed 0001_initial history row, found %', actual; END IF;
+  IF (
+    SELECT count(*) FROM public._prisma_migrations
+    WHERE migration_name = '0001_initial'
+      AND finished_at IS NOT NULL
+      AND rolled_back_at IS NULL
+  ) <> 1 OR (
+    SELECT count(*) FROM public._prisma_migrations
+    WHERE migration_name = '0002_b9_inventory_fact_indexes'
+      AND finished_at IS NOT NULL
+      AND rolled_back_at IS NULL
+  ) <> 1 OR (
+    SELECT count(*) FROM public._prisma_migrations
+  ) <> 2 OR EXISTS (
+    SELECT 1 FROM public._prisma_migrations
+    WHERE finished_at IS NULL
+      OR rolled_back_at IS NOT NULL
+      OR migration_name NOT IN ('0001_initial', '0002_b9_inventory_fact_indexes')
+  ) THEN
+    RAISE EXCEPTION 'expected the exact completed 0001 -> 0002 B9 migration history';
+  END IF;
   IF has_table_privilege('mall_runtime', 'public._prisma_migrations', 'SELECT')
     OR has_table_privilege('mall_runtime', 'public._prisma_migrations', 'INSERT')
     OR has_table_privilege('mall_runtime', 'public._prisma_migrations', 'UPDATE')
@@ -511,7 +555,7 @@ END $$;
 SELECT json_build_object(
   'tables', 76,
   'enums', 59,
-  'partial_indexes', 17,
+  'partial_indexes', 18,
   'check_constraints', 165,
   'rls_tables', 76,
   'runtime_policies', 76,

@@ -561,7 +561,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 服务端计价和库存预检，不锁库存 */
+        /**
+         * 服务端计价和库存预检，不锁库存
+         * @description 使用 Repeatable Read 快照对当前 CUSTOMER 的地址、CART 已选项、商品、SKU、公开图片、价格与可用库存计价，不锁库存。CART 必须精确匹配服务端当前已选购物车项；BUY_NOW 必须恰好一项。可提交时返回固定 5 分钟的无状态 HMAC quote_token 和 confirmation_hash，绑定 CUSTOMER、会话、规范请求、地址版本、商品/SKU/库存版本、价格、quote_id 和过期时间；使用现有幂等密钥环经 HKDF 域 qingxu:store-checkout-quote:v1 派生。不使用 Idempotency-Key，不持久化、缓存、日志或审计 token。已知阻断仍返回 200，can_submit=false 且 token/hash/expiry 为 null。
+         */
         post: operations["postStoreCheckoutQuotes"];
         delete?: never;
         options?: never;
@@ -576,10 +579,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 本人订单列表和状态筛选 */
+        /**
+         * 本人订单列表和状态筛选
+         * @description 仅返回当前 CUSTOMER 的订单，默认按 created_at DESC,order_id DESC 稳定排序。B9 只对待付款且未过期、无 payment_intent 的订单返回 CANCEL 动作；不返回 PAY、物流、履约或售后写操作。
+         */
         get: operations["getStoreOrders"];
         put?: never;
-        /** 创建待付款订单并锁库存 30 分钟 */
+        /**
+         * 创建待付款订单并锁库存 30 分钟
+         * @description 使用与报价完全一致的 source/address/items、quote_id、quote_token 和 confirmation_hash 创建待付款订单并原子预占库存。服务端在 Serializable 事务内重验所有绑定事实；漂移、过期或篡改返回闭合 409 且不创建任何事实。使用 HASH_ONLY 幂等，丢失响应必须使用同一 Idempotency-Key 重试；完整幂等重放先于 quote_token 过期校验并返回同一订单的当前投影，不缓存个性化响应正文。
+         */
         post: operations["postStoreOrders"];
         delete?: never;
         options?: never;
@@ -594,7 +603,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 订单、支付、退款、履约和售后聚合详情 */
+        /**
+         * 订单、支付、退款、履约和售后聚合详情
+         * @description 仅当前 CUSTOMER 可读取本人订单，跨客户访问统一返回 404。B9 解密并返回订单冻结收货地址，支付尝试、物流、履约和售后数组保持为空，不开放 B10 及后续阶段动作。
+         */
         get: operations["getStoreOrdersByOrderId"];
         put?: never;
         post?: never;
@@ -613,7 +625,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** claim 活动意图后按 intent_no query/close；明确不可支付才关单并释放库存 */
+        /**
+         * 取消本人待付款订单并释放库存
+         * @description 仅未过期、PENDING_PAYMENT 且不存在任何 payment_intent 的本人订单可主动取消。If-Match 必须对应订单 version；版本或状态冲突返回闭合 409。使用 HASH_ONLY 幂等；完整幂等重放先于 If-Match 校验并返回同一订单的当前投影。已由当前客户取消的订单使用新幂等键重复取消也返回当前投影；其他不可取消状态返回 ORDER_NOT_CANCELLABLE。
+         */
         post: operations["postStoreOrdersByOrderIdCancel"];
         delete?: never;
         options?: never;
@@ -3205,7 +3220,7 @@ export interface components {
         ErrorDetail: {
             field: string | null;
             reason: string;
-            /** @description 仅可回显非敏感校验值。当 field 为密码、验证码、登录 code、candidate_token、provider_credential、invite_code、preview_token、confirmation_hash、refresh/access token 或 reauth_grant 等敏感字段时，必须省略 rejected_value 或返回 null，禁止回显原值。 */
+            /** @description 仅可回显非敏感校验值。当 field 为密码、验证码、登录 code、candidate_token、provider_credential、invite_code、preview_token、quote_token、confirmation_hash、refresh/access token 或 reauth_grant 等敏感字段时，必须省略 rejected_value 或返回 null，禁止回显原值。 */
             rejected_value?: string | null;
         };
         CommandResponse: {
@@ -3602,12 +3617,41 @@ export interface components {
             sku_id: string;
             quantity: number;
         };
-        CreateOrderRequest: {
+        /** @description 报价请求；BUY_NOW 必须恰好一项，CART 必须精确匹配当前服务端已选购物车项。 */
+        CheckoutQuoteRequest: {
             /** @enum {string} */
             source: "CART" | "BUY_NOW";
             address_id: string;
+            /** @description sku_id 不得重复；CART 必须精确匹配服务端当前 selected=true 的购物车项。 */
             items: components["schemas"]["OrderLineInput"][];
-        };
+        } & ({
+            /** @constant */
+            source?: "CART";
+            items?: unknown;
+        } | {
+            /** @constant */
+            source?: "BUY_NOW";
+            items?: unknown;
+        });
+        /** @description 下单请求必须逐字段重放报价的 source、address_id 和 items，并携带对应的短时报价凭证。 */
+        OrderSubmitRequest: {
+            /** @enum {string} */
+            source: "CART" | "BUY_NOW";
+            address_id: string;
+            /** @description 必须与签发 quote_token 时的规范 items 完全一致，sku_id 不得重复。 */
+            items: components["schemas"]["OrderLineInput"][];
+            quote_id: string;
+            quote_token: string;
+            confirmation_hash: string;
+        } & ({
+            /** @constant */
+            source?: "CART";
+            items?: unknown;
+        } | {
+            /** @constant */
+            source?: "BUY_NOW";
+            items?: unknown;
+        });
         AftersaleLineInput: {
             order_item_id: string;
             quantity: number;
@@ -5189,8 +5233,19 @@ export interface components {
             data: components["schemas"]["StoreAddressDetailView"];
             request_id: string;
         };
+        /**
+         * @description 报价阻断类型；存在任一阻断时 can_submit=false 且不签发报价凭证。
+         * @enum {string}
+         */
+        CheckoutQuoteBlocker: "CART_SELECTION_CHANGED" | "ITEM_UNAVAILABLE" | "INSUFFICIENT_STOCK";
+        /** @description 服务端快照中的消费者安全投影；不返回管理状态、文件 ID、物理库存或锁定量。 */
         CheckoutQuoteLine: {
+            product_id: string;
+            product_name: string;
             sku_id: string;
+            sku_name: string;
+            spec_json: components["schemas"]["SkuSpec"] | null;
+            primary_image_url: string | null;
             quantity: number;
             unit_price: components["schemas"]["PositiveMoney"];
             line_amount: components["schemas"]["PositiveMoney"];
@@ -5202,15 +5257,44 @@ export interface components {
             code: "OK";
             /** @constant */
             message: "success";
+            /** @description can_submit=true 时 blockers 为空且凭证有效 5 分钟；can_submit=false 时 blockers 非空且 token/hash/expiry 为 null。 */
             data: {
                 quote_id: string;
+                /** @enum {string} */
+                source: "CART" | "BUY_NOW";
+                address: components["schemas"]["StoreAddressSummaryView"];
                 items: components["schemas"]["CheckoutQuoteLine"][];
-                goods_amount: components["schemas"]["PositiveMoney"];
-                shipping_amount: components["schemas"]["NonNegativeMoney"];
-                payable_amount: components["schemas"]["PositiveMoney"];
+                goods_amount: components["schemas"]["NonNegativeMoney"];
+                /**
+                 * @description B9 未引入运费规则，固定为 0.00。
+                 * @constant
+                 */
+                shipping_amount: "0.00";
+                payable_amount: components["schemas"]["NonNegativeMoney"];
+                can_submit: boolean;
+                blockers: components["schemas"]["CheckoutQuoteBlocker"][];
+                readonly quote_token: string | null;
+                readonly confirmation_hash: string | null;
                 /** Format: date-time */
-                expires_at: string;
-            };
+                expires_at: string | null;
+                /** Format: date-time */
+                server_time: string;
+            } & ({
+                /** @constant */
+                can_submit?: true;
+                blockers?: unknown;
+                quote_token?: string;
+                confirmation_hash?: string;
+                /** Format: date-time */
+                expires_at?: string;
+            } | {
+                /** @constant */
+                can_submit?: false;
+                blockers?: unknown;
+                quote_token?: null;
+                confirmation_hash?: null;
+                expires_at?: null;
+            });
             request_id: string;
         };
         ShipmentItemView: {
@@ -5308,7 +5392,8 @@ export interface components {
             items: components["schemas"]["StoreOrderCompactItem"][];
             /** Format: date-time */
             pay_expires_at: string | null;
-            available_actions: ("PAY" | "CANCEL" | "VIEW_LOGISTICS" | "CONFIRM_RECEIPT" | "APPLY_AFTERSALE" | "VIEW_AFTERSALE")[];
+            /** @description B9 仅在未过期、待付款且无支付意图时返回 CANCEL；其余状态返回空数组。 */
+            available_actions: "CANCEL"[];
             aftersale_summary: components["schemas"]["OrderAftersaleListSummary"];
             /** Format: date-time */
             created_at: string;
@@ -6725,11 +6810,16 @@ export interface components {
                 amounts: components["schemas"]["OrderAmountsDetailView"];
                 items: components["schemas"]["OrderItemView"][];
                 shipping_address: components["schemas"]["StoreFrozenAddressView"];
-                available_actions: ("PAY" | "CANCEL" | "VIEW_LOGISTICS" | "CONFIRM_RECEIPT" | "APPLY_AFTERSALE")[];
+                /** @description B9 仅在未过期、待付款且无支付意图时返回 CANCEL；其余状态返回空数组。 */
+                available_actions: "CANCEL"[];
                 timeline: components["schemas"]["OrderStateTimelineEventView"][];
+                /** @description B9 未开放物流，固定返回空数组。 */
                 packages: components["schemas"]["OrderPackageDetailView"][];
+                /** @description B9 未开放售后，固定返回空数组。 */
                 aftersales: components["schemas"]["OrderAftersaleSummaryView"][];
+                /** @description B9 不创建支付意图，固定返回空数组。 */
                 payment_attempts: components["schemas"]["PaymentAttemptDetailView"][];
+                /** @description B9 未开放退款，固定返回空数组。 */
                 refund_attempts: components["schemas"]["RefundAttemptDetailView"][];
                 errors: components["schemas"]["SafeDomainErrorView"][];
                 version: number;
@@ -7332,7 +7422,7 @@ export interface components {
                 };
             };
         };
-        /** @description B8 登录后购物接口的通用错误；不得缓存或回显被拒绝的个性化值。 */
+        /** @description B8/B9 登录后 Store 接口的通用错误；不得缓存或回显被拒绝的个性化值。 */
         StoreCustomerError: {
             headers: {
                 "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
@@ -7352,7 +7442,7 @@ export interface components {
                 };
             };
         };
-        /** @description B8 登录后购物接口的闭合版本、状态或幂等冲突响应。 */
+        /** @description B8/B9 登录后 Store 接口的闭合版本、状态、幂等或报价冲突响应。 */
         StoreCustomerConflict: {
             headers: {
                 "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
@@ -7362,7 +7452,7 @@ export interface components {
             content: {
                 "application/json": {
                     /** @enum {string} */
-                    code: "RESOURCE_VERSION_CONFLICT" | "STATE_CONFLICT";
+                    code: "RESOURCE_VERSION_CONFLICT" | "STATE_CONFLICT" | "CHECKOUT_QUOTE_EXPIRED" | "CHECKOUT_QUOTE_MISMATCH" | "CHECKOUT_REQUOTE_REQUIRED" | "ORDER_NOT_CANCELLABLE";
                     message: string;
                     details?: {
                         field: string | null;
@@ -7373,7 +7463,7 @@ export interface components {
                 };
             };
         };
-        /** @description B8 登录后购物接口的闭合业务校验响应。 */
+        /** @description B8/B9 登录后 Store 接口的闭合业务校验响应。 */
         StoreCustomerBusinessError: {
             headers: {
                 "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
@@ -7394,7 +7484,7 @@ export interface components {
                 };
             };
         };
-        /** @description B8 的 13 个登录后收藏、购物车和地址 operation 共享 Redis 固定窗口；key 只保存 CUSTOMER 与规范化来源 IP 组合的用途隔离 HMAC，每个组合每 60 秒最多 120 次。超限返回准确 Retry-After；Redis 不可用时 fail closed。 */
+        /** @description B8 的 13 个登录后收藏、购物车和地址 operation 与 B9 的 5 个报价/订单 operation 共享 Redis 固定窗口；key 只保存 CUSTOMER 与规范化来源 IP 组合的用途隔离 HMAC，每个组合每 60 秒最多 120 次。超限返回准确 Retry-After；Redis 不可用时 fail closed。 */
         StoreCustomerRateLimited: {
             headers: {
                 "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
@@ -8616,35 +8706,35 @@ export interface operations {
     postStoreCheckoutQuotes: {
         parameters: {
             query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateOrderRequest"];
+                "application/json": components["schemas"]["CheckoutQuoteRequest"];
             };
         };
         responses: {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["CheckoutQuoteResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     getStoreOrders: {
@@ -8686,20 +8776,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["StoreOrderListResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     postStoreOrders: {
@@ -8713,27 +8805,29 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateOrderRequest"];
+                "application/json": components["schemas"]["OrderSubmitRequest"];
             };
         };
         responses: {
             /** @description 成功 */
             201: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["StoreOrderResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     getStoreOrdersByOrderId: {
@@ -8750,23 +8844,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
-                    /** @description 包含消费者本人冻结收货地址，不得缓存 */
-                    "Cache-Control"?: "no-store, private";
-                    Pragma?: "no-cache";
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["StoreOrderDetailResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     postStoreOrdersByOrderIdCancel: {
@@ -8774,35 +8867,34 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
                 order_id: string;
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReasonOptionalRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["StoreOrderResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     postStoreOrdersByOrderIdPaymentIntents: {

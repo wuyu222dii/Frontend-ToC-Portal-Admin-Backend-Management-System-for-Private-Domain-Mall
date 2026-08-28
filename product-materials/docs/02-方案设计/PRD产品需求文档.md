@@ -6,10 +6,10 @@
 |---|---|
 | 产品名称 | 洗化产品私域商城（工作名） |
 | 文档类型 | Product Requirements Document |
-| 文档版本 | v2.4.6 |
+| 文档版本 | v2.4.7 |
 | 对应阶段 | 三端标准 MVP |
 | 更新日期 | 2026-08-28 |
-| 当前状态 | B0 至 B7 development 已完成；CH-017/CH-018 已批准，产品/API 基线为 v2.4.6/CH-018，B8.0-B8.5 本地实现与验收已完成并暂停，最终同一 SHA 双绿待取得，B8 整体尚未 `GO`；仅允许 Mock Provider 和脱敏 development，staging/production `NO-GO` |
+| 当前状态 | B0 至 B8 development 已完成；B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 同 SHA 双绿，CH-017 已失效；CH-019/CH-020 已批准，产品/API 基线为 v2.4.7/CH-020，当前仅 B9.0 进行中，B9.1-B9.5 未开始；仅允许 Mock Provider 和脱敏 development，staging/production `NO-GO` |
 | 产品终端 | 消费者微信小程序、一级代理工作台、总部管理后台 |
 | 人员角色 | `CUSTOMER`、`AGENT_ADMIN`、`SUPER_ADMIN` |
 
@@ -28,7 +28,8 @@
 | v2.4.3 | 2026-08-25 | 落实 CH-012：Banner 闭合生命周期/幂等、有效投影与安全目标，库存统一公式、HR-07 preview-confirm、整数边界和闭合流水类型 | 已归档；B5 development 已完成 |
 | v2.4.4 | 2026-08-25 | 落实 CH-014：匿名目录售罄投影、综合排序、商品名搜索、无分页主数据、首页分区状态和公共限流 | 已归档；B6.0-B6.4 已完成，B6 development `GO` |
 | v2.4.5 | 2026-08-26 | 落实 CH-016：服务端法律文本、角色感知 Store 会话、资料手机号、归因/服务代理与同步账号注销契约 | 已归档；B7 development 已在最终同 SHA 双绿后 `GO`，CH-015 已失效 |
-| v2.4.6 | 2026-08-27 | 落实 CH-018：登录后收藏、服务端购物车、游客合并、收货地址隐私与共享客户限流契约 | 当前产品版本；B8.0-B8.5 本地实现与验收已完成，等待最终同一 SHA 双绿，B8 整体尚未 `GO` |
+| v2.4.6 | 2026-08-27 | 落实 CH-018：登录后收藏、服务端购物车、游客合并、收货地址隐私与共享客户限流契约 | 已归档；B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 同 SHA 双绿，B8 development `GO`，CH-017 已失效 |
+| v2.4.7 | 2026-08-28 | 落实 CH-020：结算报价凭证、待付款订单、库存预占、主动取消/超时释放与 0002 索引迁移 | 当前产品版本；B9.0 进行中，B9.1-B9.5 未开始 |
 
 ### 文档使用约定
 
@@ -947,6 +948,19 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 - 全部 B8 个性化响应使用 `no-store, private` 和 `no-cache`；8 个写操作使用 HASH_ONLY，不缓存响应正文。13 个接口共享 CUSTOMER 与来源 IP 组合 HMAC 的 120/60 秒 Redis 固定窗口，Redis 异常 fail closed。
 - B8 不调用结算报价、库存预占、订单或支付接口；这些交易能力进入 B9 及后续阶段。
 
+### 11.15 CH-020 结算报价、待付款订单与库存预占
+
+- B9 保持既有 5 个 Store Checkout/Order operation，CH-020 实测 173 paths / 198 operations / 198 unique operationId / 325 schemas / 703 schema refs / 2,665 local refs / 0 dangling refs，Redocly 0 warning；不开放支付、物流或售后 operation。`CheckoutQuoteRequest` 接受 source、本人 ULID 地址和 1-100 个不重复 SKU；BUY_NOW 恰好一项，CART 必须精确匹配当前服务端已选购物车项。
+- 报价返回脱敏地址摘要、当前商品/SKU/图片/价格/库存与金额。blocker 闭合为 `CART_SELECTION_CHANGED | ITEM_UNAVAILABLE | INSUFFICIENT_STOCK`；阻断报价仍返回 200 和 `can_submit=false`，但不签发确认凭证。首期运费固定 `0.00`。
+- 可提交报价签发 5 分钟无状态 HMAC 凭证，使用现有幂等密钥环按 `qingxu:store-checkout-quote:v1` 域派生，绑定 CUSTOMER、auth session、规范请求、地址版本、商品/SKU/价格/库存事实、quote ID 和过期时间；不得落数据库、Redis、日志或审计。
+- `OrderSubmitRequest` 重复精确 source/address/items 并携带 `quote_id`、`quote_token` 和 `confirmation_hash`。任一绑定或当前事实不匹配都返回 409 并要求重新报价，不留下部分订单/预占事实。
+- 下单在 Serializable 事务中保存订单、订单项快照、重新加密的地址快照、归因候选、ACTIVE 预占和 `ORDER_RESERVE` 流水；数据库固定 `pay_expires_at=created_at+30 分钟`。首次下单没有既有 order 且 B9 不创建 payment intent，按 `idempotency -> account/customer -> CART/cart items -> address -> binding/agent -> brand -> category -> product -> SKU ASC -> balance ASC -> insert order/reservation/snapshots -> ledger -> audit/outbox` 加锁重验。CART 成功后只删除本次已选项，BUY_NOW 不修改购物车。
+- 订单列表/详情仅本人可见，跨客户统一 404。主动取消必须携带 `If-Match` 和幂等键，仅适用未过期、待付款且无任何 payment intent 的订单；用户取消写 `RELEASED/USER_CANCELLED`，超时 Worker 写 `EXPIRED/PAYMENT_TIMEOUT`。
+- 主动取消与超时 Worker 共用原子关闭逻辑，候选 reservation/SKU ID 仅无锁定位，锁内按 `idempotency（Worker 跳过） -> order -> payment_intent -> SKU ASC -> balance ASC -> reservation ASC -> ledger -> audit/outbox` 重验；使用数据库时间和 `FOR UPDATE SKIP LOCKED`，减少 `locked_qty`、写唯一 `ORDER_RELEASE` 流水、审计与 Outbox。发现任何 payment intent 时 fail closed 并留给 B10；下单/取消/超时须分别与 Product/SKU lifecycle confirm、库存调整通过无死锁并发验收。
+- 新增 409 `CHECKOUT_QUOTE_EXPIRED | CHECKOUT_QUOTE_MISMATCH | CHECKOUT_REQUOTE_REQUIRED | ORDER_NOT_CANCELLABLE`。五个 B9 operation 共享 CUSTOMER+IP 120/60 fail-closed 限流与 no-store/private/no-cache；创建/取消使用 `HASH_ONLY` 并不缓存 PII。
+- 两份原始 `0001_initial` 逐字节不变。新增事务型 `0002_b9_inventory_fact_indexes`，包含 `inventory_reservation_item(sku_id,reservation_id)` 与非空 business ID 的 ledger 事实条件唯一索引，不新增表、列或枚举。
+- B9 不创建 payment intent、不调用 Provider、不冻结最终代理/佣金、不开放支付、物流、售后或 Admin/Agent 订单。
+
 ## 12. 数据与接口边界（产品级）
 
 ### 12.1 核心业务实体
@@ -1441,7 +1455,7 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 - 数据库发布采用 PostgreSQL 向后兼容迁移；订单、归属、佣金和提现表禁止人工直接修改。
 - 发布前执行 migration、构建、单元、集成、E2E、权限与响应式检查。
 - 若出现库存、重复佣金、越权访问或提现账实不符，应暂停对应写入口并保留查询与审计。
-- CH-018 尚未进入 B8.1 前可整体回滚文档、OpenAPI、生成 contracts 和静态原型；进入业务实现后只关闭对应 Store 路由和小程序导航，不执行数据库降级。
+- CH-020 尚未进入 B9.1 前可整体回滚文档、OpenAPI、generated contracts 和原型；进入业务实现后只关闭 Store Checkout/Order 路由和小程序导航。`0002_b9_inventory_fact_indexes` 为加法索引迁移，代码回退时保留，不执行数据库降级。
 
 ## 21. 数据来源、假设与待补充
 
@@ -1458,9 +1472,10 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 9. 2026-08-25 产品负责人和技术负责人批准 CH-013/CH-014：B6 单人 development 补偿控制、匿名目录范围、售罄投影、稳定排序、首页分区状态、商品名搜索和公共限流。
 10. 2026-08-26 产品负责人和技术负责人批准 CH-015/CH-016：B7 单人 development 补偿控制、消费者法律文本、身份会话、资料手机号、归因/服务代理和同步账号注销契约。
 11. 2026-08-27 产品负责人和技术负责人批准 CH-017/CH-018：B8 单人 development 补偿控制、登录后收藏、服务端购物车、游客合并、地址隐私和客户限流契约。
-12. `product-materials/docs/01-需求调研/MVP方案.md`。
-13. `product-materials/docs/01-需求调研/三端角色与代理需求确认.md`。
-14. `product-materials/docs/04-风控管理/需求变更记录.md` 中的 CH-001 至 CH-018。
+12. 2026-08-28 产品负责人和技术负责人批准 CH-019/CH-020：B9 单人 development 补偿控制、报价绑定、待付款订单、库存预占、主动取消/超时释放与 0002 索引迁移契约。
+13. `product-materials/docs/01-需求调研/MVP方案.md`。
+14. `product-materials/docs/01-需求调研/三端角色与代理需求确认.md`。
+15. `product-materials/docs/04-风控管理/需求变更记录.md` 中的 CH-001 至 CH-020。
 
 ### 21.2 已采用假设
 
@@ -1514,8 +1529,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | 验收场景 AC | 116 | 0 |
 | 用户故事 US | 24 | 0 |
 
-当前准入结论：B0 至 B7 development 已通过。B7 最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 的普通 CI Run `33055090596` 与 Supabase rollback-only Run `33056078437` 同 SHA 双绿，CH-015 已失效。CH-017/CH-018 已批准；CH-018 契约实测 173 paths/198 operations/198 unique operationId/323 schemas/701 schema refs/2,653 local refs/0 dangling refs，Prisma/首迁移保持冻结。B8.0-B8.3 已完成并按批暂停，B8.4、staging 和 production 均未放行，B8 整体尚未 `GO`。
+当前准入结论：B0 至 B8 development 已通过。B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 的普通 CI Run `33141704459` 与 Supabase rollback-only Run `33142971501` 同 SHA 双绿，CH-017 已失效。CH-019/CH-020 已批准；CH-020 契约实测 173 paths/198 operations/198 unique operationId/325 schemas/703 schema refs/2,665 local refs/0 dangling refs，Redocly 0 warning。当前仅 B9.0 进行中，B9.1-B9.5、staging 和 production 均未放行。
 
 ---
 
-PRD 状态：v2.4.6/CH-018 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B7 development 已通过，B8.0-B8.5 本地实现与验收已完成并暂停，等待最终同一 SHA 双绿，B8 development 尚未整体 `GO`。目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。
+PRD 状态：v2.4.7/CH-020 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B8 development 已通过，B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 同 SHA 双绿，CH-017 已失效。B9.0 进行中，B9.1-B9.5 未开始。目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。

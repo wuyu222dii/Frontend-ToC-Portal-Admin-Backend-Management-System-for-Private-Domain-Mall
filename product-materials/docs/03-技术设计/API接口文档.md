@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 |---|---|
-| 文档版本 | v2.4.6 |
-| 对应产品基线 | MVP/PRD v2.4.6、CH-001 至 CH-018 |
-| 接口阶段 | B0-B7 development 已完成；CH-017/CH-018 已批准，B8.0-B8.5 本地实现与验收已完成并暂停，最终同一 SHA 远端双绿待取得，B8 整体尚未 `GO`，CH-017 继续有效；仅允许 Mock Provider 和脱敏 development，staging/production 未批准 |
+| 文档版本 | v2.4.7 |
+| 对应产品基线 | MVP/PRD v2.4.7、CH-001 至 CH-020 |
+| 接口阶段 | B0-B8 development 已完成，B8 最终 SHA 已同 SHA 双绿且 CH-017 已失效；CH-019/CH-020 已批准，当前仅进入 B9.0 契约与迁移准入，B9.1 业务代码未开始；仅允许 Mock Provider 和脱敏 development，staging/production 未批准 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
 | 更新时间 | 2026-08-28 |
 
@@ -56,7 +56,7 @@ OpenAPI 与所有客户端只配置一个 server：`/api/v1`。下表及全文�
 | `Idempotency-Key` | 订单、支付、售后、退款、提现、规则变更等写操作 | UUID，主体 + 路径范围内 24 小时唯一；退款每次新尝试必须使用未用于该退款单的新键 |
 | `X-Request-Id` | 可选 | 客户端追踪 ID；缺失时由服务端生成 |
 | `X-Candidate-Token` | 游客读取或替换推广候选 | 首次创建候选后由服务端签发的短时不透明 token；GET 不消费，替换或登录迁移时原子失效；不使用设备 ID |
-| `If-Match` | 配置及高风险写操作 | 必填，携带预览时的资源 ETag，例如 `"12"`；版本变化返回 `RESOURCE_VERSION_CONFLICT` |
+| `If-Match` | 配置、高风险写操作及订单取消 | 必填，携带客户端已读取的资源 ETag，例如 `"12"`；版本变化返回 `RESOURCE_VERSION_CONFLICT`。订单取消的同键已完成幂等重放先于版本校验 |
 
 ### 2.4 数据格式
 
@@ -123,7 +123,7 @@ OpenAPI 与所有客户端只配置一个 server：`/api/v1`。下表及全文�
 | 401 | `AUTH_REQUIRED`、`SESSION_EXPIRED` | 未登录或会话失效 |
 | 403 | `PERMISSION_DENIED`、`REAUTH_REQUIRED` | 角色、数据范围或二次验证不足 |
 | 404 | `RESOURCE_NOT_FOUND` | 不存在或无权查看时统一返回 |
-| 409 | `RESOURCE_VERSION_CONFLICT`、`STATE_CONFLICT`、`SOFT_DELETED_KEY_RESERVED` | 乐观锁、非法/同状态转换或软删除业务键保留冲突 |
+| 409 | `RESOURCE_VERSION_CONFLICT`、`STATE_CONFLICT`、`SOFT_DELETED_KEY_RESERVED`、`CHECKOUT_QUOTE_EXPIRED`、`CHECKOUT_QUOTE_MISMATCH`、`CHECKOUT_REQUOTE_REQUIRED`、`ORDER_NOT_CANCELLABLE` | 乐观锁、非法状态、软删除业务键保留、报价过期/不匹配/事实漂移或订单不可取消 |
 | 422 | `STOCK_INSUFFICIENT`、`AFTERSALE_QUOTA_EXCEEDED`、`ACTIVE_PRODUCT_DEPENDENCY`、`FILE_CONTENT_MISMATCH`、`PRODUCT_PRIMARY_IMAGE_REQUIRED`、`PRODUCT_ACTIVE_SKU_REQUIRED`、`ACTIVE_SKU_DEPENDENCY`、`ACTIVE_INVENTORY_RESERVATION`、`INVENTORY_QUANTITY_OUT_OF_RANGE`、`CART_ITEM_LIMIT_EXCEEDED`、`DEFAULT_ADDRESS_REQUIRED` | 业务依赖、活动预占、库存/购物车整数边界、默认地址约束或文件实测内容校验不通过 |
 | 429 | `RATE_LIMITED`、`REAUTH_LOCKED` | 访问或验证次数受限 |
 | 500 | `INTERNAL_ERROR` | 未预期错误，不暴露堆栈和敏感值 |
@@ -393,7 +393,7 @@ B6.1 已按上述契约开放这 5 个 GET。独立 `StoreCatalogRepository` 使
 | `POST` | `/store/orders` | CUSTOMER | 创建待付款订单并锁库存 30 分钟 |
 | `GET` | `/store/orders` | CUSTOMER | 本人订单列表和状态筛选 |
 | `GET` | `/store/orders/{order_id}` | CUSTOMER | 订单、支付、退款、履约和售后聚合详情 |
-| `POST` | `/store/orders/{order_id}/cancel` | CUSTOMER | claim 活动意图后按 intent_no query/close；明确不可支付才关单并释放库存 |
+| `POST` | `/store/orders/{order_id}/cancel` | CUSTOMER | B9 仅取消未过期、无任何支付意图的待付款订单；B10 再扩展 Provider query/close |
 | `POST` | `/store/orders/{order_id}/payment-intents` | CUSTOMER | 创建或复用唯一非终态意图，按稳定 intent_no 调用/对账 Provider |
 | `POST` | `/store/orders/{order_id}/confirm-receipt` | CUSTOMER | 确认收货，幂等完成订单 |
 | `GET` | `/store/orders/{order_id}/logistics` | CUSTOMER | 包裹与人工物流节点 |
@@ -404,25 +404,49 @@ B6.1 已按上述契约开放这 5 个 GET。独立 `StoreCatalogRepository` 使
 
 订单创建、取消和确认收货可返回摘要 `StoreOrderResponse`；列表使用 `StoreOrderListResponse`，每单含紧凑 SKU 项、`pay_expires_at`、服务端 `available_actions` 与售后摘要，并按 `display_group` 映射订单 Tab。只有详情 GET 返回端点专用 `StoreOrderDetailResponse`。详情必须一次返回服务端计算的订单/支付/退款/履约状态、支付截止与服务端时间、冻结收货地址、可执行动作、四条主状态轴合并时间线、包裹与物流节点、关联售后、支付尝试、稳定退款及历次尝试、角色安全错误和资源版本。消费者只能读取本人订单；Provider 原文、内部堆栈、库存内部流水和佣金均不得出现在小程序响应。
 
-订单创建请求：
+报价请求只提交服务端可重新读取的标识和数量：
 
 ```json
 {
   "source": "CART",
-  "address_id": "addr_01J5...",
+  "address_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
   "items": [
-    { "sku_id": "sku_clean_120", "quantity": 1 },
-    { "sku_id": "sku_clean_120x2", "quantity": 1 }
+    { "sku_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW", "quantity": 1 },
+    { "sku_id": "01ARZ3NDEKTSV4RRFFQ69G5FAX", "quantity": 1 }
   ]
 }
 ```
 
-订单创建响应：
+`CheckoutQuoteRequest` 的 address/SKU 均为 ULID，items 为 1..100 行、quantity 为 1..99 且 SKU 不得重复。`BUY_NOW` 必须恰好一行；`CART` 必须与服务端当前 `selected=true` 的购物车项及数量精确一致。Quote 是只读 POST，不接受 `Idempotency-Key`，不写订单或预占。
+
+Quote 使用 Repeatable Read 读取地址、购物车、商品层级、公开图片、SKU 和库存。已知但不可售的行仍以 200 返回，`can_submit=false`，blocker 只允许 `CART_SELECTION_CHANGED|ITEM_UNAVAILABLE|INSUFFICIENT_STOCK`，且 `quote_token/confirmation_hash/expires_at` 为 null；未知资源或非本人地址统一 404。可提交报价的运费在 B9 固定为 `0.00`。
+
+可提交报价签发 5 分钟无状态 HMAC token。密钥从现有幂等哈希密钥环通过 `qingxu:store-checkout-quote:v1` 域隔离派生，凭证绑定 CUSTOMER、认证 session、quote ID、规范化 source/address/items、地址版本、商品/SKU/库存版本、价格和 expiry。响应同时返回对用户确认内容计算的 64 位小写 `confirmation_hash`；token/hash 不进入数据库、Redis、日志、审计或幂等响应缓存。
+
+订单提交必须逐字回送相同 source/address/items，并增加报价能力：
 
 ```json
 {
-  "order_id": "ord_01J5...",
-  "order_no": "20260811000126",
+  "source": "CART",
+  "address_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "items": [
+    { "sku_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW", "quantity": 1 },
+    { "sku_id": "01ARZ3NDEKTSV4RRFFQ69G5FAX", "quantity": 1 }
+  ],
+  "quote_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+  "quote_token": "v1.current.opaque-signature",
+  "confirmation_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}
+```
+
+创建接口使用 `HASH_ONLY`。同主体、scope、key 和请求哈希的已完成事实必须先于 quote expiry/If-Match 检查返回同一订单当前投影；同键不同请求返回 409。首次执行在 Serializable 事务中重新锁定并验证报价全部事实，过期返回 `CHECKOUT_QUOTE_EXPIRED`，主体/会话/请求/token/hash 不匹配返回 `CHECKOUT_QUOTE_MISMATCH`，地址、购物车、商品、价格或库存版本变化返回 `CHECKOUT_REQUOTE_REQUIRED`，均不得留下半成品订单。
+
+订单创建响应为 HTTP 201；摘要示例：
+
+```json
+{
+  "order_id": "01ARZ3NDEKTSV4RRFFQ69G5FAZ",
+  "order_no": "QX01ARZ3NDEKTSV4RRFFQ69G5FAZ",
   "order_status": "PENDING_PAYMENT",
   "payment_status": "UNPAID",
   "refund_progress_status": "NONE",
@@ -443,9 +467,9 @@ B6.1 已按上述契约开放这 5 个 GET。独立 `StoreCatalogRepository` 使
   },
   "items": [
     {
-      "order_item_id": "oi_01J5...",
-      "product_id": "prod_clean",
-      "sku_id": "sku_clean_120",
+      "order_item_id": "01ARZ3NDEKTSV4RRFFQ69G5FB0",
+      "product_id": "01ARZ3NDEKTSV4RRFFQ69G5FB1",
+      "sku_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
       "product_name": "氨基酸净澈洁面乳",
       "sku_name": "120g 单支",
       "unit_price": "69.00",
@@ -456,7 +480,13 @@ B6.1 已按上述契约开放这 5 个 GET。独立 `StoreCatalogRepository` 使
 }
 ```
 
-创建订单必须在一个事务中完成服务端计价、订单/订单项快照、归因候选和库存预占。该接口不创建支付意图、不调用 Provider；订单创建后即进入订单列表，用户关闭支付弹层不删除订单。
+创建订单必须在一个事务中完成服务端重计价、订单/订单项快照、地址解密后按订单快照 AAD 重新加密、归因候选、库存预占、余额锁定、`ORDER_RESERVE` 流水、审计、Outbox 和幂等完成事实。订单号固定为 `QX` 加订单 ULID，数据库固定 `pay_expires_at=created_at+30 minutes`。CART 成功只删除本次提交的已选项，保留未选项；BUY_NOW 不修改购物车。该接口不创建支付意图、不调用 Provider、不冻结最终代理或佣金。
+
+B9 冻结两条不可混用的加锁协议。首次下单没有既有 order 且不创建 payment intent，必须按 `idempotency -> account/customer -> CART/cart items（仅 CART）-> address -> binding/agent -> brand -> category -> product -> SKU ID ASC -> inventory_balance ID ASC -> insert order/reservation/snapshots -> ledger -> audit/outbox` 重验。主动取消/Worker 才按 `idempotency（Worker 跳过） -> order -> payment_intent -> SKU ID ASC -> inventory_balance ID ASC -> inventory_reservation ID ASC -> ledger -> audit/outbox` 加锁与重验。候选 reservation/SKU ID 可在加锁前无锁读取，但只用于定位；禁止混用两条路径或先锁 reservation 再回头锁 SKU/balance。Product/SKU lifecycle 与库存调整共享的库存尾部同样保持 SKU→balance→reservation。
+
+创建、列表、详情与取消只返回当前 CUSTOMER 本人订单，跨客户统一 404。B9 可用动作最多只有 `CANCEL`；支付、包裹、售后和退款尝试投影为空。取消必须携带 `Idempotency-Key` 与 `If-Match`，无请求体；仅未过期、`PENDING_PAYMENT/UNPAID`、ACTIVE reservation 且不存在任何 payment_intent 的订单可写 `CLOSED/USER_CANCELLED + RELEASED` 并追加唯一 `ORDER_RELEASE` 流水。已由本人取消的订单重复取消返回当前投影；过期、其他终态或存在支付意图返回 `ORDER_NOT_CANCELLABLE`。五个 B9 operation 全部复用 CUSTOMER+来源 IP 120/60 fail-closed 限流，并对成功与 JSON 错误强制 no-store/private、no-cache。
+
+以下 payment-intent、Provider query/close、支付确认和迟到支付语义属于 B10，不是 B9 实现入口：
 
 首次或重试支付先在短事务中创建或复用该订单唯一活动意图，稳定商户号为 `intent_no`，初始状态 `CREATING`；提交后才调用 Provider `create(intent_no)`。若网络不确定或进程在外部成功后、本地回写前崩溃，服务端用 `query(intent_no)` 恢复，不创建第二商户号。部分唯一索引禁止同一订单并存两笔 `CREATING/OPEN/CLOSE_PENDING` 意图；响应包含当前 `intent_status` 和闭合的 `PaymentProviderCapabilityView`，不返回 Provider 任意对象、佣金比例或归因结果。只要成功响应可能包含 `provider_payload`，就必须返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；明确创建失败/用户取消分别落 `FAILED/CANCELLED`，超过 `pay_expires_at` 返回 `ORDER_PAYMENT_EXPIRED`。
 
@@ -873,10 +903,10 @@ CH-006 文件契约统一如下：
 
 | 场景 | 一致性边界 |
 |---|---|
-| 创建订单 | 订单、订单项、归因候选记录、库存预占、幂等记录同事务；不创建支付意图、不调用 Provider |
+| B9 报价/创建订单 | Quote 为不写库的 Repeatable Read；创建在 Serializable 中重验签名报价，订单、订单项、地址/归因快照、库存预占/余额/流水、审计、Outbox 与 HASH_ONLY 幂等同事务；不创建支付意图、不调用 Provider |
 | 创建/复用支付意图 | 短事务创建/复用唯一活动意图并提交；事务外按稳定 intent_no create/query；新事务回写，异常由对账恢复 |
 | 正常支付 | 先锁候选代理/version，再锁订单/items/payment 并重读候选；支付事实、库存结转、最终归因、隐私投影与佣金快照同事务；仅非 DIRECT 且佣金大于 0 的项写预计流水/佣金 Outbox，0% 项 position=NONE |
-| 主动取消/超时关闭 | 同一服务先按 order→all items→intent claim CLOSE_PENDING；事务外 query/close(intent_no)；明确不可支付后再按 order→all items→intent→inventory finalize，未知保持占用 |
+| B9 主动取消/超时关闭 | 只处理不存在 payment_intent 的订单；候选 reservation/SKU 仅无锁定位，取消与 Worker 共用本地原子关闭服务并按 `idempotency（Worker 跳过）→order→payment_intent→SKU ASC→balance ASC→reservation ASC→release ledger→audit/outbox` 加锁重验，禁止 reservation 先于 SKU/balance；B10 再扩展 Provider claim/query/close |
 | 售后创建 | 只接收 quantity；售后、服务端金额分配、售后项和可退额度占用同事务 |
 | 退款提交/重试 | 每个售后至多一条稳定退款主单；同一退款复用稳定商户退款号，每次新幂等键追加独立 `refund_attempt`，重复同键只返回同一尝试 |
 | 退款成功 | order→items→refund/aftersale→inventory（需要时）→commission position→wallet；回调事实、额度结转、回库、聚合和唯一幂等冲正流水同事务 |
@@ -916,12 +946,14 @@ Provider 回调先写入回调收件箱，再由幂等处理器消费；领域�
 - access/refresh、受限改密 token、pre-auth、reauth grant、候选首次 token、`preview_token`、支付调用参数和签名上传/下载 URL 的成功响应统一返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；这些值不得进入服务端响应缓存、日志、追踪或截图。
 - `AUTH_TOKEN_AUDIENCE=qingxu-admin-web` 继续服务管理端，`STORE_AUTH_TOKEN_AUDIENCE=qingxu-store` 只服务消费者；守卫同时校验 role/assurance/audience。Provider 不属于 token claim；`STORE_IDENTITY_PROVIDER` 与 `STORE_PHONE_PROVIDER` 只负责选择 MOCK/WECHAT Adapter 和持久化来源。Mock 仅允许 development/test，production 缺真实微信凭据必须启动失败。
 - 单一消费者微信应用使用 `STORE_WECHAT_APP_ID/STORE_WECHAT_APP_SECRET`；三份当前文档分别配置 `STORE_USER_AGREEMENT_VERSION/TITLE/URL`、`STORE_PRIVACY_POLICY_VERSION/TITLE/URL`、`STORE_PHONE_AUTHORIZATION_VERSION/TITLE/URL`，每个前缀对应三个独立环境变量，URL 必须为 HTTPS。客户端只能提交已获取版本，不能定义当前版本。
-- 法律文本使用 `STORE_LEGAL_RATE_LIMIT_MAX=120`、`STORE_LEGAL_RATE_LIMIT_WINDOW_SECONDS=60`，登录使用 `STORE_LOGIN_RATE_LIMIT_MAX=10`、`STORE_LOGIN_RATE_LIMIT_WINDOW_SECONDS=900`。B8 登录后接口使用 `STORE_CUSTOMER_RATE_LIMIT_MAX=120`、`STORE_CUSTOMER_RATE_LIMIT_WINDOW_SECONDS=60`，限流键只保存 CUSTOMER 与来源 IP 的用途隔离 HMAC 摘要，不保存原始标识；均使用 Redis 服务端时间且 fail closed。
+- 法律文本使用 `STORE_LEGAL_RATE_LIMIT_MAX=120`、`STORE_LEGAL_RATE_LIMIT_WINDOW_SECONDS=60`，登录使用 `STORE_LOGIN_RATE_LIMIT_MAX=10`、`STORE_LOGIN_RATE_LIMIT_WINDOW_SECONDS=900`。B8 个性化购物接口和 B9 五个订单接口共享 `STORE_CUSTOMER_RATE_LIMIT_MAX=120`、`STORE_CUSTOMER_RATE_LIMIT_WINDOW_SECONDS=60`，限流键只保存 CUSTOMER 与来源 IP 的用途隔离 HMAC 摘要，不保存原始标识；均使用 Redis 服务端时间且 fail closed。
 
 ## 10. 接口验收清单
 
 - 同一商品不同 SKU 可同时存在购物车，订单项规格、价格、库存和快照正确。
-- 关闭支付弹层后订单仍为待付款；重复创建订单使用同一幂等键返回同一订单。
+- Quote token 篡改、过期、跨客户/会话、请求不匹配以及地址/购物车/商品/价格/库存漂移均阻断创建且零半成品；同键已完成创建即使 token 后续过期仍返回同一订单。
+- 创建成功后订单保持待付款；CART 只删除本次提交的已选项，BUY_NOW 不修改购物车；重复创建使用同一幂等键返回同一订单。
+- 下单、主动取消和超时释放分别与 Product/SKU lifecycle confirm、库存人工调整并发运行；所有执行均有界完成且 PostgreSQL `40P01` 为零，不出现反向锁序、重复预占/释放或库存不变式破坏。
 - 创建订单不产生 Provider 调用；并发首次/重试支付最多生成一笔活动意图，外部成功本地未回写可按 intent_no 恢复。
 - 超时与支付回调并发时只能产生“正常支付”或“关闭后自动退款”之一，不得负库存或重复佣金。
 - 并发售后申请的已退款金额与有效占用总和不超过订单项可退上限。
@@ -937,8 +969,9 @@ Provider 回调先写入回调收件箱，再由幂等处理器消费；领域�
 - 候选查询/拒绝、文件完成确认等非首次响应不能重新返回 candidate token 或无关签名能力；所有短时能力响应均可机器校验禁止缓存头。
 - `pnpm contracts:check` 的 CH-014 历史实测为 172 paths、196 operations、196 unique operationId、312 schemas、691 schema refs、2,577 local refs 和 0 dangling refs。B6 售罄投影、五种排序、搜索边界、无分页品牌/分类、首页分区状态与 Store 专用 429/Retry-After 均已形成可机器校验契约；CH-012 Banner/库存和 Product/SKU 专用 DTO 的历史闭合结论继续有效。
 - CH-016 专项实测为 173 paths、197 operations、197 unique operationId、320 schemas、699 schema refs、2,617 local refs 和 0 dangling refs，Redocly 0 warning。专项门禁已覆盖三份法律文本、登录固定双 consent、手机号第三 consent、Store/Admin audience 隔离、Provider 服务端选择、If-Match、候选目标解析、查询不消费与替换/迁移原子失效、服务代理三字段投影和同步注销。
-- 最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 的普通 CI Run `33055090596` 与 Supabase development rollback-only Run `33056078437` 同 SHA 双绿，B7 development 已标记 `GO`，CH-015 已自动失效。CH-017 仅覆盖 B8 脱敏 development 的单人 reviewer 例外，B8.5 后自动失效，不放行 staging/production。
-- CH-018 专项实测为 173 paths、198 operations、198 unique operationId、323 schemas、701 schema refs、2,653 local refs 和 0 dangling refs，Redocly 0 warning。B8 收藏、购物车、游客合并、地址及小程序均已实现；B8.5 本地数据库 full、浏览器回归和真实纵向验收通过并接入 CI/Supabase workflow，最终只读复审 `P0=0/P1=0/P2=0`，等待最终同一 SHA 双绿。
+- 最终 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 的普通 CI Run `33055090596` 与 Supabase development rollback-only Run `33056078437` 同 SHA 双绿，B7 development 已标记 `GO`，CH-015 已自动失效。
+- CH-018 专项实测为 173 paths、198 operations、198 unique operationId、323 schemas、701 schema refs、2,653 local refs 和 0 dangling refs，Redocly 0 warning。B8 收藏、购物车、游客合并、地址及小程序均已实现；最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 的普通 CI Run `33141704459` 与 Supabase rollback-only Run `33142971501` 同 SHA 成功，B8 development `GO`，CH-017 已失效。
+- CH-020 实测保持 173 paths、198 operations 和 198 unique operationId，并固化为 325 schemas、703 schema refs、2,665 local refs、0 dangling refs，Redocly 0 warning。B9.0 门禁机器验证 Quote 无幂等键、Submit 报价绑定、CART/BUY_NOW 闭合形状、全部路径 ULID、创建 201、取消 If-Match/无 body、四个 409、五 operation 的 CUSTOMER no-store 与共享限流。
 - B7.4 已实现注销后端：不合格 preview 返回 200、完整 blockers/impacts 及 null token/hash/expiry；合格预览才签发 5 分钟能力。confirm 后出现新阻断返回 422 且不消费能力、不产生部分去标识化；成功后在单事务清除登录主体/非交易 PII、结束绑定、使候选失效、匿名化代理隐私投影、写审计与 durable `PENDING account.anonymized` Outbox 事实，并将全部 session 留作 revoked tombstone。这里只证明事件事实已持久化，不宣称已投递或消费。全部旧 token 失效，HASH_ONLY 不重放完成响应；full 与受控 Supabase development rollback-only 门禁已通过，退出复审 `P0=0/P1=0`。
 - Product/SKU 固定创建状态、完整状态矩阵、恢复目标、不级联、首次 `published_at`、nullable 最低活动价、8 图、归档 SKU、零库存余额、不可变 code、201 SKU create 和四个新 422 均有契约及集成测试。
 - 非 `APPROVED` 提现无法请求完整银行卡号；短时授权不可跨提现单、跨会话或重复使用。

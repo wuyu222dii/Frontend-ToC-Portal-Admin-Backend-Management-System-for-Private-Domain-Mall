@@ -401,80 +401,77 @@ async function runMiniInteractionChecks(browser) {
     if (!condition) throw new Error(message);
   };
 
-  await run("mini-interaction-sku-b8-boundary", async (page) => {
+  await run("mini-interaction-sku-b9-buy-now-quote", async (page) => {
     await page.goto(miniUrl({ screen: "product", device: "375" }), { waitUntil: "load" });
     await page.click('[data-sku-intent="buy"]');
     await page.click('[data-sku-id="SKU-SER-60"]');
     await page.click('[data-action="confirm-sku"]');
     const snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
-    expect(snapshot.screen === "product" && snapshot.selectedSkuId === "SKU-SER-60", "B8 立即购买未保留规格上下文或错误离开商品页");
-    expect(snapshot.buyNowLine === null, "B8 立即购买错误创建了结算行");
-    expect((await page.locator("#toast").innerText()).includes("B9 开放"), "B8 立即购买未明确保持阶段边界");
+    expect(snapshot.screen === "checkout" && snapshot.selectedSkuId === "SKU-SER-60", "B9 立即购买未保留规格上下文或进入确认订单");
+    expect(snapshot.checkoutMode === "buy" && snapshot.buyNowLine?.skuId === "SKU-SER-60", "BUY_NOW 未建立恰好一个 SKU 的报价输入");
+    expect(snapshot.checkoutQuote?.canSubmit === true && snapshot.checkoutQuote?.source === "BUY_NOW" && snapshot.checkoutQuote?.expiresInSeconds === 300, "BUY_NOW 未生成 5 分钟可提交报价");
+    expect(await page.locator('[data-quote-status="READY"][data-quote-source="BUY_NOW"]').count() === 1, "确认订单页未展示 BUY_NOW 报价状态");
+    expect(!(await page.locator("body").innerText()).includes("微信支付"), "B9 立即购买错误开放支付入口");
   });
 
-  await run("mini-interaction-pending-payment", async (page) => {
+  await run("mini-interaction-b9-pending-order", async (page) => {
     await page.goto(miniUrl({ screen: "checkout", device: "375" }), { waitUntil: "load" });
+    expect(await page.locator('[data-quote-status="READY"]').count() === 1, "确认订单页未先取得 READY 报价");
     await page.click('[data-action="submit-order"]');
+    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().screen === "order-detail");
     const created = await page.evaluate(() => {
       const state = window.__MINIAPP_PROTOTYPE__.getState();
-      return state.orders.find((order) => order.id === state.activePaymentOrderId);
+      return state.orders.find((order) => order.id === state.currentOrderId);
     });
     expect(created?.orderStatus === "PENDING_PAYMENT", "提交订单未先创建 PENDING_PAYMENT 订单");
-    expect(created?.paymentStatus === "PROCESSING", "支付意图创建后订单支付状态不是 PROCESSING");
+    expect(/^QX[0-9A-HJKMNP-TV-Z]{26}$/.test(created?.id || ""), "订单号不是 QX 加订单 ULID");
+    expect(created?.paymentStatus === "UNPAID" && created?.paymentIntentCount === 0, "B9 下单错误创建支付意图或支付状态不正确");
+    expect(JSON.stringify(created?.availableActions) === JSON.stringify(["CANCEL"]), "B9 待付款订单动作未闭合为 CANCEL");
     expect(created?.payExpiresAt, "新订单缺少 pay_expires_at 演示值");
     expect(created?.items.every((item) => item.skuId && item.skuName && Number.isFinite(item.unitPrice)), "订单项 SKU/规格/成交价快照不完整");
-    await page.click('[data-payment-outcome="later"]');
+    const snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    expect(snapshot.orderSubmitJournal === null && snapshot.lastOrderSubmit?.status === "CONFIRMED" && snapshot.lastOrderSubmit?.idempotencyKey?.startsWith("b9-order-submit-"), "订单提交 journal 未在确定成功后闭合");
+    const text = await page.locator("body").innerText();
+    expect(text.includes("支付将在 B10 开放") && !text.includes("继续支付"), "B9 订单详情错误开放支付操作");
+  });
+
+  await run("mini-interaction-b9-requote", async (page) => {
+    await page.goto(miniUrl({ screen: "checkout", device: "375", quote: "blocked" }), { waitUntil: "load" });
+    const before = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState().checkoutQuote);
+    expect(before?.canSubmit === false && before?.blocker === "INSUFFICIENT_STOCK" && before?.expiresAt === null && before?.confirmationCapabilityPresent === false, "阻断报价错误签发确认能力或有效期");
+    expect(await page.locator('[data-quote-status="BLOCKED"][data-quote-blocker="INSUFFICIENT_STOCK"]').count() === 1 && await page.locator('[data-action="submit-order"]').isDisabled(), "确认订单页未展示阻断原因并禁用下单");
+    await page.click('[data-action="request-checkout-quote"]');
+    const after = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState().checkoutQuote);
+    expect(after?.canSubmit === true && after?.revision === before?.revision + 1 && after?.quoteId !== before?.quoteId, "重新报价未替换旧报价能力或恢复可提交状态");
+    expect((await page.locator("#toast").innerText()).includes("旧确认能力已失效"), "重新报价未明确旧能力失效");
+    const quoteText = await page.locator('[data-quote-status="READY"]').innerText();
+    expect(!/quote_token|confirmation_hash|[a-f0-9]{64}/i.test(quoteText), "确认订单页面泄露报价 token 或 confirmation hash");
+  });
+
+  await run("mini-interaction-b9-cancel-release", async (page) => {
+    await page.goto(miniUrl({ screen: "checkout", device: "375" }), { waitUntil: "load" });
+    await page.click('[data-action="submit-order"]');
     await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().screen === "order-detail");
-    const afterLater = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
-    const pending = afterLater.orders.find((order) => order.id === afterLater.currentOrderId);
-    expect(pending?.displayStatus === "待付款", "稍后支付没有保留待付款订单");
-    expect((await page.locator("body").innerText()).includes("继续支付"), "订单详情缺少继续支付入口");
-  });
-
-  await run("mini-interaction-payment-retry", async (page) => {
-    await page.goto(miniUrl({ screen: "checkout", device: "375" }), { waitUntil: "load" });
-    await page.click('[data-action="submit-order"]');
-    await page.click('[data-payment-outcome="failed"]');
-    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().screen === "payment-result");
-    let snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
-    let order = snapshot.orders.find((item) => item.id === snapshot.currentOrderId);
-    expect(order?.paymentStatus === "UNPAID" && order?.latestPaymentAttemptStatus === "FAILED" && order?.displayStatus === "待付款", "支付失败后未回到可重试的 UNPAID 状态");
-    await page.click('[data-action="retry-payment"]');
-    await page.click('[data-payment-outcome="success"]');
-    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().paymentResult?.outcome === "success");
-    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
-    order = snapshot.orders.find((item) => item.id === snapshot.currentOrderId);
-    expect(order?.paymentStatus === "PAID", "重试支付成功后未标记 PAID");
-    expect(order?.orderStatus === "PENDING_SHIPMENT" && order?.displayStatus === "待发货" && order?.fulfillmentStatus === "READY_TO_SHIP", "支付成功后订单或履约状态错误");
-  });
-
-  await run("mini-interaction-timeout-late-refund-failure", async (page) => {
-    await page.goto(miniUrl({ screen: "checkout", device: "375" }), { waitUntil: "load" });
-    await page.click('[data-action="submit-order"]');
-    await page.click('[data-payment-outcome="later"]');
-    await page.click('[data-action="simulate-payment-timeout"]');
-    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().paymentResult?.outcome === "timeout");
-    let snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
-    let order = snapshot.orders.find((item) => item.id === snapshot.currentOrderId);
-    expect(order?.orderStatus === "CLOSED" && order?.closeReason === "PAYMENT_TIMEOUT" && order?.inventoryReservation?.status === "RELEASED", "支付超时未关闭订单并释放库存预占");
-    await page.click('[data-action="simulate-late-payment"]');
-    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().paymentResult?.outcome === "late_refund");
-    await page.click('[data-action="fail-late-refund"]');
-    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
-    order = snapshot.orders.find((item) => item.id === snapshot.currentOrderId);
-    expect(order?.orderStatus === "CLOSED" && order?.paymentStatus === "PAID" && order?.refundStatus === "FAILED" && order?.latePaymentRefund?.status === "MANUAL_REVIEW", "迟到支付退款失败未保持关单并转人工财务异常");
-  });
-
-  await run("mini-interaction-timeout-late-refund-success", async (page) => {
-    await page.goto(miniUrl({ screen: "checkout", device: "375" }), { waitUntil: "load" });
-    await page.click('[data-action="submit-order"]');
-    await page.click('[data-payment-outcome="later"]');
-    await page.click('[data-action="simulate-payment-timeout"]');
-    await page.click('[data-action="simulate-late-payment"]');
-    await page.click('[data-action="complete-late-refund"]');
+    const beforeVersion = await page.evaluate(() => {
+      const state = window.__MINIAPP_PROTOTYPE__.getState();
+      return state.orders.find((order) => order.id === state.currentOrderId).version;
+    });
+    await page.click('[data-action="cancel-order"]');
+    expect((await page.locator(".bottom-sheet").innerText()).includes(`If-Match 版本 ${beforeVersion}`), "取消确认未展示当前 If-Match 版本");
+    await page.click('[data-action="confirm-cancel-order"]');
     const snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
     const order = snapshot.orders.find((item) => item.id === snapshot.currentOrderId);
-    expect(order?.orderStatus === "CLOSED" && order?.refundStatus === "FULL" && order?.latePaymentRefund?.status === "COMPLETED", "迟到支付自动退款成功后错误恢复订单或未完成退款");
+    expect(order?.orderStatus === "CLOSED" && order?.closeReason === "USER_CANCELLED" && order?.inventoryReservation?.status === "RELEASED", "主动取消未关闭订单并释放库存预占");
+    expect(order?.version === beforeVersion + 1 && order?.availableActions?.length === 0, "取消未递增版本或清空可用动作");
+  });
+
+  await run("mini-interaction-b9-order-action-boundary", async (page) => {
+    await page.goto(miniUrl({ screen: "orders", device: "375" }), { waitUntil: "load" });
+    const tabs = await page.locator(".orders-tabs button").allTextContents();
+    expect(tabs.join(",") === "全部,待付款,已关闭", "B9 订单列表未固定为全部/待付款/已关闭");
+    const text = await page.locator(".orders-page").innerText();
+    expect(!text.includes("立即付款") && !text.includes("查看物流") && !text.includes("申请售后"), "B9 订单列表错误开放支付、物流或售后动作");
+    expect(await page.locator('[data-action="cancel-order"]').count() === 1, "B9 订单列表未仅为合法待付款订单提供 CANCEL");
   });
 
   await run("mini-interaction-category-search-detail", async (page) => {
@@ -512,8 +509,10 @@ async function runMiniInteractionChecks(browser) {
     expect((await page.locator(".cart-card.is-invalid").first().innerText()).includes("不计入合计"), "不可售 SKU 未标记为不计入合计");
     await page.click('[data-action="checkout"]');
     const snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
-    expect(snapshot.screen === "cart", "B8 购物车错误进入 checkout");
-    expect((await page.locator("#toast").innerText()).includes("B9 开放"), "B8 购物车未明确结算阶段边界");
+    expect(snapshot.screen === "checkout" && snapshot.checkoutMode === "cart", "B9 购物车未进入 CART 报价确认");
+    expect(snapshot.checkoutQuote?.canSubmit === true && snapshot.checkoutQuote?.source === "CART", "CART 未生成可提交报价");
+    expect(snapshot.checkoutQuote?.signature.includes("SKU-SER-30") && !snapshot.checkoutQuote?.signature.includes("SKU-BOD-480"), "CART 报价未精确使用当前已选可售项");
+    expect(await page.locator('[data-quote-status="READY"][data-quote-source="CART"]').count() === 1, "确认订单页未展示 CART 报价状态");
   });
 
   await run("mini-interaction-active-public-catalog", async (page) => {
@@ -641,9 +640,9 @@ async function runMiniInteractionChecks(browser) {
     await page.locator('.profile-page [data-screen="addresses"]').first().click();
     expect((await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState().screen)) === "addresses", "个人中心地址入口未开放");
     await page.evaluate(() => { const probe = document.createElement("button"); probe.dataset.screen = "profile"; document.body.appendChild(probe); probe.click(); probe.remove(); });
-    await page.locator('[data-action="deferred-feature"][data-feature="订单"]').first().click();
+    await page.locator('.profile-page [data-screen="orders"]').first().click();
     snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
-    expect(snapshot.screen === "profile" && (await page.locator("#toast").innerText()).includes("后续阶段开放"), "订单入口错误进入 B9 业务或伪造成功");
+    expect(snapshot.screen === "orders" && await page.locator(".orders-tabs").isVisible(), "个人中心未开放 B9 本人订单入口");
     await page.evaluate(() => { const probe = document.createElement("button"); probe.dataset.screen = "account"; document.body.appendChild(probe); probe.click(); probe.remove(); });
     await page.click('[data-action="logout"]');
     await page.click('[data-action="confirm-logout"]');

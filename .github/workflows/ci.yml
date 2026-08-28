@@ -156,7 +156,7 @@ jobs:
       - name: Lint OpenAPI
         run: pnpm contracts:lint
 
-      - name: Check CH-018 contract invariants
+      - name: Check CH-020 contract invariants
         run: pnpm contracts:check
 
       - name: Check generated contract drift
@@ -174,7 +174,7 @@ jobs:
       - name: Verify frozen database artifacts
         run: pnpm db:check-frozen
 
-      - name: Replay and verify baseline migration
+      - name: Replay and verify complete migration chain
         run: pnpm db:migrate:baseline
 
       - name: Test permission gates with fault injection

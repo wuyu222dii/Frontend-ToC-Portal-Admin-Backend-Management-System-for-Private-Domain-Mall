@@ -7,6 +7,10 @@ import { prismaEnvironment, prismaInvocation } from "./lib/prisma.mjs";
 const migrationPath = "prisma/migrations/0001_initial/migration.sql";
 const frozenPath = "product-materials/docs/03-技术设计/migrations/0001_initial/migration.sql";
 const expectedDigest = "f1e192fc6a93710e855770a27ed2de04665288fd9ab188652c0fd5f7683ba71b";
+const postMigrationPath = "prisma/migrations/0002_b9_inventory_fact_indexes/migration.sql";
+const postFrozenPath =
+  "product-materials/docs/03-技术设计/migrations/0002_b9_inventory_fact_indexes/migration.sql";
+const expectedPostDigest = "9c933d256e0cbe7c33acdd801b6385bae6f892ff3db10978c40e37ea2f89f5d0";
 
 function digest(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -52,15 +56,8 @@ function waitForLogin(connection) {
   throw new Error("application database role did not become available through the session pooler");
 }
 
-function registerBaselineAsMigrator(connection) {
-  const prisma = prismaInvocation([
-    "migrate",
-    "resolve",
-    "--applied",
-    "0001_initial",
-    "--config",
-    "prisma.config.ts",
-  ]);
+function runPrismaAsMigrator(connection, args, errorMessage) {
+  const prisma = prismaInvocation(args);
   const result = spawnSync(
     prisma.command,
     prisma.args,
@@ -71,8 +68,24 @@ function registerBaselineAsMigrator(connection) {
   );
   if (result.error) throw result.error;
   if (result.status !== 0) {
-    throw new Error("Prisma could not register the applied baseline as mall_migrator");
+    throw new Error(errorMessage);
   }
+}
+
+function registerBaselineAsMigrator(connection) {
+  runPrismaAsMigrator(
+    connection,
+    ["migrate", "resolve", "--applied", "0001_initial", "--config", "prisma.config.ts"],
+    "Prisma could not register the applied baseline as mall_migrator",
+  );
+}
+
+function deployPostBaselineMigrations(connection) {
+  runPrismaAsMigrator(
+    connection,
+    ["migrate", "deploy", "--config", "prisma.config.ts"],
+    "Prisma could not deploy post-baseline migrations as mall_migrator",
+  );
 }
 
 try {
@@ -106,6 +119,12 @@ try {
 
   if (digest(migrationPath) !== expectedDigest || digest(frozenPath) !== expectedDigest) {
     throw new Error("baseline migration differs from the frozen CH-005 artifact");
+  }
+  if (
+    digest(postMigrationPath) !== expectedPostDigest ||
+    digest(postFrozenPath) !== expectedPostDigest
+  ) {
+    throw new Error("B9 migration differs from its frozen artifact");
   }
 
   const state = runPsql(owner, [
@@ -148,6 +167,15 @@ try {
            WHERE m.migration_name = '0001_initial'
              AND m.finished_at IS NOT NULL
              AND m.rolled_back_at IS NULL
+         ),
+         count(*) FILTER (
+           WHERE m.migration_name = '0002_b9_inventory_fact_indexes'
+             AND m.finished_at IS NOT NULL
+             AND m.rolled_back_at IS NULL
+         ),
+         count(*) FILTER (WHERE m.finished_at IS NULL OR m.rolled_back_at IS NOT NULL),
+         count(*) FILTER (
+           WHERE m.migration_name NOT IN ('0001_initial', '0002_b9_inventory_fact_indexes')
          )
        )
        FROM pg_class c
@@ -156,12 +184,9 @@ try {
        WHERE n.nspname = 'public' AND c.relname = '_prisma_migrations'
        GROUP BY c.relowner`,
     ], undefined, true);
-    if (history !== "mall_migrator|1") {
-      throw new Error("existing Prisma migration history is not the completed mall_migrator baseline");
+    if (history !== "mall_migrator|1|1|0|0") {
+      throw new Error("existing Prisma migration history is not the completed B9 migration chain");
     }
-  }
-  if (state !== "EMPTY") {
-    runPsql(owner, ["-f", "scripts/db/sql/verify-baseline.sql"]);
   }
   if (state === "EMPTY") {
     runPsql(owner, [], `
@@ -196,9 +221,12 @@ GRANT mall_migrator TO postgres WITH INHERIT FALSE, SET TRUE;
   if (state !== "REGISTERED") {
     registerBaselineAsMigrator(migrator);
     console.log("Prisma registered the real baseline checksum as mall_migrator");
+    deployPostBaselineMigrations(migrator);
+    console.log("Prisma deployed the post-baseline migration chain as mall_migrator");
   }
 
   runPsql(owner, ["-f", "scripts/db/sql/post-bootstrap.sql"]);
+  runPsql(owner, ["-At", "-f", "scripts/db/sql/verify.sql"]);
   console.log("database bootstrap and migration-history ownership verification completed");
 } catch (error) {
   console.error(`database bootstrap stopped: ${error.message}`);

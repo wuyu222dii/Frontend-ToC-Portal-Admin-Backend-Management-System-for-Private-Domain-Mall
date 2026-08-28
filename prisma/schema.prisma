@@ -1321,6 +1321,7 @@ model InventoryReservationItem {
   sku         Sku                  @relation(fields: [sku_id], references: [id])
 
   @@unique([reservation_id, sku_id])
+  @@index([sku_id, reservation_id])
   @@map("inventory_reservation_item")
   @@schema("public")
 }

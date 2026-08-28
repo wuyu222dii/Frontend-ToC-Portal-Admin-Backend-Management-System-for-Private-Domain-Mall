@@ -231,19 +231,19 @@
       canvasTitle: "购物车 · 登录后同步",
       title: "购物车",
       description: "游客本地项登录后幂等合入服务端购物车，当前价格、库存和状态由服务端投影。",
-      interactions: ["单选与全选可售商品", "数量上限 min(99, available_stock)", "结算保留选中项并提示 B9 开放"]
+      interactions: ["单选与全选可售商品", "数量上限 min(99, available_stock)", "已选可售项进入 B9 报价"]
     },
     checkout: {
-      canvasTitle: "确认订单 · 支付前复核",
+      canvasTitle: "确认订单 · 报价与预占",
       title: "确认订单",
-      description: "地址、配送、商品与金额按风险优先级排列，提交后进入模拟微信支付。",
-      interactions: ["核对地址和配送方式", "核对 SKU 与成交价", "提交订单并模拟支付"]
+      description: "以 5 分钟报价复核地址、SKU、价格和库存，提交后只创建待付款订单与库存预占。",
+      interactions: ["获取或重新获取报价", "核对 blocker 与报价倒计时", "提交待付款订单但不进入支付"]
     },
     orders: {
-      canvasTitle: "订单 · 全状态管理",
+      canvasTitle: "订单 · B9 查询与取消",
       title: "我的订单",
-      description: "按订单状态快速筛选，卡片操作随状态变化，覆盖付款、物流与售后。",
-      interactions: ["五种订单状态筛选", "待收货订单确认收货", "已完成订单申请售后"]
+      description: "B9 只开放本人订单的全部、待付款和已关闭筛选，唯一写动作是合法取消。",
+      interactions: ["三种冻结筛选", "查看本人订单快照", "取消合法待付款订单"]
     },
     aftersale: {
       canvasTitle: "售后 · 退款申请",
@@ -254,8 +254,8 @@
     profile: {
       canvasTitle: "我的 · 客户资产中心",
       title: "个人中心",
-      description: "B8 开放收藏与收货地址，订单和交易仍保持未开放状态。",
-      interactions: ["资料与会话入口", "进入商品收藏和收货地址", "订单与交易仅返回未开放反馈"]
+      description: "收藏、地址和 B9 本人订单可用，支付、物流与售后仍保持未开放状态。",
+      interactions: ["资料与会话入口", "进入收藏、地址和本人订单", "支付、物流与售后仅返回未开放反馈"]
     },
     "service-agent": {
       canvasTitle: "服务代理 · 归属与服务说明",
@@ -265,7 +265,7 @@
     },
     login: { canvasTitle: "登录 · 协议与来源确认", title: "登录与协议", description: "受保护动作前确认服务端当前协议快照，登录后返回原操作并继续处理代理候选。", interactions: ["用户协议与隐私政策 exact set", "微信凭证登录", "协议冲突刷新后重新确认"] },
     "payment-result": { canvasTitle: "支付结果 · 可恢复反馈", title: "支付结果", description: "成功、失败和取消均保留订单事实，并提供与状态一致的下一步。", interactions: ["失败或取消后重试", "成功后查看订单", "稍后支付保留待付款订单"] },
-    "order-detail": { canvasTitle: "订单详情 · 四轴状态", title: "订单详情", description: "订单、支付、退款和履约分别表达，商品与地址使用下单快照。", interactions: ["待付款继续支付", "运输中查看物流", "符合资格的订单项申请售后"] },
+    "order-detail": { canvasTitle: "订单详情 · 查询与取消", title: "订单详情", description: "B9 展示订单、地址和商品快照；待付款订单只允许合法取消。", interactions: ["查看脱敏地址与商品快照", "携带当前版本取消", "支付、物流与售后不开放"] },
     logistics: { canvasTitle: "物流详情 · 履约时间线", title: "物流详情", description: "承运商、运单号和人工物流节点形成可追踪时间线。", interactions: ["复制运单号", "查看运输节点", "返回订单详情"] },
     "aftersale-detail": { canvasTitle: "售后详情 · 数量金额占用", title: "售后详情", description: "展示审核、退货、退款与失败重试，并明确已占用的可退数量和金额。", interactions: ["允许阶段取消并释放占用", "填写退货物流", "退款失败可重试"] },
     addresses: { canvasTitle: "地址 · 默认与脱敏", title: "收货地址", description: "列表只展示脱敏摘要，并按默认、创建时间和 ID 稳定排序。", interactions: ["设为默认", "新增或编辑地址", "删除默认地址后稳定提升下一条"] },
@@ -328,7 +328,10 @@
       displayStatus: "待付款",
       orderStatus: "PENDING_PAYMENT",
       paymentStatus: "UNPAID",
-      latestPaymentAttemptStatus: "CANCELLED",
+      latestPaymentAttemptStatus: null,
+      paymentIntentCount: 0,
+      availableActions: ["CANCEL"],
+      version: 3,
       refundStatus: "NONE",
       fulfillmentStatus: "NOT_STARTED",
       closeReason: null,
@@ -454,13 +457,18 @@
     guestCart: [],
     cart: [
       { productId: "serum", skuId: "SKU-SER-30", quantity: 1, selected: true, saleStatus: "SALEABLE", availableStock: 286 },
-      { productId: "bodywash", skuId: "SKU-BOD-480", quantity: 2, selected: true, saleStatus: "INSUFFICIENT_STOCK", availableStock: 1 },
+      { productId: "bodywash", skuId: "SKU-BOD-480", quantity: 2, selected: false, saleStatus: "INSUFFICIENT_STOCK", availableStock: 1 },
       { productId: "laundry", skuId: "SKU-LAU-30", quantity: 1, selected: false, saleStatus: "OUT_OF_STOCK", availableStock: 0 },
       { productId: "sunscreen", skuId: "SKU-SUN-50", quantity: 1, selected: false, saleStatus: "INACTIVE", availableStock: 0 },
       { productId: "cleanser", skuId: "SKU-CLN-120", quantity: 1, selected: false, saleStatus: "DELETED", availableStock: 0 }
     ],
     checkoutMode: "cart",
     buyNowLine: null,
+    checkoutQuote: null,
+    checkoutQuoteRevision: 0,
+    checkoutQuoteBlockerNext: false,
+    orderSubmitJournal: null,
+    lastOrderSubmit: null,
     currentAddressId: defaultAddress.id,
     addressReturnScreen: null,
     editingAddressId: defaultAddress.id,
@@ -469,7 +477,7 @@
     addressError: null,
     addresses: [clone(defaultAddress), { id: "01ARZ3NDEKTSV4RRFFQ69G5FAY", recipient: "林青", phone: "13852185218", province: "上海市", city: "上海市", district: "徐汇区", detail: "衡山路 26 号 6 楼", isDefault: false, version: 1, createdAt: "2026-07-20T06:20:00Z" }],
     orderTab: "全部",
-    currentOrderId: "QX202608030118",
+    currentOrderId: "QX202608110005",
     activePaymentOrderId: null,
     paymentResult: { outcome: "cancelled", orderId: "QX202608110005", message: "支付已取消，订单仍为待付款" },
     submittingOrder: false,
@@ -865,10 +873,63 @@
     return activeCartItems().filter(item => item.selected && item.saleStatus === "SALEABLE");
   }
 
+  function checkoutSignature(lines, address) {
+    return JSON.stringify({
+      source: state.checkoutMode === "buy" ? "BUY_NOW" : "CART",
+      addressId: address?.id || null,
+      addressVersion: address?.version || null,
+      items: lines.map(item => ({ skuId: item.skuId, quantity: item.quantity }))
+    });
+  }
+
+  function requestCheckoutQuote(shouldRender = true) {
+    const lines = checkoutLines();
+    const address = state.addresses.find(item => item.id === state.currentAddressId) || state.addresses[0];
+    if (!lines.length || !address) {
+      state.checkoutQuote = null;
+      if (shouldRender) render();
+      return null;
+    }
+    state.checkoutQuoteRevision += 1;
+    const suffix = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"[state.checkoutQuoteRevision % 32];
+    const blocker = state.checkoutQuoteBlockerNext ? "INSUFFICIENT_STOCK" : null;
+    state.checkoutQuoteBlockerNext = false;
+    state.checkoutQuote = {
+      quoteId: `01ARZ3NDEKTSV4RRFFQ69G5FC${suffix}`,
+      source: state.checkoutMode === "buy" ? "BUY_NOW" : "CART",
+      canSubmit: blocker === null,
+      blocker,
+      expiresInSeconds: blocker === null ? 300 : null,
+      expiresAt: blocker === null ? "2026-08-11T15:05:00+08:00" : null,
+      revision: state.checkoutQuoteRevision,
+      signature: checkoutSignature(lines, address),
+      confirmationCapabilityPresent: blocker === null
+    };
+    if (shouldRender) render();
+    return state.checkoutQuote;
+  }
+
+  function currentCheckoutQuote() {
+    const lines = checkoutLines();
+    const address = state.addresses.find(item => item.id === state.currentAddressId) || state.addresses[0];
+    const quote = state.checkoutQuote;
+    return quote && quote.signature === checkoutSignature(lines, address) ? quote : null;
+  }
+
+  function invalidateCheckoutQuote() {
+    state.checkoutQuote = null;
+  }
+
   function renderCheckout() {
     const items = checkoutLines();
     const total = items.reduce((sum, item) => sum + lineSku(item).price * item.quantity, 0);
     const address = state.addresses.find(item => item.id === state.currentAddressId) || state.addresses[0];
+    const quote = currentCheckoutQuote();
+    const quotePanel = quote?.canSubmit
+      ? `<div class="inline-alert is-success actionable-alert" data-quote-status="READY" data-quote-id="${quote.quoteId}" data-quote-source="${quote.source}"><div><strong>报价可提交 · 05:00</strong><span>已绑定当前地址版本、商品、SKU、价格与库存；页面不展示或持久化报价 token。</span></div><button data-action="request-checkout-quote">重新报价</button></div>`
+      : quote
+        ? `<div class="inline-alert is-warning actionable-alert" data-quote-status="BLOCKED" data-quote-blocker="${quote.blocker}"><div><strong>当前报价不可提交</strong><span>库存不足，请刷新商品数量或重新报价；本次没有 token、confirmation hash 或有效期。</span></div><button data-action="request-checkout-quote">重新报价</button></div>`
+      : `<div class="inline-alert is-warning actionable-alert" data-quote-status="REQUIRED"><div><strong>需要获取最新报价</strong><span>地址、购物车选择、价格或库存变化后，旧确认能力立即失效。</span></div><button data-action="request-checkout-quote" ${!items.length || !address ? "disabled" : ""}>获取报价</button></div>`;
     return `
       <section class="app-screen checkout-page">
         <div class="screen-scroll">
@@ -885,10 +946,11 @@
               <div class="checkout-options"><div class="checkout-row"><span>配送方式</span><span>快递配送 · 包邮</span></div></div>
             </section>
             <section class="amount-card"><div class="amount-row"><span>商品金额</span><span>${money(total)}</span></div><div class="amount-row"><span>运费</span><span>¥0</span></div><div class="amount-row total"><span>应付合计</span><strong>${money(total)}</strong></div></section>
-            <div class="inline-alert"><strong>库存预占 30 分钟</strong><span>提交即创建待付款订单；支付取消或稍后支付不会丢失订单。</span></div>
+            ${quotePanel}
+            <div class="inline-alert"><strong>提交后预占库存 30 分钟</strong><span>本阶段只创建待付款订单；支付将在 B10 接入，不从当前流程发起。</span></div>
           </div>
         </div>
-        <div class="checkout-bar"><div class="checkout-total">共 ${items.reduce((sum, item) => sum + item.quantity, 0)} 件，合计 <strong>${money(total)}</strong></div><button class="primary-button is-coral" data-action="submit-order" ${!items.length || !address || state.submittingOrder ? "disabled" : ""}>${state.submittingOrder ? "提交中…" : "提交订单"}</button></div>
+        <div class="checkout-bar"><div class="checkout-total">共 ${items.reduce((sum, item) => sum + item.quantity, 0)} 件，合计 <strong>${money(total)}</strong></div><button class="primary-button is-coral" data-action="submit-order" ${!quote?.canSubmit || state.submittingOrder ? "disabled" : ""}>${state.submittingOrder ? "提交中…" : "提交待付款订单"}</button></div>
       </section>`;
   }
 
@@ -915,15 +977,8 @@
   }
 
   function renderOrderCard(order) {
-    const actions = order.displayStatus === "待付款"
-      ? `<button data-action="cancel-order" data-order-id="${order.id}">取消订单</button><button class="is-primary" data-action="retry-payment" data-order-id="${order.id}">立即付款</button>`
-      : order.displayStatus === "待发货"
-        ? `<button data-action="remind">提醒发货</button>`
-        : order.displayStatus === "运输中"
-          ? `<button data-action="open-logistics" data-order-id="${order.id}">查看物流</button><button class="is-primary" data-confirm-order="${order.id}">确认收货</button>`
-          : order.displayStatus === "已完成"
-            ? `<button data-action="apply-aftersale" data-order-id="${order.id}" data-item-id="${order.items[0].id}">申请售后</button><button class="is-primary" data-open-product="${order.items[0].productId}">再次购买</button>`
-            : orderHasAftersale(order) ? `<button data-action="open-order-aftersale" data-order-id="${order.id}">查看售后</button>` : "";
+    const canCancel = order.orderStatus === "PENDING_PAYMENT" && (order.paymentIntentCount || 0) === 0 && (order.availableActions || ["CANCEL"]).includes("CANCEL");
+    const actions = canCancel ? `<button data-action="cancel-order" data-order-id="${order.id}" data-order-version="${order.version || 1}">取消订单</button>` : "";
     return `
       <article class="order-card">
         <button class="order-card__head" data-open-order="${order.id}"><strong>订单 ${order.id}</strong><span class="order-status ${statusClass(order.displayStatus)}">${order.displayStatus}</span></button>
@@ -934,12 +989,12 @@
   }
 
   function renderOrders() {
-    const tabs = ["全部", "待付款", "待发货", "待收货", "已完成", "退款/售后"];
-    const visibleOrders = state.orders.filter(order => {
+    const tabs = ["全部", "待付款", "已关闭"];
+    const b9Orders = state.orders.filter(order => order.orderStatus === "PENDING_PAYMENT" || (order.orderStatus === "CLOSED" && ["USER_CANCELLED", "PAYMENT_TIMEOUT"].includes(order.closeReason)));
+    const visibleOrders = b9Orders.filter(order => {
       if (state.orderTab === "全部") return true;
-      if (state.orderTab === "待收货") return order.displayStatus === "运输中";
-      if (state.orderTab === "退款/售后") return orderHasAftersale(order) || order.displayStatus === "退款完成";
-      return order.displayStatus === state.orderTab;
+      if (state.orderTab === "待付款") return order.orderStatus === "PENDING_PAYMENT";
+      return order.orderStatus === "CLOSED";
     });
     return `
       <section class="app-screen with-tabbar orders-page">
@@ -972,7 +1027,8 @@
   function renderOrderDetail() {
     const order = currentOrder();
     const address = order.addressSnapshot;
-    const statusCopy = order.displayStatus === "待付款" ? `请在 ${order.payExpiresAt || "30 分钟内"} 前完成支付` : order.displayStatus === "运输中" ? "包裹正在运输，请留意物流更新" : order.displayStatus === "退款完成" ? "全额退款已完成，本单不再履约" : "订单状态已更新";
+    const canCancel = order.orderStatus === "PENDING_PAYMENT" && (order.paymentIntentCount || 0) === 0 && (order.availableActions || ["CANCEL"]).includes("CANCEL");
+    const statusCopy = order.displayStatus === "待付款" ? `库存预占至 ${order.payExpiresAt || "30 分钟后"}；B9 可取消，支付将在 B10 开放` : order.displayStatus === "已关闭" ? "订单已关闭，库存预占已释放" : "该订单为跨阶段历史只读快照";
     return `
       <section class="app-screen detail-page">
         <div class="screen-scroll">
@@ -985,11 +1041,11 @@
             <section class="detail-card fact-list"><div><span>订单状态</span><strong>${order.displayStatus}</strong></div><div><span>支付状态</span><strong>${paymentLabel(order.paymentStatus)}</strong></div><div><span>退款状态</span><strong>${refundLabel(order.refundStatus)}</strong></div><div><span>履约状态</span><strong>${fulfillmentLabel(order.fulfillmentStatus)}</strong></div>${order.closeReason ? `<div><span>关闭原因</span><strong>${order.closeReason === "FULL_REFUND_BEFORE_SHIPMENT" ? "未发货全额退款" : order.closeReason === "PAYMENT_TIMEOUT" ? "支付超时" : "用户取消"}</strong></div>` : ""}${order.inventoryRestock ? `<div><span>库存处理</span><strong>已自动回补 ${order.inventoryRestock.quantity} 件</strong></div>` : ""}</section>
             <section class="detail-card amount-card"><div class="amount-row"><span>商品金额</span><span>${money(order.total)}</span></div><div class="amount-row"><span>运费</span><span>¥0</span></div><div class="amount-row total"><span>${order.paymentStatus === "PAID" ? "实付金额" : "待付金额"}</span><strong>${money(order.total)}</strong></div></section>
             <section class="detail-card timeline-card"><div class="card-title"><strong>订单时间线</strong></div><ol><li class="is-done"><strong>订单已创建</strong><span>${order.createdAt}</span></li><li class="${order.paymentStatus === "PAID" ? "is-done" : ""}"><strong>${order.paymentStatus === "PAID" ? "支付成功" : "等待支付"}</strong><span>${order.paidAt || order.payExpiresAt || "库存保留 30 分钟"}</span></li><li class="${["SHIPPED", "IN_TRANSIT", "DELIVERED"].includes(order.fulfillmentStatus) ? "is-done" : ""}"><strong>商品发出</strong><span>${order.shipment?.shippedAt || (order.fulfillmentStatus === "CANCELLED" ? "履约已终止" : "等待总部发货")}</span></li></ol></section>
-            ${order.displayStatus === "待付款" ? `<div class="inline-alert is-warning actionable-alert"><div><strong>支付有效期演示</strong><span>触发 30 分钟超时后，支付意图关闭并释放库存预占。</span></div><button data-action="simulate-payment-timeout" data-order-id="${order.id}">演示超时</button></div>` : ""}
+            ${order.displayStatus === "待付款" ? `<div class="inline-alert is-warning"><strong>B9 待付款边界</strong><span>当前没有支付意图；可主动取消，或等待 Worker 超时释放。页面不开放支付入口。</span></div>` : ""}
             ${order.latePaymentRefund ? `<div class="inline-alert ${order.latePaymentRefund.status === "MANUAL_REVIEW" ? "is-error" : order.latePaymentRefund.status === "COMPLETED" ? "is-success" : "is-warning"}"><strong>迟到支付退款</strong><span>${order.latePaymentRefund.status === "MANUAL_REVIEW" ? "自动退款失败，已转人工财务异常。" : order.latePaymentRefund.status === "COMPLETED" ? "已原路退款，订单未恢复履约。" : "自动退款处理中，订单保持关闭。"}</span></div>` : ""}
           </div>
         </div>
-        <div class="detail-actionbar">${order.displayStatus === "待付款" ? `<button class="secondary-button" data-action="cancel-order" data-order-id="${order.id}">取消订单</button><button class="primary-button is-coral" data-action="retry-payment" data-order-id="${order.id}">继续支付</button>` : order.displayStatus === "运输中" ? `<button class="secondary-button" data-action="open-logistics" data-order-id="${order.id}">查看物流</button><button class="primary-button" data-confirm-order="${order.id}">确认收货</button>` : order.displayStatus === "已完成" ? `<button class="secondary-button" data-action="apply-aftersale" data-order-id="${order.id}" data-item-id="${order.items[0].id}">申请售后</button><button class="primary-button" data-open-product="${order.items[0].productId}">再次购买</button>` : `<button class="primary-button" data-screen="orders">返回订单列表</button>`}</div>
+        <div class="detail-actionbar">${canCancel ? `<button class="primary-button is-coral" data-action="cancel-order" data-order-id="${order.id}" data-order-version="${order.version || 1}">取消订单</button>` : `<button class="primary-button" data-screen="orders">返回订单列表</button>`}</div>
       </section>`;
   }
 
@@ -1109,7 +1165,7 @@
           <div class="profile-hero">${statusBar(true)}<div class="profile-tools"><button class="icon-button" data-action="message" aria-label="消息">◦</button><button class="icon-button" data-screen="account" aria-label="设置">⚙</button></div><div class="profile-user"><div class="avatar">${avatarLabel}</div><div><h2>${nickname}</h2><p>${profile.city || "城市未设置"} · ${state.verifiedPhone?.phone_masked || "手机号未绑定"}</p></div></div></div>
           <div class="profile-body">
             ${agentCard}
-            <section class="profile-card"><div class="profile-card__head"><strong>我的订单</strong><button data-action="deferred-feature" data-feature="订单">全部订单 ›</button></div><div class="order-shortcuts"><button data-action="deferred-feature" data-feature="订单"><i>◴</i><span>待付款</span></button><button data-action="deferred-feature" data-feature="订单"><i>▣</i><span>待发货</span></button><button data-action="deferred-feature" data-feature="订单"><i>♧</i><span>待收货</span></button><button data-action="deferred-feature" data-feature="订单"><i>✓</i><span>已完成</span></button><button data-action="deferred-feature" data-feature="售后"><i>↺</i><span>退款/售后</span></button></div></section>
+            <section class="profile-card"><div class="profile-card__head"><strong>我的订单</strong><button data-screen="orders">全部订单 ›</button></div><div class="order-shortcuts"><button data-order-shortcut="待付款"><i>◴</i><span>待付款</span></button><button data-order-shortcut="已关闭"><i>×</i><span>已关闭</span></button><button data-action="deferred-feature" data-feature="支付"><i>□</i><span>支付</span></button><button data-action="deferred-feature" data-feature="物流"><i>♧</i><span>物流</span></button><button data-action="deferred-feature" data-feature="售后"><i>↺</i><span>售后</span></button></div></section>
             <section class="profile-card"><div class="profile-card__head"><strong>常用功能</strong></div><div class="benefit-row"><button data-screen="favorites"><strong>♡</strong><span>商品收藏</span></button><button data-screen="addresses"><strong>⌖</strong><span>收货地址</span></button><button data-action="service"><strong>◉</strong><span>联系商家</span></button></div></section>
             <section class="profile-card menu-list"><button class="menu-item" data-screen="account"><i>○</i><span>账户与隐私</span><span>›</span></button><button class="menu-item" data-screen="addresses"><i>⌖</i><span>收货地址</span><span>›</span></button><button class="menu-item" data-action="service"><i>◉</i><span>联系商家</span><span>›</span></button><button class="menu-item" data-action="quality"><i>◇</i><span>正品与服务保障</span><span>›</span></button><button class="menu-item" data-screen="system-states"><i>!</i><span>异常状态样例</span><span>›</span></button></section>
           </div>
@@ -1478,22 +1534,43 @@
       closeSheet();
       return showToast(`已加入购物车 · ${sku.name} × ${quantity}`);
     }
+    const buyNowLine = { productId: state.product.id, skuId: sku.id, quantity, selected: true, saleStatus: "SALEABLE", availableStock: sku.stock };
     closeSheet();
-    return showToast("立即购买将在 B9 开放，所选规格未丢失");
+    if (!state.loggedIn) return requireLogin("checkout", { type: "buyNow", line: buyNowLine });
+    state.checkoutMode = "buy";
+    state.buyNowLine = buyNowLine;
+    invalidateCheckoutQuote();
+    requestCheckoutQuote(false);
+    navigate("checkout");
+    return showToast("已按立即购买生成 5 分钟报价");
   }
 
   function createPendingOrder() {
     if (state.submittingOrder) return null;
     const lines = checkoutLines();
     const address = state.addresses.find(item => item.id === state.currentAddressId);
-    if (!lines.length || !address) return null;
+    const quote = currentCheckoutQuote();
+    if (!lines.length || !address || !quote?.canSubmit) return null;
     state.submittingOrder = true;
+    const idempotencyKey = state.orderSubmitJournal?.idempotencyKey || `b9-order-submit-${quote.quoteId.toLowerCase()}`;
+    state.orderSubmitJournal = {
+      status: "PENDING",
+      idempotencyKey,
+      quoteId: quote.quoteId,
+      source: quote.source,
+      addressId: address.id,
+      items: clone(lines)
+    };
+    const orderUlidSuffix = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"[state.orders.length % 32];
     const order = {
-      id: `QX20260811${String(100 + state.orders.length).padStart(4, "0")}`,
+      id: `QX01ARZ3NDEKTSV4RRFFQ69G5FD${orderUlidSuffix}`,
       displayStatus: "待付款",
       orderStatus: "PENDING_PAYMENT",
-      paymentStatus: "PROCESSING",
-      latestPaymentAttemptStatus: "PENDING",
+      paymentStatus: "UNPAID",
+      latestPaymentAttemptStatus: null,
+      paymentIntentCount: 0,
+      availableActions: ["CANCEL"],
+      version: 1,
       refundStatus: "NONE",
       fulfillmentStatus: "NOT_STARTED",
       closeReason: null,
@@ -1511,9 +1588,11 @@
     state.orders.unshift(order);
     if (state.checkoutMode === "cart") state.cart = state.cart.filter(item => !item.selected);
     state.buyNowLine = null;
+    state.checkoutQuote = null;
     state.submittingOrder = false;
-    state.activePaymentOrderId = order.id;
     state.currentOrderId = order.id;
+    state.lastOrderSubmit = { ...clone(state.orderSubmitJournal), status: "CONFIRMED", orderId: order.id };
+    state.orderSubmitJournal = null;
     return order;
   }
 
@@ -1725,8 +1804,20 @@
     state.authReturn = null;
     const hadGuestCart = state.guestCart.length > 0;
     const mergeCompleted = beginGuestCartMerge();
+    if (pendingAction?.type === "buyNow") {
+      state.checkoutMode = "buy";
+      state.buyNowLine = clone(pendingAction.line);
+      invalidateCheckoutQuote();
+    } else if (pendingAction?.type === "cartCheckout") {
+      state.checkoutMode = "cart";
+      state.buyNowLine = null;
+      invalidateCheckoutQuote();
+    }
     navigate(destination, false);
-    if (pendingAction?.type === "favorite") setFavorite(pendingAction.productId, pendingAction.desired);
+    if (["buyNow", "cartCheckout"].includes(pendingAction?.type)) {
+      requestCheckoutQuote();
+      showToast("登录成功，已生成最新报价");
+    } else if (pendingAction?.type === "favorite") setFavorite(pendingAction.productId, pendingAction.desired);
     else if (hadGuestCart && !mergeCompleted) showToast("登录成功，本地购物车已保留，可使用同一幂等键重试");
     else if (hadGuestCart) showToast("登录成功，游客购物车已合并");
     else showToast(pendingAction ? "登录成功，已返回原页面" : "登录成功");
@@ -1777,8 +1868,8 @@
     if (target.dataset.skuIntent) { state.skuIntent = target.dataset.skuIntent; state.quantity = 1; return openSheet(skuSheet()); }
     if (target.dataset.skuId) { state.selectedSkuId = target.dataset.skuId; state.quantity = Math.min(state.quantity, currentProductSku().stock); bottomSheet.innerHTML = skuSheet(); return; }
     if (target.dataset.skuDelta) { state.quantity = Math.max(1, Math.min(currentProductSku().stock, state.quantity + Number(target.dataset.skuDelta))); bottomSheet.innerHTML = skuSheet(); return; }
-    if (target.dataset.cartSelect !== undefined) { const item = activeCartItems()[Number(target.dataset.cartSelect)]; if (item?.saleStatus === "SALEABLE") item.selected = !item.selected; return render(); }
-    if (target.dataset.cartDelete !== undefined) { activeCartItems().splice(Number(target.dataset.cartDelete), 1); render(); return showToast("商品已从购物车删除"); }
+    if (target.dataset.cartSelect !== undefined) { const item = activeCartItems()[Number(target.dataset.cartSelect)]; if (item?.saleStatus === "SALEABLE") item.selected = !item.selected; invalidateCheckoutQuote(); return render(); }
+    if (target.dataset.cartDelete !== undefined) { activeCartItems().splice(Number(target.dataset.cartDelete), 1); invalidateCheckoutQuote(); render(); return showToast("商品已从购物车删除"); }
     if (target.dataset.cartQty !== undefined) {
       const index = Number(target.dataset.cartQty);
       const cartItems = activeCartItems();
@@ -1786,6 +1877,7 @@
       if (!item) return;
       const next = item.quantity + Number(target.dataset.delta);
       if (next < 1) { cartItems.splice(index, 1); showToast("商品已移出购物车"); } else item.quantity = Math.min(99, item.availableStock, next);
+      invalidateCheckoutQuote();
       return render();
     }
     if (target.dataset.orderTab) { state.orderTab = target.dataset.orderTab; return render(); }
@@ -1800,7 +1892,7 @@
     if (target.dataset.aftersaleTypeOption) { state.afterSaleType = target.dataset.aftersaleTypeOption; closeSheet(); setTimeout(render, 190); return; }
     if (target.dataset.aftersaleReasonOption) { state.afterSaleReason = target.dataset.aftersaleReasonOption; closeSheet(); setTimeout(render, 190); return; }
     if (target.dataset.aftersaleDelta) { const context = aftersaleContext(); state.afterSaleQty = Math.max(1, Math.min(context.availableQty, state.afterSaleQty + Number(target.dataset.aftersaleDelta))); return render(); }
-    if (target.dataset.addressSelect) { state.currentAddressId = target.dataset.addressSelect; const returnScreen = state.addressReturnScreen; state.addressReturnScreen = null; if (returnScreen) { navigate(returnScreen); showToast("已切换收货地址"); } else render(); return; }
+    if (target.dataset.addressSelect) { state.currentAddressId = target.dataset.addressSelect; invalidateCheckoutQuote(); const returnScreen = state.addressReturnScreen; state.addressReturnScreen = null; if (returnScreen) { navigate(returnScreen); showToast("地址已切换，请重新报价"); } else render(); return; }
     if (target.dataset.addressEdit) {
       const address = state.addresses.find(item => item.id === target.dataset.addressEdit);
       state.editingAddressId = target.dataset.addressEdit;
@@ -1838,22 +1930,39 @@
       if (!state.loggedIn) return requireLogin("product", { type: "favorite", productId: state.product.id, desired: !exists });
       return setFavorite(state.product.id, !exists);
     }
-    if (action === "select-all") { const validItems = activeCartItems().filter(item => item.saleStatus === "SALEABLE"); const shouldSelect = !validItems.every(item => item.selected); validItems.forEach(item => { item.selected = shouldSelect; }); return render(); }
-    if (action === "checkout") { if (!activeCartItems().some(item => item.selected && item.saleStatus === "SALEABLE")) return showToast("请先选择可购买商品"); return showToast("结算将在 B9 开放，购物车已保留"); }
+    if (action === "select-all") { const validItems = activeCartItems().filter(item => item.saleStatus === "SALEABLE"); const shouldSelect = !validItems.every(item => item.selected); validItems.forEach(item => { item.selected = shouldSelect; }); invalidateCheckoutQuote(); return render(); }
+    if (action === "checkout") {
+      if (!activeCartItems().some(item => item.selected && item.saleStatus === "SALEABLE")) return showToast("请先选择可购买商品");
+      if (!state.loggedIn) return requireLogin("checkout", { type: "cartCheckout" });
+      state.checkoutMode = "cart";
+      state.buyNowLine = null;
+      invalidateCheckoutQuote();
+      requestCheckoutQuote(false);
+      navigate("checkout");
+      return showToast("已按当前已选项生成 5 分钟报价");
+    }
+    if (action === "request-checkout-quote") {
+      const quote = requestCheckoutQuote();
+      return showToast(quote ? "报价已刷新，旧确认能力已失效" : "请先选择有效地址和商品");
+    }
     if (action === "submit-order") {
       if (!state.loggedIn) return requireLogin("checkout", null);
       const order = createPendingOrder();
-      return order ? openSheet(paymentSheet(order)) : showToast("订单提交中，请勿重复操作");
+      if (!order) return showToast("报价已变化，请重新报价后提交");
+      state.orderTab = "全部";
+      navigate("order-detail");
+      return showToast("待付款订单已创建，支付将在 B10 开放");
     }
     if (action === "retry-payment") return openPayment(target.dataset.orderId);
     if (action === "simulate-payment-timeout") return simulatePaymentTimeout(target.dataset.orderId);
     if (action === "simulate-late-payment") return simulateLatePayment(target.dataset.orderId);
     if (action === "complete-late-refund") return finishLateRefund(target.dataset.orderId, true);
     if (action === "fail-late-refund") return finishLateRefund(target.dataset.orderId, false);
-    if (action === "cancel-order") { state.currentOrderId = target.dataset.orderId; return openSheet(confirmSheet("取消待付款订单", "取消后关闭支付意图并释放库存预占；已关闭订单不可继续支付。", "confirm-cancel-order", "确认取消")); }
+    if (action === "cancel-order") { state.currentOrderId = target.dataset.orderId; return openSheet(confirmSheet("取消待付款订单", `将按 If-Match 版本 ${target.dataset.orderVersion || currentOrder().version || 1} 取消；确认后释放库存预占。`, "confirm-cancel-order", "确认取消")); }
     if (action === "confirm-cancel-order") {
       const order = currentOrder();
-      order.orderStatus = "CLOSED"; order.paymentStatus = "UNPAID"; order.latestPaymentAttemptStatus = "CANCELLED"; order.fulfillmentStatus = "NOT_STARTED"; order.displayStatus = "已关闭"; order.closeReason = "USER_CANCELLED"; order.inventoryReservation.status = "RELEASED";
+      if (order.orderStatus !== "PENDING_PAYMENT" || (order.paymentIntentCount || 0) > 0) { closeSheet(); return showToast("订单状态已变化，请刷新后重试"); }
+      order.orderStatus = "CLOSED"; order.paymentStatus = "UNPAID"; order.latestPaymentAttemptStatus = null; order.fulfillmentStatus = "NOT_STARTED"; order.displayStatus = "已关闭"; order.closeReason = "USER_CANCELLED"; order.inventoryReservation.status = "RELEASED"; order.availableActions = []; order.version = (order.version || 1) + 1;
       closeSheet(); render(); return showToast("订单已取消，库存预占已释放");
     }
     if (action === "open-logistics") { state.currentOrderId = target.dataset.orderId; return navigate("logistics"); }
@@ -2094,6 +2203,7 @@
   const requestedAfterSale = prototypeParams.get("aftersale");
   const requestedHomeState = prototypeParams.get("home");
   const requestedCartState = prototypeParams.get("cart");
+  const requestedQuoteState = prototypeParams.get("quote");
   let inviteNotice = "";
   if (requestedAuth === "guest") state.loggedIn = false;
   if (requestedBinding === "unbound") { state.agentBindingStatus = "unbound"; state.serviceAgent = null; }
@@ -2114,10 +2224,12 @@
     state.cartMergeFailureNext = true;
   }
   if (requestedCartState === "limit" && activeCartItems()[0]) activeCartItems()[0].quantity = 99;
+  if (requestedQuoteState === "blocked") state.checkoutQuoteBlockerNext = true;
   if (requestedScreen && renderers[requestedScreen]) {
     if (!state.loggedIn && protectedScreens.has(requestedScreen)) { state.authReturn = { screen: requestedScreen, action: null }; state.screen = "login"; }
     else state.screen = requestedScreen;
   }
+  if (state.screen === "checkout" && state.loggedIn) requestCheckoutQuote(false);
   if ([375, 414].includes(requestedDevice)) {
     state.device = requestedDevice;
     document.documentElement.style.setProperty("--device-width", `${requestedDevice}px`);

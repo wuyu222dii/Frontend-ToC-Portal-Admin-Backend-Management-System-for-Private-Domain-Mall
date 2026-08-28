@@ -32,8 +32,20 @@ BEGIN
     WHERE migration_name = '0001_initial'
       AND finished_at IS NOT NULL
       AND rolled_back_at IS NULL
-  ) <> 1 THEN
-    RAISE EXCEPTION 'Prisma migration history does not contain one completed 0001_initial';
+  ) <> 1 OR (
+    SELECT count(*) FROM public."_prisma_migrations"
+    WHERE migration_name = '0002_b9_inventory_fact_indexes'
+      AND finished_at IS NOT NULL
+      AND rolled_back_at IS NULL
+  ) <> 1 OR (
+    SELECT count(*) FROM public."_prisma_migrations"
+  ) <> 2 OR EXISTS (
+    SELECT 1 FROM public."_prisma_migrations"
+    WHERE finished_at IS NULL
+      OR rolled_back_at IS NOT NULL
+      OR migration_name NOT IN ('0001_initial', '0002_b9_inventory_fact_indexes')
+  ) THEN
+    RAISE EXCEPTION 'Prisma migration history is not the exact completed B9 migration chain';
   END IF;
   IF (
     SELECT pg_get_userbyid(relowner)

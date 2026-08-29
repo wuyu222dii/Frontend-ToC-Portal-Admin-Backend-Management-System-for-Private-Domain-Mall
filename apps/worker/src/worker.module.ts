@@ -7,6 +7,7 @@ import {
   FileAssetRepository,
   OutboxRepository,
   StoreOrderRepository,
+  StorePaymentRepository,
 } from '@qingxu/database';
 import { createS3ObjectStorage } from '@qingxu/storage';
 import { createClient } from 'redis';
@@ -32,6 +33,11 @@ import {
   type WorkerHandlerRegistry,
 } from './outbox-dispatcher.service';
 import {
+  PAYMENT_CALLBACK_AUDIT_REPOSITORY,
+  PAYMENT_CALLBACK_REPOSITORY,
+  PaymentCallbackService,
+} from './payment-callback.service';
+import {
   ORDER_TIMEOUT_AUDIT_REPOSITORY,
   ORDER_TIMEOUT_REPOSITORY,
   OrderTimeoutService,
@@ -40,6 +46,22 @@ import { WorkerController } from './worker.controller';
 
 export function workerRedisReconnectDelay(retries: number): number {
   return Math.min(100 * 2 ** Math.min(retries, 5), 5_000);
+}
+
+export function mergePaymentCallbackHandlers(
+  config: PlatformRuntimeConfig,
+  registry: WorkerHandlerRegistry,
+  paymentCallbacks: PaymentCallbackService,
+): WorkerHandlerRegistry {
+  const enabled = (config.environment === 'development' || config.environment === 'test') &&
+    config.payment.provider === 'MOCK' && config.payment.mockSigningKey !== undefined;
+  return {
+    callbacks: [
+      ...registry.callbacks,
+      ...(enabled ? paymentCallbacks.registrations() : []),
+    ],
+    outbox: [...registry.outbox],
+  };
 }
 
 @Module({
@@ -57,7 +79,6 @@ export class WorkerModule {
       module: WorkerModule,
       providers: [
         { provide: WORKER_CONFIG, useValue: config },
-        { provide: WORKER_HANDLER_REGISTRY, useValue: registry },
         {
           provide: DATABASE_RUNTIME,
           inject: [WORKER_CONFIG],
@@ -78,6 +99,25 @@ export class WorkerModule {
           provide: CALLBACK_INBOX_REPOSITORY,
           inject: [DATABASE_RUNTIME],
           useFactory: (database: ReturnType<typeof createWorkerDatabaseRuntime>) => new CallbackInboxRepository(database),
+        },
+        {
+          provide: PAYMENT_CALLBACK_REPOSITORY,
+          useFactory: () => new StorePaymentRepository(),
+        },
+        {
+          provide: PAYMENT_CALLBACK_AUDIT_REPOSITORY,
+          inject: [WORKER_CONFIG],
+          useFactory: (runtimeConfig: PlatformRuntimeConfig) =>
+            new AuditRepository(runtimeConfig.encryption.ipHashKey),
+        },
+        PaymentCallbackService,
+        {
+          provide: WORKER_HANDLER_REGISTRY,
+          inject: [WORKER_CONFIG, PaymentCallbackService],
+          useFactory: (
+            runtimeConfig: PlatformRuntimeConfig,
+            paymentCallbacks: PaymentCallbackService,
+          ) => mergePaymentCallbackHandlers(runtimeConfig, registry, paymentCallbacks),
         },
         {
           provide: ORDER_TIMEOUT_REPOSITORY,

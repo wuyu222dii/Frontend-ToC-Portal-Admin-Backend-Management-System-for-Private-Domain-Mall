@@ -272,4 +272,15 @@ describe('OutboxDispatcherService', () => {
       callbacks: [],
     })).toThrow('Duplicate outbox handler');
   });
+
+  it('rejects a duplicate payment callback provider and event type before polling', () => {
+    const handler = vi.fn(async () => undefined);
+    expect(() => createService({
+      callbacks: [
+        { provider: 'MOCK', eventType: 'payment.succeeded', handle: handler },
+        { provider: 'MOCK', eventType: 'payment.succeeded', handle: handler },
+      ],
+      outbox: [],
+    })).toThrow('Duplicate callback handler');
+  });
 });

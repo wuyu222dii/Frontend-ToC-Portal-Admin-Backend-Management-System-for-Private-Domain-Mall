@@ -141,7 +141,7 @@ export class StorePaymentsService {
     });
     if (prepared.kind === 'replay') return this.intentView(prepared.intent);
 
-    const providerResult = await this.callProvider(prepared);
+    const providerResult = await this.callProvider(prepared, session);
     if (providerResult.outcome === 'SUCCEEDED' || providerResult.outcome === 'UNKNOWN' ||
       providerResult.outcome === 'NOT_FOUND' ||
       (providerResult.outcome === 'OPEN' && providerResult.providerIntentId === null)) {
@@ -298,7 +298,10 @@ export class StorePaymentsService {
     return this.intentView(result);
   }
 
-  private async callProvider(prepared: PreparedPaymentCommand): Promise<PaymentProviderIntentResult> {
+  private async callProvider(
+    prepared: PreparedPaymentCommand,
+    session: CurrentStoreSession,
+  ): Promise<PaymentProviderIntentResult> {
     const provider = this.paymentProvider();
     try {
       let result = prepared.providerOperation === 'CREATE'
@@ -312,6 +315,15 @@ export class StorePaymentsService {
             providerIntentId: prepared.intent.providerIntentId,
           });
       if (prepared.providerOperation === 'QUERY' && result.outcome === 'NOT_FOUND') {
+        await runSerializableTransaction(this.runtime().prisma, async (transaction) =>
+          this.repository().revalidateProviderCreateInTransaction(transaction, {
+            accountId: session.accountId,
+            customerId: session.customerId,
+            expectedIntentVersion: prepared.intent.version,
+            orderId: prepared.intent.orderId,
+            paymentIntentId: prepared.intent.paymentIntentId,
+            provider: prepared.intent.provider,
+          }));
         result = await provider.create({
           amount: prepared.intent.amount,
           expiresAt: prepared.intent.expiresAt,
@@ -319,7 +331,8 @@ export class StorePaymentsService {
         });
       }
       return result;
-    } catch {
+    } catch (cause) {
+      if (cause instanceof ApplicationError) throw cause;
       return {
         capability: null,
         failureCode: 'PROVIDER_UNAVAILABLE',

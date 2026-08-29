@@ -114,6 +114,7 @@ interface Harness {
     finalizeProviderOutcomeInTransaction: ReturnType<typeof vi.fn>;
     getOwnedPaymentIntentInTransaction: ReturnType<typeof vi.fn>;
     prepareOwnedPaymentIntentInTransaction: ReturnType<typeof vi.fn>;
+    revalidateProviderCreateInTransaction: ReturnType<typeof vi.fn>;
   };
   provider: PaymentProviderPort & { submitResult: ReturnType<typeof vi.fn> };
   sequence: string[];
@@ -162,6 +163,10 @@ function harness(): Harness {
     prepareOwnedPaymentIntentInTransaction: vi.fn(async () => {
       sequence.push('payment:prepare');
       return { created: true, intent: intent(), providerOperation: 'CREATE' as const };
+    }),
+    revalidateProviderCreateInTransaction: vi.fn(async () => {
+      sequence.push('payment:revalidate');
+      return intent();
     }),
   };
   const audit = { append: vi.fn(async () => sequence.push('audit')) };
@@ -257,11 +262,11 @@ describe('B10.1 Store payments service', () => {
     expect(current.provider.query).not.toHaveBeenCalled();
   });
 
-  it('queries an existing intent first and uses the same merchant number when Provider reports NOT_FOUND', async () => {
+  it('revalidates a recoverable CREATING intent before Provider create after query reports NOT_FOUND', async () => {
     const current = harness();
     current.payments.prepareOwnedPaymentIntentInTransaction.mockResolvedValueOnce({
       created: false,
-      intent: intent({ providerIntentId: 'mock_intent_0001', status: 'OPEN' }),
+      intent: intent(),
       providerOperation: 'QUERY',
     });
     current.provider.query = vi.fn(async () => ({
@@ -272,13 +277,49 @@ describe('B10.1 Store payments service', () => {
     await current.service.createOrReuseIntent(session, ORDER_ID, 3, IDEMPOTENCY_KEY, REQUEST_ID, IP);
     expect(current.provider.query).toHaveBeenCalledWith({
       intentNo: `PI${PAYMENT_INTENT_ID}`,
-      providerIntentId: 'mock_intent_0001',
+      providerIntentId: null,
     });
+    expect(current.payments.revalidateProviderCreateInTransaction).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        accountId: session.accountId,
+        customerId: session.customerId,
+        expectedIntentVersion: 1,
+        orderId: ORDER_ID,
+        paymentIntentId: PAYMENT_INTENT_ID,
+        provider: 'MOCK',
+      },
+    );
     expect(current.provider.create).toHaveBeenCalledWith({
       amount: '39.80',
       expiresAt: new Date('2099-08-29T00:30:00.000Z'),
       intentNo: `PI${PAYMENT_INTENT_ID}`,
     });
+  });
+
+  it('does not create Provider capability when NOT_FOUND revalidation rejects a drifted legacy intent', async () => {
+    const current = harness();
+    current.payments.prepareOwnedPaymentIntentInTransaction.mockResolvedValueOnce({
+      created: false,
+      intent: intent(),
+      providerOperation: 'QUERY',
+    });
+    current.provider.query = vi.fn(async () => ({
+      capability: null, failureCode: null, occurredAt: null, outcome: 'NOT_FOUND' as const,
+      providerEventId: null, providerIntentId: null, providerTransactionId: null,
+    }));
+    current.payments.revalidateProviderCreateInTransaction.mockRejectedValueOnce(
+      new ApplicationError('PAYMENT_NOT_ALLOWED', 'Order cannot be paid'),
+    );
+
+    const error = await current.service.createOrReuseIntent(
+      session, ORDER_ID, 3, IDEMPOTENCY_KEY, REQUEST_ID, IP,
+    ).then(() => undefined, (cause: unknown) => cause);
+    expect(code(error)).toBe('PAYMENT_NOT_ALLOWED');
+    expect(current.provider.query).toHaveBeenCalledTimes(1);
+    expect(current.provider.create).not.toHaveBeenCalled();
+    expect(current.payments.finalizeProviderOutcomeInTransaction).not.toHaveBeenCalled();
+    expect(current.idempotency.complete).not.toHaveBeenCalled();
   });
 
   it('recovers a Provider-created CREATING intent by query without issuing a second create', async () => {

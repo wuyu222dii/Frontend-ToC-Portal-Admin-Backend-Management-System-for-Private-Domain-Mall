@@ -184,8 +184,21 @@ BEGIN
   JOIN pg_namespace n ON n.oid = p.pronamespace
   JOIN pg_language l ON l.oid = p.prolang
   WHERE n.nspname = 'public' AND pg_get_userbyid(p.proowner) = 'mall_migrator';
-  IF actual_hash <> '4237472587206ffab09581ea4c8f9584' THEN
-    RAISE EXCEPTION 'application function definitions differ from the frozen baseline: %', actual_hash;
+  IF actual_hash <> '51d217760d398d6d53b9ad93a685254f' THEN
+    RAISE EXCEPTION 'application function definitions differ from the frozen CH-023 baseline: %', actual_hash;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname = 'enforce_commission_position_snapshot'
+      AND pg_get_function_identity_arguments(p.oid) = ''
+      AND NOT p.prosecdef
+      AND position('FOR SHARE' IN upper(p.prosrc)) = 0
+  ) THEN
+    RAISE EXCEPTION 'commission position trigger function is not the CH-023 SECURITY INVOKER definition';
   END IF;
 
   SELECT md5(string_agg(concat_ws(E'\x1f',
@@ -296,17 +309,23 @@ BEGIN
       AND rolled_back_at IS NULL
   ) <> 1 OR (
     SELECT count(*) FROM public._prisma_migrations
-  ) <> 3 OR EXISTS (
+    WHERE migration_name = '0004_b10_commission_position_trigger_fix'
+      AND finished_at IS NOT NULL
+      AND rolled_back_at IS NULL
+  ) <> 1 OR (
+    SELECT count(*) FROM public._prisma_migrations
+  ) <> 4 OR EXISTS (
     SELECT 1 FROM public._prisma_migrations
     WHERE finished_at IS NULL
       OR rolled_back_at IS NOT NULL
       OR migration_name NOT IN (
         '0001_initial',
         '0002_b9_inventory_fact_indexes',
-        '0003_b10_payment_fact_indexes'
+        '0003_b10_payment_fact_indexes',
+        '0004_b10_commission_position_trigger_fix'
       )
   ) THEN
-    RAISE EXCEPTION 'expected the exact completed 0001 -> 0002 -> 0003 B10 migration history';
+    RAISE EXCEPTION 'expected the exact completed 0001 -> 0002 -> 0003 -> 0004 CH-023 migration history';
   END IF;
   IF has_table_privilege('mall_runtime', 'public._prisma_migrations', 'SELECT')
     OR has_table_privilege('mall_runtime', 'public._prisma_migrations', 'INSERT')

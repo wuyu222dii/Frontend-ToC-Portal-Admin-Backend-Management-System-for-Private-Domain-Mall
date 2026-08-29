@@ -40,12 +40,13 @@ The bootstrap applies the frozen `0001_initial` SQL as project owner, sets role
 passwords over PostgreSQL stdin, and then runs `prisma migrate resolve` through
 `mall_migrator`. It immediately deploys the remaining checked-in migrations,
 including `0002_b9_inventory_fact_indexes` and `0003_b10_payment_fact_indexes`,
-through `mall_migrator`. Prisma
+plus the CH-023 `0004_b10_commission_position_trigger_fix`, through
+`mall_migrator`. Prisma
 therefore creates and records `_prisma_migrations` itself; the script never
-inserts or fabricates a migration-history row. The resulting three-row migration
+inserts or fabricates a migration-history row. The resulting four-row migration
 history is owned by `mall_migrator` and inaccessible to `mall_runtime`. The
 operation can be retried after interruption only in an empty or fully registered
-B10 state. A baseline-only or otherwise partial state is refused for manual
+CH-023 state. A baseline-only or otherwise partial state is refused for manual
 inspection; the script never resets or overwrites it.
 
 CI replay requires `CI=true`, `ALLOW_CI_EPHEMERAL_POSTGRES=1`, and an empty
@@ -71,10 +72,10 @@ provide all three inputs:
 The protected `supabase-development` environment supplies
 `SUPABASE_DIRECT_URL` for `mall_migrator`. The workflow pins and verifies the
 Supabase CA, requires a successful `ci.yml` push run for the exact `main` SHA,
-validates the project-scoped connection, requires the exact completed B9 chain
-or an idempotent B10 target, rejects duplicate successful payment-attempt and
+validates the project-scoped connection, requires the exact completed B10 chain
+or an idempotent CH-023 target, rejects duplicate successful payment-attempt and
 late-payment refund facts, runs `prisma migrate deploy`, and then uses
-read-only checks for history, permissions, native index fingerprints, and Prisma
+read-only checks for history, permissions, native object fingerprints, and Prisma
 drift. The incremental workflow never runs the privilege-mutating bootstrap
 repair SQL. It shares a concurrency group with the
 rollback-only smoke workflow, so the two database jobs cannot overlap.

@@ -247,6 +247,72 @@ function verifyB10IndexPlans(connection) {
   console.log("B10 migration index plans verified");
 }
 
+function verifyB10CommissionPositionRuntime(replay) {
+  const snapshotId = "01J0000000000000000000000B";
+  const positionId = "01J0000000000000000000000C";
+  const runtimePassword = `${replay.password}-runtime`;
+  const runtime = { ...replay, username: "mall_runtime", password: runtimePassword };
+
+  runPsql(replay, [], `
+    SET session_replication_role = replica;
+    INSERT INTO public.order_item_commission_snapshot (
+      id, order_item_id, agent_id, rule_version_id, source_type,
+      category_id_snapshot, category_name_snapshot, product_id_snapshot,
+      sku_id_snapshot, effective_rate, commission_base, original_commission
+    ) VALUES (
+      '${snapshotId}', '01J0000000000000000000000D', '01J0000000000000000000000E',
+      '01J0000000000000000000000F', 'PLATFORM', '01J0000000000000000000000G',
+      'CH-023 runtime fixture', '01J0000000000000000000000H',
+      '01J0000000000000000000000J', 10.0000, 10.00, 1.00
+    );
+    SET session_replication_role = origin;
+  `);
+
+  try {
+    runPsql(runtime, [], `
+      BEGIN;
+      INSERT INTO public.order_item_commission_position (
+        id, snapshot_id, state, original_commission, expected_remaining,
+        reversed_total, available_at, version, updated_at
+      ) VALUES (
+        '${positionId}', '${snapshotId}', 'EXPECTED', 1.00, 1.00,
+        0.00, NULL, 1, CURRENT_TIMESTAMP
+      );
+      DO $runtime$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM public.order_item_commission_position
+          WHERE id = '${positionId}' AND snapshot_id = '${snapshotId}'
+            AND original_commission = 1.00
+        ) THEN
+          RAISE EXCEPTION 'CH-023 runtime trigger fixture was not visible';
+        END IF;
+      END
+      $runtime$;
+      ROLLBACK;
+    `);
+  } finally {
+    runPsql(replay, [], `
+      SET session_replication_role = replica;
+      DELETE FROM public.order_item_commission_position WHERE id = '${positionId}';
+      DELETE FROM public.order_item_commission_snapshot WHERE id = '${snapshotId}';
+      SET session_replication_role = origin;
+    `);
+  }
+
+  const residue = runPsql(replay, [
+    "-Atqc",
+    `SELECT count(*)
+     FROM (
+       SELECT id FROM public.order_item_commission_snapshot WHERE id = '${snapshotId}'
+       UNION ALL
+       SELECT id FROM public.order_item_commission_position WHERE id = '${positionId}'
+     ) AS fixture_residue`,
+  ], undefined, true);
+  if (residue !== "0") throw new Error("CH-023 runtime trigger test left fixture residue");
+  console.log("CH-023 mall_runtime commission-position trigger path verified");
+}
+
 try {
   const replayRaw = process.env.REPLAY_DATABASE_URL || process.env.DIRECT_URL;
   if (!replayRaw) throw new Error("REPLAY_DATABASE_URL (or CI DIRECT_URL) is required");
@@ -321,6 +387,7 @@ try {
   runPsql(replay, ["-At", "-f", "scripts/db/sql/verify.sql"]);
   verifyB9IndexPlans(migratorConnection);
   verifyB10IndexPlans(migratorConnection);
+  verifyB10CommissionPositionRuntime(replay);
   const diff = prismaInvocation([
     "migrate",
     "diff",

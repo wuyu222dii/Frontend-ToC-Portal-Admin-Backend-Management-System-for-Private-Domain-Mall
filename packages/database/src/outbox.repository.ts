@@ -44,6 +44,7 @@ const OUTBOX_AGGREGATE_TYPE = new Set([
   'business_rule',
   'cart',
   'category',
+  'commission',
   'commission_rule',
   'customer',
   'file',

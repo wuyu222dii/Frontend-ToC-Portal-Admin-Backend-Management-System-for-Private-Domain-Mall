@@ -183,3 +183,9 @@ jobs:
           B9_STORE_ORDER_DATABASE_TEST_MODE: rollback
           DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
         run: pnpm db:test-b9-store-orders
+
+      - name: Run rollback-only B10 payment settlement, inventory and commission smoke
+        env:
+          B10_STORE_PAYMENT_DATABASE_TEST_MODE: rollback
+          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
+        run: pnpm db:test-b10-payments

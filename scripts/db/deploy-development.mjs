@@ -3,8 +3,8 @@ import { postgresEnvironment, readConnection } from "./lib/connection.mjs";
 import { prismaEnvironment, prismaInvocation } from "./lib/prisma.mjs";
 
 const APPROVAL = "DEVELOPMENT_MIGRATION_APPROVED";
-const EXPECTED_BEFORE = new Set(["2|1|1|0|0|0", "3|1|1|1|0|0"]);
-const EXPECTED_AFTER = "3|1|1|1|0|0";
+const EXPECTED_BEFORE = new Set(["3|1|1|1|0|0|0", "4|1|1|1|1|0|0"]);
+const EXPECTED_AFTER = "4|1|1|1|1|0|0";
 
 function runPsql(connection, args, capture = false) {
   const result = spawnSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", ...args], {
@@ -50,12 +50,18 @@ function readHistory(connection) {
            AND finished_at IS NOT NULL
            AND rolled_back_at IS NULL
        ),
+       count(*) FILTER (
+         WHERE migration_name = '0004_b10_commission_position_trigger_fix'
+           AND finished_at IS NOT NULL
+           AND rolled_back_at IS NULL
+       ),
        count(*) FILTER (WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL),
        count(*) FILTER (
          WHERE migration_name NOT IN (
            '0001_initial',
            '0002_b9_inventory_fact_indexes',
-           '0003_b10_payment_fact_indexes'
+           '0003_b10_payment_fact_indexes',
+           '0004_b10_commission_position_trigger_fix'
          )
        )
      )
@@ -71,7 +77,7 @@ try {
   const migrator = readConnection("DIRECT_URL", "migrator");
   const before = readHistory(migrator);
   if (!EXPECTED_BEFORE.has(before)) {
-    throw new Error(`migration history is not an approved B10 predecessor state: ${before || "empty"}`);
+    throw new Error(`migration history is not an approved CH-023 predecessor state: ${before || "empty"}`);
   }
 
   const duplicatePaymentFacts = runPsql(migrator, [
@@ -107,12 +113,12 @@ try {
   runPrisma(
     migrator,
     ["migrate", "deploy", "--config", "prisma.config.ts"],
-    "B10 database migration deployment failed",
+    "CH-023 database migration deployment failed",
   );
 
   const after = readHistory(migrator);
   if (after !== EXPECTED_AFTER) {
-    throw new Error(`migration history did not converge to the B10 target: ${after || "empty"}`);
+    throw new Error(`migration history did not converge to the CH-023 target: ${after || "empty"}`);
   }
 
   runPsql(migrator, ["-At", "-f", "scripts/db/sql/verify.sql"]);
@@ -128,7 +134,7 @@ try {
       "--config",
       "prisma.config.ts",
     ],
-    "B10 post-migration Prisma drift check failed",
+    "CH-023 post-migration Prisma drift check failed",
   );
 
   console.log("Supabase development migration and post-verification passed");

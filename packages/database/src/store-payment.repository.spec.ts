@@ -34,16 +34,22 @@ function orderRecord(overrides: Record<string, unknown> = {}) {
     completion_reason: null,
     customer_id: customerId,
     fulfillment_status: 'NOT_STARTED',
+    goods_amount: new Prisma.Decimal('39.80'),
     id: orderId,
-    inventory_reservation: { status: 'ACTIVE' },
+    inventory_reservation: {
+      expires_at: new Date(NOW.getTime() + 30 * 60_000),
+      status: 'ACTIVE',
+    },
     order_status: 'PENDING_PAYMENT',
     paid_amount: new Prisma.Decimal('0.00'),
     pay_expires_at: new Date(NOW.getTime() + 30 * 60_000),
     payable_amount: new Prisma.Decimal('39.80'),
     payment_resolution: 'NORMAL',
     payment_status: 'UNPAID',
+    refunded_amount: new Prisma.Decimal('0.00'),
     refund_processing_status: 'IDLE',
     refund_progress_status: 'NONE',
+    shipping_amount: new Prisma.Decimal('0.00'),
     version: 4,
     ...overrides,
   };
@@ -81,16 +87,29 @@ function intentRecord(
 }
 
 function prepareHarness(options: {
+  attribution?: Record<string, unknown> | null;
   intents?: ReturnType<typeof intentRecord>[];
+  items?: Array<Record<string, unknown>>;
   order?: ReturnType<typeof orderRecord>;
+  ruleVersions?: Array<Record<string, unknown>>;
 } = {}) {
   let createdData: Record<string, unknown> | null = null;
+  const defaultItem = {
+    line_paid_amount: new Prisma.Decimal('39.80'),
+    sku: { product: { category_id: paymentIntentId } },
+    sku_id: paymentIntentId,
+  };
   const transaction = {
     $queryRaw: vi.fn()
       .mockResolvedValueOnce([{ id: orderId }])
       .mockResolvedValueOnce([{ transaction_time: NOW }]),
     $queryRawUnsafe: vi.fn().mockResolvedValue([{ acquired: 1 }]),
     account: { findUnique: vi.fn().mockResolvedValue(activeAccount()) },
+    commissionRuleVersion: { findMany: vi.fn().mockResolvedValue(options.ruleVersions ?? []) },
+    orderAttributionCandidate: {
+      findUnique: vi.fn().mockResolvedValue(options.attribution ?? null),
+    },
+    orderItem: { findMany: vi.fn().mockResolvedValue(options.items ?? [defaultItem]) },
     paymentIntent: {
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         createdData = data;
@@ -169,6 +188,78 @@ describe('StorePaymentRepository', () => {
     });
   });
 
+  it.each([
+    { items: [], label: 'an empty order' },
+    {
+      items: [{ line_paid_amount: new Prisma.Decimal('39.79') }],
+      label: 'an item total mismatch',
+    },
+  ])('refuses Provider create for $label', async ({ items }) => {
+    const harness = prepareHarness({ items });
+    await expect(repository.prepareOwnedPaymentIntentInTransaction(harness.transaction, {
+      accountId,
+      customerId,
+      expectedVersion: 4,
+      orderId,
+      provider: 'MOCK',
+      reconcileAfterMs: 30_000,
+    })).rejects.toMatchObject({ code: 'PAYMENT_NOT_ALLOWED' });
+    expect(harness.unsafe.paymentIntent.create).not.toHaveBeenCalled();
+    expect(harness.unsafe.commissionRuleVersion.findMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses Provider work when an active attributed agent has no resolvable published commission rules', async () => {
+    const harness = prepareHarness({
+      attribution: {
+        candidate_agent: {
+          account: { deleted_at: null, role: 'AGENT_ADMIN', status: 'ACTIVE' },
+          deleted_at: null,
+          status: 'ACTIVE',
+        },
+        candidate_agent_id: generateUlid(NOW.getTime() - 6_000),
+        submit_channel: 'AGENT',
+      },
+      items: [{
+        line_paid_amount: new Prisma.Decimal('39.80'),
+        sku: { product: { category_id: generateUlid(NOW.getTime() - 7_000) } },
+        sku_id: paymentIntentId,
+      }],
+      ruleVersions: [],
+    });
+    await expect(repository.prepareOwnedPaymentIntentInTransaction(harness.transaction, {
+      accountId,
+      customerId,
+      expectedVersion: 4,
+      orderId,
+      provider: 'MOCK',
+      reconcileAfterMs: 30_000,
+    })).rejects.toMatchObject({ code: 'PAYMENT_CONFIGURATION_UNAVAILABLE' });
+    expect(harness.unsafe.paymentIntent.create).not.toHaveBeenCalled();
+  });
+
+  it('does not let a disabled attributed agent block direct payment preparation', async () => {
+    const harness = prepareHarness({
+      attribution: {
+        candidate_agent: {
+          account: { deleted_at: null, role: 'AGENT_ADMIN', status: 'ACTIVE' },
+          deleted_at: null,
+          status: 'DISABLED',
+        },
+        candidate_agent_id: generateUlid(NOW.getTime() - 6_000),
+        submit_channel: 'AGENT',
+      },
+    });
+    await expect(repository.prepareOwnedPaymentIntentInTransaction(harness.transaction, {
+      accountId,
+      customerId,
+      expectedVersion: 4,
+      orderId,
+      provider: 'MOCK',
+      reconcileAfterMs: 30_000,
+    })).resolves.toMatchObject({ created: true, providerOperation: 'CREATE' });
+    expect(harness.unsafe.commissionRuleVersion.findMany).not.toHaveBeenCalled();
+  });
+
   it('queries every durable active intent before deciding whether Provider create is needed', async () => {
     const creatingHarness = prepareHarness({ intents: [intentRecord()] });
     const creating = await repository.prepareOwnedPaymentIntentInTransaction(creatingHarness.transaction, {
@@ -195,6 +286,87 @@ describe('StorePaymentRepository', () => {
       reconcileAfterMs: 30_000,
     });
     expect(open).toMatchObject({ created: false, providerOperation: 'QUERY' });
+  });
+
+  it('queries an existing active intent even when commission configuration is now unavailable', async () => {
+    const harness = prepareHarness({
+      attribution: {
+        candidate_agent: {
+          account: { deleted_at: null, role: 'AGENT_ADMIN', status: 'ACTIVE' },
+          deleted_at: null,
+          status: 'ACTIVE',
+        },
+        candidate_agent_id: generateUlid(NOW.getTime() - 6_000),
+        submit_channel: 'AGENT',
+      },
+      intents: [intentRecord('OPEN', { provider_intent_id: 'mock-intent-1' })],
+      order: orderRecord({ payment_status: 'PROCESSING' }),
+      ruleVersions: [],
+    });
+    await expect(repository.prepareOwnedPaymentIntentInTransaction(harness.transaction, {
+      accountId,
+      customerId,
+      expectedVersion: 4,
+      orderId,
+      provider: 'MOCK',
+      reconcileAfterMs: 30_000,
+    })).resolves.toMatchObject({ created: false, providerOperation: 'QUERY' });
+    expect(harness.unsafe.commissionRuleVersion.findMany).not.toHaveBeenCalled();
+    expect(harness.unsafe.paymentIntent.create).not.toHaveBeenCalled();
+  });
+
+  it('queries an existing active intent before evaluating drifted order item totals', async () => {
+    const harness = prepareHarness({
+      intents: [intentRecord('OPEN', { provider_intent_id: 'mock-intent-1' })],
+      items: [],
+      order: orderRecord({ payment_status: 'PROCESSING' }),
+    });
+    await expect(repository.prepareOwnedPaymentIntentInTransaction(harness.transaction, {
+      accountId,
+      customerId,
+      expectedVersion: 4,
+      orderId,
+      provider: 'MOCK',
+      reconcileAfterMs: 30_000,
+    })).resolves.toMatchObject({ created: false, providerOperation: 'QUERY' });
+    expect(harness.unsafe.orderItem.findMany).not.toHaveBeenCalled();
+    expect(harness.unsafe.paymentIntent.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { expectedCode: undefined, items: [{ line_paid_amount: new Prisma.Decimal('39.80') }] },
+    { expectedCode: 'PAYMENT_NOT_ALLOWED', items: [] },
+  ])('revalidates amount closure after Provider query returns NOT_FOUND', async ({ expectedCode, items }) => {
+    const transaction = {
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{ id: orderId }])
+        .mockResolvedValueOnce([{ id: paymentIntentId }])
+        .mockResolvedValueOnce([{ transaction_time: NOW }]),
+      $queryRawUnsafe: vi.fn().mockResolvedValue([{ acquired: 1 }]),
+      account: { findUnique: vi.fn().mockResolvedValue(activeAccount()) },
+      orderAttributionCandidate: { findUnique: vi.fn().mockResolvedValue(null) },
+      orderItem: { findMany: vi.fn().mockResolvedValue(items) },
+      paymentIntent: { findUnique: vi.fn().mockResolvedValue(intentRecord()) },
+      salesOrder: { findUnique: vi.fn().mockResolvedValue(orderRecord()) },
+    };
+    const operation = repository.revalidateProviderCreateInTransaction(
+      transaction as unknown as DatabaseTransaction,
+      {
+        accountId,
+        customerId,
+        expectedIntentVersion: 1,
+        orderId,
+        paymentIntentId,
+        provider: 'MOCK',
+      },
+    );
+    if (expectedCode === undefined) {
+      await expect(operation).resolves.toMatchObject({ paymentIntentId, status: 'CREATING' });
+      expect(transaction.orderAttributionCandidate.findUnique).toHaveBeenCalledTimes(1);
+    } else {
+      await expect(operation).rejects.toMatchObject({ code: expectedCode });
+      expect(transaction.orderAttributionCandidate.findUnique).not.toHaveBeenCalled();
+    }
   });
 
   it('requires the current order version when reusing an OPEN intent', async () => {

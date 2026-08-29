@@ -27,17 +27,20 @@ const ipHashKey = Buffer.alloc(32, 41);
 const sensitivePhone = ['138', '0013', '8000'].join('');
 
 describe('AuditRepository', () => {
-  it('accepts the closed Store order pending-payment status', async () => {
+  it.each(['PENDING_PAYMENT', 'PENDING_SHIPMENT'])(
+    'accepts the closed Store order %s status',
+    async (status) => {
     const transaction = transactionStub();
     await new AuditRepository(ipHashKey).append(transaction, {
       ...baseInput,
-      after: { status: 'PENDING_PAYMENT', version: 1 },
+      after: { status, version: 1 },
       module: 'order',
       objectId: '01J0000000000000000000000A',
       objectType: 'order',
     });
     expect(transaction.auditLog.create).toHaveBeenCalledOnce();
-  });
+    },
+  );
 
   it('HMACs the raw IP inside the repository', async () => {
     const transaction = transactionStub();

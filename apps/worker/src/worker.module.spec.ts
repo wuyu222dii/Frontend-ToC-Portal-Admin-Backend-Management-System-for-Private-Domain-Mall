@@ -3,7 +3,13 @@ import type { PlatformRuntimeConfig } from '@qingxu/config';
 import { FILE_STAGING_CLEANUP_EVENT_TYPE } from '@qingxu/database';
 import { describe, expect, it, vi } from 'vitest';
 
-import { WorkerModule, workerRedisReconnectDelay } from './worker.module';
+import type { WorkerHandlerRegistry } from './outbox-dispatcher.service';
+import type { PaymentCallbackService } from './payment-callback.service';
+import {
+  WorkerModule,
+  mergePaymentCallbackHandlers,
+  workerRedisReconnectDelay,
+} from './worker.module';
 
 describe('WorkerModule', () => {
   it('uses bounded reconnect delays for transient Redis outages', () => {
@@ -16,6 +22,24 @@ describe('WorkerModule', () => {
       callbacks: [],
       outbox: [{ eventType: FILE_STAGING_CLEANUP_EVENT_TYPE, handle: vi.fn() }],
     })).toThrow('owned by FileCleanupService');
+  });
+
+  it('registers payment callbacks only for the non-production MOCK runtime', () => {
+    const registry: WorkerHandlerRegistry = { callbacks: [], outbox: [] };
+    const registrations = [{ provider: 'MOCK', eventType: 'payment.succeeded', handle: vi.fn() }] as const;
+    const payments = { registrations: vi.fn(() => registrations) } as unknown as PaymentCallbackService;
+    const development = {
+      environment: 'development',
+      payment: { mockSigningKey: Buffer.alloc(32), provider: 'MOCK' },
+    } as PlatformRuntimeConfig;
+    const production = {
+      environment: 'production',
+      payment: { mockSigningKey: undefined, provider: 'WECHAT' },
+    } as PlatformRuntimeConfig;
+
+    expect(mergePaymentCallbackHandlers(development, registry, payments).callbacks).toEqual(registrations);
+    expect(mergePaymentCallbackHandlers(production, registry, payments).callbacks).toEqual([]);
+    expect(payments.registrations).toHaveBeenCalledOnce();
   });
 
   it('compiles without reading runtime environment or connecting to a database', async () => {

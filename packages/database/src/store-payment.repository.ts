@@ -10,6 +10,13 @@ const ACTIVE_INTENT_STATUSES = new Set(['CREATING', 'OPEN', 'CLOSE_PENDING'] as 
 const PAYMENT_PROVIDERS = new Set(['MOCK', 'WECHAT'] as const);
 const SAFE_PROVIDER_VALUE = /^[\x20-\x7e]+$/;
 const SAFE_ERROR_CODE = /^[A-Z0-9][A-Z0-9_.:-]{0,119}$/;
+const PAYMENT_CALLBACK_EVENT_TYPES = new Map([
+  ['SUCCEEDED', 'payment.succeeded'],
+  ['FAILED', 'payment.failed'],
+  ['CANCELLED', 'payment.cancelled'],
+] as const);
+const PAYMENT_CALLBACK_OUTCOMES = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED'] as const);
+const MONEY = /^(?:0|[1-9][0-9]{0,15})\.[0-9]{2}$/;
 
 const PAYMENT_INTENT_SELECT = {
   amount: true,
@@ -43,21 +50,25 @@ const PAYMENT_ORDER_SELECT = {
   completion_reason: true,
   customer_id: true,
   fulfillment_status: true,
+  goods_amount: true,
   id: true,
-  inventory_reservation: { select: { status: true } },
+  inventory_reservation: { select: { expires_at: true, status: true } },
   order_status: true,
   paid_amount: true,
   pay_expires_at: true,
   payable_amount: true,
   payment_resolution: true,
   payment_status: true,
+  refunded_amount: true,
   refund_processing_status: true,
   refund_progress_status: true,
+  shipping_amount: true,
   version: true,
 } satisfies Prisma.SalesOrderSelect;
 
 type PaymentIntentRecord = Prisma.PaymentIntentGetPayload<{ select: typeof PAYMENT_INTENT_SELECT }>;
 type PaymentOrderRecord = Prisma.SalesOrderGetPayload<{ select: typeof PAYMENT_ORDER_SELECT }>;
+type SettlementCommissionRuleVersion = Prisma.CommissionRuleVersionGetPayload<{ include: { entries: true } }>;
 
 export type StorePaymentProvider = 'MOCK' | 'WECHAT';
 export type StorePaymentIntentStatus =
@@ -96,6 +107,15 @@ export interface StorePaymentPrepareInput {
   orderId: string;
   provider: StorePaymentProvider;
   reconcileAfterMs: number;
+}
+
+export interface StorePaymentProviderCreateRevalidationInput {
+  accountId: string;
+  customerId: string;
+  expectedIntentVersion: number;
+  orderId: string;
+  paymentIntentId: string;
+  provider: StorePaymentProvider;
 }
 
 export type StorePaymentPrepareResult = {
@@ -141,6 +161,44 @@ export interface StorePaymentFinalizeResult {
 export interface StorePaymentOwnedReadInput {
   customerId: string;
   paymentIntentId: string;
+}
+
+export interface StorePaymentCallbackInput {
+  amount: string;
+  eventType: 'payment.cancelled' | 'payment.failed' | 'payment.succeeded';
+  occurredAt: Date;
+  outcome: 'CANCELLED' | 'FAILED' | 'SUCCEEDED';
+  provider: StorePaymentProvider;
+  providerEventId: string;
+  providerIntentId: string;
+  providerTransactionId: string | null;
+}
+
+export interface StorePaymentCallbackState {
+  intentStatus: StorePaymentIntentStatus;
+  intentVersion: number;
+  orderPaymentResolution: 'LATE_SUCCESS_REFUND_PENDING' | 'LATE_SUCCESS_REFUNDED' | 'MANUAL_REQUIRED' | 'NORMAL';
+  orderPaymentStatus: 'PAID' | 'PROCESSING' | 'UNPAID';
+  orderStatus: 'CLOSED' | 'COMPLETED' | 'PENDING_PAYMENT' | 'PENDING_SHIPMENT' | 'SHIPPING';
+  orderVersion: number;
+}
+
+export interface StorePaymentCallbackResult {
+  after: StorePaymentCallbackState;
+  before: StorePaymentCallbackState;
+  changed: boolean;
+  commissionLedgerIds: string[];
+  commissionSnapshotIds: string[];
+  finalAgentId: string | null;
+  finalChannel: 'AGENT' | 'DIRECT' | null;
+  inventoryLedgerIds: string[];
+  kind: 'ATTEMPT_RECORDED' | 'MANUAL_REQUIRED' | 'REPLAY' | 'SETTLED' | 'TERMINAL';
+  orderId: string;
+  outcome: StorePaymentCallbackInput['outcome'];
+  paymentAttemptId: string;
+  paymentIntentId: string;
+  providerEventId: string;
+  reservationId: string | null;
 }
 
 function requireExactKeys(value: object, expected: readonly string[], label: string): void {
@@ -267,6 +325,23 @@ function validatePrepareInput(input: StorePaymentPrepareInput): void {
   }
 }
 
+function validateProviderCreateRevalidationInput(input: StorePaymentProviderCreateRevalidationInput): void {
+  requireExactKeys(
+    input,
+    ['accountId', 'customerId', 'expectedIntentVersion', 'orderId', 'paymentIntentId', 'provider'],
+    'Store payment Provider create revalidation input',
+  );
+  requireUlid(input.accountId, 'Store payment Account ID');
+  requireUlid(input.customerId, 'Store payment Customer ID');
+  requireUlid(input.orderId, 'Store payment Order ID');
+  requireUlid(input.paymentIntentId, 'Store payment intent ID');
+  if (!Number.isSafeInteger(input.expectedIntentVersion) || input.expectedIntentVersion < 1 ||
+    input.expectedIntentVersion > MAX_POSTGRES_INTEGER) {
+    throw new TypeError('Store payment intent expected version is invalid');
+  }
+  if (!PAYMENT_PROVIDERS.has(input.provider)) throw new TypeError('Store payment provider is invalid');
+}
+
 function validateProviderText(value: string, maximum: number, label: string): void {
   if (typeof value !== 'string' || value.length < 1 || value.length > maximum ||
     !SAFE_PROVIDER_VALUE.test(value)) {
@@ -339,13 +414,100 @@ function validateOwnedReadInput(input: StorePaymentOwnedReadInput): void {
   requireUlid(input.paymentIntentId, 'Store payment intent ID');
 }
 
+function validateCallbackInput(input: StorePaymentCallbackInput): void {
+  requireExactKeys(
+    input,
+    [
+      'amount',
+      'eventType',
+      'occurredAt',
+      'outcome',
+      'provider',
+      'providerEventId',
+      'providerIntentId',
+      'providerTransactionId',
+    ],
+    'Store payment callback input',
+  );
+  if (!PAYMENT_PROVIDERS.has(input.provider)) throw new TypeError('Store payment callback provider is invalid');
+  if (!PAYMENT_CALLBACK_OUTCOMES.has(input.outcome) ||
+    PAYMENT_CALLBACK_EVENT_TYPES.get(input.outcome) !== input.eventType) {
+    throw new TypeError('Store payment callback event type does not match its outcome');
+  }
+  validateProviderText(input.providerEventId, 128, 'Provider event ID');
+  validateProviderText(input.providerIntentId, 128, 'Provider intent ID');
+  if (!MONEY.test(input.amount) || !new Prisma.Decimal(input.amount).greaterThan(0)) {
+    throw new TypeError('Store payment callback amount is invalid');
+  }
+  if (input.outcome === 'SUCCEEDED') {
+    if (input.providerTransactionId === null) {
+      throw new TypeError('Successful payment callback requires a Provider transaction ID');
+    }
+    validateProviderText(input.providerTransactionId, 128, 'Provider transaction ID');
+  } else if (input.providerTransactionId !== null) {
+    throw new TypeError('Terminal payment callback must not contain a Provider transaction ID');
+  }
+  if (!(input.occurredAt instanceof Date) || !Number.isFinite(input.occurredAt.getTime())) {
+    throw new TypeError('Store payment callback occurrence time is invalid');
+  }
+}
+
+function callbackState(record: {
+  order_status: StorePaymentCallbackState['orderStatus'];
+  payment_resolution: StorePaymentCallbackState['orderPaymentResolution'];
+  payment_status: StorePaymentCallbackState['orderPaymentStatus'];
+  version: number;
+}, intent: { status: StorePaymentIntentStatus; version: number }): StorePaymentCallbackState {
+  return {
+    intentStatus: intent.status,
+    intentVersion: safeVersion(intent.version, 'Stored payment intent'),
+    orderPaymentResolution: record.payment_resolution,
+    orderPaymentStatus: record.payment_status,
+    orderStatus: record.order_status,
+    orderVersion: safeVersion(record.version, 'Stored payment order'),
+  };
+}
+
+function maskedNickname(value: string | null): string | null {
+  if (value === null) return null;
+  const characters = Array.from(value.trim());
+  if (characters.length === 0) return null;
+  return `${characters[0]}**`;
+}
+
+function settlementCity(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint === undefined || codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f)) return null;
+  }
+  const normalized = value.trim();
+  const length = Array.from(normalized).length;
+  return length >= 1 && length <= 80 ? normalized : null;
+}
+
 function orderPaymentBaseEligible(record: PaymentOrderRecord): boolean {
   return record.order_status === 'PENDING_PAYMENT' &&
     record.refund_progress_status === 'NONE' && record.refund_processing_status === 'IDLE' &&
     record.fulfillment_status === 'NOT_STARTED' && record.close_reason === null && record.closed_at === null &&
     record.completion_reason === null && record.completed_at === null && record.payment_resolution === 'NORMAL' &&
     record.inventory_reservation?.status === 'ACTIVE' &&
-    new Prisma.Decimal(record.paid_amount).equals(0) && new Prisma.Decimal(record.payable_amount).greaterThan(0);
+    new Prisma.Decimal(record.paid_amount).equals(0) && new Prisma.Decimal(record.refunded_amount).equals(0) &&
+    new Prisma.Decimal(record.payable_amount).greaterThan(0);
+}
+
+function paymentAmountsClose(
+  goodsAmount: Prisma.Decimal,
+  shippingAmount: Prisma.Decimal,
+  payableAmount: Prisma.Decimal,
+  itemAmounts: Prisma.Decimal[],
+): boolean {
+  if (itemAmounts.length === 0 || !shippingAmount.equals(0) || !goodsAmount.greaterThan(0)) return false;
+  const itemTotal = itemAmounts.reduce(
+    (total, amount) => total.add(amount),
+    new Prisma.Decimal(0),
+  );
+  return itemTotal.equals(goodsAmount) && goodsAmount.add(shippingAmount).equals(payableAmount);
 }
 
 function orderEligibleForActiveIntent(
@@ -432,6 +594,97 @@ export class StorePaymentRepository {
     if (rows.length !== 1 || rows[0]?.id !== orderId) throw orderNotFound();
   }
 
+  private async ensurePaymentAmountClosure(
+    transaction: DatabaseTransaction,
+    orderId: string,
+    order: Pick<PaymentOrderRecord, 'goods_amount' | 'payable_amount' | 'shipping_amount'>,
+  ): Promise<void> {
+    const items = await transaction.orderItem.findMany({
+      orderBy: [{ id: 'asc' }],
+      select: { line_paid_amount: true },
+      where: { order_id: orderId },
+    });
+    if (!paymentAmountsClose(
+      order.goods_amount,
+      order.shipping_amount,
+      order.payable_amount,
+      items.map(({ line_paid_amount }) => line_paid_amount),
+    )) {
+      throw paymentNotAllowed();
+    }
+  }
+
+  private async ensureCommissionConfiguration(
+    transaction: DatabaseTransaction,
+    orderId: string,
+    serverTime: Date,
+  ): Promise<void> {
+    const attribution = await transaction.orderAttributionCandidate.findUnique({
+      select: {
+        candidate_agent: {
+          select: {
+            account: { select: { deleted_at: true, role: true, status: true } },
+            deleted_at: true,
+            status: true,
+          },
+        },
+        candidate_agent_id: true,
+        submit_channel: true,
+      },
+      where: { order_id: orderId },
+    });
+    const agent = attribution?.candidate_agent;
+    if (attribution?.submit_channel !== 'AGENT' || attribution.candidate_agent_id === null || !agent ||
+      agent.status !== 'ACTIVE' || agent.deleted_at !== null || agent.account.role !== 'AGENT_ADMIN' ||
+      agent.account.status !== 'ACTIVE' || agent.account.deleted_at !== null) {
+      return;
+    }
+
+    const [versions, items] = await Promise.all([
+      transaction.commissionRuleVersion.findMany({
+        orderBy: [{ effective_at: 'desc' }, { id: 'desc' }],
+        select: {
+          effective_at: true,
+          entries: {
+            select: { configured_rate: true, target_id: true, target_key: true, target_type: true },
+          },
+          id: true,
+        },
+        take: 2,
+        where: { effective_at: { lte: serverTime }, status: 'PUBLISHED' },
+      }),
+      transaction.orderItem.findMany({
+        orderBy: [{ id: 'asc' }],
+        select: {
+          sku: { select: { product: { select: { category_id: true } } } },
+          sku_id: true,
+        },
+        where: { order_id: orderId },
+      }),
+    ]);
+    if (versions.length !== 1 || items.length === 0) throw configurationUnavailable();
+    const version = versions[0]!;
+    const entries = new Map<string, (typeof version.entries)[number]>();
+    for (const entry of version.entries) {
+      const validTarget = entry.target_type === 'PLATFORM'
+        ? entry.target_id === null && entry.target_key === 'PLATFORM'
+        : entry.target_id !== null && entry.target_key === `${entry.target_type}:${entry.target_id}`;
+      if (!validTarget || entry.configured_rate.isNegative() || entry.configured_rate.greaterThan(100) ||
+        entries.has(entry.target_key)) {
+        throw configurationUnavailable();
+      }
+      entries.set(entry.target_key, entry);
+    }
+    if (!entries.has('PLATFORM')) throw configurationUnavailable();
+    for (const item of items) {
+      if (!entries.has(`SKU:${item.sku_id}`) &&
+        !entries.has(`CATEGORY:${item.sku.product.category_id}`) && !entries.has('PLATFORM')) {
+        throw configurationUnavailable();
+      }
+    }
+  }
+
+
   async prepareOwnedPaymentIntentInTransaction(
     transaction: DatabaseTransaction,
     input: StorePaymentPrepareInput,
@@ -475,6 +728,8 @@ export class StorePaymentRepository {
 
     if (!orderPaymentBaseEligible(order) || order.payment_status !== 'UNPAID') throw paymentNotAllowed();
     if (intents.some(({ status }) => status === 'SUCCEEDED')) throw paymentNotAllowed();
+    await this.ensurePaymentAmountClosure(transaction, input.orderId, order);
+    await this.ensureCommissionConfiguration(transaction, input.orderId, serverTime);
 
     const paymentIntentId = generateUlid(serverTime.getTime());
     const requestedReconcileAt = new Date(serverTime.getTime() + input.reconcileAfterMs);
@@ -513,6 +768,40 @@ export class StorePaymentRepository {
       intent: paymentIntentSnapshot(created, serverTime),
       providerOperation: 'CREATE',
     };
+  }
+
+  async revalidateProviderCreateInTransaction(
+    transaction: DatabaseTransaction,
+    input: StorePaymentProviderCreateRevalidationInput,
+  ): Promise<StorePaymentIntentSnapshot> {
+    validateProviderCreateRevalidationInput(input);
+    await this.authenticateCustomer(transaction, input.accountId, input.customerId);
+    await this.lockOrder(transaction, input.orderId, input.customerId);
+    const intentLocks = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id FROM public.payment_intent
+      WHERE id = ${input.paymentIntentId} AND order_id = ${input.orderId}
+      FOR UPDATE
+    `);
+    if (intentLocks.length !== 1 || intentLocks[0]?.id !== input.paymentIntentId) throw paymentNotFound();
+    const serverTime = await this.transactionTime(transaction);
+    const [order, intent] = await Promise.all([
+      transaction.salesOrder.findUnique({ where: { id: input.orderId }, select: PAYMENT_ORDER_SELECT }),
+      transaction.paymentIntent.findUnique({ where: { id: input.paymentIntentId }, select: PAYMENT_INTENT_SELECT }),
+    ]);
+    if (!order || order.customer_id !== input.customerId || !intent || intent.order_id !== order.id) {
+      throw paymentNotFound();
+    }
+    if (intent.version !== input.expectedIntentVersion || intent.provider !== input.provider ||
+      intent.status !== 'CREATING' || intent.provider_intent_id !== null ||
+      !intent.amount.equals(order.payable_amount) ||
+      intent.expires_at.getTime() !== order.pay_expires_at.getTime()) {
+      throw paymentResultConflict();
+    }
+    if (order.pay_expires_at.getTime() <= serverTime.getTime()) throw paymentExpired();
+    if (!orderPaymentBaseEligible(order) || order.payment_status !== 'UNPAID') throw paymentNotAllowed();
+    await this.ensurePaymentAmountClosure(transaction, order.id, order);
+    await this.ensureCommissionConfiguration(transaction, order.id, serverTime);
+    return paymentIntentSnapshot(intent, serverTime);
   }
 
   async finalizeProviderOutcomeInTransaction(
@@ -650,6 +939,834 @@ export class StorePaymentRepository {
     });
     if (!updated) throw internalError('Updated payment intent is unavailable');
     return { changed: true, intent: paymentIntentSnapshot(updated, serverTime) };
+  }
+
+  async applyPaymentCallbackInTransaction(
+    transaction: DatabaseTransaction,
+    input: StorePaymentCallbackInput,
+  ): Promise<StorePaymentCallbackResult> {
+    validateCallbackInput(input);
+    const located = await transaction.paymentIntent.findUnique({
+      select: { id: true, order_id: true },
+      where: {
+        provider_provider_intent_id: {
+          provider: input.provider,
+          provider_intent_id: input.providerIntentId,
+        },
+      },
+    });
+    if (!located) throw paymentNotFound();
+    const candidateBeforeLock = await transaction.orderAttributionCandidate.findUnique({
+      select: { binding_id: true, candidate_agent_id: true },
+      where: { order_id: located.order_id },
+    });
+    const candidateAgentId = candidateBeforeLock?.candidate_agent_id ?? null;
+    let lockedAgentVersion: number | null = null;
+    if (candidateAgentId !== null) {
+      await acquireTransactionLock(transaction, 'store-attribution-agent', [candidateAgentId]);
+      const agents = await transaction.$queryRaw<Array<{ id: string; version: number }>>(Prisma.sql`
+        SELECT id, version FROM public.agent_profile
+        WHERE id = ${candidateAgentId}
+        FOR UPDATE
+      `);
+      if (agents.length === 1 && agents[0]?.id === candidateAgentId) {
+        lockedAgentVersion = agents[0].version;
+      }
+    }
+    await this.lockOrder(transaction, located.order_id);
+    await transaction.$queryRaw(Prisma.sql`
+      SELECT id FROM public.order_item
+      WHERE order_id = ${located.order_id}
+      ORDER BY id ASC
+      FOR UPDATE
+    `);
+    const intentLocks = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id FROM public.payment_intent
+      WHERE id = ${located.id} AND order_id = ${located.order_id}
+      FOR UPDATE
+    `);
+    if (intentLocks.length !== 1 || intentLocks[0]?.id !== located.id) throw paymentNotFound();
+    await transaction.$queryRaw(Prisma.sql`
+      SELECT id FROM public.payment_attempt
+      WHERE payment_intent_id = ${located.id}
+      ORDER BY id ASC
+      FOR UPDATE
+    `);
+    let lockedBindingId: string | null = null;
+    if (candidateAgentId !== null && candidateBeforeLock?.binding_id !== null &&
+      candidateBeforeLock?.binding_id !== undefined) {
+      const bindings = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id FROM public.customer_agent_binding
+        WHERE id = ${candidateBeforeLock.binding_id}
+        FOR UPDATE
+      `);
+      if (bindings.length === 1 && bindings[0]?.id === candidateBeforeLock.binding_id) {
+        lockedBindingId = bindings[0].id;
+      }
+    }
+    const serverTime = await this.transactionTime(transaction);
+    const intent = await transaction.paymentIntent.findUnique({
+      include: { attempts: { orderBy: [{ initiated_at: 'asc' }, { id: 'asc' }] } },
+      where: { id: located.id },
+    });
+    const order = await transaction.salesOrder.findUnique({
+      include: {
+        address_snapshot: { select: { city: true } },
+        attribution_candidate: true,
+        attribution_snapshot: true,
+        customer: {
+          select: {
+            id: true,
+            nickname: true,
+            phone_verifications: {
+              orderBy: [{ verified_at: 'desc' }, { id: 'desc' }],
+              select: { phone_last4: true },
+              take: 2,
+              where: { revoked_at: null },
+            },
+          },
+        },
+        inventory_reservation: {
+          include: { items: { orderBy: [{ sku_id: 'asc' }, { id: 'asc' }] } },
+        },
+        items: { orderBy: [{ id: 'asc' }] },
+      },
+      where: { id: located.order_id },
+    });
+    if (!intent || !order || intent.order_id !== order.id || intent.provider !== input.provider ||
+      intent.provider_intent_id !== input.providerIntentId || !intent.amount.equals(input.amount) ||
+      !order.payable_amount.equals(input.amount)) {
+      throw paymentResultConflict();
+    }
+    if (input.occurredAt.getTime() < intent.create_requested_at.getTime()) throw paymentResultConflict();
+    if (input.outcome === 'SUCCEEDED' && input.occurredAt.getTime() >= order.pay_expires_at.getTime()) {
+      throw paymentResultConflict();
+    }
+
+    const before = callbackState(order, intent);
+    const matchingAttempts = intent.attempts.filter(({ status }) => status === input.outcome);
+    if (matchingAttempts.length > 1) throw internalError('Payment intent has duplicate callback attempts');
+    const matchingAttempt = matchingAttempts[0] ?? null;
+    if (matchingAttempt && (!matchingAttempt.amount.equals(input.amount) ||
+      matchingAttempt.provider !== input.provider ||
+      matchingAttempt.provider_transaction_id !== input.providerTransactionId ||
+      matchingAttempt.finished_at?.getTime() !== input.occurredAt.getTime())) {
+      throw paymentResultConflict();
+    }
+    const otherSuccess = intent.attempts.find(({ status }) =>
+      status === 'SUCCEEDED' || status === 'SUCCEEDED_LATE');
+    if (otherSuccess && matchingAttempt?.id !== otherSuccess.id) throw paymentResultConflict();
+
+    if (input.outcome !== 'SUCCEEDED') {
+      const targetStatus = input.outcome;
+      if (matchingAttempt !== null) {
+        if (intent.status !== targetStatus) throw paymentResultConflict();
+        return {
+          after: before,
+          before,
+          changed: false,
+          commissionLedgerIds: [],
+          commissionSnapshotIds: [],
+          finalAgentId: order.final_agent_id,
+          finalChannel: order.final_channel,
+          inventoryLedgerIds: [],
+          kind: 'REPLAY',
+          orderId: order.id,
+          outcome: input.outcome,
+          paymentAttemptId: matchingAttempt.id,
+          paymentIntentId: intent.id,
+          providerEventId: input.providerEventId,
+          reservationId: order.inventory_reservation?.id ?? null,
+        };
+      }
+      if (intent.status === targetStatus) {
+        const paymentAttemptId = generateUlid(serverTime.getTime());
+        await transaction.paymentAttempt.create({
+          data: {
+            amount: intent.amount,
+            failure_code: input.outcome === 'FAILED' ? 'PAYMENT_FAILED' : 'PAYMENT_CANCELLED',
+            finished_at: input.occurredAt,
+            id: paymentAttemptId,
+            initiated_at: input.occurredAt,
+            payment_intent_id: intent.id,
+            provider: input.provider,
+            provider_payload: Prisma.DbNull,
+            provider_transaction_id: null,
+            status: input.outcome,
+          },
+        });
+        return {
+          after: before,
+          before,
+          changed: true,
+          commissionLedgerIds: [],
+          commissionSnapshotIds: [],
+          finalAgentId: order.final_agent_id,
+          finalChannel: order.final_channel,
+          inventoryLedgerIds: [],
+          kind: 'ATTEMPT_RECORDED',
+          orderId: order.id,
+          outcome: input.outcome,
+          paymentAttemptId,
+          paymentIntentId: intent.id,
+          providerEventId: input.providerEventId,
+          reservationId: order.inventory_reservation?.id ?? null,
+        };
+      }
+      if (!ACTIVE_INTENT_STATUSES.has(intent.status as 'CREATING' | 'OPEN' | 'CLOSE_PENDING') ||
+        order.order_status !== 'PENDING_PAYMENT' ||
+        (order.payment_status !== 'PROCESSING' && order.payment_status !== 'UNPAID') ||
+        order.payment_resolution !== 'NORMAL') {
+        throw paymentResultConflict();
+      }
+      const paymentAttemptId = generateUlid(serverTime.getTime());
+      await transaction.paymentAttempt.create({
+        data: {
+          amount: intent.amount,
+          failure_code: input.outcome === 'FAILED' ? 'PAYMENT_FAILED' : 'PAYMENT_CANCELLED',
+          finished_at: input.occurredAt,
+          id: paymentAttemptId,
+          initiated_at: input.occurredAt,
+          payment_intent_id: intent.id,
+          provider: input.provider,
+          provider_payload: Prisma.DbNull,
+          provider_transaction_id: null,
+          status: input.outcome,
+        },
+      });
+      const intentChanged = await transaction.paymentIntent.updateMany({
+        data: {
+          closed_at: input.occurredAt,
+          last_error_code: input.outcome === 'FAILED' ? 'PAYMENT_FAILED' : 'PAYMENT_CANCELLED',
+          last_reconciled_at: serverTime,
+          next_reconcile_at: null,
+          provider_state: input.outcome,
+          status: targetStatus,
+          updated_at: serverTime,
+          version: { increment: 1 },
+        },
+        where: { id: intent.id, order_id: order.id, version: intent.version },
+      });
+      if (intentChanged.count !== 1) throw paymentResultConflict();
+      let orderVersion = order.version;
+      if (order.payment_status !== 'UNPAID') {
+        const orderChanged = await transaction.salesOrder.updateMany({
+          data: { payment_status: 'UNPAID', updated_at: serverTime, version: { increment: 1 } },
+          where: { id: order.id, payment_status: order.payment_status, version: order.version },
+        });
+        if (orderChanged.count !== 1) throw paymentResultConflict();
+        orderVersion += 1;
+      }
+      const after: StorePaymentCallbackState = {
+        intentStatus: targetStatus,
+        intentVersion: intent.version + 1,
+        orderPaymentResolution: order.payment_resolution,
+        orderPaymentStatus: 'UNPAID',
+        orderStatus: order.order_status,
+        orderVersion,
+      };
+      return {
+        after,
+        before,
+        changed: true,
+        commissionLedgerIds: [],
+        commissionSnapshotIds: [],
+        finalAgentId: null,
+        finalChannel: null,
+        inventoryLedgerIds: [],
+        kind: 'TERMINAL',
+        orderId: order.id,
+        outcome: input.outcome,
+        paymentAttemptId,
+        paymentIntentId: intent.id,
+        providerEventId: input.providerEventId,
+        reservationId: order.inventory_reservation?.id ?? null,
+      };
+    }
+
+    const compensating = matchingAttempt !== null;
+    if (compensating) {
+      if (intent.status !== 'SUCCEEDED') throw paymentResultConflict();
+      const canCompensate = order.payment_status === 'PAID' &&
+        order.payment_resolution === 'MANUAL_REQUIRED' && order.order_status === 'PENDING_PAYMENT' &&
+        order.fulfillment_status === 'NOT_STARTED' && order.refund_progress_status === 'NONE' &&
+        order.refund_processing_status === 'IDLE' && order.refunded_amount.equals(0) &&
+        order.paid_amount.equals(order.payable_amount);
+      if (!canCompensate) {
+        return {
+          after: before,
+          before,
+          changed: false,
+          commissionLedgerIds: [],
+          commissionSnapshotIds: [],
+          finalAgentId: order.final_agent_id,
+          finalChannel: order.final_channel,
+          inventoryLedgerIds: [],
+          kind: 'REPLAY',
+          orderId: order.id,
+          outcome: input.outcome,
+          paymentAttemptId: matchingAttempt.id,
+          paymentIntentId: intent.id,
+          providerEventId: input.providerEventId,
+          reservationId: order.inventory_reservation?.id ?? null,
+        };
+      }
+    } else if (!ACTIVE_INTENT_STATUSES.has(intent.status as 'CREATING' | 'OPEN' | 'CLOSE_PENDING') ||
+      order.order_status !== 'PENDING_PAYMENT' ||
+      (order.payment_status !== 'PROCESSING' && order.payment_status !== 'UNPAID') ||
+      order.payment_resolution !== 'NORMAL' || order.fulfillment_status !== 'NOT_STARTED' ||
+      !order.paid_amount.equals(0)) {
+      throw paymentResultConflict();
+    }
+
+    const productIds = [...new Set(order.items.map(({ product_id }) => product_id))].sort();
+    const skuIds = [...new Set(order.items.map(({ sku_id }) => sku_id))].sort();
+    const structurallyValidItems = order.items.length > 0 && productIds.length > 0 &&
+      skuIds.length === order.items.length;
+    if (productIds.length > 0) {
+      await transaction.$queryRaw(Prisma.sql`
+        SELECT id FROM public.product
+        WHERE id IN (${Prisma.join(productIds)})
+        ORDER BY id ASC
+        FOR UPDATE
+      `);
+    }
+    if (skuIds.length > 0) {
+      await transaction.$queryRaw(Prisma.sql`
+        SELECT id FROM public.sku
+        WHERE id IN (${Prisma.join(skuIds)})
+        ORDER BY id ASC
+        FOR UPDATE
+      `);
+    }
+    const catalog = skuIds.length === 0
+      ? []
+      : await transaction.sku.findMany({
+          orderBy: [{ id: 'asc' }],
+          select: {
+            id: true,
+            product: {
+              select: { category: { select: { id: true, name: true } }, id: true, sales_count: true },
+            },
+          },
+          where: { id: { in: skuIds } },
+        });
+    const balancesBeforeLock = await transaction.inventoryBalance.findMany({
+      orderBy: [{ id: 'asc' }],
+      select: { id: true, sku_id: true },
+      where: { sku_id: { in: skuIds } },
+    });
+    const balanceIds = balancesBeforeLock.map(({ id }) => id).sort();
+    if (balanceIds.length > 0) {
+      await transaction.$queryRaw(Prisma.sql`
+        SELECT id FROM public.inventory_balance
+        WHERE id IN (${Prisma.join(balanceIds)})
+        ORDER BY id ASC
+        FOR UPDATE
+      `);
+    }
+    if (order.inventory_reservation !== null) {
+      await transaction.$queryRaw(Prisma.sql`
+        SELECT id FROM public.inventory_reservation
+        WHERE id = ${order.inventory_reservation.id}
+        FOR UPDATE
+      `);
+      await transaction.$queryRaw(Prisma.sql`
+        SELECT id FROM public.inventory_reservation_item
+        WHERE reservation_id = ${order.inventory_reservation.id}
+        ORDER BY sku_id ASC, id ASC
+        FOR UPDATE
+      `);
+    }
+    const balances = await transaction.inventoryBalance.findMany({
+      orderBy: [{ sku_id: 'asc' }, { id: 'asc' }],
+      where: { sku_id: { in: skuIds } },
+    });
+    const reservation = await transaction.inventoryReservation.findUnique({
+      include: { items: { orderBy: [{ sku_id: 'asc' }, { id: 'asc' }] } },
+      where: { order_id: order.id },
+    });
+    const activeTotals = skuIds.length === 0
+      ? []
+      : await transaction.$queryRaw<Array<{ sku_id: string; total_quantity: bigint }>>(Prisma.sql`
+          SELECT iri.sku_id, SUM(iri.quantity)::bigint AS total_quantity
+          FROM public.inventory_reservation AS ir
+          INNER JOIN public.inventory_reservation_item AS iri ON iri.reservation_id = ir.id
+          WHERE ir.status = 'ACTIVE' AND iri.sku_id IN (${Prisma.join(skuIds)})
+          GROUP BY iri.sku_id
+          ORDER BY iri.sku_id ASC
+        `);
+
+    const agent = candidateAgentId === null ? null : await transaction.agentProfile.findUnique({
+      select: {
+        account: { select: { deleted_at: true, role: true, status: true } },
+        deleted_at: true,
+        id: true,
+        status: true,
+        version: true,
+      },
+      where: { id: candidateAgentId },
+    });
+    const finalAgentId = order.attribution_candidate?.submit_channel === 'AGENT' &&
+      order.attribution_candidate.candidate_agent_id === candidateAgentId && candidateAgentId !== null &&
+      lockedAgentVersion !== null && agent?.id === candidateAgentId && agent.version === lockedAgentVersion &&
+      agent.status === 'ACTIVE' && agent.deleted_at === null && agent.account.role === 'AGENT_ADMIN' &&
+      agent.account.status === 'ACTIVE' && agent.account.deleted_at === null
+      ? candidateAgentId
+      : null;
+    const candidateBinding = finalAgentId === null || lockedBindingId === null
+      ? null
+      : await transaction.customerAgentBinding.findUnique({
+          select: { agent_id: true, customer_id: true, ended_at: true, id: true, started_at: true },
+          where: { id: lockedBindingId },
+        });
+
+    let ruleVersion: SettlementCommissionRuleVersion | null = null;
+    if (finalAgentId !== null) {
+      const ruleLocks = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id FROM public.commission_rule_version
+        WHERE status = 'PUBLISHED' AND effective_at <= ${serverTime}
+        ORDER BY effective_at DESC, id DESC
+        FOR UPDATE
+      `);
+      if (ruleLocks.length === 1 && ruleLocks[0]) {
+        ruleVersion = await transaction.commissionRuleVersion.findUnique({
+          include: { entries: { orderBy: [{ target_key: 'asc' }, { id: 'asc' }] } },
+          where: { id: ruleLocks[0].id },
+        });
+      }
+    }
+
+    const balanceBySku = new Map(balances.map((balance) => [balance.sku_id, balance]));
+    const totalBySku = new Map(activeTotals.map(({ sku_id, total_quantity }) => [sku_id, total_quantity]));
+    const reservationBySku = new Map((reservation?.items ?? []).map((item) => [item.sku_id, item]));
+    const attributionCandidate = order.attribution_candidate;
+    const frozenCity = settlementCity(order.address_snapshot?.city);
+    const bindingValidAtSubmission = finalAgentId === null || (
+      attributionCandidate?.binding_id !== null && attributionCandidate?.binding_id === lockedBindingId &&
+      candidateBinding?.id === lockedBindingId && candidateBinding.agent_id === finalAgentId &&
+      candidateBinding.customer_id === order.customer_id &&
+      candidateBinding.started_at.getTime() <= attributionCandidate.submitted_at.getTime() &&
+      (candidateBinding.ended_at === null ||
+        candidateBinding.ended_at.getTime() >= attributionCandidate.submitted_at.getTime())
+    );
+    const financialsClose = paymentAmountsClose(
+      order.goods_amount,
+      order.shipping_amount,
+      order.payable_amount,
+      order.items.map(({ line_paid_amount }) => line_paid_amount),
+    );
+    const reservationExpiry = reservation?.expires_at;
+    const paymentTimestampClosed = compensating
+      ? order.paid_at?.getTime() === matchingAttempt.finished_at?.getTime()
+      : order.paid_at === null;
+    const paymentStateClosed = reservationExpiry instanceof Date &&
+      Number.isFinite(reservationExpiry.getTime()) && order.refund_progress_status === 'NONE' &&
+      order.refund_processing_status === 'IDLE' && order.refunded_amount.equals(0) &&
+      paymentTimestampClosed &&
+      intent.expires_at.getTime() === order.pay_expires_at.getTime() &&
+      reservationExpiry.getTime() === order.pay_expires_at.getTime() &&
+      input.occurredAt.getTime() < intent.expires_at.getTime() &&
+      input.occurredAt.getTime() < reservationExpiry.getTime();
+    let settlementAvailable = attributionCandidate !== null && order.attribution_snapshot === null &&
+      attributionCandidate.finalization_result === null && attributionCandidate.finalized_at === null &&
+      order.final_agent_id === null && order.final_channel === null && frozenCity !== null && bindingValidAtSubmission &&
+      financialsClose && paymentStateClosed && structurallyValidItems &&
+      reservation !== null && reservation.status === 'ACTIVE' && reservation.consumed_at === null &&
+      reservation.released_at === null &&
+      reservation.order_id === order.id && reservation.items.length === order.items.length &&
+      balances.length === order.items.length && catalog.length === order.items.length &&
+      productIds.every((productId) => order.items.some((item) => item.product_id === productId));
+    for (const item of order.items) {
+      const balance = balanceBySku.get(item.sku_id);
+      const reserved = reservationBySku.get(item.sku_id);
+      const total = totalBySku.get(item.sku_id);
+      const currentCatalog = catalog.find(({ id }) => id === item.sku_id);
+      const itemStateClosed = item.refunded_qty === 0 && item.pre_shipment_refunded_qty === 0 &&
+        item.refunded_amount.equals(0) && item.aftersale_reserved_qty === 0 &&
+        item.aftersale_reserved_amount.equals(0) && item.shipped_qty === 0;
+      if (!itemStateClosed || !balance || !reserved || !currentCatalog ||
+        currentCatalog.product.id !== item.product_id ||
+        reserved.quantity !== item.quantity || typeof total !== 'bigint' ||
+        total !== BigInt(balance.locked_qty) || balance.physical_qty < balance.locked_qty ||
+        balance.locked_qty < item.quantity || balance.physical_qty < item.quantity || balance.version < 1) {
+        settlementAvailable = false;
+      }
+    }
+
+    type RuleResolution = {
+      categoryId: string;
+      categoryName: string;
+      rate: Prisma.Decimal;
+      source: 'CATEGORY' | 'PLATFORM' | 'SKU';
+    };
+    const ruleBySku = new Map<string, RuleResolution>();
+    if (finalAgentId !== null) {
+      if (order.customer.phone_verifications.length > 1) settlementAvailable = false;
+      if (!ruleVersion || ruleVersion.status !== 'PUBLISHED' || ruleVersion.effective_at === null ||
+        ruleVersion.effective_at.getTime() > serverTime.getTime()) {
+        settlementAvailable = false;
+      } else {
+        const entries = new Map<string, SettlementCommissionRuleVersion['entries'][number]>();
+        for (const entry of ruleVersion.entries) {
+          const validTarget = entry.target_type === 'PLATFORM'
+            ? entry.target_id === null && entry.target_key === 'PLATFORM'
+            : entry.target_id !== null && entry.target_key === `${entry.target_type}:${entry.target_id}`;
+          if (!validTarget || entry.configured_rate.isNegative() || entry.configured_rate.greaterThan(100) ||
+            entries.has(entry.target_key)) {
+            settlementAvailable = false;
+            continue;
+          }
+          entries.set(entry.target_key, entry);
+        }
+        const platform = entries.get('PLATFORM');
+        if (!platform || platform.target_type !== 'PLATFORM' || platform.target_id !== null) {
+          settlementAvailable = false;
+        }
+        for (const item of order.items) {
+          const currentCatalog = catalog.find(({ id }) => id === item.sku_id);
+          const category = currentCatalog?.product.category;
+          const entry = entries.get(`SKU:${item.sku_id}`) ??
+            (category ? entries.get(`CATEGORY:${category.id}`) : undefined) ?? platform;
+          if (!category || !entry || entry.configured_rate.isNegative() || entry.configured_rate.greaterThan(100)) {
+            settlementAvailable = false;
+            continue;
+          }
+          ruleBySku.set(item.sku_id, {
+            categoryId: category.id,
+            categoryName: category.name,
+            rate: entry.configured_rate,
+            source: entry.target_type,
+          });
+        }
+        if (ruleBySku.size !== order.items.length) settlementAvailable = false;
+      }
+    }
+
+    const paymentAttemptId = matchingAttempt?.id ?? generateUlid(serverTime.getTime());
+    let intentVersion = intent.version;
+    const baseOrderVersion = order.version;
+    const catalogComplete = structurallyValidItems && catalog.length === skuIds.length &&
+      productIds.every((productId) => catalog.some(({ product }) => product.id === productId));
+    const salesUpdates: Array<{ productId: string; quantity: number; salesCount: number }> = [];
+    if (catalogComplete) {
+      const quantities = new Map<string, number>();
+      for (const item of order.items) {
+        quantities.set(item.product_id, (quantities.get(item.product_id) ?? 0) + item.quantity);
+      }
+      for (const productId of productIds) {
+        const quantity = quantities.get(productId);
+        const productRows = catalog.filter(({ product }) => product.id === productId);
+        const salesCount = productRows[0]?.product.sales_count;
+        if (!Number.isSafeInteger(quantity) || quantity === undefined || quantity < 1 ||
+          !Number.isSafeInteger(salesCount) || salesCount === undefined || salesCount < 0 ||
+          productRows.some(({ product }) => product.sales_count !== salesCount)) {
+          settlementAvailable = false;
+          break;
+        }
+        salesUpdates.push({ productId, quantity, salesCount });
+      }
+    } else {
+      settlementAvailable = false;
+    }
+
+    if (settlementAvailable) {
+      for (const { productId, quantity, salesCount } of salesUpdates) {
+        const updated = await transaction.product.updateMany({
+          data: {
+            sales_count: Math.min(MAX_POSTGRES_INTEGER, salesCount + quantity),
+            updated_at: serverTime,
+          },
+          where: { id: productId, sales_count: salesCount },
+        });
+        if (updated.count !== 1) throw internalError('Payment product sales counter lost its locked row');
+      }
+    }
+
+    if (!compensating) {
+      await transaction.paymentAttempt.create({
+        data: {
+          amount: intent.amount,
+          failure_code: null,
+          finished_at: input.occurredAt,
+          id: paymentAttemptId,
+          initiated_at: input.occurredAt,
+          payment_intent_id: intent.id,
+          provider: input.provider,
+          provider_payload: Prisma.DbNull,
+          provider_transaction_id: input.providerTransactionId,
+          status: 'SUCCEEDED',
+        },
+      });
+      const intentChanged = await transaction.paymentIntent.updateMany({
+        data: {
+          last_error_code: null,
+          last_reconciled_at: serverTime,
+          next_reconcile_at: null,
+          provider_state: 'SUCCEEDED',
+          status: 'SUCCEEDED',
+          succeeded_at: input.occurredAt,
+          updated_at: serverTime,
+          version: { increment: 1 },
+        },
+        where: { id: intent.id, order_id: order.id, version: intent.version },
+      });
+      if (intentChanged.count !== 1) throw paymentResultConflict();
+      intentVersion += 1;
+    }
+
+    if (!settlementAvailable) {
+      if (compensating) {
+        return {
+          after: before,
+          before,
+          changed: false,
+          commissionLedgerIds: [],
+          commissionSnapshotIds: [],
+          finalAgentId: null,
+          finalChannel: null,
+          inventoryLedgerIds: [],
+          kind: 'REPLAY',
+          orderId: order.id,
+          outcome: input.outcome,
+          paymentAttemptId,
+          paymentIntentId: intent.id,
+          providerEventId: input.providerEventId,
+          reservationId: reservation?.id ?? null,
+        };
+      }
+      const orderChanged = await transaction.salesOrder.updateMany({
+        data: {
+          paid_amount: order.payable_amount,
+          paid_at: input.occurredAt,
+          payment_resolution: 'MANUAL_REQUIRED',
+          payment_status: 'PAID',
+          updated_at: serverTime,
+          version: { increment: 1 },
+        },
+        where: { id: order.id, payment_status: order.payment_status, version: order.version },
+      });
+      if (orderChanged.count !== 1) throw paymentResultConflict();
+      const after: StorePaymentCallbackState = {
+        intentStatus: 'SUCCEEDED',
+        intentVersion,
+        orderPaymentResolution: 'MANUAL_REQUIRED',
+        orderPaymentStatus: 'PAID',
+        orderStatus: 'PENDING_PAYMENT',
+        orderVersion: order.version + 1,
+      };
+      return {
+        after,
+        before,
+        changed: true,
+        commissionLedgerIds: [],
+        commissionSnapshotIds: [],
+        finalAgentId: null,
+        finalChannel: null,
+        inventoryLedgerIds: [],
+        kind: 'MANUAL_REQUIRED',
+        orderId: order.id,
+        outcome: input.outcome,
+        paymentAttemptId,
+        paymentIntentId: intent.id,
+        providerEventId: input.providerEventId,
+        reservationId: reservation?.id ?? null,
+      };
+    }
+
+    const activeReservation = reservation!;
+    const inventoryLedgerIds: string[] = [];
+    for (const item of [...order.items].sort((left, right) => left.sku_id.localeCompare(right.sku_id))) {
+      const balance = balanceBySku.get(item.sku_id)!;
+      const physicalAfter = balance.physical_qty - item.quantity;
+      const lockedAfter = balance.locked_qty - item.quantity;
+      const updated = await transaction.inventoryBalance.updateMany({
+        data: {
+          locked_qty: lockedAfter,
+          physical_qty: physicalAfter,
+          updated_at: serverTime,
+          version: { increment: 1 },
+        },
+        where: {
+          id: balance.id,
+          locked_qty: balance.locked_qty,
+          physical_qty: balance.physical_qty,
+          sku_id: item.sku_id,
+          version: balance.version,
+        },
+      });
+      if (updated.count !== 1) throw internalError('Payment inventory update lost its locked row');
+      const ledgerId = generateUlid(serverTime.getTime());
+      await transaction.inventoryLedger.create({
+        data: {
+          actor_account_id: null,
+          business_id: activeReservation.id,
+          id: ledgerId,
+          ledger_type: 'ORDER_PAID_DEDUCT',
+          locked_after: lockedAfter,
+          locked_change: -item.quantity,
+          occurred_at: serverTime,
+          physical_after: physicalAfter,
+          physical_change: -item.quantity,
+          reason: 'PAYMENT_SETTLED',
+          sku_id: item.sku_id,
+        },
+      });
+      inventoryLedgerIds.push(ledgerId);
+    }
+    const reservationChanged = await transaction.inventoryReservation.updateMany({
+      data: { consumed_at: input.occurredAt, status: 'CONSUMED' },
+      where: { id: activeReservation.id, order_id: order.id, status: 'ACTIVE' },
+    });
+    if (reservationChanged.count !== 1) throw internalError('Payment reservation update lost its locked row');
+
+    const finalChannel = finalAgentId === null ? 'DIRECT' as const : 'AGENT' as const;
+    const finalizedCandidate = attributionCandidate!;
+    const attributionSnapshotId = generateUlid(serverTime.getTime());
+    await transaction.orderAttributionCandidate.update({
+      data: {
+        finalization_result: finalAgentId === null
+          ? finalizedCandidate.submit_channel === 'DIRECT' ? 'DIRECT_SUBMITTED' : 'DIRECT_AGENT_UNAVAILABLE'
+          : 'AGENT_CONFIRMED',
+        finalized_at: serverTime,
+      },
+      where: { id: finalizedCandidate.id },
+    });
+    await transaction.orderAttributionSnapshot.create({
+      data: {
+        agent_id_snapshot: finalAgentId,
+        binding_id_snapshot: finalAgentId === null ? null : finalizedCandidate.binding_id,
+        captured_at: serverTime,
+        final_channel: finalChannel,
+        id: attributionSnapshotId,
+        order_id: order.id,
+      },
+    });
+    if (finalAgentId !== null) {
+      const previousProjection = await transaction.agentCustomerPrivacyProjection.findFirst({
+        orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+        select: { customer_alias: true },
+        where: { agent_id: finalAgentId, customer_id: order.customer_id },
+      });
+      await transaction.agentCustomerPrivacyProjection.create({
+        data: {
+          agent_id: finalAgentId,
+          anonymized_at: null,
+          attribution_snapshot_id: attributionSnapshotId,
+          city: frozenCity!,
+          created_at: serverTime,
+          customer_alias: previousProjection?.customer_alias ?? `customer_${generateUlid(serverTime.getTime()).toLowerCase()}`,
+          customer_id: order.customer_id,
+          id: generateUlid(serverTime.getTime()),
+          nickname_masked: maskedNickname(order.customer.nickname),
+          phone_tail: order.customer.phone_verifications[0]?.phone_last4 ?? null,
+          updated_at: serverTime,
+        },
+      });
+    }
+
+    const commissionSnapshotIds: string[] = [];
+    const commissionLedgerIds: string[] = [];
+    if (finalAgentId !== null) {
+      const frozenRuleVersion = ruleVersion!;
+      for (const item of order.items) {
+        const resolution = ruleBySku.get(item.sku_id)!;
+        const commission = item.line_paid_amount.mul(resolution.rate).div(100)
+          .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+        const snapshotId = generateUlid(serverTime.getTime());
+        await transaction.orderItemCommissionSnapshot.create({
+          data: {
+            agent_id: finalAgentId,
+            category_id_snapshot: resolution.categoryId,
+            category_name_snapshot: resolution.categoryName,
+            commission_base: item.line_paid_amount,
+            created_at: serverTime,
+            effective_rate: resolution.rate,
+            id: snapshotId,
+            order_item_id: item.id,
+            original_commission: commission,
+            product_id_snapshot: item.product_id,
+            rule_version_id: frozenRuleVersion.id,
+            sku_id_snapshot: item.sku_id,
+            source_type: resolution.source,
+          },
+        });
+        await transaction.orderItemCommissionPosition.create({
+          data: {
+            available_at: null,
+            expected_remaining: commission,
+            id: generateUlid(serverTime.getTime()),
+            original_commission: commission,
+            reversed_total: new Prisma.Decimal(0),
+            snapshot_id: snapshotId,
+            state: commission.isZero() ? 'NONE' : 'EXPECTED',
+            updated_at: serverTime,
+            version: 1,
+          },
+        });
+        commissionSnapshotIds.push(snapshotId);
+        if (!commission.isZero()) {
+          const ledgerId = generateUlid(serverTime.getTime());
+          await transaction.commissionLedger.create({
+            data: {
+              agent_id: finalAgentId,
+              available_change: new Prisma.Decimal(0),
+              expected_change: commission,
+              frozen_change: new Prisma.Decimal(0),
+              id: ledgerId,
+              idempotency_key: `payment:${intent.id}:${item.id}:expected`,
+              ledger_type: 'EXPECTED_CREATED',
+              occurred_at: serverTime,
+              reason: 'ORDER_PAID',
+              snapshot_id: snapshotId,
+            },
+          });
+          commissionLedgerIds.push(ledgerId);
+        }
+      }
+    }
+
+    const orderChanged = await transaction.salesOrder.updateMany({
+      data: {
+        final_agent_id: finalAgentId,
+        final_channel: finalChannel,
+        fulfillment_status: 'READY_TO_SHIP',
+        order_status: 'PENDING_SHIPMENT',
+        paid_amount: order.payable_amount,
+        paid_at: order.paid_at ?? input.occurredAt,
+        payment_resolution: 'NORMAL',
+        payment_status: 'PAID',
+        updated_at: serverTime,
+        version: { increment: 1 },
+      },
+      where: { id: order.id, payment_status: order.payment_status, version: baseOrderVersion },
+    });
+    if (orderChanged.count !== 1) throw paymentResultConflict();
+    const after: StorePaymentCallbackState = {
+      intentStatus: 'SUCCEEDED',
+      intentVersion,
+      orderPaymentResolution: 'NORMAL',
+      orderPaymentStatus: 'PAID',
+      orderStatus: 'PENDING_SHIPMENT',
+      orderVersion: baseOrderVersion + 1,
+    };
+    return {
+      after,
+      before,
+      changed: true,
+      commissionLedgerIds,
+      commissionSnapshotIds,
+      finalAgentId,
+      finalChannel,
+      inventoryLedgerIds,
+      kind: 'SETTLED',
+      orderId: order.id,
+      outcome: input.outcome,
+      paymentAttemptId,
+      paymentIntentId: intent.id,
+      providerEventId: input.providerEventId,
+      reservationId: activeReservation.id,
+    };
   }
 
   async getOwnedPaymentIntentInTransaction(

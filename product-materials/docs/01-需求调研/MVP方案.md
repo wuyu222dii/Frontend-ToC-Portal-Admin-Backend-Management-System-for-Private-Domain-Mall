@@ -9,8 +9,8 @@
 | MVP 模式 | 三端标准 MVP |
 | 目标用户 | 终端消费者、一级代理、总部商城经营人员 |
 | 人员角色 | `SUPER_ADMIN`、`AGENT_ADMIN`、`CUSTOMER` |
-| 更新日期 | 2026-08-29 |
-| 文档状态 | B0 至 B9 development 已完成并维持 `GO`；产品/API 基线为 `v2.4.8 / 2.4.8-ch022`。B10.0 已在 SHA `8cd5781eed9349d6f110fa43510e78c7f525a482` 取得普通 CI Run `33242561514`、Supabase development migration Run `33243979003`、rollback-only smoke Run `33244107293` 三项成功证据并以 `P0=0/P1=0` 完成。B10.1 本地实现与验收已完成，退出复审为 `P0=0/P1=0`，现暂停等待用户批准进入 B10.2；B10.2 未开始。B10 尚未标记 development `GO`，CH-021 继续有效。仅允许 Mock Provider 和脱敏 development；真实微信支付、staging/production 均为 `NO-GO` |
+| 更新日期 | 2026-08-30 |
+| 文档状态 | B0 至 B9 development 已完成并维持 `GO`；产品/API 基线仍为 `v2.4.8 / 2.4.8-ch022`。B10.0/B10.1 既有结论保持。B10.2 与 CH-023 的 0004 完整迁移链、真实 `mall_runtime` 正佣金/0% 本地验收已通过；当前等待准确 SHA 的普通 CI、Supabase development migration 与随后 rollback-only smoke，三项闭合前 B10.2 尚未完成，B10 不得 `GO`，CH-021 继续有效。仅允许 Mock Provider 和脱敏 development；真实微信支付、staging/production 均为 `NO-GO` |
 
 ## 1. MVP 概述
 
@@ -409,14 +409,14 @@ Supabase 在当前 MVP 中仅作为 PostgreSQL 托管服务。消费者小程序
 
 ## 9. 里程碑建议
 
-B9.0-B9.5 已完成且 development `GO`。CH-021/CH-022 已批准；B10.0 已在 SHA `8cd5781eed9349d6f110fa43510e78c7f525a482` 取得普通 CI Run `33242561514`、Supabase development migration Run `33243979003`、rollback-only smoke Run `33244107293` 三项成功证据并以 `P0=0/P1=0` 完成。B10.1 本地实现与验收已完成，退出复审为 `P0=0/P1=0`，现暂停等待用户批准进入 B10.2；B10.2 未开始，B10 尚未标记 development `GO`，CH-021 继续有效。任何 development 结果都不等同于 staging 或生产许可，真实支付、staging 和 production 仍为 `NO-GO`。
+B9.0-B9.5 已完成且 development `GO`。CH-021/CH-022/CH-023 已批准，B10.0/B10.1 既有结论保持。B10.2 与 0004 本地验收已完成；当前等待准确 SHA 的普通 CI→development migration→rollback-only smoke，三项闭合前不得标记 B10.2 完成或 B10 development `GO`。任何 development 结果都不等同于 staging 或生产许可，真实支付、staging 和 production 仍为 `NO-GO`。
 
 | 阶段 | 主要交付物 | 当前状态 |
 |---|---|---|
-| 需求确认 | MVP、三端角色确认、变更记录 | CH-021/CH-022 已批准；v2.4.8 基线已登记，CH-021 仅覆盖 B10 脱敏 development |
+| 需求确认 | MVP、三端角色确认、变更记录 | CH-021/CH-022/CH-023 已批准；v2.4.8/CH-022 仍为在线基线，CH-023 只修复数据库触发器权限阻塞 |
 | 产品设计 | PRD、三端信息架构、可点击原型、Figma 重建规范 | B10 支付结果与只读对账边界已同步；页面仍为 21/9/22，新增交互复用 MP-09/10/11 与 ADM-10 |
-| 技术设计 | 系统架构、数据库 ERD、接口文档、OpenAPI、Prisma 草案与部署拓扑 | OpenAPI `2.4.8-ch022` 本地实测 173/198/198/326，705 schema refs、2,678 local refs、0 dangling refs；既有迁移不变，允许 0003 支付事实索引迁移且本地回放/权限通过 |
-| 开发与测试 | 三端工程、API、数据库、自动化测试 | B0-B9 development 已通过；B10.0 三项远端门禁已在准确 SHA 通过；B10.1 本地实现/验收与退出复审 `P0=0/P1=0` 已完成，现暂停待 B10.2 批准；B10.2 未开始，B10 尚未 `GO` |
+| 技术设计 | 系统架构、数据库 ERD、接口文档、OpenAPI、Prisma 草案与部署拓扑 | OpenAPI `2.4.8-ch022` 统计不变；CH-023 新增 0004，只移除不可变快照触发器的 `FOR SHARE` 并保持 SECURITY INVOKER，0001-0003 不变且不扩大 runtime 权限 |
+| 开发与测试 | 三端工程、API、数据库、自动化测试 | B0-B9、B10.0/B10.1 已完成；B10.2/CH-023 本地验收通过，等待准确 SHA 的 CI→development migration→smoke，B10.2/B10 尚未 `GO` |
 | 上线准备 | 微信资质、真实支付退款、隐私合规、部署与验收 | 未开始 |
 
 ## 10. 风险与应对
@@ -489,21 +489,23 @@ B9.0-B9.5 已完成且 development `GO`。CH-021/CH-022 已批准；B10.0 已在
 - 2026-08-27 批准的 CH-017/CH-018：B8 单人 development 补偿控制，以及登录后收藏、服务端购物车、游客合并、地址隐私与共享客户限流契约；
 - 2026-08-28 批准的 CH-019/CH-020：B9 单人 development 补偿控制，以及报价绑定、待付款订单、库存预占、主动取消、超时释放和 0002 索引迁移契约；
 - 2026-08-29 批准的 CH-021/CH-022：B10 单人脱敏 development 补偿控制，以及 Mock 支付、支付结算、关单对账、迟到支付自动退款和 0003 支付事实索引契约；
+- 2026-08-30 批准的 CH-023：以 0004 前向函数修复移除佣金 position 触发器不必要的 `FOR SHARE`，保持 SECURITY INVOKER 和运行角色最小权限；产品/API 基线不变；
 - 现有交易、库存、支付、物流和售后规则。
 
 ### 12.2 当前限制
 
 - 尚无真实用户访谈、历史订单、代理规模、佣金预算、商品规模和并发数据；指标阈值需试运行后校准。
 - 尚无微信正式参数、物流合同、隐私文本、线下打款财务制度和法律审核结论。
-- 当前交付物仍不是完整可用商城业务系统。B0-B9 development 已完成，B10.0 与 B10.1 已完成；B10.1 仅交付 Provider、支付意图与 Mock Inbox 并通过本地 `P0=0/P1=0` 退出复审，B10.2 支付结算尚未开始，B10 尚未 `GO`。真实微信支付、普通售后退款、履约和售后继续排除。
+- 当前交付物仍不是完整可用商城业务系统。B0-B9 development、B10.0 与 B10.1 已完成；B10.2/CH-023 本地验收已通过，但准确 SHA 三项远端证据尚未闭合，批次尚未完成且 B10 不得 `GO`。真实微信支付、普通售后退款、履约和售后继续排除。
 
 ## 13. 后续建议
 
 1. 保留 B9 最终 SHA `19f9ad57190b28d11922db805b39af95b2f7ba3b` 的同 SHA 双绿和 development `GO` 证据，不因 B10.0 改写历史结论。
 2. 保留 B10.0 SHA `8cd5781eed9349d6f110fa43510e78c7f525a482` 及 Run `33242561514`、`33243979003`、`33244107293` 的顺序成功证据；0003 作为加法迁移保留。
-3. 保留 B10.1 Provider、支付意图与仅写 Inbox 的 Mock 结果入口本地 `P0=0/P1=0` 证据并暂停；只有用户明确批准后才进入 B10.2，且不得注册真实微信回调路由。
-4. CH-021 只适用于 B10 脱敏 development 并在 B10.6 自动失效；第一次进入 staging 前仍须外部独立复核。
+3. 执行 CH-023：验证 0001→0002→0003→0004 完整链、函数最小权限和真实 `mall_runtime` 正佣金/0% 路径，再在准确 SHA 上依次取得普通 CI、Supabase development migration 与 rollback-only smoke。
+4. 在上述证据闭合并复审 `P0=0/P1=0` 前保持 B10.2 阻塞；不得以扩大 runtime 权限、修改冻结迁移或本地结果替代远端证据。
+5. CH-021 只适用于 B10 脱敏 development 并在 B10.6 自动失效；第一次进入 staging 前仍须外部独立复核。
 
 ---
 
-项目状态：三端 MVP 产品/API 基线为 `v2.4.8 / 2.4.8-ch022`。B0 至 B9 development 已通过，B9 `GO` 历史证据保持；B10.0 已在准确 SHA 取得 CI、development migration、rollback-only smoke 三项成功证据并以 `P0=0/P1=0` 完成。B10.1 本地实现与验收已完成，退出复审为 `P0=0/P1=0`，现暂停等待用户批准进入 B10.2；B10.2 未开始，B10 尚未标记 development `GO`，CH-021 继续有效。B10 仅允许 Mock Provider 和脱敏 development；真实支付、staging/production 仍为 `NO-GO`，进入 staging 前须外部独立复核，生产上线还须通过真实 Provider、恢复演练和合规门禁。
+项目状态：三端 MVP 产品/API 基线仍为 `v2.4.8 / 2.4.8-ch022`，CH-023 不改变在线契约。B0 至 B9、B10.0/B10.1 既有结论保持；B10.2/0004 本地验收已通过，当前等待准确 SHA 的普通 CI、development migration、rollback-only smoke。三项闭合前 B10.2 尚未完成，B10 不得 `GO`，CH-021 继续有效。B10 仅允许 Mock Provider 和脱敏 development；真实支付、staging/production 仍为 `NO-GO`，进入 staging 前须外部独立复核，生产上线还须通过真实 Provider、恢复演练和合规门禁。

@@ -5,10 +5,10 @@
 | 项目 | 内容 |
 |---|---|
 | 文档版本 | v2.4.8 |
-| 对应产品基线 | MVP/PRD v2.4.8、CH-001 至 CH-022 |
-| 接口阶段 | B0-B9 development 已完成并维持 `GO`；OpenAPI 基线为 `2.4.8-ch022`。B10.0 已在 SHA `8cd5781eed9349d6f110fa43510e78c7f525a482` 取得普通 CI Run `33242561514`、Supabase development migration Run `33243979003`、rollback-only smoke Run `33244107293` 三项成功证据。B10.1 Provider/支付意图/Mock Inbox 本地实现与验收已完成并以 `P0=0/P1=0` 退出，现暂停等待用户批准进入 B10.2；B10.2 未开始，B10 尚未 `GO`，CH-021 继续有效。仅允许 Mock Provider 和脱敏 development，staging、production 与真实支付均为 `NO-GO` |
+| 对应产品基线 | MVP/PRD v2.4.8、CH-001 至 CH-023；在线接口仍以 CH-022 为准 |
+| 接口阶段 | B0-B9 development 已完成并维持 `GO`；OpenAPI 基线仍为 `2.4.8-ch022`。B10.0/B10.1 既有结论保持。B10.2/CH-023 的实现、完整迁移链和真实 `mall_runtime` 正佣金/0% 本地验收已通过；当前等待准确 SHA 的普通 CI、Supabase development migration 和随后 rollback-only smoke。三项闭合前 B10.2 尚未完成，B10 不得 `GO`，CH-021 继续有效。仅允许 Mock Provider 和脱敏 development，staging、production 与真实支付均为 `NO-GO` |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
-| 更新时间 | 2026-08-29 |
+| 更新时间 | 2026-08-30 |
 
 ## 1. 设计目标
 
@@ -495,7 +495,7 @@ B9 冻结两条不可混用的加锁协议。首次下单没有既有 order 且�
 
 创建、列表、详情与取消只返回当前 CUSTOMER 本人订单，跨客户统一 404。B9 可用动作最多只有 `CANCEL`；支付、包裹、售后和退款尝试投影为空。取消必须携带 `Idempotency-Key` 与 `If-Match`，无请求体；仅未过期、`PENDING_PAYMENT/UNPAID`、ACTIVE reservation 且不存在任何 payment_intent 的订单可写 `CLOSED/USER_CANCELLED + RELEASED` 并追加唯一 `ORDER_RELEASE` 流水。订单轴关闭时履约轴不变：主动取消或支付超时后 `fulfillment_status` 均必须保持 `NOT_STARTED`，不得写为 `CANCELLED`。已由本人取消的订单重复取消返回当前投影；过期、其他终态或存在支付意图返回 `ORDER_NOT_CANCELLABLE`。五个 B9 operation 全部复用 CUSTOMER+来源 IP 120/60 fail-closed 限流，并对成功与 JSON 错误强制 no-store/private、no-cache。
 
-以下 payment-intent、Provider query/close、支付确认和迟到支付语义已由 CH-022 冻结。B10.1 Provider 抽象、Redis Mock、支付意图创建/复用与 Mock Inbox 已完成本地验收并暂停待批 B10.2；B10.2 的支付成功结算尚未开始：
+以下 payment-intent、Provider query/close、支付确认和迟到支付语义已由 CH-022 冻结。B10.1 已完成；B10.2 支付成功结算与 CH-023 本地验收已通过，但准确 SHA 三项远端证据尚未闭合，因此批次尚未完成：
 
 首次或重试支付先在短事务中创建或复用该订单唯一活动意图，稳定商户号为 `intent_no`，初始状态 `CREATING`；提交后才调用 Provider `create(intent_no)`。B10 创建或复用 payment_intent 前必须先按全局顺序锁定 `sales_order`，并在同一短事务中重验 `order_status/payment_status/pay_expires_at/close_reason/version`；禁止先插入 payment_intent 再回头锁订单，订单已关闭或过期时必须拒绝创建。若网络不确定或进程在外部成功后、本地回写前崩溃，服务端用 `query(intent_no)` 恢复，不创建第二商户号。部分唯一索引禁止同一订单并存两笔 `CREATING/OPEN/CLOSE_PENDING` 意图；响应包含当前 `intent_status` 和闭合的 `PaymentProviderCapabilityView`，不返回 Provider 任意对象、佣金比例或归因结果。只要成功响应可能包含 `provider_payload`，就必须返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；明确创建失败/用户取消分别落 `FAILED/CANCELLED`，超过 `pay_expires_at` 返回 `ORDER_PAYMENT_EXPIRED`。
 
@@ -521,8 +521,10 @@ B10.1 的 Mock 外部状态在 Redis 中保留 7 天，key 只使用支付域 HM
 2. 事务内先锁候选 `agent_profile/version`，再锁订单、全部订单项、支付意图，并重读候选；代理停用也锁同一代理，先提交者裁决归因；
 3. 依全局序锁库存预占和当前佣金规则集版本，将预占库存结转为实物扣减；
 4. 在锁内复核候选代理 `ACTIVE`，逐订单项保存最终渠道、代理和佣金快照；失效则降级 DIRECT；
-5. DIRECT 或佣金基数/有效比例/原佣金为 0 时，保留规则快照但把 position 置为 `NONE`，跳过佣金/钱包流水与佣金 Outbox；其余项置 `EXPECTED` 并写 `EXPECTED_CREATED`；
+5. DIRECT 订单不创建代理佣金快照、position、流水或佣金 Outbox；最终归因为 AGENT 但佣金基数/有效比例/原佣金为 0 的订单项保留规则快照并把 position 置为 `NONE`，跳过佣金/钱包流水与佣金 Outbox；其余 AGENT 订单项置 `EXPECTED` 并写 `EXPECTED_CREATED`；
 6. 订单进入待发货。
+
+CH-023 不修改上述 API 或事务语义。它只新增 `0004_b10_commission_position_trigger_fix`，移除 `enforce_commission_position_snapshot()` 读取不可变快照时不必要的 `FOR SHARE` 并显式保持 `SECURITY INVOKER`；不修改 0001-0003，不授予 `mall_runtime` UPDATE/DELETE，不使用 SECURITY DEFINER。B10.2 只有在完整迁移链、真实 `mall_runtime` 正佣金/0%/DIRECT 路径以及准确 SHA 的 CI→development migration→rollback-only smoke 全部通过后才可退出。
 
 超时任务按上述统一流程把活动意图置为 `CLOSE_PENDING` 并提交，再在事务外按 `intent_no` query/close。只有 Provider 明确 CLOSED/NOT_FOUND/EXPIRED/CANCELLED/FAILED 才在新事务关闭订单和释放库存；失败或未知保持 `CLOSE_PENDING` 并由对账任务重试，库存继续锁定。从未发起支付、无意图时也通过最终关单事务按全局锁序释放。释放后收到支付成功时：
 
@@ -987,7 +989,7 @@ Provider 回调先写入回调收件箱，再由幂等处理器消费；领域�
 - CH-018 专项实测为 173 paths、198 operations、198 unique operationId、323 schemas、701 schema refs、2,653 local refs 和 0 dangling refs，Redocly 0 warning。B8 收藏、购物车、游客合并、地址及小程序均已实现；最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 的普通 CI Run `33141704459` 与 Supabase rollback-only Run `33142971501` 同 SHA 成功，B8 development `GO`，CH-017 已失效。
 - CH-020 实测保持 173 paths、198 operations 和 198 unique operationId，并固化为 325 schemas、703 schema refs、2,665 local refs、0 dangling refs，Redocly 0 warning。B9.0 门禁机器验证 Quote 无幂等键、Submit 报价绑定、CART/BUY_NOW 闭合形状、全部路径 ULID、创建 201、取消 If-Match/无 body、四个 409、五 operation 的 CUSTOMER no-store 与共享限流。
 - B9.1-B9.5 已完成。B9.3 代码与聚焦测试覆盖本人订单读取、If-Match/HASH_ONLY 取消、超时 Worker、全 payment_intent 状态 fail-closed、取消/超时唯一释放与并发锁序；关闭时履约轴保持 `NOT_STARTED`。B9.4 已完成 MP-08/10/11；B9.5 已将 `db:test-b9-store-orders`、`e2e:b9`、`e2e:b9:vertical` 接入普通 CI，并将 B9 repository smoke 接入 Supabase rollback-only。数据库 full `4 files / 29 tests`、B9 UI `12 passed / 28 designed skips`、真实 browser → Nest → PostgreSQL/Redis/MinIO → Worker `1/1`、全仓 `1,787 passed / 120 designed skips` 和精确清理均通过，三项原 P1 已关闭，最终复审为 `P0=0/P1=0/P2=1`。最终 SHA `19f9ad57190b28d11922db805b39af95b2f7ba3b` 的普通 CI Run `33230769777` 与 Supabase development rollback-only smoke Run `33233087710` 同 SHA 且均为 `completed/success`，B9 development `GO`，CH-019 已自动失效；唯一 P2 TR-020 不阻断 development，staging、production 与真实支付仍为 `NO-GO`。
-- CH-022 契约本地解析实测为 173 paths、198 operations、198 unique operationId、326 schemas、705 schema refs、2,678 local refs、0 dangling refs。B10.0 已在准确 SHA 取得普通 CI、Supabase development migration、rollback-only smoke 三项成功证据；B10.1 已完成本地实现/验收和 `P0=0/P1=0` 退出复审，现暂停待批 B10.2。该结论不等于 B10 development `GO`，也不准入 B10.2、真实支付、staging 或 production；CH-021 继续有效。
+- CH-022 契约本地解析实测为 173 paths、198 operations、198 unique operationId、326 schemas、705 schema refs、2,678 local refs、0 dangling refs。CH-023 不改变任何在线契约或上述统计。B10.2/0004 本地验收已通过，等待准确 SHA 的普通 CI→development migration→rollback-only smoke；三项闭合前批次尚未完成，不等于 B10 development `GO`，也不准入真实支付、staging 或 production；CH-021 继续有效。
 - B7.4 已实现注销后端：不合格 preview 返回 200、完整 blockers/impacts 及 null token/hash/expiry；合格预览才签发 5 分钟能力。confirm 后出现新阻断返回 422 且不消费能力、不产生部分去标识化；成功后在单事务清除登录主体/非交易 PII、结束绑定、使候选失效、匿名化代理隐私投影、写审计与 durable `PENDING account.anonymized` Outbox 事实，并将全部 session 留作 revoked tombstone。这里只证明事件事实已持久化，不宣称已投递或消费。全部旧 token 失效，HASH_ONLY 不重放完成响应；full 与受控 Supabase development rollback-only 门禁已通过，退出复审 `P0=0/P1=0`。
 - Product/SKU 固定创建状态、完整状态矩阵、恢复目标、不级联、首次 `published_at`、nullable 最低活动价、8 图、归档 SKU、零库存余额、不可变 code、201 SKU create 和四个新 422 均有契约及集成测试。
 - 非 `APPROVED` 提现无法请求完整银行卡号；短时授权不可跨提现单、跨会话或重复使用。

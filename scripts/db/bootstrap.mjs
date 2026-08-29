@@ -15,6 +15,12 @@ const paymentMigrationPath = "prisma/migrations/0003_b10_payment_fact_indexes/mi
 const paymentFrozenPath =
   "product-materials/docs/03-技术设计/migrations/0003_b10_payment_fact_indexes/migration.sql";
 const expectedPaymentDigest = "0d5109a6d0eab2598f2c6c98bbeca265bdd32733e7d89f8eb78eff67caedb836";
+const commissionTriggerMigrationPath =
+  "prisma/migrations/0004_b10_commission_position_trigger_fix/migration.sql";
+const commissionTriggerFrozenPath =
+  "product-materials/docs/03-技术设计/migrations/0004_b10_commission_position_trigger_fix/migration.sql";
+const expectedCommissionTriggerDigest =
+  "8d4c391af114c4691d2be80ae8bb44efc1c70658f5268ad4de7221a29d5ee102";
 
 function digest(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -136,6 +142,12 @@ try {
   ) {
     throw new Error("B10 migration differs from its frozen artifact");
   }
+  if (
+    digest(commissionTriggerMigrationPath) !== expectedCommissionTriggerDigest ||
+    digest(commissionTriggerFrozenPath) !== expectedCommissionTriggerDigest
+  ) {
+    throw new Error("CH-023 migration differs from its frozen artifact");
+  }
 
   const state = runPsql(owner, [
     "-Atqc",
@@ -188,12 +200,18 @@ try {
              AND m.finished_at IS NOT NULL
              AND m.rolled_back_at IS NULL
          ),
+         count(*) FILTER (
+           WHERE m.migration_name = '0004_b10_commission_position_trigger_fix'
+             AND m.finished_at IS NOT NULL
+             AND m.rolled_back_at IS NULL
+         ),
          count(*) FILTER (WHERE m.finished_at IS NULL OR m.rolled_back_at IS NOT NULL),
          count(*) FILTER (
            WHERE m.migration_name NOT IN (
              '0001_initial',
              '0002_b9_inventory_fact_indexes',
-             '0003_b10_payment_fact_indexes'
+             '0003_b10_payment_fact_indexes',
+             '0004_b10_commission_position_trigger_fix'
            )
          )
        )
@@ -203,8 +221,8 @@ try {
        WHERE n.nspname = 'public' AND c.relname = '_prisma_migrations'
        GROUP BY c.relowner`,
     ], undefined, true);
-    if (history !== "mall_migrator|1|1|1|0|0") {
-      throw new Error("existing Prisma migration history is not the completed B10 migration chain");
+    if (history !== "mall_migrator|1|1|1|1|0|0") {
+      throw new Error("existing Prisma migration history is not the completed CH-023 migration chain");
     }
   }
   if (state === "EMPTY") {

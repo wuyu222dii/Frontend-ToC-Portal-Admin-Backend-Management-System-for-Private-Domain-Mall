@@ -51,6 +51,31 @@ describe('OutboxRepository append boundary', () => {
     }));
   });
 
+  it('accepts the registered commission aggregate without widening its payload', async () => {
+    const transaction = transactionStub();
+    const aggregateId = generateUlid();
+
+    await new OutboxRepository({} as DatabaseRuntime).append(transaction, {
+      aggregateId,
+      aggregateType: 'commission',
+      eventType: 'commission.expected.created',
+      payload: {
+        event_version: 1,
+        resource_id: aggregateId,
+        resource_type: 'commission',
+        resource_version: 1,
+      },
+    });
+
+    expect(transaction.outboxEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        aggregate_id: aggregateId,
+        aggregate_type: 'commission',
+        event_type: 'commission.expected.created',
+      }),
+    }));
+  });
+
   it('stores a future availability boundary in the existing retry timestamp', async () => {
     const transaction = transactionStub();
     const createdAt = new Date('2026-08-13T00:00:00.000Z');

@@ -17,6 +17,11 @@ const artifacts = [
     formal: "prisma/migrations/0002_b9_inventory_fact_indexes/migration.sql",
     sha256: "9c933d256e0cbe7c33acdd801b6385bae6f892ff3db10978c40e37ea2f89f5d0",
   },
+  {
+    frozen: "product-materials/docs/03-技术设计/migrations/0003_b10_payment_fact_indexes/migration.sql",
+    formal: "prisma/migrations/0003_b10_payment_fact_indexes/migration.sql",
+    sha256: "0d5109a6d0eab2598f2c6c98bbeca265bdd32733e7d89f8eb78eff67caedb836",
+  },
 ];
 
 function digest(buffer) {

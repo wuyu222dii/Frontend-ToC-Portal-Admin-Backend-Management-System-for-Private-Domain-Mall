@@ -1,8 +1,8 @@
 openapi: "3.1.0"
 info:
   title: "洗化产品私域商城 API"
-  version: "2.4.7-ch020"
-  description: "CH-020 单一线协议，继承 CH-006、CH-008、CH-010、CH-012、CH-014、CH-016 与 CH-018，并闭合 B9 结算报价、待付款订单、库存预占、主动取消和超时释放语义。所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
+  version: "2.4.8-ch022"
+  description: "CH-022 单一线协议，继承 CH-006、CH-008、CH-010、CH-012、CH-014、CH-016、CH-018 与 CH-020，并闭合 B10 development 支付意图、Mock 支付结果收件箱、迟到支付判定和安全对账语义。真实微信支付未配置时不注册回调路由；所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
   license:
     name: "Proprietary"
     identifier: "LicenseRef-Proprietary"
@@ -1602,7 +1602,7 @@ paths:
         - "Store"
       summary: "本人订单列表和状态筛选"
       operationId: "getStoreOrders"
-      description: "仅返回当前 CUSTOMER 的订单，默认按 created_at DESC,order_id DESC 稳定排序。B9 只对待付款且未过期、无 payment_intent 的订单返回 CANCEL 动作；不返回 PAY、物流、履约或售后写操作。"
+      description: "仅返回当前 CUSTOMER 的订单，默认按 created_at DESC,order_id DESC 稳定排序。B10 对未过期且可创建或复用支付意图的待付款订单返回 PAY；可主动关闭的订单返回 CANCEL，关闭或支付结果尚不确定时不返回任何重复支付或取消动作。物流、履约和普通售后写操作仍不开放。"
       security:
         -
           bearerAuth: []
@@ -1765,7 +1765,7 @@ paths:
         - "Store"
       summary: "订单、支付、退款、履约和售后聚合详情"
       operationId: "getStoreOrdersByOrderId"
-      description: "仅当前 CUSTOMER 可读取本人订单，跨客户访问统一返回 404。B9 解密并返回订单冻结收货地址，支付尝试、物流、履约和售后数组保持为空，不开放 B10 及后续阶段动作。"
+      description: "仅当前 CUSTOMER 可读取本人订单，跨客户访问统一返回 404。解密并返回订单冻结收货地址；B10 返回已持久化的支付尝试和迟到支付退款尝试，并按当前状态仅开放 PAY 或 CANCEL。物流、履约和普通售后数组仍为空。"
       security:
         -
           bearerAuth: []
@@ -1809,9 +1809,9 @@ paths:
     post:
       tags:
         - "Store"
-      summary: "取消本人待付款订单并释放库存"
+      summary: "取消本人待付款订单；必要时先异步关闭支付意图"
       operationId: "postStoreOrdersByOrderIdCancel"
-      description: "仅未过期、PENDING_PAYMENT 且不存在任何 payment_intent 的本人订单可主动取消。If-Match 必须对应订单 version；版本或状态冲突返回闭合 409。使用 HASH_ONLY 幂等；完整幂等重放先于 If-Match 校验并返回同一订单的当前投影。已由当前客户取消的订单使用新幂等键重复取消也返回当前投影；其他不可取消状态返回 ORDER_NOT_CANCELLABLE。"
+      description: "仅未过期、PENDING_PAYMENT 且无任何成功支付事实的本人订单可主动取消。不存在 payment_intent 或仅有失败终态 intent 时同步关闭订单并释放库存；CREATING/OPEN intent 先原子转为 CLOSE_PENDING，再于事务外 query/close Provider。Provider 尚无法确认时返回 202，订单与库存预占保持不变；确认不可支付后才关闭订单并释放库存，确认已支付则转入正常或迟到支付处理。If-Match 必须对应订单 version；版本或状态冲突返回闭合 409。使用 HASH_ONLY 幂等；完整幂等重放先于 If-Match 校验并返回同一订单的当前投影。已由当前客户取消的订单使用新幂等键重复取消也返回当前投影；其他不可取消状态返回 ORDER_NOT_CANCELLABLE。"
       security:
         -
           bearerAuth: []
@@ -1830,6 +1830,17 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/StoreOrderResponse"
+        202:
+          description: "支付意图已进入 CLOSE_PENDING，等待 Provider 确认；订单和库存预占尚未释放"
           headers:
             Cache-Control:
               "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
@@ -1860,6 +1871,7 @@ paths:
       tags:
         - "Store"
       summary: "创建或复用唯一非终态意图，按稳定 intent_no 调用/对账 Provider"
+      description: "仅订单所有者可用。服务端按受控环境配置选择 Provider，客户端不得指定 Provider。If-Match 绑定订单版本，Idempotency-Key 使用 HASH_ONLY；完整幂等重放先于 If-Match 与支付期限校验。支付期限已过返回 ORDER_PAYMENT_EXPIRED，不允许支付返回 PAYMENT_NOT_ALLOWED；Provider 或配置不可用时 fail closed 返回闭合 503。"
       operationId: "postStoreOrdersByOrderIdPaymentIntents"
       security:
         -
@@ -1871,43 +1883,41 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              "$ref": "#/components/schemas/PaymentIntentRequest"
+        -
+          "$ref": "#/components/parameters/IfMatch"
       responses:
         200:
           description: "成功"
           headers:
             Cache-Control:
-              "$ref": "#/components/headers/CacheControlNoStore"
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
             Pragma:
-              "$ref": "#/components/headers/PragmaNoCache"
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/PaymentIntentResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreCustomerError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreCustomerError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreCustomerError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreCustomerError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreCustomerConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreCustomerError"
+        503:
+          "$ref": "#/components/responses/StoreCustomerPaymentUnavailable"
   /store/orders/{order_id}/confirm-receipt:
     post:
       tags:
@@ -1924,7 +1934,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
       responses:
@@ -1966,7 +1976,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
       responses:
         200:
           description: "成功"
@@ -1995,6 +2005,7 @@ paths:
       tags:
         - "Callbacks"
       summary: "微信支付通知收件箱"
+      description: "仅在真实微信支付配置完整时注册路由；未配置时不得注册。必须基于未经解析的原始请求体与四个 WeChatpay 头完成验签，再以 Provider 事件唯一键持久化 Inbox；不得记录原始报文、签名、证书材料或解密后的敏感字段。"
       operationId: "postCallbacksWechatPay"
       security:
         -
@@ -2029,6 +2040,7 @@ paths:
       tags:
         - "Callbacks"
       summary: "微信退款通知收件箱"
+      description: "仅在真实微信支付配置完整时注册路由；未配置时不得注册。必须基于未经解析的原始请求体与四个 WeChatpay 头完成验签，再以 Provider 事件唯一键持久化 Inbox；不得记录原始报文、签名、证书材料或解密后的敏感字段。"
       operationId: "postCallbacksWechatRefund"
       security:
         -
@@ -2063,6 +2075,7 @@ paths:
       tags:
         - "Store"
       summary: "Mock Provider 成功、失败、取消、迟到成功"
+      description: "仅允许在 development 注册，其他环境不得暴露。payment_intent_id 必须属于当前 CUSTOMER 的订单，跨客户访问统一返回 404。请求仅表达 SUCCEEDED、FAILED 或 CANCELLED；Provider 事件号与交易号由服务端生成。服务端根据数据库时间和订单状态判定正常成功或迟到成功，客户端不得指定 SUCCEEDED_LATE。命令使用 HASH_ONLY 幂等，成功接收后以 202 写入 Callback Inbox 异步处理；同一结果事实冲突返回 PAYMENT_RESULT_CONFLICT。"
       operationId: "postStoreMockPaymentsByPaymentIntentIdResult"
       security:
         -
@@ -2074,7 +2087,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -2084,33 +2097,35 @@ paths:
             schema:
               "$ref": "#/components/schemas/MockPaymentResultRequest"
       responses:
-        200:
-          description: "成功"
+        202:
+          description: "Mock 结果已写入 Callback Inbox，等待异步处理"
           headers:
             Cache-Control:
-              "$ref": "#/components/headers/CacheControlNoStore"
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
             Pragma:
-              "$ref": "#/components/headers/PragmaNoCache"
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/PaymentIntentResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreCustomerError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreCustomerError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreCustomerError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreCustomerError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreCustomerConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreCustomerError"
+        503:
+          "$ref": "#/components/responses/StoreCustomerPaymentUnavailable"
   /store/aftersales:
     post:
       tags:
@@ -3144,7 +3159,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
       responses:
         200:
           description: "成功"
@@ -7015,7 +7030,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
       responses:
         200:
           description: "成功"
@@ -7056,7 +7071,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           name: "X-Access-Purpose"
           in: "header"
@@ -7120,7 +7135,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -7216,7 +7231,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
         -
@@ -7892,7 +7907,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -7948,7 +7963,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
         -
@@ -7991,7 +8006,8 @@ paths:
     get:
       tags:
         - "Admin"
-      summary: "查询 CREATING/OPEN/CLOSE_PENDING 对账待办及 last_error_code"
+      summary: "查询支付意图与迟到支付退款的最小对账待办"
+      description: "只读返回 CREATING/OPEN/CLOSE_PENDING 支付意图、已成功扣款但结算配置异常的 MANUAL_REQUIRED 待办，以及 LATE_PAYMENT 退款的 PENDING/PROCESSING/FAILED 或 MANUAL_REQUIRED 待办。响应不包含支付 capability、Provider 原文、交易号、客户标识或 PII；每项使用关联 payment_intent_id 触发统一 reconcile。"
       operationId: "getAdminPaymentIntentsReconciliationTasks"
       security:
         -
@@ -8002,7 +8018,18 @@ paths:
         -
           "$ref": "#/components/parameters/PageSize"
         -
-          name: "status"
+          name: "task_type"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+            enum:
+              - "PAYMENT_INTENT"
+              - "PAYMENT_SETTLEMENT"
+              - "LATE_PAYMENT_REFUND"
+          description: "对账待办类型"
+        -
+          name: "intent_status"
           in: "query"
           required: false
           schema:
@@ -8012,6 +8039,27 @@ paths:
               - "OPEN"
               - "CLOSE_PENDING"
           description: "可恢复意图状态"
+        -
+          name: "refund_status"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+            enum:
+              - "PENDING"
+              - "PROCESSING"
+              - "FAILED"
+          description: "迟到支付退款处理状态"
+        -
+          name: "payment_resolution"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+            enum:
+              - "LATE_SUCCESS_REFUND_PENDING"
+              - "MANUAL_REQUIRED"
+          description: "订单支付收敛状态"
         -
           name: "last_error_code"
           in: "query"
@@ -8031,6 +8079,11 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -8055,7 +8108,8 @@ paths:
     post:
       tags:
         - "Admin"
-      summary: "幂等触发按 intent_no 查询恢复，不直接篡改状态"
+      summary: "幂等触发支付意图及关联迟到退款收敛"
+      description: "按关联 payment_intent_id 触发受控 Provider query/close/refund 查询，或将同一支付意图及其唯一 LATE_PAYMENT 退款写入对账队列。不接受目标状态，也不得直接修改支付意图、订单、库存、退款或佣金状态。同步完成并收敛返回 200；已安全接收但仍待 Provider 确认返回 202。只返回最小对账投影，不返回支付 capability。"
       operationId: "postAdminPaymentIntentsByPaymentIntentIdReconcile"
       security:
         -
@@ -8067,7 +8121,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -8081,13 +8135,24 @@ paths:
           description: "成功"
           headers:
             Cache-Control:
-              "$ref": "#/components/headers/CacheControlNoStore"
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
             Pragma:
-              "$ref": "#/components/headers/PragmaNoCache"
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/PaymentIntentResponse"
+                "$ref": "#/components/schemas/PaymentReconciliationConvergedResponse"
+        202:
+          description: "对账任务已安全接收并进入异步队列"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/PaymentReconciliationPendingResponse"
         400:
           "$ref": "#/components/responses/BadRequest"
         401:
@@ -8120,7 +8185,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -8176,7 +8241,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
         -
@@ -9723,7 +9788,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
       responses:
         200:
           description: "成功"
@@ -10794,7 +10859,7 @@ components:
               request_id:
                 type: "string"
     StoreCustomerError:
-      description: "B8/B9 登录后 Store 接口的通用错误；不得缓存或回显被拒绝的个性化值。"
+      description: "B8/B9/B10 登录后 Store 接口的通用错误；不得缓存或回显被拒绝的个性化值。"
       headers:
         Cache-Control:
           "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
@@ -10827,7 +10892,7 @@ components:
               request_id:
                 type: "string"
     StoreCustomerConflict:
-      description: "B8/B9 登录后 Store 接口的闭合版本、状态、幂等或报价冲突响应。"
+      description: "B8/B9/B10 登录后 Store 接口的闭合版本、状态、幂等、报价或支付结果冲突响应。"
       headers:
         Cache-Control:
           "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
@@ -10842,7 +10907,7 @@ components:
             properties:
               code:
                 type: "string"
-                enum: ["RESOURCE_VERSION_CONFLICT", "STATE_CONFLICT", "CHECKOUT_QUOTE_EXPIRED", "CHECKOUT_QUOTE_MISMATCH", "CHECKOUT_REQUOTE_REQUIRED", "ORDER_NOT_CANCELLABLE"]
+                enum: ["RESOURCE_VERSION_CONFLICT", "STATE_CONFLICT", "CHECKOUT_QUOTE_EXPIRED", "CHECKOUT_QUOTE_MISMATCH", "CHECKOUT_REQUOTE_REQUIRED", "ORDER_NOT_CANCELLABLE", "ORDER_PAYMENT_EXPIRED", "PAYMENT_NOT_ALLOWED", "PAYMENT_RESULT_CONFLICT"]
               message:
                 type: "string"
               details:
@@ -10861,7 +10926,7 @@ components:
               request_id:
                 type: "string"
     StoreCustomerBusinessError:
-      description: "B8/B9 登录后 Store 接口的闭合业务校验响应。"
+      description: "B8/B9/B10 登录后 Store 接口的闭合业务校验响应。"
       headers:
         Cache-Control:
           "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
@@ -10895,7 +10960,7 @@ components:
               request_id:
                 type: "string"
     StoreCustomerRateLimited:
-      description: "B8 的 13 个登录后收藏、购物车和地址 operation 与 B9 的 5 个报价/订单 operation 共享 Redis 固定窗口；key 只保存 CUSTOMER 与规范化来源 IP 组合的用途隔离 HMAC，每个组合每 60 秒最多 120 次。超限返回准确 Retry-After；Redis 不可用时 fail closed。"
+      description: "B8 的 13 个登录后收藏、购物车和地址 operation、B9 的 5 个报价/订单 operation 与 B10 的 2 个支付 operation 共享 Redis 固定窗口；key 只保存 CUSTOMER 与规范化来源 IP 组合的用途隔离 HMAC，每个组合每 60 秒最多 120 次。超限返回准确 Retry-After；Redis 不可用时 fail closed。"
       headers:
         Cache-Control:
           "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
@@ -10917,6 +10982,40 @@ components:
             properties:
               code:
                 const: "RATE_LIMITED"
+              message:
+                type: "string"
+              details:
+                type: "array"
+                items:
+                  type: "object"
+                  additionalProperties: false
+                  required: ["field", "reason"]
+                  properties:
+                    field:
+                      type: ["string", "null"]
+                    reason:
+                      type: "string"
+                    rejected_value:
+                      type: "null"
+              request_id:
+                type: "string"
+    StoreCustomerPaymentUnavailable:
+      description: "B10 支付 Provider 或服务端支付配置不可用时的闭合 fail-closed 响应；不得回显配置值、Provider 原文、签名、证书或个性化数据。"
+      headers:
+        Cache-Control:
+          "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+        Pragma:
+          "$ref": "#/components/headers/StorePragmaNoCacheRequired"
+      content:
+        application/json:
+          schema:
+            type: "object"
+            additionalProperties: false
+            required: ["code", "message", "request_id"]
+            properties:
+              code:
+                type: "string"
+                enum: ["PAYMENT_PROVIDER_UNAVAILABLE", "PAYMENT_CONFIGURATION_UNAVAILABLE"]
               message:
                 type: "string"
               details:
@@ -12963,17 +13062,6 @@ components:
           "$ref": "#/components/schemas/PositiveMoney"
         bank_account_id:
           type: "string"
-    PaymentIntentRequest:
-      type: "object"
-      additionalProperties: false
-      required:
-        - "provider"
-      properties:
-        provider:
-          type: "string"
-          enum:
-            - "WECHAT"
-            - "MOCK"
     MockPaymentResultRequest:
       type: "object"
       additionalProperties: false
@@ -12986,11 +13074,6 @@ components:
             - "SUCCEEDED"
             - "FAILED"
             - "CANCELLED"
-            - "SUCCEEDED_LATE"
-        provider_transaction_id:
-          type:
-            - "string"
-            - "null"
     BrandCreateRequest:
       type: "object"
       additionalProperties: false
@@ -17115,8 +17198,8 @@ components:
           uniqueItems: true
           items:
             type: "string"
-            const: "CANCEL"
-          description: "B9 仅在未过期、待付款且无支付意图时返回 CANCEL；其余状态返回空数组。"
+            enum: ["PAY", "CANCEL"]
+          description: "B10 对未过期、待付款且允许创建或复用支付意图的订单返回 PAY；无支付意图或仅有失败终态 intent 且可主动取消时返回 CANCEL。两个动作均由服务端当前投影决定；关闭或支付结果未决时返回空数组。"
         aftersale_summary:
           "$ref": "#/components/schemas/OrderAftersaleListSummary"
         created_at:
@@ -18395,42 +18478,112 @@ components:
         request_id:
           type: "string"
     PaymentReconciliationView:
-      type: "object"
-      additionalProperties: false
-      required:
-        - "payment_intent_id"
-        - "intent_no"
-        - "status"
-        - "last_error_code"
-        - "reconciliation_attempt_count"
-        - "next_reconcile_at"
-        - "version"
-      properties:
-        payment_intent_id:
-          type: "string"
-        intent_no:
-          type: "string"
-        status:
-          type: "string"
-          enum:
-            - "CREATING"
-            - "OPEN"
-            - "CLOSE_PENDING"
-        last_error_code:
-          type:
-            - "string"
-            - "null"
-        reconciliation_attempt_count:
-          type: "integer"
-          minimum: 0
-        next_reconcile_at:
-          type:
-            - "string"
-            - "null"
-          format: "date-time"
-        version:
-          type: "integer"
-          minimum: 1
+      oneOf:
+        -
+          type: "object"
+          additionalProperties: false
+          required: ["task_type", "payment_intent_id", "refund_id", "order_id", "reference_no", "status", "payment_resolution", "last_error_code", "reconciliation_attempt_count", "next_reconcile_at", "version"]
+          properties:
+            task_type:
+              const: "PAYMENT_INTENT"
+            payment_intent_id:
+              type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+            refund_id:
+              type: "null"
+            order_id:
+              type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+            reference_no:
+              type: "string"
+              description: "脱敏稳定 intent_no；不是 Provider 标识。"
+            status:
+              type: "string"
+              enum: ["CREATING", "OPEN", "CLOSE_PENDING"]
+            payment_resolution:
+              type: "null"
+            last_error_code:
+              type: ["string", "null"]
+            reconciliation_attempt_count:
+              type: "integer"
+              minimum: 0
+            next_reconcile_at:
+              type: ["string", "null"]
+              format: "date-time"
+            version:
+              type: "integer"
+              minimum: 1
+        -
+          type: "object"
+          additionalProperties: false
+          required: ["task_type", "payment_intent_id", "refund_id", "order_id", "reference_no", "status", "payment_resolution", "last_error_code", "reconciliation_attempt_count", "next_reconcile_at", "version"]
+          properties:
+            task_type:
+              const: "PAYMENT_SETTLEMENT"
+            payment_intent_id:
+              type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+            refund_id:
+              type: "null"
+            order_id:
+              type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+            reference_no:
+              type: "string"
+              description: "脱敏稳定 intent_no；不是 Provider 标识。"
+            status:
+              const: "SUCCEEDED"
+            payment_resolution:
+              const: "MANUAL_REQUIRED"
+            last_error_code:
+              type: "string"
+              minLength: 1
+            reconciliation_attempt_count:
+              type: "integer"
+              minimum: 0
+            next_reconcile_at:
+              type: "null"
+            version:
+              type: "integer"
+              minimum: 1
+        -
+          type: "object"
+          additionalProperties: false
+          required: ["task_type", "payment_intent_id", "refund_id", "order_id", "reference_no", "status", "payment_resolution", "last_error_code", "reconciliation_attempt_count", "next_reconcile_at", "version"]
+          properties:
+            task_type:
+              const: "LATE_PAYMENT_REFUND"
+            payment_intent_id:
+              type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+              description: "关联迟到成功支付意图，也是 reconcile 操作的路径 ID。"
+            refund_id:
+              type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+            order_id:
+              type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+            reference_no:
+              type: "string"
+              description: "脱敏稳定 refund_no；不是 Provider 标识。"
+            status:
+              type: "string"
+              enum: ["PENDING", "PROCESSING", "FAILED"]
+            payment_resolution:
+              type: "string"
+              enum: ["LATE_SUCCESS_REFUND_PENDING", "MANUAL_REQUIRED"]
+            last_error_code:
+              type: ["string", "null"]
+            reconciliation_attempt_count:
+              type: "integer"
+              minimum: 0
+            next_reconcile_at:
+              type: ["string", "null"]
+              format: "date-time"
+            version:
+              type: "integer"
+              minimum: 1
+      description: "ADM-10 最小安全待办联合；三分支均禁止 Provider payload、capability、交易号、客户标识与 PII。"
     PaymentReconciliationListResponse:
       type: "object"
       additionalProperties: false
@@ -18473,6 +18626,88 @@ components:
                 total:
                   type: "integer"
                   minimum: 0
+        request_id:
+          type: "string"
+    PaymentReconciliationConvergedResponse:
+      type: "object"
+      additionalProperties: false
+      required: ["code", "message", "data", "request_id"]
+      properties:
+        code:
+          const: "OK"
+        message:
+          const: "success"
+        data:
+          oneOf:
+            -
+              type: "object"
+              additionalProperties: false
+              required: ["outcome", "payment_intent_id", "refund_id", "order_id", "payment_intent_status", "refund_status", "payment_resolution", "last_error_code", "version"]
+              properties:
+                outcome:
+                  const: "CONVERGED"
+                payment_intent_id:
+                  type: "string"
+                  pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+                refund_id:
+                  type: "null"
+                order_id:
+                  type: "string"
+                  pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+                payment_intent_status:
+                  type: "string"
+                  enum: ["CLOSED", "SUCCEEDED", "FAILED", "CANCELLED", "EXPIRED"]
+                refund_status:
+                  type: "null"
+                payment_resolution:
+                  const: "NORMAL"
+                last_error_code:
+                  type: "null"
+                version:
+                  type: "integer"
+                  minimum: 1
+            -
+              type: "object"
+              additionalProperties: false
+              required: ["outcome", "payment_intent_id", "refund_id", "order_id", "payment_intent_status", "refund_status", "payment_resolution", "last_error_code", "version"]
+              properties:
+                outcome:
+                  const: "CONVERGED"
+                payment_intent_id:
+                  type: "string"
+                  pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+                refund_id:
+                  type: "string"
+                  pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+                order_id:
+                  type: "string"
+                  pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+                payment_intent_status:
+                  type: "string"
+                  enum: ["CLOSED", "EXPIRED"]
+                refund_status:
+                  const: "SUCCEEDED"
+                payment_resolution:
+                  const: "LATE_SUCCESS_REFUNDED"
+                last_error_code:
+                  type: "null"
+                version:
+                  type: "integer"
+                  minimum: 1
+          description: "Provider 查询及必要的迟到退款已收敛；不包含 capability 或 Provider 原文。"
+        request_id:
+          type: "string"
+    PaymentReconciliationPendingResponse:
+      type: "object"
+      additionalProperties: false
+      required: ["code", "message", "data", "request_id"]
+      properties:
+        code:
+          const: "ACCEPTED"
+        message:
+          const: "accepted"
+        data:
+          "$ref": "#/components/schemas/PaymentReconciliationView"
         request_id:
           type: "string"
     AgentView:
@@ -20397,7 +20632,7 @@ components:
           type: "string"
         status:
           type: "string"
-          enum: ["CREATING", "OPEN", "SUCCEEDED", "FAILED", "CLOSE_PENDING", "CLOSED"]
+          enum: ["INITIATED", "SUCCEEDED", "SUCCEEDED_LATE", "FAILED", "CANCELLED"]
         amount:
           "$ref": "#/components/schemas/NonNegativeMoney"
         provider_transaction_id_masked:
@@ -20431,7 +20666,7 @@ components:
           enum: ["AFTERSALE", "LATE_PAYMENT", "MANUAL_COMPENSATION"]
         status:
           type: "string"
-          enum: ["PENDING", "PROCESSING", "SUCCEEDED", "FAILED"]
+          enum: ["INITIATED", "PROCESSING", "SUCCEEDED", "FAILED"]
         amount:
           "$ref": "#/components/schemas/NonNegativeMoney"
         last_error:
@@ -20607,8 +20842,8 @@ components:
               uniqueItems: true
               items:
                 type: "string"
-                const: "CANCEL"
-              description: "B9 仅在未过期、待付款且无支付意图时返回 CANCEL；其余状态返回空数组。"
+                enum: ["PAY", "CANCEL"]
+              description: "B10 对未过期、待付款且允许创建或复用支付意图的订单返回 PAY；无支付意图或仅有失败终态 intent 且可主动取消时返回 CANCEL。两个动作均由服务端当前投影决定；关闭或支付结果未决时返回空数组。"
             timeline:
               type: "array"
               items:
@@ -20627,14 +20862,12 @@ components:
                 "$ref": "#/components/schemas/OrderAftersaleSummaryView"
             payment_attempts:
               type: "array"
-              maxItems: 0
-              description: "B9 不创建支付意图，固定返回空数组。"
+              description: "按 created_at ASC,payment_attempt_id ASC 返回已创建的支付尝试；没有尝试时为空数组。"
               items:
                 "$ref": "#/components/schemas/PaymentAttemptDetailView"
             refund_attempts:
               type: "array"
-              maxItems: 0
-              description: "B9 未开放退款，固定返回空数组。"
+              description: "仅返回 B10 迟到支付自动退款尝试；没有退款时为空数组，消费者主动退款仍未开放。"
               items:
                 "$ref": "#/components/schemas/RefundAttemptDetailView"
             errors:

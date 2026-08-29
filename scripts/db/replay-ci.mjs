@@ -121,6 +121,132 @@ function verifyB9IndexPlans(connection) {
   console.log("B9 migration index plans verified");
 }
 
+function verifyB10MigrationFailurePaths(replay, migrator) {
+  const indexNames = [
+    "uq_payment_attempt_one_success_per_intent",
+    "uq_refund_one_late_payment_per_order",
+  ];
+  const scenarios = [
+    {
+      name: "duplicate successful payment attempts",
+      expectedError: "payment attempt contains duplicate successful facts per intent",
+      setup: `
+        SET session_replication_role = replica;
+        INSERT INTO public.payment_attempt (
+          id, payment_intent_id, provider, status, amount
+        ) VALUES
+          ('01J00000000000000000000005', '01J00000000000000000000007', 'MOCK', 'SUCCEEDED', 1.00),
+          ('01J00000000000000000000006', '01J00000000000000000000007', 'MOCK', 'SUCCEEDED_LATE', 1.00);
+        SET session_replication_role = origin;
+      `,
+      cleanup: `
+        SET session_replication_role = replica;
+        DELETE FROM public.payment_attempt
+        WHERE id IN ('01J00000000000000000000005', '01J00000000000000000000006');
+        SET session_replication_role = origin;
+      `,
+    },
+    {
+      name: "duplicate late-payment refunds",
+      expectedError: "refund contains duplicate late-payment facts per order",
+      setup: `
+        SET session_replication_role = replica;
+        INSERT INTO public.refund (
+          id, refund_no, order_id, origin_type, provider, amount, reason,
+          is_late_payment_refund, updated_at
+        ) VALUES
+          ('01J00000000000000000000008', 'RF-B10-MIGRATION-0001', '01J0000000000000000000000A', 'LATE_PAYMENT', 'MOCK', 1.00, 'B10 duplicate preflight fixture', TRUE, CURRENT_TIMESTAMP),
+          ('01J00000000000000000000009', 'RF-B10-MIGRATION-0002', '01J0000000000000000000000A', 'LATE_PAYMENT', 'MOCK', 1.00, 'B10 duplicate preflight fixture', TRUE, CURRENT_TIMESTAMP);
+        SET session_replication_role = origin;
+      `,
+      cleanup: `
+        SET session_replication_role = replica;
+        DELETE FROM public.refund
+        WHERE id IN ('01J00000000000000000000008', '01J00000000000000000000009');
+        SET session_replication_role = origin;
+      `,
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    runPsql(replay, [], scenario.setup);
+    let migrationUnexpectedlySucceeded = false;
+    let expectedPreflightFailure = false;
+    let residue;
+    try {
+      const failure = spawnSync(
+        "psql",
+        [
+          "-X",
+          "-v", "ON_ERROR_STOP=1",
+          "--set=VERBOSITY=verbose",
+          "-f", "prisma/migrations/0003_b10_payment_fact_indexes/migration.sql",
+        ],
+        {
+          env: postgresEnvironment(migrator),
+          encoding: "utf8",
+          stdio: ["ignore", "ignore", "pipe"],
+        },
+      );
+      if (failure.error) throw failure.error;
+      migrationUnexpectedlySucceeded = failure.status === 0;
+      expectedPreflightFailure = failure.stderr.includes(scenario.expectedError) &&
+        /ERROR:\s+23505:/.test(failure.stderr);
+      residue = runPsql(replay, [
+        "-Atqc",
+        `SELECT count(*) FROM pg_class
+         WHERE relkind = 'i' AND relname IN (${indexNames.map((name) => `'${name}'`).join(", ")})`,
+      ], undefined, true);
+    } finally {
+      runPsql(replay, [], `
+        DROP INDEX IF EXISTS public."${indexNames[0]}";
+        DROP INDEX IF EXISTS public."${indexNames[1]}";
+        ${scenario.cleanup}
+      `);
+    }
+
+    if (migrationUnexpectedlySucceeded) {
+      throw new Error(`B10 migration accepted ${scenario.name}`);
+    }
+    if (!expectedPreflightFailure) {
+      throw new Error(`B10 migration failed for an unexpected reason while testing ${scenario.name}`);
+    }
+    if (residue !== "0") {
+      throw new Error(`B10 migration failure left an index while testing ${scenario.name}`);
+    }
+  }
+  console.log("B10 duplicate-fact preflights failed atomically as expected");
+}
+
+function verifyB10IndexPlans(connection) {
+  const paymentPlan = runPsql(connection, [
+    "-Atqc",
+    `SET enable_seqscan = off;
+     EXPLAIN (COSTS OFF)
+     SELECT id
+     FROM public.payment_attempt
+     WHERE payment_intent_id = '01J00000000000000000000007'
+       AND status IN ('SUCCEEDED', 'SUCCEEDED_LATE')`,
+  ], undefined, true);
+  if (!paymentPlan.includes("uq_payment_attempt_one_success_per_intent")) {
+    throw new Error("B10 successful payment-attempt lookup does not use the unique index");
+  }
+
+  const refundPlan = runPsql(connection, [
+    "-Atqc",
+    `SET enable_seqscan = off;
+     EXPLAIN (COSTS OFF)
+     SELECT id
+     FROM public.refund
+     WHERE order_id = '01J0000000000000000000000A'
+       AND origin_type = 'LATE_PAYMENT'`,
+  ], undefined, true);
+  if (!refundPlan.includes("uq_refund_one_late_payment_per_order")) {
+    throw new Error("B10 late-payment refund lookup does not use the unique index");
+  }
+  console.log("B10 migration index plans verified");
+}
+
 try {
   const replayRaw = process.env.REPLAY_DATABASE_URL || process.env.DIRECT_URL;
   if (!replayRaw) throw new Error("REPLAY_DATABASE_URL (or CI DIRECT_URL) is required");
@@ -176,6 +302,7 @@ try {
   if (result.status !== 0) throw new Error("Prisma baseline registration failed");
 
   verifyB9MigrationFailurePath(replay, migratorConnection);
+  verifyB10MigrationFailurePaths(replay, migratorConnection);
 
   const deploy = prismaInvocation([
     "migrate",
@@ -193,6 +320,7 @@ try {
   runPsql(replay, ["-f", "scripts/db/sql/post-bootstrap.sql"]);
   runPsql(replay, ["-At", "-f", "scripts/db/sql/verify.sql"]);
   verifyB9IndexPlans(migratorConnection);
+  verifyB10IndexPlans(migratorConnection);
   const diff = prismaInvocation([
     "migrate",
     "diff",

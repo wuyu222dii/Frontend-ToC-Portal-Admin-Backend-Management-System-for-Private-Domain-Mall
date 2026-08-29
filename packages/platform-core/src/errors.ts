@@ -13,6 +13,9 @@ export const APPLICATION_ERROR_HTTP_STATUS = {
   CHECKOUT_QUOTE_MISMATCH: 409,
   CHECKOUT_REQUOTE_REQUIRED: 409,
   ORDER_NOT_CANCELLABLE: 409,
+  ORDER_PAYMENT_EXPIRED: 409,
+  PAYMENT_NOT_ALLOWED: 409,
+  PAYMENT_RESULT_CONFLICT: 409,
   SOFT_DELETED_KEY_RESERVED: 409,
   PREVIEW_EXPIRED: 409,
   CONFIRMATION_MISMATCH: 409,
@@ -31,6 +34,8 @@ export const APPLICATION_ERROR_HTTP_STATUS = {
   RATE_LIMITED: 429,
   REAUTH_LOCKED: 429,
   INTERNAL_ERROR: 500,
+  PAYMENT_PROVIDER_UNAVAILABLE: 503,
+  PAYMENT_CONFIGURATION_UNAVAILABLE: 503,
 } as const;
 
 export const APPLICATION_ERROR_PUBLIC_MESSAGE: Readonly<Record<ApplicationErrorCode, string>> = {
@@ -48,6 +53,9 @@ export const APPLICATION_ERROR_PUBLIC_MESSAGE: Readonly<Record<ApplicationErrorC
   CHECKOUT_QUOTE_MISMATCH: 'The checkout quote does not match this request',
   CHECKOUT_REQUOTE_REQUIRED: 'The checkout facts have changed; request a new quote',
   ORDER_NOT_CANCELLABLE: 'The order cannot be cancelled',
+  ORDER_PAYMENT_EXPIRED: 'The order payment window has expired',
+  PAYMENT_NOT_ALLOWED: 'Payment is not allowed for this order',
+  PAYMENT_RESULT_CONFLICT: 'The payment result conflicts with the current state',
   SOFT_DELETED_KEY_RESERVED: 'The archived business key is reserved',
   PREVIEW_EXPIRED: 'The confirmation preview has expired',
   CONFIRMATION_MISMATCH: 'The confirmation does not match the preview',
@@ -66,6 +74,8 @@ export const APPLICATION_ERROR_PUBLIC_MESSAGE: Readonly<Record<ApplicationErrorC
   RATE_LIMITED: 'Too many requests',
   REAUTH_LOCKED: 'Reauthentication is temporarily locked',
   INTERNAL_ERROR: 'An unexpected error occurred',
+  PAYMENT_PROVIDER_UNAVAILABLE: 'The payment service is temporarily unavailable',
+  PAYMENT_CONFIGURATION_UNAVAILABLE: 'Payment is temporarily unavailable',
 };
 
 export type ApplicationErrorCode = keyof typeof APPLICATION_ERROR_HTTP_STATUS;

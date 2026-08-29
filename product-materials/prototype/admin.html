@@ -358,6 +358,10 @@
 
         <section class="page-view" data-view="orders">
           <div class="page-heading"><div><p class="page-kicker">交易管理</p><h2>订单管理</h2><p>查询订单、核对付款并完成发货。</p></div></div>
+          <article class="panel reconciliation-panel" data-admin-surface="ADM-10" aria-labelledby="reconciliationTitle">
+            <div class="reconciliation-heading"><div><p class="page-kicker">ADM-10 · 只读投影</p><h3 id="reconciliationTitle">支付对账待办</h3><p>支付意图、支付结算和迟到退款三类最小待办；只能幂等触发对账，响应不含 capability，也不能直接修改交易状态。</p></div><span class="tag info">Mock / development</span></div>
+            <div id="reconciliationRows" class="reconciliation-list" aria-live="polite"></div>
+          </article>
           <div class="order-summary-row"><button class="active" type="button" data-order-shortcut=""><span>全部订单</span><strong>1,286</strong></button><button type="button" data-order-shortcut="待付款"><span>待付款</span><strong>18</strong></button><button type="button" data-order-shortcut="待发货"><span>待发货</span><strong class="coral-text">12</strong></button><button type="button" data-order-shortcut="运输中"><span>运输中</span><strong>46</strong></button><button type="button" data-order-shortcut="已完成"><span>已完成</span><strong>1,207</strong></button><button type="button" data-order-shortcut="退款售后"><span>退款售后</span><strong>3</strong></button></div>
           <div class="filter-bar order-filter">
             <div class="filter-search"><svg class="icon"><use href="#i-search"></use></svg><input id="orderSearch" placeholder="订单号 / 姓名 / 手机号"></div>

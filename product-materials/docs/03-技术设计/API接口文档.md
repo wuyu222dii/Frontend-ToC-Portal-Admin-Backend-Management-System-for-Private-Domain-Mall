@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 |---|---|
-| 文档版本 | v2.4.7 |
-| 对应产品基线 | MVP/PRD v2.4.7、CH-001 至 CH-020 |
-| 接口阶段 | B0-B9 development 已完成；B9 最终 SHA `19f9ad57190b28d11922db805b39af95b2f7ba3b` 的普通 CI Run `33230769777` 与 Supabase development rollback-only smoke Run `33233087710` 同 SHA 且均为 `completed/success`，B9 development `GO`，CH-019 已自动失效；最终复审保持 `P0=0/P1=0/P2=1`，唯一 P2 为 TR-020 且不阻断 development；仅允许 Mock Provider 和脱敏 development，staging、production 与真实支付均为 `NO-GO` |
+| 文档版本 | v2.4.8 |
+| 对应产品基线 | MVP/PRD v2.4.8、CH-001 至 CH-022 |
+| 接口阶段 | B0-B9 development 已完成并维持 `GO`；OpenAPI 基线按 CH-022 升级为 `2.4.8-ch022`。当前只实施 B10.0 治理、契约、前向索引迁移与静态原型，B10.1 尚未开始；普通 CI、Supabase development migration 与 rollback-only smoke 尚待本批精确 SHA 证据。仅允许 Mock Provider 和脱敏 development，staging、production 与真实支付均为 `NO-GO` |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
 | 更新时间 | 2026-08-29 |
 
@@ -62,6 +62,7 @@ OpenAPI 与所有客户端只配置一个 server：`/api/v1`。下表及全文�
 
 - 时间统一使用 UTC ISO 8601，例如 `2026-08-11T02:30:00Z`；报表按 `Asia/Shanghai` 计算自然日/月。
 - ID 统一作为字符串返回，客户端不得假设为可安全运算的 JavaScript Number。
+- CH-022 将所有 `order_id`、`payment_intent_id` 与 `refund_id` 路径参数统一收紧为 26 位 ULID；非法值在进入 repository 前返回参数错误，不允许按普通字符串查询。
 - 金额使用两位小数字符串，禁止使用浮点数。OpenAPI 分为 `PositiveMoney`（业务输入和必须为正的事实）、`NonNegativeMoney`（余额、累计金额和普通响应）与 `SignedMoney`（佣金/钱包账本变动）；不得用同一个可负 schema 接收退款、售后或提现金额。
 - 佣金比例使用百分比字符串，例如 `"12.5000"` 表示 12.5%；合法范围严格为 `0.0000` 至 `100.0000`。计算固定为 `HALF_UP(commission_base * effective_rate / 100, 2)`；`null` 表示继承，`"0.0000"` 表示明确无佣金。
 - 分页默认 `page=1&page_size=20`，`page_size` 最大 100。
@@ -123,10 +124,11 @@ OpenAPI 与所有客户端只配置一个 server：`/api/v1`。下表及全文�
 | 401 | `AUTH_REQUIRED`、`SESSION_EXPIRED` | 未登录或会话失效 |
 | 403 | `PERMISSION_DENIED`、`REAUTH_REQUIRED` | 角色、数据范围或二次验证不足 |
 | 404 | `RESOURCE_NOT_FOUND` | 不存在或无权查看时统一返回 |
-| 409 | `RESOURCE_VERSION_CONFLICT`、`STATE_CONFLICT`、`SOFT_DELETED_KEY_RESERVED`、`CHECKOUT_QUOTE_EXPIRED`、`CHECKOUT_QUOTE_MISMATCH`、`CHECKOUT_REQUOTE_REQUIRED`、`ORDER_NOT_CANCELLABLE` | 乐观锁、非法状态、软删除业务键保留、报价过期/不匹配/事实漂移或订单不可取消 |
+| 409 | `RESOURCE_VERSION_CONFLICT`、`STATE_CONFLICT`、`SOFT_DELETED_KEY_RESERVED`、`CHECKOUT_QUOTE_EXPIRED`、`CHECKOUT_QUOTE_MISMATCH`、`CHECKOUT_REQUOTE_REQUIRED`、`ORDER_NOT_CANCELLABLE`、`ORDER_PAYMENT_EXPIRED`、`PAYMENT_NOT_ALLOWED`、`PAYMENT_RESULT_CONFLICT` | 乐观锁、非法状态、软删除业务键保留、报价/支付过期或不匹配、支付状态冲突或订单不可取消 |
 | 422 | `STOCK_INSUFFICIENT`、`AFTERSALE_QUOTA_EXCEEDED`、`ACTIVE_PRODUCT_DEPENDENCY`、`FILE_CONTENT_MISMATCH`、`PRODUCT_PRIMARY_IMAGE_REQUIRED`、`PRODUCT_ACTIVE_SKU_REQUIRED`、`ACTIVE_SKU_DEPENDENCY`、`ACTIVE_INVENTORY_RESERVATION`、`INVENTORY_QUANTITY_OUT_OF_RANGE`、`CART_ITEM_LIMIT_EXCEEDED`、`DEFAULT_ADDRESS_REQUIRED` | 业务依赖、活动预占、库存/购物车整数边界、默认地址约束或文件实测内容校验不通过 |
 | 429 | `RATE_LIMITED`、`REAUTH_LOCKED` | 访问或验证次数受限 |
 | 500 | `INTERNAL_ERROR` | 未预期错误，不暴露堆栈和敏感值 |
+| 503 | `PAYMENT_PROVIDER_UNAVAILABLE`、`PAYMENT_CONFIGURATION_UNAVAILABLE` | 支付 Provider 或配置暂不可用；必须 fail-closed，不得伪造支付结果 |
 
 ## 3. 公共状态类型
 
@@ -172,6 +174,13 @@ type PaymentIntentStatus =
   | "CANCELLED"
   | "EXPIRED"
   | "SUCCEEDED";
+
+type PaymentAttemptStatus =
+  | "INITIATED"
+  | "SUCCEEDED"
+  | "SUCCEEDED_LATE"
+  | "FAILED"
+  | "CANCELLED";
 
 type DisplayStatus =
   | "待付款"
@@ -486,19 +495,21 @@ B9 冻结两条不可混用的加锁协议。首次下单没有既有 order 且�
 
 创建、列表、详情与取消只返回当前 CUSTOMER 本人订单，跨客户统一 404。B9 可用动作最多只有 `CANCEL`；支付、包裹、售后和退款尝试投影为空。取消必须携带 `Idempotency-Key` 与 `If-Match`，无请求体；仅未过期、`PENDING_PAYMENT/UNPAID`、ACTIVE reservation 且不存在任何 payment_intent 的订单可写 `CLOSED/USER_CANCELLED + RELEASED` 并追加唯一 `ORDER_RELEASE` 流水。订单轴关闭时履约轴不变：主动取消或支付超时后 `fulfillment_status` 均必须保持 `NOT_STARTED`，不得写为 `CANCELLED`。已由本人取消的订单重复取消返回当前投影；过期、其他终态或存在支付意图返回 `ORDER_NOT_CANCELLABLE`。五个 B9 operation 全部复用 CUSTOMER+来源 IP 120/60 fail-closed 限流，并对成功与 JSON 错误强制 no-store/private、no-cache。
 
-以下 payment-intent、Provider query/close、支付确认和迟到支付语义属于 B10，不是 B9 实现入口：
+以下 payment-intent、Provider query/close、支付确认和迟到支付语义已由 CH-022 冻结；当前仍处于 B10.0 契约阶段，B10.1 业务实现尚未开始：
 
 首次或重试支付先在短事务中创建或复用该订单唯一活动意图，稳定商户号为 `intent_no`，初始状态 `CREATING`；提交后才调用 Provider `create(intent_no)`。B10 创建或复用 payment_intent 前必须先按全局顺序锁定 `sales_order`，并在同一短事务中重验 `order_status/payment_status/pay_expires_at/close_reason/version`；禁止先插入 payment_intent 再回头锁订单，订单已关闭或过期时必须拒绝创建。若网络不确定或进程在外部成功后、本地回写前崩溃，服务端用 `query(intent_no)` 恢复，不创建第二商户号。部分唯一索引禁止同一订单并存两笔 `CREATING/OPEN/CLOSE_PENDING` 意图；响应包含当前 `intent_status` 和闭合的 `PaymentProviderCapabilityView`，不返回 Provider 任意对象、佣金比例或归因结果。只要成功响应可能包含 `provider_payload`，就必须返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；明确创建失败/用户取消分别落 `FAILED/CANCELLED`，超过 `pay_expires_at` 返回 `ORDER_PAYMENT_EXPIRED`。
 
-用户主动取消与超时任务必须复用同一 `claim -> query/close -> finalize` 服务：第一段按全局锁序锁订单、全部订单项及活动意图，把 `CREATING/OPEN` claim 为 `CLOSE_PENDING`；事务外按稳定 `intent_no` query，必要时 close；只有 Provider 明确 `CLOSED/NOT_FOUND/EXPIRED/CANCELLED/FAILED`，第三段才重锁订单、全部订单项、意图和库存，写 `USER_CANCELLED` 或 `PAYMENT_TIMEOUT` 并释放预占。关闭失败或未知时保持 `CLOSE_PENDING`、写 `last_error_code/next_reconcile_at` 并返回“取消处理中”，不得直接关单或释放库存。
+用户主动取消与超时任务必须复用同一 `claim -> query/close -> finalize` 服务：第一段按全局锁序锁订单、全部订单项及活动意图，把 `CREATING/OPEN` claim 为 `CLOSE_PENDING`；事务外按稳定 `intent_no` query，必要时 close；只有 Provider 明确 `CLOSED/NOT_FOUND/EXPIRED/CANCELLED/FAILED`，第三段才重锁订单、全部订单项、意图和库存，写 `USER_CANCELLED` 或 `PAYMENT_TIMEOUT` 并释放预占。关闭失败或未知时保持 `CLOSE_PENDING`、写 `last_error_code/next_reconcile_at`；消费者取消返回安全的 `202` 当前投影并显示“取消处理中”，不得直接关单或释放库存。
 
 ### 4.5 支付回调与迟到支付
 
 | 方法 | 路径 | 身份 | 说明 |
 |---|---|---|---|
-| `POST` | `/callbacks/wechat-pay` | Provider | 微信支付通知收件箱 |
-| `POST` | `/callbacks/wechat-refund` | Provider | 微信退款通知收件箱 |
-| `POST` | `/store/mock-payments/{payment_intent_id}/result` | 开发/测试 | Mock Provider 成功、失败、取消、迟到成功 |
+| `POST` | `/callbacks/wechat-pay` | Provider | 兼容保留的微信支付通知契约；未配置真实微信时不注册路由 |
+| `POST` | `/callbacks/wechat-refund` | Provider | 后续普通退款契约；B10 development 不注册路由 |
+| `POST` | `/store/mock-payments/{payment_intent_id}/result` | 开发/测试 | 只接受 `SUCCEEDED/FAILED/CANCELLED`，验证后写 Inbox 并返回 202 |
+
+客户端不得提交 Provider、Provider 交易号、事件号或 `SUCCEEDED_LATE`。Provider 由 `STORE_PAYMENT_PROVIDER` 在服务端选择；Mock Provider 以服务端稳定生成的交易号/事件号判定迟到事实。全部支付个性化成功与 JSON 错误响应使用 `Cache-Control: no-store, private` 和 `Pragma: no-cache`；写操作为 `HASH_ONLY`，不得缓存 capability、Provider payload 或响应正文。
 
 微信正式回调必须以原始字节 body 验签，读取 `Wechatpay-Timestamp`、`Wechatpay-Nonce`、`Wechatpay-Serial`、`Wechatpay-Signature`，校验平台证书有效性、时间窗口和 nonce/event 重放后，才将 raw body、签名头、解析 payload 与验签结果写入 Inbox。签名失败返回 401 且不处理领域事实；合法重复事件返回微信要求的成功 ACK。证书轮换、ACK 内容、超时重试、乱序/重复事件和 raw-body 中间件集成测试是正式微信上线门禁，设计期 Mock 接口不得存在于生产路由。
 
@@ -515,7 +526,7 @@ B9 冻结两条不可混用的加锁协议。首次下单没有既有 order 且�
 
 - 不复活订单、不重新占库存、不建立代理佣金；
 - 支付尝试记录为 `SUCCEEDED_LATE`，原支付意图保持 `CLOSED/EXPIRED`，订单保持 `CLOSED/PAYMENT_TIMEOUT`；
-- `payment_resolution` 进入 `LATE_SUCCESS_REFUND_PENDING` 并自动创建全额原路退款；
+- `payment_resolution` 进入 `LATE_SUCCESS_REFUND_PENDING` 并自动创建全额原路退款，首条退款尝试固定从 `INITIATED` 开始；
 - 自动退款成功后进入 `LATE_SUCCESS_REFUNDED`；失败进入 `MANUAL_REQUIRED` 并产生财务告警。
 
 ### 4.6 售后
@@ -743,8 +754,8 @@ Product ACTIVATE 必须重查 ACTIVE 品牌、ACTIVE 分类、至少一张 `READ
 | `POST` | `/admin/aftersales/{aftersale_id}/refunds` | 使用预览确认创建退款和首次退款尝试；商户退款号在退款生命周期内稳定 |
 | `POST` | `/admin/refunds/{refund_id}/retry-preview` | 预览失败退款重试并签发新的短时确认 token |
 | `POST` | `/admin/refunds/{refund_id}/retry` | `REFUND_FAILED` 重试；必须使用不同于历次尝试的新 `Idempotency-Key` |
-| `GET` | `/admin/payment-intents/reconciliation-tasks` | 查询 CREATING/OPEN/CLOSE_PENDING 对账待办及 last_error_code |
-| `POST` | `/admin/payment-intents/{payment_intent_id}/reconcile` | 幂等触发按 intent_no 查询恢复，不直接篡改状态 |
+| `GET` | `/admin/payment-intents/reconciliation-tasks` | 只读查询 `PAYMENT_INTENT | PAYMENT_SETTLEMENT | LATE_PAYMENT_REFUND` 三类安全待办；不返回 capability、Provider 原文、交易号、客户标识或 PII |
+| `POST` | `/admin/payment-intents/{payment_intent_id}/reconcile` | 幂等触发 query/close/refund 收敛；200 表示已收敛，202 表示仍待 Provider 确认，两类响应均不携带 capability 且不直接篡改状态 |
 | `POST` | `/admin/orders/{order_id}/manual-compensations/preview` | HR-09 预览独立金额补偿的金额额度和佣金影响 |
 | `POST` | `/admin/orders/{order_id}/manual-compensations` | HR-09 确认 AMOUNT_COMPENSATION；只占金额、不占数量、不回库 |
 
@@ -945,6 +956,7 @@ Provider 回调先写入回调收件箱，再由幂等处理器消费；领域�
 - 所有写操作均要求权限、状态/版本、幂等和审计；原因、影响预览、TOTP 或凭证只在 HR 矩阵对应行要求，不得用不适用字段阻断。完整银行卡查看只在 APPROVED 提现上以本人 TOTP 换取一次性 grant，响应禁止缓存或记录明文。
 - access/refresh、受限改密 token、pre-auth、reauth grant、候选首次 token、`preview_token`、支付调用参数和签名上传/下载 URL 的成功响应统一返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；这些值不得进入服务端响应缓存、日志、追踪或截图。
 - `AUTH_TOKEN_AUDIENCE=qingxu-admin-web` 继续服务管理端，`STORE_AUTH_TOKEN_AUDIENCE=qingxu-store` 只服务消费者；守卫同时校验 role/assurance/audience。Provider 不属于 token claim；`STORE_IDENTITY_PROVIDER` 与 `STORE_PHONE_PROVIDER` 只负责选择 MOCK/WECHAT Adapter 和持久化来源。Mock 仅允许 development/test，production 缺真实微信凭据必须启动失败。
+- 支付配置新增 `STORE_PAYMENT_PROVIDER=MOCK|WECHAT`、`PAYMENT_MOCK_SIGNING_KEY_BASE64` 与 `PAYMENT_PROVIDER_TIMEOUT_MS`。Mock 支付状态存入 Redis 时 key 只使用用途隔离 HMAC，不保存原始订单、客户或来源 IP；Redis 异常或 Provider 未配置必须 fail-closed。production 配置为 `MOCK` 时进程必须启动失败。
 - 单一消费者微信应用使用 `STORE_WECHAT_APP_ID/STORE_WECHAT_APP_SECRET`；三份当前文档分别配置 `STORE_USER_AGREEMENT_VERSION/TITLE/URL`、`STORE_PRIVACY_POLICY_VERSION/TITLE/URL`、`STORE_PHONE_AUTHORIZATION_VERSION/TITLE/URL`，每个前缀对应三个独立环境变量，URL 必须为 HTTPS。客户端只能提交已获取版本，不能定义当前版本。
 - 法律文本使用 `STORE_LEGAL_RATE_LIMIT_MAX=120`、`STORE_LEGAL_RATE_LIMIT_WINDOW_SECONDS=60`，登录使用 `STORE_LOGIN_RATE_LIMIT_MAX=10`、`STORE_LOGIN_RATE_LIMIT_WINDOW_SECONDS=900`。B8 个性化购物接口和 B9 五个订单接口共享 `STORE_CUSTOMER_RATE_LIMIT_MAX=120`、`STORE_CUSTOMER_RATE_LIMIT_WINDOW_SECONDS=60`，限流键只保存 CUSTOMER 与来源 IP 的用途隔离 HMAC 摘要，不保存原始标识；均使用 Redis 服务端时间且 fail closed。
 
@@ -973,6 +985,7 @@ Provider 回调先写入回调收件箱，再由幂等处理器消费；领域�
 - CH-018 专项实测为 173 paths、198 operations、198 unique operationId、323 schemas、701 schema refs、2,653 local refs 和 0 dangling refs，Redocly 0 warning。B8 收藏、购物车、游客合并、地址及小程序均已实现；最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 的普通 CI Run `33141704459` 与 Supabase rollback-only Run `33142971501` 同 SHA 成功，B8 development `GO`，CH-017 已失效。
 - CH-020 实测保持 173 paths、198 operations 和 198 unique operationId，并固化为 325 schemas、703 schema refs、2,665 local refs、0 dangling refs，Redocly 0 warning。B9.0 门禁机器验证 Quote 无幂等键、Submit 报价绑定、CART/BUY_NOW 闭合形状、全部路径 ULID、创建 201、取消 If-Match/无 body、四个 409、五 operation 的 CUSTOMER no-store 与共享限流。
 - B9.1-B9.5 已完成。B9.3 代码与聚焦测试覆盖本人订单读取、If-Match/HASH_ONLY 取消、超时 Worker、全 payment_intent 状态 fail-closed、取消/超时唯一释放与并发锁序；关闭时履约轴保持 `NOT_STARTED`。B9.4 已完成 MP-08/10/11；B9.5 已将 `db:test-b9-store-orders`、`e2e:b9`、`e2e:b9:vertical` 接入普通 CI，并将 B9 repository smoke 接入 Supabase rollback-only。数据库 full `4 files / 29 tests`、B9 UI `12 passed / 28 designed skips`、真实 browser → Nest → PostgreSQL/Redis/MinIO → Worker `1/1`、全仓 `1,787 passed / 120 designed skips` 和精确清理均通过，三项原 P1 已关闭，最终复审为 `P0=0/P1=0/P2=1`。最终 SHA `19f9ad57190b28d11922db805b39af95b2f7ba3b` 的普通 CI Run `33230769777` 与 Supabase development rollback-only smoke Run `33233087710` 同 SHA 且均为 `completed/success`，B9 development `GO`，CH-019 已自动失效；唯一 P2 TR-020 不阻断 development，staging、production 与真实支付仍为 `NO-GO`。
+- CH-022 契约本地解析实测为 173 paths、198 operations、198 unique operationId、326 schemas、705 schema refs、2,678 local refs、0 dangling refs。该结果只证明 B10.0 契约形状；普通 CI、Supabase development migration、rollback-only smoke 与 B10.1 业务实现均尚未据此宣告完成。
 - B7.4 已实现注销后端：不合格 preview 返回 200、完整 blockers/impacts 及 null token/hash/expiry；合格预览才签发 5 分钟能力。confirm 后出现新阻断返回 422 且不消费能力、不产生部分去标识化；成功后在单事务清除登录主体/非交易 PII、结束绑定、使候选失效、匿名化代理隐私投影、写审计与 durable `PENDING account.anonymized` Outbox 事实，并将全部 session 留作 revoked tombstone。这里只证明事件事实已持久化，不宣称已投递或消费。全部旧 token 失效，HASH_ONLY 不重放完成响应；full 与受控 Supabase development rollback-only 门禁已通过，退出复审 `P0=0/P1=0`。
 - Product/SKU 固定创建状态、完整状态矩阵、恢复目标、不级联、首次 `published_at`、nullable 最低活动价、8 图、归档 SKU、零库存余额、不可变 code、201 SKU create 和四个新 422 均有契约及集成测试。
 - 非 `APPROVED` 提现无法请求完整银行卡号；短时授权不可跨提现单、跨会话或重复使用。

@@ -6,10 +6,10 @@
 |---|---|
 | 产品名称 | 洗化产品私域商城（工作名） |
 | 文档类型 | Product Requirements Document |
-| 文档版本 | v2.4.7 |
+| 文档版本 | v2.4.8 |
 | 对应阶段 | 三端标准 MVP |
 | 更新日期 | 2026-08-29 |
-| 当前状态 | B0 至 B9 development 已完成；产品/API 基线为 v2.4.7/CH-020；B9 最终 SHA `19f9ad57190b28d11922db805b39af95b2f7ba3b` 的普通 CI Run `33230769777` 与 Supabase development rollback-only smoke Run `33233087710` 同 SHA 且均为 `completed/success`，B9 development `GO`，CH-019 已自动失效；最终独立复审保持 `P0=0/P1=0/P2=1`，唯一非阻断 P2 为大量正常到期订单场景下完整性扫描工作量尚未有界；仅允许 Mock Provider 和脱敏 development，真实支付、staging/production `NO-GO` |
+| 当前状态 | B0 至 B9 development 已完成并维持 `GO`；产品/API 基线按 CH-022 升级为 `v2.4.8 / 2.4.8-ch022`。当前只实施 B10.0 治理、契约、前向索引迁移与静态原型，本地契约/数据库/静态原型门禁通过，远端三项待准确 SHA 实测，B10.1 尚未开始；仅允许 Mock Provider 和脱敏 development，真实微信支付、staging/production `NO-GO` |
 | 产品终端 | 消费者微信小程序、一级代理工作台、总部管理后台 |
 | 人员角色 | `CUSTOMER`、`AGENT_ADMIN`、`SUPER_ADMIN` |
 
@@ -29,7 +29,8 @@
 | v2.4.4 | 2026-08-25 | 落实 CH-014：匿名目录售罄投影、综合排序、商品名搜索、无分页主数据、首页分区状态和公共限流 | 已归档；B6.0-B6.4 已完成，B6 development `GO` |
 | v2.4.5 | 2026-08-26 | 落实 CH-016：服务端法律文本、角色感知 Store 会话、资料手机号、归因/服务代理与同步账号注销契约 | 已归档；B7 development 已在最终同 SHA 双绿后 `GO`，CH-015 已失效 |
 | v2.4.6 | 2026-08-27 | 落实 CH-018：登录后收藏、服务端购物车、游客合并、收货地址隐私与共享客户限流契约 | 已归档；B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 同 SHA 双绿，B8 development `GO`，CH-017 已失效 |
-| v2.4.7 | 2026-08-28 | 落实 CH-020：结算报价凭证、待付款订单、库存预占、主动取消/超时释放与 0002 索引迁移 | 当前产品版本；B9.0-B9.5 已完成并取得最终同 SHA 双绿，B9 development `GO`，CH-019 已自动失效 |
+| v2.4.7 | 2026-08-28 | 落实 CH-020：结算报价凭证、待付款订单、库存预占、主动取消/超时释放与 0002 索引迁移 | 已归档；B9.0-B9.5 已完成并取得最终同 SHA 双绿，B9 development `GO`，CH-019 已自动失效 |
+| v2.4.8 | 2026-08-29 | 落实 CH-022：Mock 支付意图、结果消费、订单结算、关单对账、迟到支付自动退款与 0003 支付事实索引 | 当前产品版本；仅 B10.0 实施中，B10.1 未开始 |
 
 ### 文档使用约定
 
@@ -298,6 +299,8 @@
 | ADM-20 | 提现审核列表 | 代理、金额、银行卡掩码、状态、申请时间和待办 |
 | ADM-21 | 提现审核详情 | 余额与银行卡快照、本人 TOTP 短时查看/复制收款账号、审核、付款凭证、已支付 |
 | ADM-22 | 佣金规则管理 | 平台默认比例、一级分类默认比例、SKU 覆盖、有效比例预览、规则版本与审计 |
+
+B10 只复用 ADM-10 的最小支付对账区域：展示只读待办、当前 Provider 结果和幂等 reconcile 触发。完整订单管理、人工改订单/intent/attempt 状态、人工退款、履约与售后操作均不因 B10 开放。
 
 总部一级导航：看板、商品、订单、售后、客户、代理、佣金、财务、审计。
 
@@ -961,6 +964,20 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 - 两份原始 `0001_initial` 逐字节不变。新增事务型 `0002_b9_inventory_fact_indexes`，包含 `inventory_reservation_item(sku_id,reservation_id)` 与非空 business ID 的 ledger 事实条件唯一索引，不新增表、列或枚举。
 - B9 不创建 payment intent、不调用 Provider、不冻结最终代理/佣金、不开放支付、物流、售后或 Admin/Agent 订单。
 
+### 11.16 CH-022 支付、对账与迟到支付退款
+
+- OpenAPI 升级为 `2.4.8-ch022`，本地解析实测为 173 paths / 198 operations / 198 unique operationId / 326 schemas / 705 schema refs / 2,678 local refs / 0 dangling refs；所有 order_id、payment_intent_id、refund_id 路径参数统一为 ULID。
+- 服务端按环境选择 `MOCK | WECHAT` Provider，支付请求不得由客户端选择 Provider。B10 development 只注册 Mock；production 配置 Mock 必须拒绝启动，真实微信回调虽保留契约但不注册路由。
+- 创建/继续支付使用 `Idempotency-Key` 和 `If-Match`，先在订单锁下保存稳定 `intent_no + CREATING`，再于事务外调用 Provider。同键重放返回同一 intent 当前投影；已有活动 intent 必须复用查询，只有失败终态且订单仍可支付时才可新建。
+- Mock 结果只允许 `SUCCEEDED | FAILED | CANCELLED`，只验证并写 Inbox 后返回 202；交易号和事件号由服务端稳定生成，客户端不得提交交易号或 `SUCCEEDED_LATE`。支付尝试状态必须与数据库闭合集一致。
+- Worker 在 Serializable 事务中消费支付结果：唯一写 attempt、更新 intent/订单、消费预占、同时扣减实物与锁定库存、写唯一 `ORDER_PAID_DEDUCT`，再冻结最终归因和佣金规则快照。不可修复的支付后配置异常保留成功收款事实并进入 `MANUAL_REQUIRED`，不得静默发货或释放库存。
+- 用户取消/超时遇到 `CREATING/OPEN` 时先写 `CLOSE_PENDING`，再于事务外 query/close。Provider 返回 UNKNOWN 时保持库存锁定；消费者取消返回 `202` 和 `CLOSE_PENDING` 当前投影。稳定游标必须遍历全部到期候选，不能只为异常订单翻页。
+- 已关闭订单的支付成功写唯一 `SUCCEEDED_LATE`，订单保持关闭，不恢复库存、履约、归因或佣金，并创建唯一全额 `LATE_PAYMENT` 退款；退款尝试从 `INITIATED` 开始，失败或未知进入 `MANUAL_REQUIRED` 对账待办。
+- MP-09 通过服务端查询确认支付结果，不信任客户端成功参数；journal 仅保存订单 ID、订单版本和幂等键，capability 只驻留内存。ADM-10 待办类型闭合为 `PAYMENT_INTENT | PAYMENT_SETTLEMENT | LATE_PAYMENT_REFUND`，只读展示并允许幂等 reconcile；200 表示已收敛，202 表示仍待 Provider 确认，列表及两类响应均不得包含 capability，也不提供直接状态修改。
+- 支付个性化响应统一 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；写操作使用 `HASH_ONLY`，不得缓存 Provider payload、支付 capability 或响应正文。
+- 新增闭合错误 `ORDER_PAYMENT_EXPIRED | PAYMENT_NOT_ALLOWED | PAYMENT_RESULT_CONFLICT`（409）和 `PAYMENT_PROVIDER_UNAVAILABLE | PAYMENT_CONFIGURATION_UNAVAILABLE`（503）。
+- 新增事务型 `0003_b10_payment_fact_indexes`：每个 intent 最多一个成功 attempt、每个订单最多一个 `origin_type=LATE_PAYMENT` 退款；创建前先检查历史重复事实，既有迁移逐字节不变。
+
 ## 12. 数据与接口边界（产品级）
 
 ### 12.1 核心业务实体
@@ -1456,6 +1473,7 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 - 发布前执行 migration、构建、单元、集成、E2E、权限与响应式检查。
 - 若出现库存、重复佣金、越权访问或提现账实不符，应暂停对应写入口并保留查询与审计。
 - CH-020 尚未进入 B9.1 前可整体回滚文档、OpenAPI、generated contracts 和原型；进入业务实现后只关闭 Store Checkout/Order 路由和小程序导航。`0002_b9_inventory_fact_indexes` 为加法索引迁移，代码回退时保留，不执行数据库降级。
+- CH-022 尚未进入 B10.1 前可整体回滚文档、OpenAPI、generated contracts 和静态原型；进入业务实现后只关闭支付路由、Mock 结果入口、小程序支付入口和 Worker 支付处理器。`0003_b10_payment_fact_indexes` 一旦部署即作为加法索引保留，不执行数据库降级。
 
 ## 21. 数据来源、假设与待补充
 
@@ -1473,9 +1491,10 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 10. 2026-08-26 产品负责人和技术负责人批准 CH-015/CH-016：B7 单人 development 补偿控制、消费者法律文本、身份会话、资料手机号、归因/服务代理和同步账号注销契约。
 11. 2026-08-27 产品负责人和技术负责人批准 CH-017/CH-018：B8 单人 development 补偿控制、登录后收藏、服务端购物车、游客合并、地址隐私和客户限流契约。
 12. 2026-08-28 产品负责人和技术负责人批准 CH-019/CH-020：B9 单人 development 补偿控制、报价绑定、待付款订单、库存预占、主动取消/超时释放与 0002 索引迁移契约。
-13. `product-materials/docs/01-需求调研/MVP方案.md`。
-14. `product-materials/docs/01-需求调研/三端角色与代理需求确认.md`。
-15. `product-materials/docs/04-风控管理/需求变更记录.md` 中的 CH-001 至 CH-020。
+13. 2026-08-29 产品负责人和技术负责人批准 CH-021/CH-022：B10 单人脱敏 development 补偿控制、Mock 支付、支付结算、关单对账、迟到支付退款与 0003 索引迁移契约。
+14. `product-materials/docs/01-需求调研/MVP方案.md`。
+15. `product-materials/docs/01-需求调研/三端角色与代理需求确认.md`。
+16. `product-materials/docs/04-风控管理/需求变更记录.md` 中的 CH-001 至 CH-022。
 
 ### 21.2 已采用假设
 
@@ -1529,8 +1548,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | 验收场景 AC | 116 | 0 |
 | 用户故事 US | 24 | 0 |
 
-当前准入结论：B0 至 B9 development 已通过。CH-020 契约实测 173 paths/198 operations/198 unique operationId/325 schemas/703 schema refs/2,665 local refs/0 dangling refs，Redocly 0 warning。B9.0-B9.5 实现与验收已完成；B9.5 数据库 full `4 files / 29 tests`、B9 UI `12 passed / 28 designed skips`、真实 browser → Nest → PostgreSQL/Redis/MinIO → Worker `1/1`、全仓 `1,787 passed / 120 designed skips` 及精确清理均通过。最终 SHA `19f9ad57190b28d11922db805b39af95b2f7ba3b` 的普通 CI Run `33230769777` 与 Supabase development rollback-only smoke Run `33233087710` 同 SHA 且均为 `completed/success`，B9 development `GO`，CH-019 已自动失效。最终独立复审保持 `P0=0/P1=0/P2=1`，唯一非阻断 P2 为大量正常到期订单场景下完整性扫描工作量尚未有界；真实支付、staging 和 production 均未放行。
+当前准入结论：B0 至 B9 development 已通过，B9 最终同 SHA 双绿及 `GO` 证据保持有效。CH-021/CH-022 已批准，当前只实施 B10.0；本地 OpenAPI/引用统计、迁移链和静态原型门禁已通过，普通 CI、Supabase development migration、rollback-only smoke 仍须按本批最终 SHA 实测登记，未完成前不得开始 B10.1。B10 仅允许 Mock Provider 与脱敏 development；真实支付、staging 和 production 均未放行。
 
 ---
 
-PRD 状态：v2.4.7/CH-020 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B9 development 已通过。B9 最终 SHA `19f9ad57190b28d11922db805b39af95b2f7ba3b` 的普通 CI Run `33230769777` 与 Supabase development rollback-only smoke Run `33233087710` 同 SHA 且均为 `completed/success`，B9 development `GO`，CH-019 已自动失效；最终独立复审保持 `P0=0/P1=0/P2=1`，唯一非阻断 P2 为大量正常到期订单场景下完整性扫描工作量尚未有界。真实支付、staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。
+PRD 状态：`v2.4.8 / CH-022` 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B9 development 已通过，B10.0 正在实施且 B10.1 尚未开始。B10.0 本地契约/数据库/静态原型门禁通过，三项远端门禁待准确 SHA 实测；真实支付、staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。

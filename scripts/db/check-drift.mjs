@@ -21,9 +21,18 @@ try {
            AND finished_at IS NOT NULL
            AND rolled_back_at IS NULL
        ),
+       count(*) FILTER (
+         WHERE migration_name = '0003_b10_payment_fact_indexes'
+           AND finished_at IS NOT NULL
+           AND rolled_back_at IS NULL
+       ),
        count(*) FILTER (WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL),
        count(*) FILTER (
-         WHERE migration_name NOT IN ('0001_initial', '0002_b9_inventory_fact_indexes')
+         WHERE migration_name NOT IN (
+           '0001_initial',
+           '0002_b9_inventory_fact_indexes',
+           '0003_b10_payment_fact_indexes'
+         )
        )
      )
      FROM public._prisma_migrations`,
@@ -33,8 +42,8 @@ try {
   });
   if (history.error) throw history.error;
   if (history.status !== 0) throw new Error("Prisma migration history query failed");
-  if (history.stdout.trim() !== "2|1|1|0|0") {
-    throw new Error("Supabase development database is not on the exact completed B9 migration chain");
+  if (history.stdout.trim() !== "3|1|1|1|0|0") {
+    throw new Error("Supabase development database is not on the exact completed B10 migration chain");
   }
 
   const prisma = prismaInvocation([

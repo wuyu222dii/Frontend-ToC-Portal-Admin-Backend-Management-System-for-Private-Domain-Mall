@@ -237,13 +237,13 @@
       canvasTitle: "确认订单 · 报价与预占",
       title: "确认订单",
       description: "以 5 分钟报价复核地址、SKU、价格和库存，提交后只创建待付款订单与库存预占。",
-      interactions: ["获取或重新获取报价", "核对 blocker 与报价倒计时", "提交待付款订单但不进入支付"]
+      interactions: ["获取或重新获取报价", "核对 blocker 与报价倒计时", "提交后到订单详情发起 Mock 支付"]
     },
     orders: {
-      canvasTitle: "订单 · B9 查询与取消",
+      canvasTitle: "订单 · B10 支付与取消",
       title: "我的订单",
-      description: "B9 只开放本人订单的全部、待付款和已关闭筛选，唯一写动作是合法取消。",
-      interactions: ["三种冻结筛选", "查看本人订单快照", "取消合法待付款订单"]
+      description: "B10 开放本人订单的支付、继续支付与合法取消，并显式呈现不确定状态。",
+      interactions: ["五种闭合筛选", "待付款订单 PAY / CANCEL", "支付不确定时禁止重复操作"]
     },
     aftersale: {
       canvasTitle: "售后 · 退款申请",
@@ -254,8 +254,8 @@
     profile: {
       canvasTitle: "我的 · 客户资产中心",
       title: "个人中心",
-      description: "收藏、地址和 B9 本人订单可用，支付、物流与售后仍保持未开放状态。",
-      interactions: ["资料与会话入口", "进入收藏、地址和本人订单", "支付、物流与售后仅返回未开放反馈"]
+      description: "收藏、地址、本人订单和 MP-09 支付结果可用，物流与售后仍保持未开放。",
+      interactions: ["资料与会话入口", "进入收藏、地址和本人订单", "查看 MP-09 支付结果静态演示"]
     },
     "service-agent": {
       canvasTitle: "服务代理 · 归属与服务说明",
@@ -264,8 +264,8 @@
       interactions: ["有效邀请链路登录后显式确认", "候选展示 30 分钟有效期", "绑定后不提供自助更换"]
     },
     login: { canvasTitle: "登录 · 协议与来源确认", title: "登录与协议", description: "受保护动作前确认服务端当前协议快照，登录后返回原操作并继续处理代理候选。", interactions: ["用户协议与隐私政策 exact set", "微信凭证登录", "协议冲突刷新后重新确认"] },
-    "payment-result": { canvasTitle: "支付结果 · 可恢复反馈", title: "支付结果", description: "成功、失败和取消均保留订单事实，并提供与状态一致的下一步。", interactions: ["失败或取消后重试", "成功后查看订单", "稍后支付保留待付款订单"] },
-    "order-detail": { canvasTitle: "订单详情 · 查询与取消", title: "订单详情", description: "B9 展示订单、地址和商品快照；待付款订单只允许合法取消。", interactions: ["查看脱敏地址与商品快照", "携带当前版本取消", "支付、物流与售后不开放"] },
+    "payment-result": { canvasTitle: "MP-09 · 支付结果", title: "支付结果", description: "Mock 静态演示由服务端状态决定结果，不信任客户端成功参数。", interactions: ["处理中禁止重复操作", "成功/失败/取消可恢复", "迟到支付自动退款或转人工"] },
+    "order-detail": { canvasTitle: "订单详情 · B10 支付闭环", title: "订单详情", description: "展示四轴订单事实，待付款可 PAY/CANCEL，迟到支付始终保持关单。", interactions: ["查看脱敏地址与商品快照", "发起或继续 Mock 支付", "查看迟到退款与人工处理"] },
     logistics: { canvasTitle: "物流详情 · 履约时间线", title: "物流详情", description: "承运商、运单号和人工物流节点形成可追踪时间线。", interactions: ["复制运单号", "查看运输节点", "返回订单详情"] },
     "aftersale-detail": { canvasTitle: "售后详情 · 数量金额占用", title: "售后详情", description: "展示审核、退货、退款与失败重试，并明确已占用的可退数量和金额。", interactions: ["允许阶段取消并释放占用", "填写退货物流", "退款失败可重试"] },
     addresses: { canvasTitle: "地址 · 默认与脱敏", title: "收货地址", description: "列表只展示脱敏摘要，并按默认、创建时间和 ID 稳定排序。", interactions: ["设为默认", "新增或编辑地址", "删除默认地址后稳定提升下一条"] },
@@ -330,7 +330,7 @@
       paymentStatus: "UNPAID",
       latestPaymentAttemptStatus: null,
       paymentIntentCount: 0,
-      availableActions: ["CANCEL"],
+      availableActions: ["PAY", "CANCEL"],
       version: 3,
       refundStatus: "NONE",
       fulfillmentStatus: "NOT_STARTED",
@@ -947,7 +947,7 @@
             </section>
             <section class="amount-card"><div class="amount-row"><span>商品金额</span><span>${money(total)}</span></div><div class="amount-row"><span>运费</span><span>¥0</span></div><div class="amount-row total"><span>应付合计</span><strong>${money(total)}</strong></div></section>
             ${quotePanel}
-            <div class="inline-alert"><strong>提交后预占库存 30 分钟</strong><span>本阶段只创建待付款订单；支付将在 B10 接入，不从当前流程发起。</span></div>
+            <div class="inline-alert"><strong>提交后预占库存 30 分钟</strong><span>提交只创建待付款订单；请在订单详情中发起 B10 Mock 支付演示。</span></div>
           </div>
         </div>
         <div class="checkout-bar"><div class="checkout-total">共 ${items.reduce((sum, item) => sum + item.quantity, 0)} 件，合计 <strong>${money(total)}</strong></div><button class="primary-button is-coral" data-action="submit-order" ${!quote?.canSubmit || state.submittingOrder ? "disabled" : ""}>${state.submittingOrder ? "提交中…" : "提交待付款订单"}</button></div>
@@ -977,23 +977,30 @@
   }
 
   function renderOrderCard(order) {
-    const canCancel = order.orderStatus === "PENDING_PAYMENT" && (order.paymentIntentCount || 0) === 0 && (order.availableActions || ["CANCEL"]).includes("CANCEL");
-    const actions = canCancel ? `<button data-action="cancel-order" data-order-id="${order.id}" data-order-version="${order.version || 1}">取消订单</button>` : "";
+    const actions = order.availableActions || [];
+    const canPay = order.orderStatus === "PENDING_PAYMENT" && actions.includes("PAY");
+    const canCancel = order.orderStatus === "PENDING_PAYMENT" && actions.includes("CANCEL");
+    const actionButtons = [
+      canCancel ? `<button data-action="cancel-order" data-order-id="${order.id}" data-order-version="${order.version || 1}">取消订单</button>` : "",
+      canPay ? `<button class="is-primary" data-action="open-payment" data-order-id="${order.id}">${order.paymentIntentCount ? "继续支付" : "立即支付"}</button>` : "",
+      order.paymentStatus === "PROCESSING" ? `<button disabled>支付确认中</button>` : ""
+    ].filter(Boolean).join("");
     return `
       <article class="order-card">
         <button class="order-card__head" data-open-order="${order.id}"><strong>订单 ${order.id}</strong><span class="order-status ${statusClass(order.displayStatus)}">${order.displayStatus}</span></button>
         ${renderOrderItems(order)}
         <div class="order-total">共 ${orderQuantity(order)} 件，订单金额 <strong>${money(order.total)}</strong></div>
-        <div class="order-actions">${actions}</div>
+        <div class="order-actions">${actionButtons}</div>
       </article>`;
   }
 
   function renderOrders() {
-    const tabs = ["全部", "待付款", "已关闭"];
-    const b9Orders = state.orders.filter(order => order.orderStatus === "PENDING_PAYMENT" || (order.orderStatus === "CLOSED" && ["USER_CANCELLED", "PAYMENT_TIMEOUT"].includes(order.closeReason)));
-    const visibleOrders = b9Orders.filter(order => {
+    const tabs = ["全部", "待付款", "处理中", "已支付", "已关闭"];
+    const visibleOrders = state.orders.filter(order => {
       if (state.orderTab === "全部") return true;
-      if (state.orderTab === "待付款") return order.orderStatus === "PENDING_PAYMENT";
+      if (state.orderTab === "待付款") return order.orderStatus === "PENDING_PAYMENT" && order.paymentStatus === "UNPAID";
+      if (state.orderTab === "处理中") return order.paymentStatus === "PROCESSING" || order.latePaymentRefund?.status === "PROCESSING";
+      if (state.orderTab === "已支付") return order.paymentStatus === "PAID" && order.orderStatus !== "CLOSED";
       return order.orderStatus === "CLOSED";
     });
     return `
@@ -1016,6 +1023,10 @@
     return ({ UNPAID: "待支付", PROCESSING: "支付处理中", PAID: "已支付" })[status] || status;
   }
 
+  function paymentAttemptLabel(status) {
+    return ({ INITIATED: "已发起", SUCCEEDED: "成功", FAILED: "失败", CANCELLED: "已取消", CLOSED: "已关闭", SUCCEEDED_LATE: "迟到支付成功" })[status] || "尚未发起";
+  }
+
   function fulfillmentLabel(status) {
     return ({ NOT_STARTED: "未开始", READY_TO_SHIP: "待发货", SHIPPED: "已发货", IN_TRANSIT: "运输中", DELIVERED: "已送达", CANCELLED: "已取消" })[status] || status;
   }
@@ -1027,8 +1038,20 @@
   function renderOrderDetail() {
     const order = currentOrder();
     const address = order.addressSnapshot;
-    const canCancel = order.orderStatus === "PENDING_PAYMENT" && (order.paymentIntentCount || 0) === 0 && (order.availableActions || ["CANCEL"]).includes("CANCEL");
-    const statusCopy = order.displayStatus === "待付款" ? `库存预占至 ${order.payExpiresAt || "30 分钟后"}；B9 可取消，支付将在 B10 开放` : order.displayStatus === "已关闭" ? "订单已关闭，库存预占已释放" : "该订单为跨阶段历史只读快照";
+    const actions = order.availableActions || [];
+    const canPay = order.orderStatus === "PENDING_PAYMENT" && actions.includes("PAY");
+    const canCancel = order.orderStatus === "PENDING_PAYMENT" && actions.includes("CANCEL");
+    const statusCopy = order.paymentStatus === "PROCESSING"
+      ? "支付结果仍由服务端确认，确认前不能重复支付或取消"
+      : order.orderStatus === "PENDING_PAYMENT"
+        ? `库存预占至 ${order.payExpiresAt || "30 分钟后"}；可发起支付或合法取消`
+        : order.orderStatus === "CLOSED"
+          ? "订单保持关闭，迟到支付不会恢复预占、履约或佣金"
+          : "支付事实已由服务端确认，客户端不可修改";
+    const actionButtons = [
+      canCancel ? `<button class="secondary-button" data-action="cancel-order" data-order-id="${order.id}" data-order-version="${order.version || 1}">取消订单</button>` : "",
+      canPay ? `<button class="primary-button is-coral" data-action="open-payment" data-order-id="${order.id}">${order.paymentIntentCount ? "继续支付" : "立即支付"}</button>` : ""
+    ].filter(Boolean).join("");
     return `
       <section class="app-screen detail-page">
         <div class="screen-scroll">
@@ -1038,14 +1061,15 @@
           <div class="detail-stack">
             <section class="detail-card address-summary"><span class="address-icon">⌖</span><div><strong>${address.recipient} · ${maskPhone(address.phone)}</strong><p>${addressRegion(address)} ${address.detail}</p></div></section>
             <section class="detail-card order-detail-products"><div class="card-title"><strong>商品快照</strong><span>下单后规格与成交价不回写</span></div>${renderOrderItems(order)}</section>
-            <section class="detail-card fact-list"><div><span>订单状态</span><strong>${order.displayStatus}</strong></div><div><span>支付状态</span><strong>${paymentLabel(order.paymentStatus)}</strong></div><div><span>退款状态</span><strong>${refundLabel(order.refundStatus)}</strong></div><div><span>履约状态</span><strong>${fulfillmentLabel(order.fulfillmentStatus)}</strong></div>${order.closeReason ? `<div><span>关闭原因</span><strong>${order.closeReason === "FULL_REFUND_BEFORE_SHIPMENT" ? "未发货全额退款" : order.closeReason === "PAYMENT_TIMEOUT" ? "支付超时" : "用户取消"}</strong></div>` : ""}${order.inventoryRestock ? `<div><span>库存处理</span><strong>已自动回补 ${order.inventoryRestock.quantity} 件</strong></div>` : ""}</section>
+            <section class="detail-card fact-list"><div><span>订单状态</span><strong>${order.displayStatus}</strong></div><div><span>支付状态</span><strong>${paymentLabel(order.paymentStatus)}</strong></div><div><span>最新支付尝试</span><strong>${paymentAttemptLabel(order.latestPaymentAttemptStatus)}</strong></div><div><span>退款状态</span><strong>${refundLabel(order.refundStatus)}</strong></div><div><span>履约状态</span><strong>${fulfillmentLabel(order.fulfillmentStatus)}</strong></div>${order.closeReason ? `<div><span>关闭原因</span><strong>${order.closeReason === "FULL_REFUND_BEFORE_SHIPMENT" ? "未发货全额退款" : order.closeReason === "PAYMENT_TIMEOUT" ? "支付超时" : "用户取消"}</strong></div>` : ""}${order.inventoryRestock ? `<div><span>库存处理</span><strong>已自动回补 ${order.inventoryRestock.quantity} 件</strong></div>` : ""}</section>
             <section class="detail-card amount-card"><div class="amount-row"><span>商品金额</span><span>${money(order.total)}</span></div><div class="amount-row"><span>运费</span><span>¥0</span></div><div class="amount-row total"><span>${order.paymentStatus === "PAID" ? "实付金额" : "待付金额"}</span><strong>${money(order.total)}</strong></div></section>
             <section class="detail-card timeline-card"><div class="card-title"><strong>订单时间线</strong></div><ol><li class="is-done"><strong>订单已创建</strong><span>${order.createdAt}</span></li><li class="${order.paymentStatus === "PAID" ? "is-done" : ""}"><strong>${order.paymentStatus === "PAID" ? "支付成功" : "等待支付"}</strong><span>${order.paidAt || order.payExpiresAt || "库存保留 30 分钟"}</span></li><li class="${["SHIPPED", "IN_TRANSIT", "DELIVERED"].includes(order.fulfillmentStatus) ? "is-done" : ""}"><strong>商品发出</strong><span>${order.shipment?.shippedAt || (order.fulfillmentStatus === "CANCELLED" ? "履约已终止" : "等待总部发货")}</span></li></ol></section>
-            ${order.displayStatus === "待付款" ? `<div class="inline-alert is-warning"><strong>B9 待付款边界</strong><span>当前没有支付意图；可主动取消，或等待 Worker 超时释放。页面不开放支付入口。</span></div>` : ""}
-            ${order.latePaymentRefund ? `<div class="inline-alert ${order.latePaymentRefund.status === "MANUAL_REVIEW" ? "is-error" : order.latePaymentRefund.status === "COMPLETED" ? "is-success" : "is-warning"}"><strong>迟到支付退款</strong><span>${order.latePaymentRefund.status === "MANUAL_REVIEW" ? "自动退款失败，已转人工财务异常。" : order.latePaymentRefund.status === "COMPLETED" ? "已原路退款，订单未恢复履约。" : "自动退款处理中，订单保持关闭。"}</span></div>` : ""}
+            ${order.orderStatus === "PENDING_PAYMENT" && order.paymentStatus !== "PROCESSING" ? `<div class="inline-alert is-warning actionable-alert"><div><strong>B10 Mock 支付演示</strong><span>仅用于脱敏 development 状态评审，不调用真实微信支付或资金链路。</span></div><button data-action="simulate-payment-timeout" data-order-id="${order.id}">演示支付超时</button></div>` : ""}
+            ${order.paymentStatus === "PROCESSING" ? `<div class="inline-alert is-warning"><strong>支付确认中</strong><span>Provider 结果尚未收敛，当前 PAY/CANCEL 均关闭，不伪造支付成功。</span></div>` : ""}
+            ${order.latePaymentRefund ? `<div class="inline-alert ${order.latePaymentRefund.status === "MANUAL_REQUIRED" ? "is-error" : order.latePaymentRefund.status === "COMPLETED" ? "is-success" : "is-warning"}"><strong>迟到支付退款 · ${order.latePaymentRefund.attemptStatus}</strong><span>${order.latePaymentRefund.status === "MANUAL_REQUIRED" ? "自动退款失败，已转人工财务异常。" : order.latePaymentRefund.status === "COMPLETED" ? "已原路退款，订单未恢复履约。" : "退款尝试已 INITIATED，订单保持关闭。"}</span></div>` : ""}
           </div>
         </div>
-        <div class="detail-actionbar">${canCancel ? `<button class="primary-button is-coral" data-action="cancel-order" data-order-id="${order.id}" data-order-version="${order.version || 1}">取消订单</button>` : `<button class="primary-button" data-screen="orders">返回订单列表</button>`}</div>
+        <div class="detail-actionbar">${actionButtons || `<button class="primary-button" data-screen="orders">返回订单列表</button>`}</div>
       </section>`;
   }
 
@@ -1053,6 +1077,7 @@
     const result = state.paymentResult || { outcome: "cancelled", orderId: state.currentOrderId, message: "支付已取消，订单仍为待付款" };
     const order = state.orders.find(item => item.id === result.orderId) || currentOrder();
     const config = {
+      processing: { icon: "…", title: "支付确认中", copy: "服务端尚未确认最终结果，期间禁止重复支付或取消。", tone: "is-warning" },
       success: { icon: "✓", title: "支付成功", copy: "订单已进入待发货，支付成功不会重复扣减库存。", tone: "is-success" },
       failed: { icon: "!", title: "支付失败", copy: "本次支付没有完成，待付款订单和库存预占仍保留。", tone: "is-error" },
       cancelled: { icon: "×", title: "支付已取消", copy: "订单已保留，可在有效期内重新发起支付。", tone: "is-warning" },
@@ -1069,7 +1094,8 @@
           ${statusBar()}
           ${header("支付结果")}
           <div class="result-panel ${config.tone}"><span class="result-icon">${config.icon}</span><h2>${config.title}</h2><p>${config.copy}</p><strong>${money(order.total)}</strong><small>订单 ${order.id}</small></div>
-          <div class="result-actions">${retryable ? `<button class="primary-button is-coral" data-action="retry-payment" data-order-id="${order.id}">重新支付</button>` : ""}${result.outcome === "timeout" ? `<button class="primary-button" data-action="simulate-late-payment" data-order-id="${order.id}">演示迟到支付成功</button>` : ""}${result.outcome === "late_refund" ? `<button class="primary-button" data-action="complete-late-refund" data-order-id="${order.id}">演示退款成功</button><button class="secondary-button" data-action="fail-late-refund" data-order-id="${order.id}">演示退款失败</button>` : ""}<button class="secondary-button" data-open-order="${order.id}">查看订单详情</button><button class="text-command" data-screen="home">返回首页</button></div>
+          <div class="payment-scope-note">Mock / 静态 development 演示：页面只展示服务端投影，不调用真实微信支付。</div>
+          <div class="result-actions">${result.outcome === "processing" ? `<button class="primary-button" data-payment-outcome="success">Mock 演示查询收敛</button>` : ""}${retryable ? `<button class="primary-button is-coral" data-action="retry-payment" data-order-id="${order.id}">重新支付</button>` : ""}${result.outcome === "timeout" ? `<button class="primary-button" data-action="simulate-late-payment" data-order-id="${order.id}">Mock 演示迟到支付</button>` : ""}${result.outcome === "late_refund" ? `<button class="primary-button" data-action="complete-late-refund" data-order-id="${order.id}">Mock 演示退款成功</button><button class="secondary-button" data-action="fail-late-refund" data-order-id="${order.id}">Mock 演示退款失败</button>` : ""}<button class="secondary-button" data-open-order="${order.id}">查看订单详情</button><button class="text-command" data-screen="home">返回首页</button></div>
         </div>
       </section>`;
   }
@@ -1165,7 +1191,7 @@
           <div class="profile-hero">${statusBar(true)}<div class="profile-tools"><button class="icon-button" data-action="message" aria-label="消息">◦</button><button class="icon-button" data-screen="account" aria-label="设置">⚙</button></div><div class="profile-user"><div class="avatar">${avatarLabel}</div><div><h2>${nickname}</h2><p>${profile.city || "城市未设置"} · ${state.verifiedPhone?.phone_masked || "手机号未绑定"}</p></div></div></div>
           <div class="profile-body">
             ${agentCard}
-            <section class="profile-card"><div class="profile-card__head"><strong>我的订单</strong><button data-screen="orders">全部订单 ›</button></div><div class="order-shortcuts"><button data-order-shortcut="待付款"><i>◴</i><span>待付款</span></button><button data-order-shortcut="已关闭"><i>×</i><span>已关闭</span></button><button data-action="deferred-feature" data-feature="支付"><i>□</i><span>支付</span></button><button data-action="deferred-feature" data-feature="物流"><i>♧</i><span>物流</span></button><button data-action="deferred-feature" data-feature="售后"><i>↺</i><span>售后</span></button></div></section>
+            <section class="profile-card"><div class="profile-card__head"><strong>我的订单</strong><button data-screen="orders">全部订单 ›</button></div><div class="order-shortcuts"><button data-order-shortcut="待付款"><i>◴</i><span>待付款</span></button><button data-order-shortcut="已关闭"><i>×</i><span>已关闭</span></button><button data-screen="payment-result"><i>□</i><span>支付结果</span></button><button data-action="deferred-feature" data-feature="物流"><i>♧</i><span>物流</span></button><button data-action="deferred-feature" data-feature="售后"><i>↺</i><span>售后</span></button></div></section>
             <section class="profile-card"><div class="profile-card__head"><strong>常用功能</strong></div><div class="benefit-row"><button data-screen="favorites"><strong>♡</strong><span>商品收藏</span></button><button data-screen="addresses"><strong>⌖</strong><span>收货地址</span></button><button data-action="service"><strong>◉</strong><span>联系商家</span></button></div></section>
             <section class="profile-card menu-list"><button class="menu-item" data-screen="account"><i>○</i><span>账户与隐私</span><span>›</span></button><button class="menu-item" data-screen="addresses"><i>⌖</i><span>收货地址</span><span>›</span></button><button class="menu-item" data-action="service"><i>◉</i><span>联系商家</span><span>›</span></button><button class="menu-item" data-action="quality"><i>◇</i><span>正品与服务保障</span><span>›</span></button><button class="menu-item" data-screen="system-states"><i>!</i><span>异常状态样例</span><span>›</span></button></section>
           </div>
@@ -1290,7 +1316,7 @@
     "system-states": renderSystemStates
   };
 
-  const protectedScreens = new Set(["checkout", "orders", "order-detail", "logistics", "aftersale", "aftersale-detail", "profile", "service-agent", "addresses", "address-edit", "favorites", "account", "phone-authorization", "account-deletion"]);
+  const protectedScreens = new Set(["checkout", "payment-result", "orders", "order-detail", "logistics", "aftersale", "aftersale-detail", "profile", "service-agent", "addresses", "address-edit", "favorites", "account", "phone-authorization", "account-deletion"]);
 
   function render() {
     app.innerHTML = renderers[state.screen]();
@@ -1366,7 +1392,7 @@
 
   function paymentSheet(order) {
     return `
-      <div class="sheet-handle"></div><div class="payment-sheet"><div class="pay-icon">¥</div><h3>微信支付</h3><p>订单 ${order.id} 已创建，支付前库存保留至 ${order.payExpiresAt}</p><div class="payment-amount"><small>¥</small>${Number(order.total).toFixed(2)}</div><div class="payment-note">Mock 环境可演示成功、失败、取消和稍后支付。无论选择哪一项，待付款订单都已保存。</div><div class="payment-outcomes"><button class="secondary-button" data-payment-outcome="later">稍后支付</button><button class="secondary-button" data-payment-outcome="cancelled">模拟取消</button><button class="secondary-button" data-payment-outcome="failed">模拟失败</button><button class="primary-button" data-payment-outcome="success">模拟成功</button></div></div>`;
+      <div class="sheet-handle"></div><div class="payment-sheet"><div class="pay-icon">¥</div><h3>Mock 支付演示</h3><p>订单 ${order.id} 已发起支付意图，库存保留至 ${order.payExpiresAt}</p><div class="payment-amount"><small>¥</small>${Number(order.total).toFixed(2)}</div><div class="payment-note">仅用于脱敏 development 状态演示，不调用真实微信支付、签名、证书或资金链路。</div><div class="payment-outcomes"><button class="secondary-button" data-payment-outcome="later">稍后查看</button><button class="secondary-button" data-payment-outcome="cancelled">演示取消</button><button class="secondary-button" data-payment-outcome="failed">演示失败</button><button class="secondary-button" data-payment-outcome="processing">演示处理中</button><button class="primary-button" data-payment-outcome="success">演示成功</button></div></div>`;
   }
 
   function aftersaleTypeSheet() {
@@ -1569,7 +1595,7 @@
       paymentStatus: "UNPAID",
       latestPaymentAttemptStatus: null,
       paymentIntentCount: 0,
-      availableActions: ["CANCEL"],
+      availableActions: ["PAY", "CANCEL"],
       version: 1,
       refundStatus: "NONE",
       fulfillmentStatus: "NOT_STARTED",
@@ -1609,19 +1635,28 @@
       order.displayStatus = "待发货";
       order.paidAt = "2026-08-11 15:02";
       order.inventoryReservation.status = "CONSUMED";
+      order.availableActions = [];
       result.message = "支付成功，订单进入待发货";
     } else if (outcome === "failed") {
       order.paymentStatus = "UNPAID";
       order.latestPaymentAttemptStatus = "FAILED";
+      order.availableActions = ["PAY", "CANCEL"];
       result.message = "支付失败，订单仍可重试";
     } else if (outcome === "cancelled") {
       order.paymentStatus = "UNPAID";
       order.latestPaymentAttemptStatus = "CANCELLED";
+      order.availableActions = ["PAY", "CANCEL"];
       result.message = "支付已取消，订单仍为待付款";
+    } else if (outcome === "processing") {
+      order.paymentStatus = "PROCESSING";
+      order.latestPaymentAttemptStatus = "INITIATED";
+      order.availableActions = [];
+      result.message = "支付结果尚未收敛，禁止重复操作";
     } else {
       order.paymentStatus = "UNPAID";
-      order.latestPaymentAttemptStatus = "NOT_STARTED";
-      result.message = "已选择稍后支付，订单保留在待付款";
+      order.latestPaymentAttemptStatus = "INITIATED";
+      order.availableActions = ["PAY", "CANCEL"];
+      result.message = "支付能力保留，可稍后查询或继续支付";
     }
     state.paymentResult = result;
     state.currentOrderId = order.id;
@@ -1635,11 +1670,12 @@
     if (!order || order.orderStatus !== "PENDING_PAYMENT") return showToast("当前订单已不能触发支付超时");
     order.orderStatus = "CLOSED";
     order.paymentStatus = "UNPAID";
-    order.latestPaymentAttemptStatus = "EXPIRED";
-    order.fulfillmentStatus = "CANCELLED";
+    order.latestPaymentAttemptStatus = "CLOSED";
+    order.fulfillmentStatus = "NOT_STARTED";
     order.displayStatus = "已关闭";
     order.closeReason = "PAYMENT_TIMEOUT";
-    order.inventoryReservation.status = "RELEASED";
+    order.inventoryReservation.status = "EXPIRED";
+    order.availableActions = [];
     order.closedAt = "2026-08-11 15:30";
     state.currentOrderId = order.id;
     state.paymentResult = { outcome: "timeout", orderId: order.id, message: "支付超时，库存预占已释放" };
@@ -1652,9 +1688,9 @@
     order.paymentStatus = "PAID";
     order.latestPaymentAttemptStatus = "SUCCEEDED_LATE";
     order.refundStatus = "REFUNDING";
-    order.fulfillmentStatus = "CANCELLED";
-    order.displayStatus = "退款售后";
-    order.latePaymentRefund = { status: "PROCESSING", merchantRefundNo: `LATE-${order.id}`, createdAt: "2026-08-11 15:31" };
+    order.fulfillmentStatus = "NOT_STARTED";
+    order.displayStatus = "已关闭";
+    order.latePaymentRefund = { status: "PROCESSING", attemptStatus: "INITIATED", merchantRefundNo: `LATE-${order.id}`, createdAt: "2026-08-11 15:31" };
     state.currentOrderId = order.id;
     state.paymentResult = { outcome: "late_refund", orderId: order.id, message: "迟到支付已进入自动退款" };
     render();
@@ -1664,8 +1700,9 @@
     const order = state.orders.find(item => item.id === orderId);
     if (!order?.latePaymentRefund || order.latePaymentRefund.status !== "PROCESSING") return showToast("当前没有可处理的迟到退款");
     order.refundStatus = succeeded ? "FULL" : "FAILED";
-    order.displayStatus = succeeded ? "退款完成" : "退款异常";
-    order.latePaymentRefund.status = succeeded ? "COMPLETED" : "MANUAL_REVIEW";
+    order.displayStatus = "已关闭";
+    order.latePaymentRefund.status = succeeded ? "COMPLETED" : "MANUAL_REQUIRED";
+    order.latePaymentRefund.attemptStatus = succeeded ? "SUCCEEDED" : "FAILED";
     order.latePaymentRefund.updatedAt = "2026-08-11 15:32";
     state.paymentResult = { outcome: succeeded ? "late_refund_success" : "late_refund_failed", orderId: order.id, message: succeeded ? "迟到支付已原路退款" : "自动退款失败，已转人工" };
     render();
@@ -1673,9 +1710,11 @@
 
   function openPayment(orderId) {
     const order = state.orders.find(item => item.id === orderId);
-    if (!order || order.displayStatus !== "待付款") return showToast("当前订单不可支付");
+    if (!order || order.orderStatus !== "PENDING_PAYMENT" || !(order.availableActions || []).includes("PAY")) return showToast("当前订单不可支付");
     order.paymentStatus = "PROCESSING";
-    order.latestPaymentAttemptStatus = "PENDING";
+    order.latestPaymentAttemptStatus = "INITIATED";
+    order.paymentIntentCount = Math.max(1, order.paymentIntentCount || 0);
+    order.availableActions = [];
     state.activePaymentOrderId = order.id;
     state.currentOrderId = order.id;
     openSheet(paymentSheet(order));
@@ -1951,8 +1990,9 @@
       if (!order) return showToast("报价已变化，请重新报价后提交");
       state.orderTab = "全部";
       navigate("order-detail");
-      return showToast("待付款订单已创建，支付将在 B10 开放");
+      return showToast("待付款订单已创建，可在详情发起 Mock 支付演示");
     }
+    if (action === "open-payment") return openPayment(target.dataset.orderId);
     if (action === "retry-payment") return openPayment(target.dataset.orderId);
     if (action === "simulate-payment-timeout") return simulatePaymentTimeout(target.dataset.orderId);
     if (action === "simulate-late-payment") return simulateLatePayment(target.dataset.orderId);
@@ -1961,7 +2001,7 @@
     if (action === "cancel-order") { state.currentOrderId = target.dataset.orderId; return openSheet(confirmSheet("取消待付款订单", `将按 If-Match 版本 ${target.dataset.orderVersion || currentOrder().version || 1} 取消；确认后释放库存预占。`, "confirm-cancel-order", "确认取消")); }
     if (action === "confirm-cancel-order") {
       const order = currentOrder();
-      if (order.orderStatus !== "PENDING_PAYMENT" || (order.paymentIntentCount || 0) > 0) { closeSheet(); return showToast("订单状态已变化，请刷新后重试"); }
+      if (order.orderStatus !== "PENDING_PAYMENT" || !(order.availableActions || []).includes("CANCEL")) { closeSheet(); return showToast("订单状态已变化，请刷新后重试"); }
       order.orderStatus = "CLOSED"; order.paymentStatus = "UNPAID"; order.latestPaymentAttemptStatus = null; order.fulfillmentStatus = "NOT_STARTED"; order.displayStatus = "已关闭"; order.closeReason = "USER_CANCELLED"; order.inventoryReservation.status = "RELEASED"; order.availableActions = []; order.version = (order.version || 1) + 1;
       closeSheet(); render(); return showToast("订单已取消，库存预占已释放");
     }

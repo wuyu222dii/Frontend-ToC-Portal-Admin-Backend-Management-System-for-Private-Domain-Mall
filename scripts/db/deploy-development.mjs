@@ -3,8 +3,8 @@ import { postgresEnvironment, readConnection } from "./lib/connection.mjs";
 import { prismaEnvironment, prismaInvocation } from "./lib/prisma.mjs";
 
 const APPROVAL = "DEVELOPMENT_MIGRATION_APPROVED";
-const EXPECTED_BEFORE = new Set(["1|1|0|0|0", "2|1|1|0|0"]);
-const EXPECTED_AFTER = "2|1|1|0|0";
+const EXPECTED_BEFORE = new Set(["2|1|1|0|0|0", "3|1|1|1|0|0"]);
+const EXPECTED_AFTER = "3|1|1|1|0|0";
 
 function runPsql(connection, args, capture = false) {
   const result = spawnSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", ...args], {
@@ -45,9 +45,18 @@ function readHistory(connection) {
            AND finished_at IS NOT NULL
            AND rolled_back_at IS NULL
        ),
+       count(*) FILTER (
+         WHERE migration_name = '0003_b10_payment_fact_indexes'
+           AND finished_at IS NOT NULL
+           AND rolled_back_at IS NULL
+       ),
        count(*) FILTER (WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL),
        count(*) FILTER (
-         WHERE migration_name NOT IN ('0001_initial', '0002_b9_inventory_fact_indexes')
+         WHERE migration_name NOT IN (
+           '0001_initial',
+           '0002_b9_inventory_fact_indexes',
+           '0003_b10_payment_fact_indexes'
+         )
        )
      )
      FROM public._prisma_migrations`,
@@ -62,36 +71,48 @@ try {
   const migrator = readConnection("DIRECT_URL", "migrator");
   const before = readHistory(migrator);
   if (!EXPECTED_BEFORE.has(before)) {
-    throw new Error(`migration history is not an approved B9 predecessor state: ${before || "empty"}`);
-  }
-  if (before === "1|1|0|0|0") {
-    runPsql(migrator, ["-At", "-f", "scripts/db/sql/verify-baseline.sql"]);
+    throw new Error(`migration history is not an approved B10 predecessor state: ${before || "empty"}`);
   }
 
-  const duplicateFacts = runPsql(migrator, [
+  const duplicatePaymentFacts = runPsql(migrator, [
     "-Atqc",
     `SELECT count(*)
      FROM (
        SELECT 1
-       FROM public.inventory_ledger
-       WHERE business_id IS NOT NULL
-       GROUP BY business_id, sku_id, ledger_type
+       FROM public.payment_attempt
+       WHERE status IN ('SUCCEEDED', 'SUCCEEDED_LATE')
+       GROUP BY payment_intent_id
        HAVING count(*) > 1
-     ) AS duplicate_business_facts`,
+     ) AS duplicate_payment_facts`,
   ], true);
-  if (duplicateFacts !== "0") {
-    throw new Error(`inventory ledger has ${duplicateFacts} duplicate business fact group(s)`);
+  if (duplicatePaymentFacts !== "0") {
+    throw new Error(`payment attempts have ${duplicatePaymentFacts} duplicate successful fact group(s)`);
+  }
+
+  const duplicateLateRefundFacts = runPsql(migrator, [
+    "-Atqc",
+    `SELECT count(*)
+     FROM (
+       SELECT 1
+       FROM public.refund
+       WHERE origin_type = 'LATE_PAYMENT'
+       GROUP BY order_id
+       HAVING count(*) > 1
+     ) AS duplicate_late_refund_facts`,
+  ], true);
+  if (duplicateLateRefundFacts !== "0") {
+    throw new Error(`refunds have ${duplicateLateRefundFacts} duplicate late-payment fact group(s)`);
   }
 
   runPrisma(
     migrator,
     ["migrate", "deploy", "--config", "prisma.config.ts"],
-    "B9 database migration deployment failed",
+    "B10 database migration deployment failed",
   );
 
   const after = readHistory(migrator);
   if (after !== EXPECTED_AFTER) {
-    throw new Error(`migration history did not converge to the B9 target: ${after || "empty"}`);
+    throw new Error(`migration history did not converge to the B10 target: ${after || "empty"}`);
   }
 
   runPsql(migrator, ["-At", "-f", "scripts/db/sql/verify.sql"]);
@@ -107,7 +128,7 @@ try {
       "--config",
       "prisma.config.ts",
     ],
-    "B9 post-migration Prisma drift check failed",
+    "B10 post-migration Prisma drift check failed",
   );
 
   console.log("Supabase development migration and post-verification passed");

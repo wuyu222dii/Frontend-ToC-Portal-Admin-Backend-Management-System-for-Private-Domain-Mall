@@ -32,7 +32,7 @@ BEGIN
     AND pg_get_userbyid(c.relowner) = 'mall_migrator'
     AND c.relname <> '_prisma_migrations'
     AND i.indpred IS NOT NULL;
-  IF actual <> 18 THEN RAISE EXCEPTION 'expected 18 partial indexes, found %', actual; END IF;
+  IF actual <> 20 THEN RAISE EXCEPTION 'expected 20 partial indexes, found %', actual; END IF;
 
   IF NOT EXISTS (
     SELECT 1
@@ -61,6 +61,40 @@ BEGIN
       AND pg_get_expr(i.indpred, i.indrelid) = '(business_id IS NOT NULL)'
   ) THEN
     RAISE EXCEPTION 'B9 inventory ledger business-fact uniqueness index is missing or malformed';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_index i
+    JOIN pg_class c ON c.oid = i.indrelid
+    JOIN pg_class ic ON ic.oid = i.indexrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = 'payment_attempt'
+      AND ic.relname = 'uq_payment_attempt_one_success_per_intent'
+      AND i.indisunique
+      AND i.indnatts = 1
+      AND pg_get_indexdef(i.indexrelid, 1, true) = 'payment_intent_id'
+      AND pg_get_expr(i.indpred, i.indrelid) =
+        '(status = ANY (ARRAY[''SUCCEEDED''::"PaymentAttemptStatus", ''SUCCEEDED_LATE''::"PaymentAttemptStatus"]))'
+  ) THEN
+    RAISE EXCEPTION 'B10 successful payment-attempt uniqueness index is missing or malformed';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_index i
+    JOIN pg_class c ON c.oid = i.indrelid
+    JOIN pg_class ic ON ic.oid = i.indexrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = 'refund'
+      AND ic.relname = 'uq_refund_one_late_payment_per_order'
+      AND i.indisunique
+      AND i.indnatts = 1
+      AND pg_get_indexdef(i.indexrelid, 1, true) = 'order_id'
+      AND pg_get_expr(i.indpred, i.indrelid) =
+        '(origin_type = ''LATE_PAYMENT''::"RefundOriginType")'
+  ) THEN
+    RAISE EXCEPTION 'B10 late-payment refund uniqueness index is missing or malformed';
   END IF;
 
   SELECT count(*) INTO actual
@@ -214,7 +248,7 @@ BEGIN
   JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public' AND i.indpred IS NOT NULL
     AND pg_get_userbyid(c.relowner) = 'mall_migrator';
-  IF actual_hash <> 'b83d50e52994b898a386b842f355d7fc' THEN
+  IF actual_hash <> '844245d1020b6c8eb662d6fc973084a0' THEN
     RAISE EXCEPTION 'partial-index definitions differ from the frozen baseline: %', actual_hash;
   END IF;
   IF EXISTS (
@@ -257,13 +291,22 @@ BEGIN
       AND rolled_back_at IS NULL
   ) <> 1 OR (
     SELECT count(*) FROM public._prisma_migrations
-  ) <> 2 OR EXISTS (
+    WHERE migration_name = '0003_b10_payment_fact_indexes'
+      AND finished_at IS NOT NULL
+      AND rolled_back_at IS NULL
+  ) <> 1 OR (
+    SELECT count(*) FROM public._prisma_migrations
+  ) <> 3 OR EXISTS (
     SELECT 1 FROM public._prisma_migrations
     WHERE finished_at IS NULL
       OR rolled_back_at IS NOT NULL
-      OR migration_name NOT IN ('0001_initial', '0002_b9_inventory_fact_indexes')
+      OR migration_name NOT IN (
+        '0001_initial',
+        '0002_b9_inventory_fact_indexes',
+        '0003_b10_payment_fact_indexes'
+      )
   ) THEN
-    RAISE EXCEPTION 'expected the exact completed 0001 -> 0002 B9 migration history';
+    RAISE EXCEPTION 'expected the exact completed 0001 -> 0002 -> 0003 B10 migration history';
   END IF;
   IF has_table_privilege('mall_runtime', 'public._prisma_migrations', 'SELECT')
     OR has_table_privilege('mall_runtime', 'public._prisma_migrations', 'INSERT')
@@ -555,7 +598,7 @@ END $$;
 SELECT json_build_object(
   'tables', 76,
   'enums', 59,
-  'partial_indexes', 18,
+  'partial_indexes', 20,
   'check_constraints', 165,
   'rls_tables', 76,
   'runtime_policies', 76,

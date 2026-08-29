@@ -117,7 +117,7 @@ jobs:
           DIRECT_URL: postgresql://mall_migrator:prisma-validate-only@127.0.0.1:5432/schema_validation
         run: pnpm prisma:validate
 
-      - name: Deploy and post-verify the migration
+      - name: Deploy and post-verify the B10 migration chain
         env:
           DIRECT_URL: ${{ secrets.SUPABASE_DIRECT_URL }}
         run: node scripts/db/deploy-development.mjs

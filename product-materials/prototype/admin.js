@@ -42,6 +42,18 @@
     { id: "QY202608060021", customer: "孙可心", phone: "180****4175", avatar: "孙", product: "轻透倍护防晒乳", count: 1, amount: "99.00", payment: "微信支付", status: "待付款", orderStatus: "PENDING_PAYMENT", paymentStatus: "UNPAID", refundStatus: "NONE", fulfillmentStatus: "NOT_STARTED", closeReason: null, displayStatus: "待付款", time: "08-06 07:16", arts: ["art-blue"] }
   ];
 
+  const reconciliationTasks = [
+    { id: "REC-B10-001", kind: "PAYMENT_INTENT", objectId: "PI-01ARZ3NDEKTSV4RRFFQ69G5FA", orderId: "QY202608060024", status: "PENDING", nextHttpStatus: 202, idempotencyKey: "adm10-reconcile-rec-b10-001", lastResult: "Provider 结果未知，库存继续锁定", updatedAt: "08-11 15:31" },
+    { id: "REC-B10-002", kind: "PAYMENT_SETTLEMENT", objectId: "PI-01ARZ3NDEKTSV4RRFFQ69G5FC", orderId: "QY202608060023", status: "MANUAL_REQUIRED", nextHttpStatus: 200, idempotencyKey: "adm10-reconcile-rec-b10-002", lastResult: "收款事实已保留，结算配置等待收敛", updatedAt: "08-11 15:32" },
+    { id: "REC-B10-003", kind: "LATE_PAYMENT_REFUND", objectId: "RF-01ARZ3NDEKTSV4RRFFQ69G5FB", orderId: "QY202608060021", status: "MANUAL_REQUIRED", nextHttpStatus: 200, idempotencyKey: "adm10-reconcile-rec-b10-003", lastResult: "迟到支付自动退款待复核", updatedAt: "08-11 15:32" }
+  ];
+
+  const reconciliationKindLabels = Object.freeze({
+    PAYMENT_INTENT: "支付意图待确认",
+    PAYMENT_SETTLEMENT: "支付结算待收敛",
+    LATE_PAYMENT_REFUND: "迟到支付退款"
+  });
+
   const aftersales = [
     { id: "AS202608060004", order: "QY202608060023", customer: "刘雨晴", product: "植萃研烟酰胺焕亮精华液", sku: "SERUM-030", quantity: 1, type: "仅退款", amount: "139.00", reason: "重复下单", status: "待审核", statusCode: "PENDING_REVIEW", fulfillment: "UNSHIPPED", time: "08-06 09:16", art: "art-purple", reserved: true, restock: true, commissionSnapshot: 13.9 },
     { id: "AS202608060003", order: "QY202608060027", customer: "周敏", product: "沐光无硅油蓬松洗发水", sku: "HAIR-500", quantity: 1, type: "仅退款", amount: "89.00", reason: "拍错了，不想要了", status: "待审核", statusCode: "PENDING_REVIEW", fulfillment: "DELIVERED", time: "08-06 09:11", art: "art-blue", reserved: true, restock: false, commissionSnapshot: 7.12 },
@@ -295,7 +307,8 @@
     highRiskSubmitting: false,
     activeCustomerOrderFilter: null,
     inspectionEvidenceDraft: [],
-    inspectionEvidenceSequence: 0
+    inspectionEvidenceSequence: 0,
+    reconciliationBusyTask: null
   };
 
   const $ = (selector, root = document) => root.querySelector(selector);
@@ -333,6 +346,9 @@
       "已打款": "success",
       "成功": "success",
       "冲突": "danger",
+      "PENDING": "warning",
+      "MANUAL_REQUIRED": "danger",
+      "RESOLVED": "success",
       "缺货": "danger"
     }[status] || "neutral";
   }
@@ -599,6 +615,39 @@
       <td class="optional-wide">${order.time}</td>
       <td><div class="row-actions">${order.status === "待发货" ? (canShipOrder(order) ? `<button type="button" class="button text ship-order">发货</button>` : `<button type="button" class="button text ship-order" disabled title="活动售后占用阻断整单">售后占用</button>`) : ""}<button type="button" class="icon-button view-order" title="查看订单">${icon("eye")}</button></div></td>
     </tr>`).join("") : `<tr><td colspan="8"><div class="empty-state">${icon("orders")}<strong>没有找到匹配订单</strong><span>可尝试更换订单状态或搜索条件</span></div></td></tr>`;
+  }
+
+  function renderReconciliationTasks() {
+    const container = $("#reconciliationRows");
+    if (!container) return;
+    container.innerHTML = reconciliationTasks.map((task) => {
+      const busy = state.reconciliationBusyTask === task.id;
+      const resolved = task.status === "RESOLVED";
+      const actionLabel = resolved ? "已收敛" : busy ? "对账中…" : "触发对账";
+      return `<div class="reconciliation-row" data-reconciliation-id="${task.id}" data-reconciliation-kind="${task.kind}" data-reconciliation-status="${task.status}" data-last-http-status="${task.lastHttpStatus || ""}"><div class="reconciliation-copy"><div><strong>${reconciliationKindLabels[task.kind]}</strong><span class="tag ${statusClass(task.status)}">${task.status}</span></div><p>${task.orderId} · ${task.objectId}</p><small>${task.lastResult} · ${task.updatedAt}</small></div><button class="button secondary small reconcile-task" type="button" data-reconciliation-id="${task.id}" data-idempotency-key="${task.idempotencyKey}" ${busy || resolved ? "disabled" : ""}>${actionLabel}</button></div>`;
+    }).join("");
+  }
+
+  function triggerReconciliation(taskId) {
+    const task = reconciliationTasks.find((item) => item.id === taskId);
+    if (!task || task.status === "RESOLVED" || state.reconciliationBusyTask) return;
+    state.reconciliationBusyTask = task.id;
+    task.lastResult = "正在查询 Mock Provider，当前事实保持只读";
+    renderReconciliationTasks();
+    setTimeout(() => {
+      task.lastHttpStatus = task.nextHttpStatus;
+      task.updatedAt = "08-11 15:33";
+      if (task.nextHttpStatus === 200) {
+        task.status = "RESOLVED";
+        task.lastResult = "HTTP 200 · 已由服务端幂等收敛";
+      } else {
+        task.status = "PENDING";
+        task.lastResult = "HTTP 202 · Provider 仍未确认，保留待办";
+      }
+      state.reconciliationBusyTask = null;
+      renderReconciliationTasks();
+      showToast(task.nextHttpStatus === 200 ? "对账已收敛，未人工改写交易状态" : "Provider 仍未确认，继续保留对账待办");
+    }, 260);
   }
 
   function renderDashboardOrders() {
@@ -2099,6 +2148,9 @@
       const viewOrder = event.target.closest(".view-order");
       if (viewOrder) openOrderDetail(viewOrder.closest("tr").dataset.orderId);
 
+      const reconcileTask = event.target.closest(".reconcile-task");
+      if (reconcileTask) triggerReconciliation(reconcileTask.dataset.reconciliationId);
+
       const shipOrder = event.target.closest(".ship-order");
       if (shipOrder) openShipping(shipOrder.closest("tr").dataset.orderId);
 
@@ -3217,6 +3269,7 @@
     renderBanners();
     renderInventory();
     renderOrders();
+    renderReconciliationTasks();
     renderOrderDetail(orders.find((order) => order.id === state.activeOrderId) || orders[0]);
     renderDashboardOrders();
     renderRankings();
@@ -3231,7 +3284,7 @@
     setupEvents();
     if (state.page === "product-edit") openProductEditor(1);
     window.__ADMIN_PROTOTYPE__ = {
-      getState: () => JSON.parse(JSON.stringify({ state, products, productSkus, banners, aftersales, inventorySkus, inventoryLedger, agents, auditLogs })),
+      getState: () => JSON.parse(JSON.stringify({ state, products, productSkus, banners, aftersales, inventorySkus, inventoryLedger, agents, auditLogs, orders, reconciliationTasks })),
       archiveParentDuringPendingSkuActivation: () => {
         const context = state.pendingHighRiskAction?.catalogContext;
         if (!context || context.type !== "sku" || context.action !== "ACTIVATE") return false;

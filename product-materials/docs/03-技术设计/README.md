@@ -1,25 +1,27 @@
 # 技术设计交付索引
 
-> 当前基线：MVP/PRD v2.4.7、线协议 CH-020（2026-08-29）。B0-B9 development 已完成；B9 最终 SHA `19f9ad57190b28d11922db805b39af95b2f7ba3b` 的普通 CI Run `33230769777` 与 Supabase development rollback-only smoke Run `33233087710` 同 SHA 且均为 `completed/success`，B9 development `GO`，CH-019 已自动失效。最终复审保持 `P0=0/P1=0/P2=1`，唯一 P2 为 TR-020 且不阻断 development。仅允许 Mock Provider 和脱敏 development，staging、production 与真实支付均为 `NO-GO`。
+> 当前基线：MVP/PRD v2.4.8、线协议 CH-022（2026-08-29）。B0-B9 development 已完成并维持 `GO`；当前只实施 B10.0 治理、契约、前向索引迁移与静态原型，B10.1 尚未开始。普通 CI、Supabase development migration 与 rollback-only smoke 尚待本批精确 SHA 证据。仅允许 Mock Provider 和脱敏 development，staging、production 与真实支付均为 `NO-GO`。
 
 | 文件 | 用途 |
 |---|---|
 | `技术架构说明.md` | 技术栈、三端边界、认证/RBAC、事务锁序、Provider、部署与扩展策略 |
-| `API接口文档.md` | CH-020 实测 173 paths、198 operations、198 unique operationId、325 schemas、703 schema refs、2,665 local refs、0 dangling refs |
+| `API接口文档.md` | CH-022 本地实测 173 paths、198 operations、198 unique operationId、326 schemas、705 schema refs、2,678 local refs、0 dangling refs |
 | `openapi.yaml` | OpenAPI 3.1 单一可解析契约；文本目录必须完全覆盖且 operationId 唯一 |
 | `数据库设计.md` | PostgreSQL/Supabase 表域、ERD、状态机、事务、索引、加密、RLS 与验收门禁 |
 | `schema.prisma` | Prisma 7.9.1 逻辑模型：76 models、59 enums、270 个 model-typed relation fields，全部位于 `public` |
 | `prisma.config.ts` | 设计验证用 Prisma 7 config；CLI 读取 `DIRECT_URL` |
 | `migrations/0001_initial/migration.sql` | Prisma 基线 DDL + PostgreSQL 专属 partial unique/CHECK/触发器/角色/RLS 草案 |
 | `migrations/0002_b9_inventory_fact_indexes/migration.sql` | B9 前向索引迁移：SKU 前导预占查询与库存流水业务事实唯一性；不修改首迁移 |
+| `migrations/0003_b10_payment_fact_indexes/migration.sql` | B10 前向索引迁移：intent 成功事实与订单迟到退款唯一性；不修改既有迁移 |
 | `../05-开发管理/B4-商品与SKU.md` | B4.0 至 B4.4 串行批次、准入门禁、验收与回退边界 |
 | `../05-开发管理/B5-Banner与库存.md` | B5.0 CH-012 契约、CH-011 门禁及后续串行批次 |
 | `../05-开发管理/B6-消费者匿名商城目录.md` | B6.0 CH-014 契约、B6.1-B6.4 实施/最终证据及 CH-013 失效边界 |
 | `../05-开发管理/B7-消费者身份会话与隐私.md` | B7.0 CH-016 契约、CH-015 门禁、B7.1-B7.5 串行批次与退出边界 |
 | `../05-开发管理/B8-登录后购物基础.md` | B8.0 CH-018 契约、CH-017 门禁、B8.1-B8.5 串行批次与退出边界 |
 | `../05-开发管理/B9-订单报价与库存预占.md` | B9.0 CH-020 契约/迁移、CH-019 门禁、B9.1-B9.5 串行批次与退出边界 |
+| `../05-开发管理/B10-支付对账与迟到支付退款.md` | B10.0 CH-022 契约/迁移、CH-021 门禁、B10.1-B10.6 串行批次与退出边界 |
 
-上游真相顺序为：已批准需求变更记录、PRD v2.4.7、MVP v2.4.7、原型设计方案。发生冲突时先更新上游基线和本目录契约，不由开发人员临时选择口径。
+上游真相顺序为：已批准需求变更记录、PRD v2.4.8、MVP v2.4.8、原型设计方案。发生冲突时先更新上游基线和本目录契约，不由开发人员临时选择口径。
 
 ## CH-006 历史验证状态
 
@@ -82,6 +84,14 @@
 - 候选 reservation/SKU ID 只可无锁定位。首次下单使用 customer/cart/address/catalog→SKU/balance→insert order/reservation；主动取消/Worker 才使用 `idempotency（Worker 跳过） -> order -> payment_intent -> SKU ID ASC -> inventory_balance ID ASC -> inventory_reservation ID ASC -> ledger -> audit/outbox`。两条路径不得混用或让 reservation 先于 SKU/balance；Product/SKU lifecycle 与库存调整共享 SKU→balance→reservation 尾部，并须通过交叉并发无死锁回归。
 - B9.0 已完成治理、契约、生成类型、迁移链及受控 Supabase development migration Workflow；B9.1 报价 repository/API、B9.2 待付款下单/预占 repository/API、B9.3 本人查询/取消/超时 Worker、B9.4 MP-08/10/11 与 B9.5 总验收均已完成。数据库 full、B9 UI、真实纵向、全仓回归、冻结迁移和 TR-019 闭环均通过，最终复审为 `P0=0/P1=0/P2=1`；最终 SHA `19f9ad57190b28d11922db805b39af95b2f7ba3b` 的普通 CI Run `33230769777` 与 Supabase development rollback-only smoke Run `33233087710` 同 SHA 且均为 `completed/success`，B9 development `GO`，CH-019 已自动失效。
 
+## CH-022 契约与迁移状态
+
+- 产品/API 基线升级为 `v2.4.8 / 2.4.8-ch022`。现有 173 paths / 198 operations 不增删；本地实测为 198 unique operationId / 326 schemas / 705 schema refs / 2,678 local refs / 0 dangling refs。
+- 支付请求不再允许客户端选择 Provider；Mock 结果仅 `SUCCEEDED/FAILED/CANCELLED`，交易号/事件号和迟到判定均由服务端产生。order_id、payment_intent_id、refund_id 路径参数统一为 ULID。
+- 两份 Prisma schema 保持 76 models / 59 enums，既有 0001/0002 逐字节不变；0003 只增加 payment intent 成功事实与订单 LATE_PAYMENT 退款两个条件唯一索引。
+- 本地契约生成/校验、完整迁移回放、历史重复预检、权限、冻结指纹和 migration diff 门禁已通过。普通 CI、Supabase development migration 和 rollback-only smoke 尚待 B10.0 最终 SHA 远端执行。
+- 当前只完成 B10.0 文档/契约/迁移/静态原型范围；B10.1 Provider 与支付意图业务代码未开始。CH-021 只适用于 B10.0-B10.6 脱敏 development，B10.6 后自动失效。
+
 ## B3.1 当前验证状态
 
 - 真实 PostgreSQL、Redis、MinIO API 集成 `3/3` 通过；Worker 清理集成 `3/3` 通过。API 全量 `118 passed / 10 skipped`，Worker 全量 `30 passed / 3 skipped`，storage `16 passed`，database `141 passed / 24 skipped`。
@@ -103,13 +113,15 @@
 
 B0 已在工程根建立 `prisma.config.ts`、`prisma/` 和五应用脚手架；根目录中的 schema 与首迁移必须和本目录冻结产物逐字节一致。CLI/migration 通过 `DIRECT_URL` 连接，后续 runtime 通过 `@prisma/adapter-pg` 读取 `DATABASE_URL`。三端只调用 NestJS HTTPS API，禁止使用 Supabase client、Data API 或 `service_role` 密钥访问业务表。
 
-## B8 与 B9 收口
+## B8、B9 与 B10 准入
 
 B3-B6 历史交付见各自开发记录；B7 的 CH-015/CH-016、契约和最终证据见 `../05-开发管理/B7-消费者身份会话与隐私.md`。B7.0-B7.5 已完成，最终实现 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 同 SHA 双绿，B7 development `GO`，CH-015 已自动失效。
 
 B8 的 CH-017/CH-018、冻结契约、串行批次与最终证据见 `../05-开发管理/B8-登录后购物基础.md`。B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 已同 SHA 双绿，B8 development `GO`，CH-017 已自动失效。
 
 B9 的 CH-019/CH-020、契约/迁移边界及最终证据见 `../05-开发管理/B9-订单报价与库存预占.md`。B9.0-B9.5 已完成，最终复审保持 `P0=0/P1=0/P2=1`；最终 SHA `19f9ad57190b28d11922db805b39af95b2f7ba3b` 的普通 CI Run `33230769777` 与 Supabase development rollback-only smoke Run `33233087710` 同 SHA 且均为 `completed/success`，B9 development `GO`，CH-019 已自动失效。唯一 P2 TR-020 不阻断 development；staging 前外部独立复核不得豁免，staging、production 与真实支付仍为 `NO-GO`。
+
+B10 的 CH-021/CH-022、契约/迁移边界与批次见 `../05-开发管理/B10-支付对账与迟到支付退款.md`。当前只实施 B10.0，本地契约和数据库门禁已通过；三项远端证据待执行，B10.1 未开始。静态 Mock 支付原型不等于 Provider/API/Worker 已实现。
 
 ## 剩余上线门禁
 

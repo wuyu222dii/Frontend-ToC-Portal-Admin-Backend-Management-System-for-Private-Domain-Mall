@@ -25,6 +25,7 @@ function adminExpectedTerms(view) {
   if (view === "commission-rules") return ["平台默认", "分类规则", "SKU", "全部一级代理"];
   if (view === "inventory") return ["实物库存", "锁定库存", "活动预占", "available_qty = physical_qty - locked_qty"];
   if (view === "business-rules") return ["最低提现", "售后申请", "迟到支付"];
+  if (view === "orders") return ["ADM-10", "支付对账待办", "只读投影", "幂等"];
   if (view === "audit-logs") return ["审计日志", "操作人", "结果"];
   return [];
 }
@@ -56,6 +57,8 @@ const cases = [
           ? ["账户手机号", "独立于收货地址", "手机号授权声明", "授权账户手机号"]
           : screen === "account-deletion"
             ? ["注销资格预览", "保留边界", "检查注销资格"]
+            : screen === "payment-result"
+              ? ["MP-09", "Mock", "支付结果"]
             : screen === "order-detail"
               ? ["订单状态", "支付状态", "退款状态", "履约状态"]
               : []
@@ -414,7 +417,7 @@ async function runMiniInteractionChecks(browser) {
     expect(!(await page.locator("body").innerText()).includes("微信支付"), "B9 立即购买错误开放支付入口");
   });
 
-  await run("mini-interaction-b9-pending-order", async (page) => {
+  await run("mini-interaction-b10-pending-order-actions", async (page) => {
     await page.goto(miniUrl({ screen: "checkout", device: "375" }), { waitUntil: "load" });
     expect(await page.locator('[data-quote-status="READY"]').count() === 1, "确认订单页未先取得 READY 报价");
     await page.click('[data-action="submit-order"]');
@@ -425,14 +428,14 @@ async function runMiniInteractionChecks(browser) {
     });
     expect(created?.orderStatus === "PENDING_PAYMENT", "提交订单未先创建 PENDING_PAYMENT 订单");
     expect(/^QX[0-9A-HJKMNP-TV-Z]{26}$/.test(created?.id || ""), "订单号不是 QX 加订单 ULID");
-    expect(created?.paymentStatus === "UNPAID" && created?.paymentIntentCount === 0, "B9 下单错误创建支付意图或支付状态不正确");
-    expect(JSON.stringify(created?.availableActions) === JSON.stringify(["CANCEL"]), "B9 待付款订单动作未闭合为 CANCEL");
+    expect(created?.paymentStatus === "UNPAID" && created?.paymentIntentCount === 0, "下单时错误提前创建支付意图或支付状态不正确");
+    expect(JSON.stringify(created?.availableActions) === JSON.stringify(["PAY", "CANCEL"]), "B10 待付款订单动作未闭合为 PAY/CANCEL");
     expect(created?.payExpiresAt, "新订单缺少 pay_expires_at 演示值");
     expect(created?.items.every((item) => item.skuId && item.skuName && Number.isFinite(item.unitPrice)), "订单项 SKU/规格/成交价快照不完整");
     const snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
     expect(snapshot.orderSubmitJournal === null && snapshot.lastOrderSubmit?.status === "CONFIRMED" && snapshot.lastOrderSubmit?.idempotencyKey?.startsWith("b9-order-submit-"), "订单提交 journal 未在确定成功后闭合");
     const text = await page.locator("body").innerText();
-    expect(text.includes("支付将在 B10 开放") && !text.includes("继续支付"), "B9 订单详情错误开放支付操作");
+    expect(text.includes("B10 Mock 支付演示") && text.includes("立即支付") && text.includes("取消订单"), "B10 订单详情未开放 Mock PAY/CANCEL 或未明确静态边界");
   });
 
   await run("mini-interaction-b9-requote", async (page) => {
@@ -465,13 +468,65 @@ async function runMiniInteractionChecks(browser) {
     expect(order?.version === beforeVersion + 1 && order?.availableActions?.length === 0, "取消未递增版本或清空可用动作");
   });
 
-  await run("mini-interaction-b9-order-action-boundary", async (page) => {
+  await run("mini-interaction-b10-order-action-boundary", async (page) => {
     await page.goto(miniUrl({ screen: "orders", device: "375" }), { waitUntil: "load" });
     const tabs = await page.locator(".orders-tabs button").allTextContents();
-    expect(tabs.join(",") === "全部,待付款,已关闭", "B9 订单列表未固定为全部/待付款/已关闭");
+    expect(tabs.join(",") === "全部,待付款,处理中,已支付,已关闭", "B10 订单列表未固定五种支付视图");
     const text = await page.locator(".orders-page").innerText();
-    expect(!text.includes("立即付款") && !text.includes("查看物流") && !text.includes("申请售后"), "B9 订单列表错误开放支付、物流或售后动作");
-    expect(await page.locator('[data-action="cancel-order"]').count() === 1, "B9 订单列表未仅为合法待付款订单提供 CANCEL");
+    expect(text.includes("立即支付") && !text.includes("查看物流") && !text.includes("申请售后"), "B10 订单列表未开放支付或错误开放物流/售后");
+    expect(await page.locator('[data-action="open-payment"]').count() === 1 && await page.locator('[data-action="cancel-order"]').count() === 1, "B10 订单列表未为合法待付款订单提供 PAY/CANCEL");
+  });
+
+  await run("mini-interaction-b10-payment-state-matrix", async (page) => {
+    const loadPendingOrder = async () => {
+      await page.goto(miniUrl({ screen: "order-detail", device: "375" }), { waitUntil: "load" });
+      return page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState().currentOrderId);
+    };
+
+    let orderId = await loadPendingOrder();
+    await page.click('[data-action="open-payment"]');
+    let sheetText = await page.locator(".bottom-sheet").innerText();
+    expect(sheetText.includes("Mock 支付演示") && sheetText.includes("不调用真实微信支付"), "支付底部层未明确 Mock/静态范围");
+    let snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    let order = snapshot.orders.find((item) => item.id === snapshot.currentOrderId);
+    expect(order.paymentStatus === "PROCESSING" && order.latestPaymentAttemptStatus === "INITIATED" && order.paymentIntentCount === 1 && order.availableActions.length === 0, "发起支付未进入 INITIATED/禁止重复操作");
+    await page.click('[data-payment-outcome="processing"]');
+    await page.waitForFunction(() => window.__MINIAPP_PROTOTYPE__.getState().screen === "payment-result");
+    expect((await page.locator(".result-panel").innerText()).includes("支付确认中"), "MP-09 未呈现支付处理中");
+    await page.click('[data-payment-outcome="success"]');
+    await page.waitForFunction(() => document.querySelector(".result-panel")?.innerText.includes("支付成功"));
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    order = snapshot.orders.find((item) => item.id === orderId);
+    expect(order.orderStatus === "PENDING_SHIPMENT" && order.latestPaymentAttemptStatus === "SUCCEEDED" && order.inventoryReservation.status === "CONSUMED", "支付成功未收敛订单与预占投影");
+
+    orderId = await loadPendingOrder();
+    await page.click('[data-action="open-payment"]');
+    await page.click('[data-payment-outcome="failed"]');
+    await page.waitForFunction(() => document.querySelector(".result-panel")?.innerText.includes("支付失败"));
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    order = snapshot.orders.find((item) => item.id === orderId);
+    expect(order.latestPaymentAttemptStatus === "FAILED" && order.availableActions.join(",") === "PAY,CANCEL", "支付失败未恢复 PAY/CANCEL");
+    await page.click('[data-action="retry-payment"]');
+    await page.click('[data-payment-outcome="cancelled"]');
+    await page.waitForFunction(() => document.querySelector(".result-panel")?.innerText.includes("支付已取消"));
+    expect((await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState().orders[0].latestPaymentAttemptStatus)) === "CANCELLED", "支付取消状态未收敛");
+
+    orderId = await loadPendingOrder();
+    await page.click('[data-action="simulate-payment-timeout"]');
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    order = snapshot.orders.find((item) => item.id === orderId);
+    expect(order.orderStatus === "CLOSED" && order.inventoryReservation.status === "EXPIRED" && order.fulfillmentStatus === "NOT_STARTED", "超时关单未使预占 EXPIRED 或错误启动履约");
+    await page.click('[data-action="simulate-late-payment"]');
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    order = snapshot.orders.find((item) => item.id === orderId);
+    expect(order.orderStatus === "CLOSED" && order.latestPaymentAttemptStatus === "SUCCEEDED_LATE" && order.latePaymentRefund.status === "PROCESSING" && order.latePaymentRefund.attemptStatus === "INITIATED" && order.fulfillmentStatus === "NOT_STARTED", "迟到支付错误恢复订单/履约或退款尝试未从 INITIATED 开始");
+    await page.click('[data-action="fail-late-refund"]');
+    await page.waitForFunction(() => document.querySelector(".result-panel")?.innerText.includes("自动退款失败"));
+    snapshot = await page.evaluate(() => window.__MINIAPP_PROTOTYPE__.getState());
+    order = snapshot.orders.find((item) => item.id === orderId);
+    expect(order.orderStatus === "CLOSED" && order.latePaymentRefund.status === "MANUAL_REQUIRED" && order.latePaymentRefund.attemptStatus === "FAILED" && order.refundStatus === "FAILED", "迟到退款失败未保持关单并转人工处理");
+    await page.click('[data-open-order]');
+    expect((await page.locator(".detail-page").innerText()).includes("已转人工财务异常"), "订单详情未展示迟到退款人工处理状态");
   });
 
   await run("mini-interaction-category-search-detail", async (page) => {
@@ -1075,6 +1130,39 @@ async function runOpsInteractionChecks(browser) {
     expect(!shippableText.includes("买家留言") && shippableText.includes("内部备注"), "订单详情未移除消费者留言或未明确内部备注");
     expect((await page.locator('[data-view="order-detail"] .detail-actions').innerText()).includes("内部备注"), "订单备注动作未明确为内部备注");
     expect(await page.locator("#openShipModal").isVisible(), "待发货订单缺少发货入口");
+  });
+
+  await run("admin-interaction-b10-readonly-reconciliation", "admin.html", async (page) => {
+    await page.click('[data-page="orders"]');
+    const panel = page.locator('[data-admin-surface="ADM-10"]');
+    const panelText = await panel.innerText();
+    expect(["ADM-10", "支付对账待办", "只读投影", "不能直接修改"].every((term) => panelText.includes(term)), "ADM-10 未明确最小只读对账边界");
+    expect(await panel.locator("input, select, textarea, [contenteditable='true']").count() === 0, "ADM-10 对账待办错误提供状态编辑控件");
+    const before = await page.evaluate(() => {
+      const snapshot = window.__ADMIN_PROTOTYPE__.getState();
+      return { orders: snapshot.orders, keys: snapshot.reconciliationTasks.map((task) => task.idempotencyKey), tasks: snapshot.reconciliationTasks };
+    });
+    expect(before.tasks.map((task) => task.kind).sort().join(",") === ["PAYMENT_INTENT", "PAYMENT_SETTLEMENT", "LATE_PAYMENT_REFUND"].sort().join(","), "ADM-10 未闭合为三类对账待办");
+    expect(before.tasks.every((task) => !("capability" in task) && !("providerPayload" in task)), "ADM-10 待办泄露支付 capability 或 Provider 原文");
+
+    const pendingButton = panel.locator('[data-reconciliation-id="REC-B10-001"] .reconcile-task');
+    const pendingKey = await pendingButton.getAttribute("data-idempotency-key");
+    await pendingButton.click();
+    await page.waitForFunction(() => document.querySelector('[data-reconciliation-id="REC-B10-001"]')?.dataset.lastHttpStatus === "202");
+    let snapshot = await page.evaluate(() => window.__ADMIN_PROTOTYPE__.getState());
+    let task = snapshot.reconciliationTasks.find((item) => item.id === "REC-B10-001");
+    expect(task.status === "PENDING" && task.lastHttpStatus === 202 && task.idempotencyKey === pendingKey, "ADM-10 HTTP 202 未保留待办或更换了幂等键");
+    expect(JSON.stringify(snapshot.orders) === JSON.stringify(before.orders), "ADM-10 触发操作直接改写了订单状态");
+
+    const resolvedButton = panel.locator('[data-reconciliation-id="REC-B10-002"] .reconcile-task');
+    const resolvedKey = await resolvedButton.getAttribute("data-idempotency-key");
+    await resolvedButton.click();
+    await page.waitForFunction(() => document.querySelector('[data-reconciliation-id="REC-B10-002"]')?.dataset.reconciliationStatus === "RESOLVED");
+    snapshot = await page.evaluate(() => window.__ADMIN_PROTOTYPE__.getState());
+    task = snapshot.reconciliationTasks.find((item) => item.id === "REC-B10-002");
+    expect(task.lastHttpStatus === 200 && task.idempotencyKey === resolvedKey && task.status === "RESOLVED", "ADM-10 HTTP 200 未幂等收敛或更换了幂等键");
+    expect(JSON.stringify(snapshot.orders) === JSON.stringify(before.orders), "ADM-10 收敛动作直接改写了订单状态");
+    expect(before.keys.join(",") === snapshot.reconciliationTasks.map((item) => item.idempotencyKey).join(","), "ADM-10 重试时未保持固定幂等键");
   });
 
   await run("admin-interaction-immutable-payment-snapshot", "admin.html", async (page) => {
@@ -1885,7 +1973,7 @@ async function main() {
   } else if (caseFilter) {
     console.log(`PASS filtered render: ${caseFilter}${updateExports ? " (export updated)" : ""}`);
   } else {
-    console.log(`PASS all ${cases.length} responsive renders, 21/9/22 surface contracts, 16 miniapp flows and 18 admin/agent flows${updateExports ? " (exports updated)" : ""}`);
+    console.log(`PASS all ${cases.length} responsive renders, 21/9/22 surface contracts, 17 miniapp flows and 19 admin/agent flows${updateExports ? " (exports updated)" : ""}`);
   }
 }
 

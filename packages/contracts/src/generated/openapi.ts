@@ -581,7 +581,7 @@ export interface paths {
         };
         /**
          * 本人订单列表和状态筛选
-         * @description 仅返回当前 CUSTOMER 的订单，默认按 created_at DESC,order_id DESC 稳定排序。B9 只对待付款且未过期、无 payment_intent 的订单返回 CANCEL 动作；不返回 PAY、物流、履约或售后写操作。
+         * @description 仅返回当前 CUSTOMER 的订单，默认按 created_at DESC,order_id DESC 稳定排序。B10 对未过期且可创建或复用支付意图的待付款订单返回 PAY；可主动关闭的订单返回 CANCEL，关闭或支付结果尚不确定时不返回任何重复支付或取消动作。物流、履约和普通售后写操作仍不开放。
          */
         get: operations["getStoreOrders"];
         put?: never;
@@ -605,7 +605,7 @@ export interface paths {
         };
         /**
          * 订单、支付、退款、履约和售后聚合详情
-         * @description 仅当前 CUSTOMER 可读取本人订单，跨客户访问统一返回 404。B9 解密并返回订单冻结收货地址，支付尝试、物流、履约和售后数组保持为空，不开放 B10 及后续阶段动作。
+         * @description 仅当前 CUSTOMER 可读取本人订单，跨客户访问统一返回 404。解密并返回订单冻结收货地址；B10 返回已持久化的支付尝试和迟到支付退款尝试，并按当前状态仅开放 PAY 或 CANCEL。物流、履约和普通售后数组仍为空。
          */
         get: operations["getStoreOrdersByOrderId"];
         put?: never;
@@ -626,8 +626,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * 取消本人待付款订单并释放库存
-         * @description 仅未过期、PENDING_PAYMENT 且不存在任何 payment_intent 的本人订单可主动取消。If-Match 必须对应订单 version；版本或状态冲突返回闭合 409。使用 HASH_ONLY 幂等；完整幂等重放先于 If-Match 校验并返回同一订单的当前投影。已由当前客户取消的订单使用新幂等键重复取消也返回当前投影；其他不可取消状态返回 ORDER_NOT_CANCELLABLE。
+         * 取消本人待付款订单；必要时先异步关闭支付意图
+         * @description 仅未过期、PENDING_PAYMENT 且无任何成功支付事实的本人订单可主动取消。不存在 payment_intent 或仅有失败终态 intent 时同步关闭订单并释放库存；CREATING/OPEN intent 先原子转为 CLOSE_PENDING，再于事务外 query/close Provider。Provider 尚无法确认时返回 202，订单与库存预占保持不变；确认不可支付后才关闭订单并释放库存，确认已支付则转入正常或迟到支付处理。If-Match 必须对应订单 version；版本或状态冲突返回闭合 409。使用 HASH_ONLY 幂等；完整幂等重放先于 If-Match 校验并返回同一订单的当前投影。已由当前客户取消的订单使用新幂等键重复取消也返回当前投影；其他不可取消状态返回 ORDER_NOT_CANCELLABLE。
          */
         post: operations["postStoreOrdersByOrderIdCancel"];
         delete?: never;
@@ -645,7 +645,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 创建或复用唯一非终态意图，按稳定 intent_no 调用/对账 Provider */
+        /**
+         * 创建或复用唯一非终态意图，按稳定 intent_no 调用/对账 Provider
+         * @description 仅订单所有者可用。服务端按受控环境配置选择 Provider，客户端不得指定 Provider。If-Match 绑定订单版本，Idempotency-Key 使用 HASH_ONLY；完整幂等重放先于 If-Match 与支付期限校验。支付期限已过返回 ORDER_PAYMENT_EXPIRED，不允许支付返回 PAYMENT_NOT_ALLOWED；Provider 或配置不可用时 fail closed 返回闭合 503。
+         */
         post: operations["postStoreOrdersByOrderIdPaymentIntents"];
         delete?: never;
         options?: never;
@@ -696,7 +699,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 微信支付通知收件箱 */
+        /**
+         * 微信支付通知收件箱
+         * @description 仅在真实微信支付配置完整时注册路由；未配置时不得注册。必须基于未经解析的原始请求体与四个 WeChatpay 头完成验签，再以 Provider 事件唯一键持久化 Inbox；不得记录原始报文、签名、证书材料或解密后的敏感字段。
+         */
         post: operations["postCallbacksWechatPay"];
         delete?: never;
         options?: never;
@@ -713,7 +719,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 微信退款通知收件箱 */
+        /**
+         * 微信退款通知收件箱
+         * @description 仅在真实微信支付配置完整时注册路由；未配置时不得注册。必须基于未经解析的原始请求体与四个 WeChatpay 头完成验签，再以 Provider 事件唯一键持久化 Inbox；不得记录原始报文、签名、证书材料或解密后的敏感字段。
+         */
         post: operations["postCallbacksWechatRefund"];
         delete?: never;
         options?: never;
@@ -730,7 +739,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Mock Provider 成功、失败、取消、迟到成功 */
+        /**
+         * Mock Provider 成功、失败、取消、迟到成功
+         * @description 仅允许在 development 注册，其他环境不得暴露。payment_intent_id 必须属于当前 CUSTOMER 的订单，跨客户访问统一返回 404。请求仅表达 SUCCEEDED、FAILED 或 CANCELLED；Provider 事件号与交易号由服务端生成。服务端根据数据库时间和订单状态判定正常成功或迟到成功，客户端不得指定 SUCCEEDED_LATE。命令使用 HASH_ONLY 幂等，成功接收后以 202 写入 Callback Inbox 异步处理；同一结果事实冲突返回 PAYMENT_RESULT_CONFLICT。
+         */
         post: operations["postStoreMockPaymentsByPaymentIntentIdResult"];
         delete?: never;
         options?: never;
@@ -2504,7 +2516,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 查询 CREATING/OPEN/CLOSE_PENDING 对账待办及 last_error_code */
+        /**
+         * 查询支付意图与迟到支付退款的最小对账待办
+         * @description 只读返回 CREATING/OPEN/CLOSE_PENDING 支付意图、已成功扣款但结算配置异常的 MANUAL_REQUIRED 待办，以及 LATE_PAYMENT 退款的 PENDING/PROCESSING/FAILED 或 MANUAL_REQUIRED 待办。响应不包含支付 capability、Provider 原文、交易号、客户标识或 PII；每项使用关联 payment_intent_id 触发统一 reconcile。
+         */
         get: operations["getAdminPaymentIntentsReconciliationTasks"];
         put?: never;
         post?: never;
@@ -2523,7 +2538,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 幂等触发按 intent_no 查询恢复，不直接篡改状态 */
+        /**
+         * 幂等触发支付意图及关联迟到退款收敛
+         * @description 按关联 payment_intent_id 触发受控 Provider query/close/refund 查询，或将同一支付意图及其唯一 LATE_PAYMENT 退款写入对账队列。不接受目标状态，也不得直接修改支付意图、订单、库存、退款或佣金状态。同步完成并收敛返回 200；已安全接收但仍待 Provider 确认返回 202。只返回最小对账投影，不返回支付 capability。
+         */
         post: operations["postAdminPaymentIntentsByPaymentIntentIdReconcile"];
         delete?: never;
         options?: never;
@@ -3895,14 +3913,9 @@ export interface components {
             amount: components["schemas"]["PositiveMoney"];
             bank_account_id: string;
         };
-        PaymentIntentRequest: {
-            /** @enum {string} */
-            provider: "WECHAT" | "MOCK";
-        };
         MockPaymentResultRequest: {
             /** @enum {string} */
-            result: "SUCCEEDED" | "FAILED" | "CANCELLED" | "SUCCEEDED_LATE";
-            provider_transaction_id?: string | null;
+            result: "SUCCEEDED" | "FAILED" | "CANCELLED";
         };
         BrandCreateRequest: {
             name: string;
@@ -5392,8 +5405,8 @@ export interface components {
             items: components["schemas"]["StoreOrderCompactItem"][];
             /** Format: date-time */
             pay_expires_at: string | null;
-            /** @description B9 仅在未过期、待付款且无支付意图时返回 CANCEL；其余状态返回空数组。 */
-            available_actions: "CANCEL"[];
+            /** @description B10 对未过期、待付款且允许创建或复用支付意图的订单返回 PAY；无支付意图或仅有失败终态 intent 且可主动取消时返回 CANCEL。两个动作均由服务端当前投影决定；关闭或支付结果未决时返回空数组。 */
+            available_actions: ("PAY" | "CANCEL")[];
             aftersale_summary: components["schemas"]["OrderAftersaleListSummary"];
             /** Format: date-time */
             created_at: string;
@@ -5876,11 +5889,52 @@ export interface components {
             };
             request_id: string;
         };
+        /** @description ADM-10 最小安全待办联合；三分支均禁止 Provider payload、capability、交易号、客户标识与 PII。 */
         PaymentReconciliationView: {
+            /** @constant */
+            task_type: "PAYMENT_INTENT";
             payment_intent_id: string;
-            intent_no: string;
+            refund_id: null;
+            order_id: string;
+            /** @description 脱敏稳定 intent_no；不是 Provider 标识。 */
+            reference_no: string;
             /** @enum {string} */
             status: "CREATING" | "OPEN" | "CLOSE_PENDING";
+            payment_resolution: null;
+            last_error_code: string | null;
+            reconciliation_attempt_count: number;
+            /** Format: date-time */
+            next_reconcile_at: string | null;
+            version: number;
+        } | {
+            /** @constant */
+            task_type: "PAYMENT_SETTLEMENT";
+            payment_intent_id: string;
+            refund_id: null;
+            order_id: string;
+            /** @description 脱敏稳定 intent_no；不是 Provider 标识。 */
+            reference_no: string;
+            /** @constant */
+            status: "SUCCEEDED";
+            /** @constant */
+            payment_resolution: "MANUAL_REQUIRED";
+            last_error_code: string;
+            reconciliation_attempt_count: number;
+            next_reconcile_at: null;
+            version: number;
+        } | {
+            /** @constant */
+            task_type: "LATE_PAYMENT_REFUND";
+            /** @description 关联迟到成功支付意图，也是 reconcile 操作的路径 ID。 */
+            payment_intent_id: string;
+            refund_id: string;
+            order_id: string;
+            /** @description 脱敏稳定 refund_no；不是 Provider 标识。 */
+            reference_no: string;
+            /** @enum {string} */
+            status: "PENDING" | "PROCESSING" | "FAILED";
+            /** @enum {string} */
+            payment_resolution: "LATE_SUCCESS_REFUND_PENDING" | "MANUAL_REQUIRED";
             last_error_code: string | null;
             reconciliation_attempt_count: number;
             /** Format: date-time */
@@ -5900,6 +5954,50 @@ export interface components {
                     total: number;
                 };
             };
+            request_id: string;
+        };
+        PaymentReconciliationConvergedResponse: {
+            /** @constant */
+            code: "OK";
+            /** @constant */
+            message: "success";
+            /** @description Provider 查询及必要的迟到退款已收敛；不包含 capability 或 Provider 原文。 */
+            data: {
+                /** @constant */
+                outcome: "CONVERGED";
+                payment_intent_id: string;
+                refund_id: null;
+                order_id: string;
+                /** @enum {string} */
+                payment_intent_status: "CLOSED" | "SUCCEEDED" | "FAILED" | "CANCELLED" | "EXPIRED";
+                refund_status: null;
+                /** @constant */
+                payment_resolution: "NORMAL";
+                last_error_code: null;
+                version: number;
+            } | {
+                /** @constant */
+                outcome: "CONVERGED";
+                payment_intent_id: string;
+                refund_id: string;
+                order_id: string;
+                /** @enum {string} */
+                payment_intent_status: "CLOSED" | "EXPIRED";
+                /** @constant */
+                refund_status: "SUCCEEDED";
+                /** @constant */
+                payment_resolution: "LATE_SUCCESS_REFUNDED";
+                last_error_code: null;
+                version: number;
+            };
+            request_id: string;
+        };
+        PaymentReconciliationPendingResponse: {
+            /** @constant */
+            code: "ACCEPTED";
+            /** @constant */
+            message: "accepted";
+            data: components["schemas"]["PaymentReconciliationView"];
             request_id: string;
         };
         AgentView: {
@@ -6707,7 +6805,7 @@ export interface components {
             payment_attempt_id: string;
             intent_no: string;
             /** @enum {string} */
-            status: "CREATING" | "OPEN" | "SUCCEEDED" | "FAILED" | "CLOSE_PENDING" | "CLOSED";
+            status: "INITIATED" | "SUCCEEDED" | "SUCCEEDED_LATE" | "FAILED" | "CANCELLED";
             amount: components["schemas"]["NonNegativeMoney"];
             provider_transaction_id_masked: string | null;
             last_error: components["schemas"]["SafeDomainErrorView"] | null;
@@ -6723,7 +6821,7 @@ export interface components {
             /** @enum {string} */
             origin_type: "AFTERSALE" | "LATE_PAYMENT" | "MANUAL_COMPENSATION";
             /** @enum {string} */
-            status: "PENDING" | "PROCESSING" | "SUCCEEDED" | "FAILED";
+            status: "INITIATED" | "PROCESSING" | "SUCCEEDED" | "FAILED";
             amount: components["schemas"]["NonNegativeMoney"];
             last_error: components["schemas"]["SafeDomainErrorView"] | null;
             /** Format: date-time */
@@ -6810,16 +6908,16 @@ export interface components {
                 amounts: components["schemas"]["OrderAmountsDetailView"];
                 items: components["schemas"]["OrderItemView"][];
                 shipping_address: components["schemas"]["StoreFrozenAddressView"];
-                /** @description B9 仅在未过期、待付款且无支付意图时返回 CANCEL；其余状态返回空数组。 */
-                available_actions: "CANCEL"[];
+                /** @description B10 对未过期、待付款且允许创建或复用支付意图的订单返回 PAY；无支付意图或仅有失败终态 intent 且可主动取消时返回 CANCEL。两个动作均由服务端当前投影决定；关闭或支付结果未决时返回空数组。 */
+                available_actions: ("PAY" | "CANCEL")[];
                 timeline: components["schemas"]["OrderStateTimelineEventView"][];
                 /** @description B9 未开放物流，固定返回空数组。 */
                 packages: components["schemas"]["OrderPackageDetailView"][];
                 /** @description B9 未开放售后，固定返回空数组。 */
                 aftersales: components["schemas"]["OrderAftersaleSummaryView"][];
-                /** @description B9 不创建支付意图，固定返回空数组。 */
+                /** @description 按 created_at ASC,payment_attempt_id ASC 返回已创建的支付尝试；没有尝试时为空数组。 */
                 payment_attempts: components["schemas"]["PaymentAttemptDetailView"][];
-                /** @description B9 未开放退款，固定返回空数组。 */
+                /** @description 仅返回 B10 迟到支付自动退款尝试；没有退款时为空数组，消费者主动退款仍未开放。 */
                 refund_attempts: components["schemas"]["RefundAttemptDetailView"][];
                 errors: components["schemas"]["SafeDomainErrorView"][];
                 version: number;
@@ -7422,7 +7520,7 @@ export interface components {
                 };
             };
         };
-        /** @description B8/B9 登录后 Store 接口的通用错误；不得缓存或回显被拒绝的个性化值。 */
+        /** @description B8/B9/B10 登录后 Store 接口的通用错误；不得缓存或回显被拒绝的个性化值。 */
         StoreCustomerError: {
             headers: {
                 "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
@@ -7442,7 +7540,7 @@ export interface components {
                 };
             };
         };
-        /** @description B8/B9 登录后 Store 接口的闭合版本、状态、幂等或报价冲突响应。 */
+        /** @description B8/B9/B10 登录后 Store 接口的闭合版本、状态、幂等、报价或支付结果冲突响应。 */
         StoreCustomerConflict: {
             headers: {
                 "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
@@ -7452,7 +7550,7 @@ export interface components {
             content: {
                 "application/json": {
                     /** @enum {string} */
-                    code: "RESOURCE_VERSION_CONFLICT" | "STATE_CONFLICT" | "CHECKOUT_QUOTE_EXPIRED" | "CHECKOUT_QUOTE_MISMATCH" | "CHECKOUT_REQUOTE_REQUIRED" | "ORDER_NOT_CANCELLABLE";
+                    code: "RESOURCE_VERSION_CONFLICT" | "STATE_CONFLICT" | "CHECKOUT_QUOTE_EXPIRED" | "CHECKOUT_QUOTE_MISMATCH" | "CHECKOUT_REQUOTE_REQUIRED" | "ORDER_NOT_CANCELLABLE" | "ORDER_PAYMENT_EXPIRED" | "PAYMENT_NOT_ALLOWED" | "PAYMENT_RESULT_CONFLICT";
                     message: string;
                     details?: {
                         field: string | null;
@@ -7463,7 +7561,7 @@ export interface components {
                 };
             };
         };
-        /** @description B8/B9 登录后 Store 接口的闭合业务校验响应。 */
+        /** @description B8/B9/B10 登录后 Store 接口的闭合业务校验响应。 */
         StoreCustomerBusinessError: {
             headers: {
                 "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
@@ -7484,7 +7582,7 @@ export interface components {
                 };
             };
         };
-        /** @description B8 的 13 个登录后收藏、购物车和地址 operation 与 B9 的 5 个报价/订单 operation 共享 Redis 固定窗口；key 只保存 CUSTOMER 与规范化来源 IP 组合的用途隔离 HMAC，每个组合每 60 秒最多 120 次。超限返回准确 Retry-After；Redis 不可用时 fail closed。 */
+        /** @description B8 的 13 个登录后收藏、购物车和地址 operation、B9 的 5 个报价/订单 operation 与 B10 的 2 个支付 operation 共享 Redis 固定窗口；key 只保存 CUSTOMER 与规范化来源 IP 组合的用途隔离 HMAC，每个组合每 60 秒最多 120 次。超限返回准确 Retry-After；Redis 不可用时 fail closed。 */
         StoreCustomerRateLimited: {
             headers: {
                 "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
@@ -7497,6 +7595,27 @@ export interface components {
                 "application/json": {
                     /** @constant */
                     code: "RATE_LIMITED";
+                    message: string;
+                    details?: {
+                        field: string | null;
+                        reason: string;
+                        rejected_value?: null;
+                    }[];
+                    request_id: string;
+                };
+            };
+        };
+        /** @description B10 支付 Provider 或服务端支付配置不可用时的闭合 fail-closed 响应；不得回显配置值、Provider 原文、签名、证书或个性化数据。 */
+        StoreCustomerPaymentUnavailable: {
+            headers: {
+                "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                Pragma: components["headers"]["StorePragmaNoCacheRequired"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    code: "PAYMENT_PROVIDER_UNAVAILABLE" | "PAYMENT_CONFIGURATION_UNAVAILABLE";
                     message: string;
                     details?: {
                         field: string | null;
@@ -8887,6 +9006,17 @@ export interface operations {
                     "application/json": components["schemas"]["StoreOrderResponse"];
                 };
             };
+            /** @description 支付意图已进入 CLOSE_PENDING，等待 Provider 确认；订单和库存预占尚未释放 */
+            202: {
+                headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoreOrderResponse"];
+                };
+            };
             400: components["responses"]["StoreCustomerError"];
             401: components["responses"]["StoreCustomerError"];
             403: components["responses"]["StoreCustomerError"];
@@ -8902,37 +9032,35 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
                 order_id: string;
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PaymentIntentRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description 成功 */
             200: {
                 headers: {
-                    "Cache-Control": components["headers"]["CacheControlNoStore"];
-                    Pragma: components["headers"]["PragmaNoCache"];
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["PaymentIntentResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
+            503: components["responses"]["StoreCustomerPaymentUnavailable"];
         };
     };
     postStoreOrdersByOrderIdConfirmReceipt: {
@@ -9072,25 +9200,26 @@ export interface operations {
             };
         };
         responses: {
-            /** @description 成功 */
-            200: {
+            /** @description Mock 结果已写入 Callback Inbox，等待异步处理 */
+            202: {
                 headers: {
-                    "Cache-Control": components["headers"]["CacheControlNoStore"];
-                    Pragma: components["headers"]["PragmaNoCache"];
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["PaymentIntentResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
+            503: components["responses"]["StoreCustomerPaymentUnavailable"];
         };
     };
     getStoreAftersales: {
@@ -13031,8 +13160,14 @@ export interface operations {
             query?: {
                 page?: components["parameters"]["Page"];
                 page_size?: components["parameters"]["PageSize"];
+                /** @description 对账待办类型 */
+                task_type?: "PAYMENT_INTENT" | "PAYMENT_SETTLEMENT" | "LATE_PAYMENT_REFUND";
                 /** @description 可恢复意图状态 */
-                status?: "CREATING" | "OPEN" | "CLOSE_PENDING";
+                intent_status?: "CREATING" | "OPEN" | "CLOSE_PENDING";
+                /** @description 迟到支付退款处理状态 */
+                refund_status?: "PENDING" | "PROCESSING" | "FAILED";
+                /** @description 订单支付收敛状态 */
+                payment_resolution?: "LATE_SUCCESS_REFUND_PENDING" | "MANUAL_REQUIRED";
                 /** @description 脱敏错误码 */
                 last_error_code?: string;
                 /** @description next_reconcile_at 上界（UTC） */
@@ -13047,6 +13182,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -13083,12 +13220,23 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
-                    "Cache-Control": components["headers"]["CacheControlNoStore"];
-                    Pragma: components["headers"]["PragmaNoCache"];
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PaymentIntentResponse"];
+                    "application/json": components["schemas"]["PaymentReconciliationConvergedResponse"];
+                };
+            };
+            /** @description 对账任务已安全接收并进入异步队列 */
+            202: {
+                headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaymentReconciliationPendingResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

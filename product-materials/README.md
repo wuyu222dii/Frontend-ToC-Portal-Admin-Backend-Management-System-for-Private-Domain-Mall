@@ -2,7 +2,7 @@
 
 本目录集中管理三端商城的需求、方案、技术、风控、开发文档和可点击原型。
 
-当前交付状态：B0 至 B8 development 均已通过。B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 已取得普通 CI Run `33141704459` 与 Supabase development rollback-only Run `33142971501` 同 SHA 双绿，B8 development `GO`，CH-017 已自动失效。CH-019/CH-020 已批准，当前产品/API 基线为 v2.4.7/CH-020；B9.0 已在 SHA `97d5f979e63994c4fc136217d870a726f92b3d93` 取得普通 CI Run `33151986949`、Supabase development migration Run `33153469189` 和 rollback-only smoke Run `33153691333` 三项成功证据。B9.1-B9.4 已完成，B9.4 MP-08/10/11 小程序工程经复审达到 `P0=0/P1=0` 后暂停；B9.5 未开始，等待用户批准。B9 development 尚未 `GO`，CH-019 仍有效。仅允许 Mock Provider 和脱敏 development；staging、production、真实客户数据、真实微信身份及真实资金链路继续 `NO-GO`。
+当前交付状态：B0 至 B9 development 均已通过；B9 最终 SHA `19f9ad57190b28d11922db805b39af95b2f7ba3b` 已取得普通 CI Run `33230769777` 与 Supabase development rollback-only smoke Run `33233087710` 同 SHA 双绿，B9 development `GO`，CH-019 已自动失效。CH-021/CH-022 已批准，当前产品/API 基线为 `v2.4.8 / 2.4.8-ch022`；本轮只实施 B10.0，本地契约与数据库门禁通过，普通 CI、Supabase development migration 与 rollback-only smoke 待精确 SHA 远端证据，B10.1 尚未开始。仅允许 Mock Provider 和脱敏 development；staging、production、真实客户数据、真实微信身份及真实资金链路继续 `NO-GO`。
 
 ## 目录
 
@@ -27,4 +27,5 @@
 - [B7 消费者身份、会话、服务代理与隐私](docs/05-开发管理/B7-消费者身份会话与隐私.md)
 - [B8 登录后购物基础](docs/05-开发管理/B8-登录后购物基础.md)
 - [B9 订单、报价与库存预占](docs/05-开发管理/B9-订单报价与库存预占.md)
+- [B10 支付、对账与迟到支付退款](docs/05-开发管理/B10-支付对账与迟到支付退款.md)
 - [三端可点击原型](prototype/README.md)

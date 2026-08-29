@@ -64,6 +64,7 @@ const SENSITIVE_STORE_PATH_PREFIXES = [
   '/api/v1/store/cart/',
   '/api/v1/store/favorites/',
   '/api/v1/store/orders/',
+  '/api/v1/store/mock-payments/',
   '/api/v1/store/privacy/',
   '/api/v1/store/profile/',
 ] as const;

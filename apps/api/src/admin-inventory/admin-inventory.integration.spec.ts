@@ -111,6 +111,7 @@ function config(): PlatformRuntimeConfig {
       ipHashKey: Buffer.alloc(32, 0x63),
     },
     environment: 'test',
+    payment: { provider: 'MOCK', mockSigningKey: Buffer.alloc(32, 0x64), providerTimeoutMs: 5_000 },
     port: 3000,
     redis: { url: 'redis://unused' },
     service: 'api',

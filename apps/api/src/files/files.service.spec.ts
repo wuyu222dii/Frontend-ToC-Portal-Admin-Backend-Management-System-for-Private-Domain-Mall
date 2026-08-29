@@ -48,7 +48,9 @@ function config(): PlatformRuntimeConfig {
       idempotencyHashKeys: { current: { id: 'idem', key: Buffer.alloc(32, 2) }, previous: [] },
       ipHashKey: Buffer.alloc(32, 3),
     },
-    environment: 'test', port: 3000, redis: { url: 'redis://unused' }, service: 'api',
+    environment: 'test',
+    payment: { provider: 'MOCK', mockSigningKey: Buffer.alloc(32, 4), providerTimeoutMs: 5_000 },
+    port: 3000, redis: { url: 'redis://unused' }, service: 'api',
     storage: {
       accessKey: 'local-access-key-value', bucket: 'mall-test', endpoint: 'http://127.0.0.1:9000',
       forcePathStyle: true, maxUploadBytes: 5_242_880, pendingCleanupAgeSeconds: 86_400,

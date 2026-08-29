@@ -31,6 +31,11 @@ import { StoreCartController } from './store-cart/store-cart.controller';
 import { StoreCartService } from './store-cart/store-cart.service';
 import { StoreAddressController } from './store-address/store-address.controller';
 import { StoreAddressService } from './store-address/store-address.service';
+import {
+  StoreMockPaymentsController,
+  StorePaymentsController,
+} from './store-payments/store-payments.controller';
+import { StorePaymentsService } from './store-payments/store-payments.service';
 
 function runtimeConfig(): PlatformRuntimeConfig {
   const key = (byte: number) => Buffer.alloc(32, byte);
@@ -56,6 +61,7 @@ function runtimeConfig(): PlatformRuntimeConfig {
       ipHashKey: key(2),
     },
     environment: 'test',
+    payment: { provider: 'MOCK', mockSigningKey: key(7), providerTimeoutMs: 5_000 },
     port: 3000,
     redis: { url: 'redis://:runtime-test-password@127.0.0.1:6379/0' },
     service: 'api',
@@ -122,6 +128,11 @@ describe('ApiRuntimeModule authentication wiring', () => {
       'addresses',
       moduleRef.get(StoreAddressService),
     );
+    expect(moduleRef.get(StorePaymentsController)).toHaveProperty(
+      'payments',
+      moduleRef.get(StorePaymentsService),
+    );
+    expect(() => moduleRef.get(StoreMockPaymentsController)).toThrow();
     await moduleRef.close();
   });
 

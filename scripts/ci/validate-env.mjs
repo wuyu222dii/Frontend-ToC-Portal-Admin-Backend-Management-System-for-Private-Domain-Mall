@@ -55,6 +55,8 @@ const required = [
   "STORE_LOGIN_RATE_LIMIT_WINDOW_SECONDS",
   "STORE_CUSTOMER_RATE_LIMIT_MAX",
   "STORE_CUSTOMER_RATE_LIMIT_WINDOW_SECONDS",
+  "STORE_PAYMENT_PROVIDER",
+  "PAYMENT_PROVIDER_TIMEOUT_MS",
   "WORKER_POLL_INTERVAL_MS",
   "WORKER_BATCH_SIZE",
   "WORKER_MAX_RETRIES",
@@ -303,6 +305,20 @@ try {
       throw new Error(`${name}=MOCK is forbidden in production`);
     }
   }
+  const paymentProvider = process.env.STORE_PAYMENT_PROVIDER;
+  if (paymentProvider !== "MOCK" && paymentProvider !== "WECHAT") {
+    throw new Error("STORE_PAYMENT_PROVIDER must be MOCK or WECHAT");
+  }
+  if (process.env.NODE_ENV === "production" && paymentProvider === "MOCK") {
+    throw new Error("STORE_PAYMENT_PROVIDER=MOCK is forbidden in production");
+  }
+  if (paymentProvider === "MOCK" && !process.env.PAYMENT_MOCK_SIGNING_KEY_BASE64) {
+    throw new Error("PAYMENT_MOCK_SIGNING_KEY_BASE64 is required for the Mock payment provider");
+  }
+  const paymentMockSigningKey = process.env.PAYMENT_MOCK_SIGNING_KEY_BASE64
+    ? decodeBase64Key("PAYMENT_MOCK_SIGNING_KEY_BASE64")
+    : undefined;
+  readBoundedInteger("PAYMENT_PROVIDER_TIMEOUT_MS", 100, 30_000);
   if (process.env.STORE_IDENTITY_PROVIDER === "WECHAT" || process.env.STORE_PHONE_PROVIDER === "WECHAT") {
     const appId = process.env.STORE_WECHAT_APP_ID?.trim() ?? "";
     const appSecret = process.env.STORE_WECHAT_APP_SECRET?.trim() ?? "";
@@ -349,10 +365,13 @@ try {
     ...authSigningKeys.map(({ key }) => key),
     ...authSecretHashKeys.map(({ key }) => key),
     ...storePhoneHashKeys.map(({ key }) => key),
+    ...(paymentMockSigningKey ? [paymentMockSigningKey] : []),
   ];
   if (purposeKeys.some((key, index) => purposeKeys.some((candidate, candidateIndex) =>
     index !== candidateIndex && key.equals(candidate)))) {
-    throw new Error("authentication, Store phone, field encryption, audit, and idempotency keys must be independent");
+    throw new Error(
+      "authentication, Store phone, payment Mock, field encryption, audit, and idempotency keys must be independent",
+    );
   }
   readBoundedInteger("WORKER_POLL_INTERVAL_MS", 100, 60_000);
   readBoundedInteger("WORKER_BATCH_SIZE", 1, 100);

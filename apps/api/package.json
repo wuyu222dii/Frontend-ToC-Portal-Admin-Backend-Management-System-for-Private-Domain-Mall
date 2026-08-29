@@ -16,6 +16,7 @@
     "@nestjs/platform-express": "^11.1.9",
     "@qingxu/config": "workspace:*",
     "@qingxu/database": "workspace:*",
+    "@qingxu/payment": "workspace:*",
     "@qingxu/platform-core": "workspace:*",
     "@qingxu/storage": "workspace:*",
     "pg": "8.16.3",

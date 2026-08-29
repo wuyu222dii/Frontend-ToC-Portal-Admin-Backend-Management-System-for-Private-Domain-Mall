@@ -2,7 +2,7 @@
 
 本目录集中管理三端商城的需求、方案、技术、风控、开发文档和可点击原型。
 
-当前交付状态：B0 至 B9 development 均已通过；B9 最终 SHA `19f9ad57190b28d11922db805b39af95b2f7ba3b` 已取得普通 CI Run `33230769777` 与 Supabase development rollback-only smoke Run `33233087710` 同 SHA 双绿，B9 development `GO`，CH-019 已自动失效。CH-021/CH-022 已批准，当前产品/API 基线为 `v2.4.8 / 2.4.8-ch022`；本轮只实施 B10.0，本地契约与数据库门禁通过，普通 CI、Supabase development migration 与 rollback-only smoke 待精确 SHA 远端证据，B10.1 尚未开始。仅允许 Mock Provider 和脱敏 development；staging、production、真实客户数据、真实微信身份及真实资金链路继续 `NO-GO`。
+当前交付状态：B0 至 B9 development 均已通过；B9 development `GO`，CH-019 已自动失效。B10.0 已在 SHA `8cd5781eed9349d6f110fa43510e78c7f525a482` 依次取得普通 CI Run `33242561514`、Supabase development migration Run `33243979003` 与 rollback-only smoke Run `33244107293` 成功证据，退出复审为 `P0=0/P1=0`。CH-021/CH-022 已批准，当前产品/API 基线为 `v2.4.8 / 2.4.8-ch022`；B10.1 本地实现与验收已完成，退出复审为 `P0=0/P1=0`，现暂停等待用户批准进入 B10.2；B10.2 未开始。B10 尚未标记 development `GO`，CH-021 继续有效。仅允许 Mock Provider 和脱敏 development；staging、production、真实客户数据、真实微信身份及真实资金链路继续 `NO-GO`。
 
 ## 目录
 

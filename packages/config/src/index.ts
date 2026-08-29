@@ -22,6 +22,7 @@ export const FILE_STORAGE_LIMITS = {
 export type ServiceName = keyof typeof SERVICE_DEFAULT_PORTS;
 export type RuntimeEnvironment = 'development' | 'test' | 'production';
 export type StoreProvider = 'MOCK' | 'WECHAT';
+export type PaymentProviderName = 'MOCK' | 'WECHAT';
 
 export interface StoreLegalDocumentConfig {
   version: string;
@@ -57,6 +58,11 @@ export interface PlatformRuntimeConfig {
   };
   redis: {
     url: string;
+  };
+  payment: {
+    provider: PaymentProviderName;
+    mockSigningKey: Buffer | undefined;
+    providerTimeoutMs: number;
   };
   storage: {
     accessKey: string;
@@ -703,6 +709,35 @@ function readStoreProvider(
   return value;
 }
 
+function readPaymentConfig(
+  source: NodeJS.ProcessEnv,
+  required: boolean,
+  environment: RuntimeEnvironment,
+): PlatformRuntimeConfig['payment'] {
+  const rawProvider = source.STORE_PAYMENT_PROVIDER?.trim();
+  const provider = rawProvider || (required ? '' : 'MOCK');
+  if (provider !== 'MOCK' && provider !== 'WECHAT') {
+    throw new Error('STORE_PAYMENT_PROVIDER must be MOCK or WECHAT');
+  }
+  if (environment === 'production' && provider === 'MOCK') {
+    throw new Error('STORE_PAYMENT_PROVIDER=MOCK is forbidden in production');
+  }
+
+  const rawTimeout = source.PAYMENT_PROVIDER_TIMEOUT_MS;
+  if (required && !rawTimeout) throw new Error('PAYMENT_PROVIDER_TIMEOUT_MS is required');
+  const providerTimeoutMs = readInteger(source, 'PAYMENT_PROVIDER_TIMEOUT_MS', 5_000, 100, 30_000);
+
+  const rawMockSigningKey = source.PAYMENT_MOCK_SIGNING_KEY_BASE64;
+  if (provider === 'MOCK' && required && !rawMockSigningKey) {
+    throw new Error('PAYMENT_MOCK_SIGNING_KEY_BASE64 is required for the Mock payment provider');
+  }
+  const mockSigningKey = rawMockSigningKey
+    ? readBase64Key(source, 'PAYMENT_MOCK_SIGNING_KEY_BASE64', true)
+    : undefined;
+
+  return { provider, mockSigningKey, providerTimeoutMs };
+}
+
 function readBoundedText(
   source: NodeJS.ProcessEnv,
   name: string,
@@ -867,6 +902,7 @@ export function loadPlatformConfig(
   const databaseConnection = readRuntimeDatabaseConnection(source, requireDatabase, environment);
   const redisUrl = readRuntimeRedisUrl(source, requireDatabase, environment);
   const storage = readStorageConfig(source, requireStorage, environment);
+  const payment = readPaymentConfig(source, requireDatabase, environment);
   const infrastructureKeys = [
     ...[fieldKeys.current, ...fieldKeys.previous].map(({ key }) => key),
     ipHashKey,
@@ -886,6 +922,21 @@ export function loadPlatformConfig(
     if (purposeKeys.some((key, index) => purposeKeys.some((candidate, candidateIndex) =>
       index !== candidateIndex && key.equals(candidate)))) {
       throw new Error('all authentication, encryption, audit, and idempotency keys must be independent');
+    }
+  }
+  if (payment.mockSigningKey) {
+    const protectedKeys = [
+      ...(requireEncryption ? infrastructureKeys : []),
+      ...(requireAuthentication
+        ? [
+            ...[signingKeys.current, ...signingKeys.previous].map(({ key }) => key),
+            ...[secretHashKeys.current, ...secretHashKeys.previous].map(({ key }) => key),
+            ...[phoneHashKeys.current, ...phoneHashKeys.previous].map(({ key }) => key),
+          ]
+        : []),
+    ];
+    if (protectedKeys.some((key) => key.equals(payment.mockSigningKey!))) {
+      throw new Error('PAYMENT_MOCK_SIGNING_KEY_BASE64 must be independent from all other purpose keys');
     }
   }
 
@@ -926,6 +977,7 @@ export function loadPlatformConfig(
       idempotencyHashKeys,
     },
     redis: { url: redisUrl },
+    payment,
     storage,
     authentication: {
       accessTokenTtlSeconds: readInteger(source, 'AUTH_ACCESS_TOKEN_TTL_SECONDS', 900, 300, 3_600),

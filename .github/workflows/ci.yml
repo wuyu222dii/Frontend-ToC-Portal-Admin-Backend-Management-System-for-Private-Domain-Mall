@@ -143,6 +143,9 @@ jobs:
           echo 'STORE_LOGIN_RATE_LIMIT_WINDOW_SECONDS=900' >> "$GITHUB_ENV"
           echo 'STORE_CUSTOMER_RATE_LIMIT_MAX=120' >> "$GITHUB_ENV"
           echo 'STORE_CUSTOMER_RATE_LIMIT_WINDOW_SECONDS=60' >> "$GITHUB_ENV"
+          echo 'STORE_PAYMENT_PROVIDER=MOCK' >> "$GITHUB_ENV"
+          echo "PAYMENT_MOCK_SIGNING_KEY_BASE64=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
+          echo 'PAYMENT_PROVIDER_TIMEOUT_MS=5000' >> "$GITHUB_ENV"
 
       - name: Validate environment contract
         run: pnpm config:check

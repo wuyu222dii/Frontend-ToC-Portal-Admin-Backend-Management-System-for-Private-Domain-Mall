@@ -9,6 +9,7 @@ const PREVIOUS_IDEMPOTENCY_HASH_KEY = Buffer.alloc(32, 13).toString('base64');
 const AUTH_SIGNING_KEY = Buffer.alloc(32, 17).toString('base64');
 const AUTH_SECRET_HASH_KEY = Buffer.alloc(32, 19).toString('base64');
 const STORE_PHONE_HASH_KEY = Buffer.alloc(32, 21).toString('base64');
+const PAYMENT_MOCK_SIGNING_KEY = Buffer.alloc(32, 25).toString('base64');
 
 function validEnvironment(): NodeJS.ProcessEnv {
   return {
@@ -45,6 +46,9 @@ function validEnvironment(): NodeJS.ProcessEnv {
     STORE_PHONE_HASH_KEY_BASE64: STORE_PHONE_HASH_KEY,
     STORE_PHONE_HASH_KEY_ID: 'test-store-phone-v1',
     STORE_PHONE_PREVIOUS_HASH_KEYS_JSON: '[]',
+    STORE_PAYMENT_PROVIDER: 'MOCK',
+    PAYMENT_MOCK_SIGNING_KEY_BASE64: PAYMENT_MOCK_SIGNING_KEY,
+    PAYMENT_PROVIDER_TIMEOUT_MS: '5000',
     STORE_WECHAT_APP_ID: 'qingxu-mock-store-app',
     STORE_USER_AGREEMENT_VERSION: 'user-v1',
     STORE_USER_AGREEMENT_TITLE: 'User agreement',
@@ -76,6 +80,12 @@ describe('loadPlatformConfig', () => {
     expect(api.database.allowInsecureLocalhost).toBe(true);
     expect(api.database.sslRootCertPath).toBeUndefined();
     expect(api.redis.url).toBe('redis://:local-redis-password@127.0.0.1:6379/0');
+    expect(api.payment).toEqual({
+      provider: 'MOCK',
+      mockSigningKey: Buffer.alloc(32, 25),
+      providerTimeoutMs: 5_000,
+    });
+    expect(worker.payment).toEqual(api.payment);
     expect(api.storage).toEqual({
       accessKey: 'local-minio-access-key',
       bucket: 'mall-test',
@@ -603,7 +613,74 @@ describe('loadPlatformConfig', () => {
     delete productionMock.S3_PUBLIC_BASE_URL;
     expect(() => loadPlatformConfig(productionMock, {
       service: 'api', requireDatabase: false, requireStorage: false,
+    })).toThrow('STORE_PAYMENT_PROVIDER=MOCK is forbidden in production');
+
+    productionMock.STORE_PAYMENT_PROVIDER = 'WECHAT';
+    expect(() => loadPlatformConfig(productionMock, {
+      service: 'api', requireDatabase: false, requireStorage: false,
     })).toThrow('STORE_IDENTITY_PROVIDER=MOCK is forbidden in production');
+  });
+
+  it('requires bounded payment configuration for API and Worker runtimes', () => {
+    for (const service of ['api', 'worker'] as const) {
+      const missingProvider = validEnvironment();
+      delete missingProvider.STORE_PAYMENT_PROVIDER;
+      expect(() => loadPlatformConfig(missingProvider, { service })).toThrow(
+        'STORE_PAYMENT_PROVIDER must be MOCK or WECHAT',
+      );
+
+      const missingTimeout = validEnvironment();
+      delete missingTimeout.PAYMENT_PROVIDER_TIMEOUT_MS;
+      expect(() => loadPlatformConfig(missingTimeout, { service })).toThrow(
+        'PAYMENT_PROVIDER_TIMEOUT_MS is required',
+      );
+
+      const missingMockKey = validEnvironment();
+      delete missingMockKey.PAYMENT_MOCK_SIGNING_KEY_BASE64;
+      expect(() => loadPlatformConfig(missingMockKey, { service })).toThrow(
+        'PAYMENT_MOCK_SIGNING_KEY_BASE64 is required for the Mock payment provider',
+      );
+    }
+  });
+
+  it('validates payment provider, timeout, key shape and purpose isolation', () => {
+    const invalidProvider = validEnvironment();
+    invalidProvider.STORE_PAYMENT_PROVIDER = 'CARD';
+    expect(() => loadPlatformConfig(invalidProvider, { service: 'api' })).toThrow(
+      'STORE_PAYMENT_PROVIDER must be MOCK or WECHAT',
+    );
+
+    for (const timeout of ['99', '30001', '1.5']) {
+      const invalidTimeout = validEnvironment();
+      invalidTimeout.PAYMENT_PROVIDER_TIMEOUT_MS = timeout;
+      expect(() => loadPlatformConfig(invalidTimeout, { service: 'api' })).toThrow(
+        /PAYMENT_PROVIDER_TIMEOUT_MS/,
+      );
+    }
+
+    const invalidKey = validEnvironment();
+    invalidKey.PAYMENT_MOCK_SIGNING_KEY_BASE64 = Buffer.alloc(16, 1).toString('base64');
+    expect(() => loadPlatformConfig(invalidKey, { service: 'api' })).toThrow(
+      'PAYMENT_MOCK_SIGNING_KEY_BASE64 must encode exactly 32 bytes',
+    );
+
+    const reusedKey = validEnvironment();
+    reusedKey.PAYMENT_MOCK_SIGNING_KEY_BASE64 = IDEMPOTENCY_HASH_KEY;
+    expect(() => loadPlatformConfig(reusedKey, { service: 'api' })).toThrow(
+      'PAYMENT_MOCK_SIGNING_KEY_BASE64 must be independent from all other purpose keys',
+    );
+  });
+
+  it('does not require or synthesize a Mock signing key for the WeChat payment selection', () => {
+    const environment = validEnvironment();
+    environment.STORE_PAYMENT_PROVIDER = 'WECHAT';
+    delete environment.PAYMENT_MOCK_SIGNING_KEY_BASE64;
+
+    expect(loadPlatformConfig(environment, { service: 'api' }).payment).toEqual({
+      provider: 'WECHAT',
+      mockSigningKey: undefined,
+      providerTimeoutMs: 5_000,
+    });
   });
 
   it('requires WeChat credentials only when a Store WeChat provider is selected', () => {
@@ -672,6 +749,9 @@ describe('loadPlatformConfig', () => {
     expect(config.encryption.fieldKeys.current.id).toBe('disabled');
     expect(config.encryption.idempotencyHashKeys.current.id).toBe('disabled');
     expect(config.redis.url).toBe('');
+    expect(config.payment).toEqual({
+      provider: 'MOCK', mockSigningKey: undefined, providerTimeoutMs: 5_000,
+    });
     expect(config.storage).toMatchObject({ bucket: '', endpoint: '', publicBaseUrl: '' });
   });
 });

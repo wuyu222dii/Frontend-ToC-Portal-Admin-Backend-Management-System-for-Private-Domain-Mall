@@ -76,7 +76,7 @@ const rules = [
   ["live payment secret", /\b(?:sk_live_|wx(?:pay)?[_-]?secret\s*[:=]\s*["'][^"']{12,})/i],
   ["full bank card", /(?<!\d)(?:62\d{14,17})(?!\d)/],
   ["fixture phone number", /(?<!\d)1[3-9]\d{9}(?!\d)/],
-  ["application key material", /\b(?:FIELD_ENCRYPTION_KEY_BASE64|AUDIT_IP_HASH_KEY_BASE64|IDEMPOTENCY_HASH_KEY_BASE64|AUTH_SIGNING_KEY_BASE64|AUTH_SECRET_HASH_KEY_BASE64|STORE_PHONE_HASH_KEY_BASE64)\s*[:=]\s*["']?[A-Za-z0-9+/]{40,}={0,2}/],
+  ["application key material", /\b(?:FIELD_ENCRYPTION_KEY_BASE64|AUDIT_IP_HASH_KEY_BASE64|IDEMPOTENCY_HASH_KEY_BASE64|AUTH_SIGNING_KEY_BASE64|AUTH_SECRET_HASH_KEY_BASE64|STORE_PHONE_HASH_KEY_BASE64|PAYMENT_MOCK_SIGNING_KEY_BASE64)\s*[:=]\s*["']?[A-Za-z0-9+/]{40,}={0,2}/],
   ["previous application key material", /["']key_base64["']\s*:\s*["'][A-Za-z0-9+/]{40,}={0,2}["']/],
   ["JWT credential", /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/],
   ["opaque authentication token", /\b(?:rfr|pat)_[A-Za-z0-9_-]{32,}\b/],

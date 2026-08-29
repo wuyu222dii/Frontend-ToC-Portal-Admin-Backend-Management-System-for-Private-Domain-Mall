@@ -24,7 +24,7 @@ export class ApiRuntimeModule {
     return {
       global: true,
       module: ApiRuntimeModule,
-      imports: [AppModule],
+      imports: [AppModule.register(config)],
       providers: [
         { provide: API_RUNTIME_CONFIG, useValue: config },
         {

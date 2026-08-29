@@ -123,6 +123,9 @@ importers:
       '@qingxu/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@qingxu/payment':
+        specifier: workspace:*
+        version: link:../../packages/payment
       '@qingxu/platform-core':
         specifier: workspace:*
         version: link:../../packages/platform-core
@@ -261,6 +264,15 @@ importers:
       '@types/pg':
         specifier: 8.21.0
         version: 8.21.0
+      vitest:
+        specifier: ^4.0.6
+        version: 4.1.10(@types/node@22.20.1)(jiti@2.7.0)(terser@5.50.0)(tsx@4.23.12)
+
+  packages/payment:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
       vitest:
         specifier: ^4.0.6
         version: 4.1.10(@types/node@22.20.1)(jiti@2.7.0)(terser@5.50.0)(tsx@4.23.12)

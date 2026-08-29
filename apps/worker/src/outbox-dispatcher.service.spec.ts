@@ -41,6 +41,7 @@ const config: PlatformRuntimeConfig = {
       previous: [],
     },
   },
+  payment: { mockSigningKey: Buffer.alloc(32, 3), provider: 'MOCK', providerTimeoutMs: 1_000 },
   redis: { url: 'redis://:runtime-test-password@127.0.0.1:6379/0' },
   store: {
     authTokenAudience: 'qingxu-store',

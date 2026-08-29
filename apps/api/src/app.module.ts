@@ -1,5 +1,12 @@
-import { MiddlewareConsumer, Module, RequestMethod, type NestModule } from '@nestjs/common';
+import {
+  type DynamicModule,
+  MiddlewareConsumer,
+  Module,
+  RequestMethod,
+  type NestModule,
+} from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import type { PlatformRuntimeConfig } from '@qingxu/config';
 
 import { AdminCatalogModule } from './admin-catalog/admin-catalog.module';
 import { AdminAuthModule } from './admin-auth/admin-auth.module';
@@ -24,6 +31,7 @@ import { StoreAttributionModule } from './store-attribution/store-attribution.mo
 import { StoreAuthModule } from './store-auth/store-auth.module';
 import { StoreProfileModule } from './store-profile/store-profile.module';
 import { StorePrivacyModule } from './store-privacy/store-privacy.module';
+import { StorePaymentsModule } from './store-payments/store-payments.module';
 
 @Module({
   imports: [
@@ -53,6 +61,13 @@ import { StorePrivacyModule } from './store-privacy/store-privacy.module';
   ],
 })
 export class AppModule implements NestModule {
+  static register(config: PlatformRuntimeConfig): DynamicModule {
+    return {
+      module: AppModule,
+      imports: [StorePaymentsModule.register(config)],
+    };
+  }
+
   configure(consumer: MiddlewareConsumer): void {
     consumer.apply(RequestIdMiddleware, AccessLogMiddleware).forRoutes({
       method: RequestMethod.ALL,

@@ -9,7 +9,7 @@
 | 文档版本 | v2.4.7 |
 | 对应阶段 | 三端标准 MVP |
 | 更新日期 | 2026-08-29 |
-| 当前状态 | B0 至 B8 development 已完成；B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 同 SHA 双绿，CH-017 已失效；CH-019/CH-020 已批准，产品/API 基线为 v2.4.7/CH-020；B9.0-B9.5 本地实现与验收已完成，三项原 P1 已关闭，最终本地独立复审为 `P0=0/P1=0/P2=1`，等待最终实现同一 SHA 的普通 CI 与 Supabase rollback-only 双绿；B9 development 尚未 `GO`，CH-019 仍有效；仅允许 Mock Provider 和脱敏 development，staging/production `NO-GO` |
+| 当前状态 | B0 至 B9 development 已完成；产品/API 基线为 v2.4.7/CH-020；B9 最终 SHA `19f9ad57190b28d11922db805b39af95b2f7ba3b` 的普通 CI Run `33230769777` 与 Supabase development rollback-only smoke Run `33233087710` 同 SHA 且均为 `completed/success`，B9 development `GO`，CH-019 已自动失效；最终独立复审保持 `P0=0/P1=0/P2=1`，唯一非阻断 P2 为大量正常到期订单场景下完整性扫描工作量尚未有界；仅允许 Mock Provider 和脱敏 development，真实支付、staging/production `NO-GO` |
 | 产品终端 | 消费者微信小程序、一级代理工作台、总部管理后台 |
 | 人员角色 | `CUSTOMER`、`AGENT_ADMIN`、`SUPER_ADMIN` |
 
@@ -29,7 +29,7 @@
 | v2.4.4 | 2026-08-25 | 落实 CH-014：匿名目录售罄投影、综合排序、商品名搜索、无分页主数据、首页分区状态和公共限流 | 已归档；B6.0-B6.4 已完成，B6 development `GO` |
 | v2.4.5 | 2026-08-26 | 落实 CH-016：服务端法律文本、角色感知 Store 会话、资料手机号、归因/服务代理与同步账号注销契约 | 已归档；B7 development 已在最终同 SHA 双绿后 `GO`，CH-015 已失效 |
 | v2.4.6 | 2026-08-27 | 落实 CH-018：登录后收藏、服务端购物车、游客合并、收货地址隐私与共享客户限流契约 | 已归档；B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 同 SHA 双绿，B8 development `GO`，CH-017 已失效 |
-| v2.4.7 | 2026-08-28 | 落实 CH-020：结算报价凭证、待付款订单、库存预占、主动取消/超时释放与 0002 索引迁移 | 当前产品版本；B9.0-B9.5 本地实现与验收已完成，等待最终同 SHA 远端双绿，B9 尚未 `GO` |
+| v2.4.7 | 2026-08-28 | 落实 CH-020：结算报价凭证、待付款订单、库存预占、主动取消/超时释放与 0002 索引迁移 | 当前产品版本；B9.0-B9.5 已完成并取得最终同 SHA 双绿，B9 development `GO`，CH-019 已自动失效 |
 
 ### 文档使用约定
 
@@ -1529,8 +1529,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | 验收场景 AC | 116 | 0 |
 | 用户故事 US | 24 | 0 |
 
-当前准入结论：B0 至 B8 development 已通过。B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 的普通 CI Run `33141704459` 与 Supabase rollback-only Run `33142971501` 同 SHA 双绿，CH-017 已失效。CH-019/CH-020 已批准；CH-020 契约实测 173 paths/198 operations/198 unique operationId/325 schemas/703 schema refs/2,665 local refs/0 dangling refs，Redocly 0 warning。B9.0 三项远端门禁均成功，B9.1-B9.5 本地实现与验收已完成；B9.5 数据库 full `4 files / 29 tests`、B9 UI `12 passed / 28 designed skips`、真实 browser → Nest → PostgreSQL/Redis/MinIO → Worker `1/1`、全仓 `1,787 passed / 120 designed skips` 及精确清理均通过，三项原 P1 已关闭，最终本地独立复审为 `P0=0/P1=0/P2=1`。当前等待最终实现同一 SHA 的普通 CI 与 Supabase rollback-only 双绿；B9 development、staging 和 production 均未放行，CH-019 仍有效。
+当前准入结论：B0 至 B9 development 已通过。CH-020 契约实测 173 paths/198 operations/198 unique operationId/325 schemas/703 schema refs/2,665 local refs/0 dangling refs，Redocly 0 warning。B9.0-B9.5 实现与验收已完成；B9.5 数据库 full `4 files / 29 tests`、B9 UI `12 passed / 28 designed skips`、真实 browser → Nest → PostgreSQL/Redis/MinIO → Worker `1/1`、全仓 `1,787 passed / 120 designed skips` 及精确清理均通过。最终 SHA `19f9ad57190b28d11922db805b39af95b2f7ba3b` 的普通 CI Run `33230769777` 与 Supabase development rollback-only smoke Run `33233087710` 同 SHA 且均为 `completed/success`，B9 development `GO`，CH-019 已自动失效。最终独立复审保持 `P0=0/P1=0/P2=1`，唯一非阻断 P2 为大量正常到期订单场景下完整性扫描工作量尚未有界；真实支付、staging 和 production 均未放行。
 
 ---
 
-PRD 状态：v2.4.7/CH-020 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B8 development 已通过，B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 同 SHA 双绿，CH-017 已失效。B9.0-B9.5 本地实现与验收已完成，最终本地独立复审为 `P0=0/P1=0/P2=1`，当前等待最终实现同一 SHA 远端双绿。B9 development 尚未 `GO`，CH-019 仍有效；目标 staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。
+PRD 状态：v2.4.7/CH-020 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24；B0 至 B9 development 已通过。B9 最终 SHA `19f9ad57190b28d11922db805b39af95b2f7ba3b` 的普通 CI Run `33230769777` 与 Supabase development rollback-only smoke Run `33233087710` 同 SHA 且均为 `completed/success`，B9 development `GO`，CH-019 已自动失效；最终独立复审保持 `P0=0/P1=0/P2=1`，唯一非阻断 P2 为大量正常到期订单场景下完整性扫描工作量尚未有界。真实支付、staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。

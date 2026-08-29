@@ -669,7 +669,7 @@ function forbiddenBusinessCalls(backend: MockB7Backend): ApiCall[] {
     /^\/api\/v1\/(?:store\/)?(?:checkout|orders?)(?:\/|$)/.test(path));
 }
 
-test('restores the typed PROFILE action and exposes only the implemented shopping entries at every viewport',
+test('restores the typed PROFILE action and exposes the shopping entries at every viewport',
   async ({ page }, testInfo) => {
     const backend = new MockB7Backend();
     await backend.install(page);
@@ -693,9 +693,7 @@ test('restores the typed PROFILE action and exposes only the implemented shoppin
     await accountRow(page, '收货地址').click();
     await expect(page.getByText('暂无收货地址', { exact: true })).toBeVisible();
     await page.getByLabel('返回').click();
-    await accountRow(page, '我的订单').click();
-    await expect(page.getByText(/尚未开放/, { exact: false }).last()).toBeVisible();
-    await visibleText(page, '知道了').click();
+    await expect(accountRow(page, '我的订单')).toBeVisible();
     expect(backend.count('/api/v1/store/favorites', 'GET')).toBe(1);
     expect(backend.count('/api/v1/store/addresses', 'GET')).toBe(1);
     expect(backend.calls.some(({ path }) => /\/orders(?:\/|$)/.test(path))).toBe(false);
@@ -732,10 +730,10 @@ test('restores the typed PROFILE action and exposes only the implemented shoppin
   });
 
 for (const action of [
-  { control: '收藏商品', modal: null, type: 'favorite' },
-  { control: '立即购买', modal: '立即购买尚未开放', type: 'buy-now' },
+  { control: '收藏商品', type: 'favorite' },
+  { control: '立即购买', type: 'buy-now' },
 ] as const) {
-  test(`restores the existing product instance after ${action.type} login`, async ({ page }, testInfo) => {
+  test(`restores the protected product action after ${action.type} login`, async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'mobile-390', 'The protected product action matrix runs once.');
     const backend = new MockB7Backend();
     await backend.install(page);
@@ -748,19 +746,18 @@ for (const action of [
     await visibleText(page, '去登录').click();
     await expect(page).toHaveURL(/\/pages\/auth\/login/);
     await submitLogin(page);
-    await expect(page).toHaveURL(new RegExp(`/pages/product/detail\\?product_id=${PRODUCT_ID}$`));
-    if (action.modal === null) {
+
+    if (action.type === 'favorite') {
+      await expect(page).toHaveURL(new RegExp(`/pages/product/detail\\?product_id=${PRODUCT_ID}$`));
       await expect(page.getByLabel('取消收藏')).toBeVisible();
       expect(backend.count(`/api/v1/store/favorites/${PRODUCT_ID}`, 'PUT')).toBe(1);
+      await expectConfiguredProductState(page);
     } else {
-      await expect(page.getByText(action.modal, { exact: true })).toBeVisible();
-      await visibleText(page, '知道了').click();
+      await expect(page).toHaveURL(new RegExp(
+        `/pages/checkout/index\\?source=BUY_NOW&product_id=${PRODUCT_ID}&sku_id=${SKU_TWO_ID}&quantity=2$`,
+      ));
+      await expect(page.getByText('请先添加收货地址', { exact: true })).toBeVisible();
     }
-
-    await page.locator('uni-button.detail-choice__row').first().click();
-    const secondSku = page.locator('uni-button.sku-option').filter({ hasText: '容量：100ml' });
-    await expect(secondSku).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('.sku-stepper')).toContainText('2');
     expect(backend.count(`/api/v1/store/products/${PRODUCT_ID}`, 'GET')).toBe(1);
     expect(forbiddenBusinessCalls(backend)).toEqual([]);
     const stored = await webStorage(page);
@@ -805,10 +802,9 @@ test('restores the existing guest cart after checkout login', async ({ page }, t
   await expect(page.getByText('请先登录', { exact: true })).toBeVisible();
   await visibleText(page, '去登录').click();
   await submitLogin(page);
-  await expect(page).toHaveURL(/\/pages\/cart\/index/);
-  await expect(page.getByText('结算尚未开放', { exact: true })).toBeVisible();
-  await visibleText(page, '知道了').click();
-  await expect(cartItem.locator('.cart-stepper')).toContainText('3');
+  await expect(page).toHaveURL(/\/pages\/checkout\/index\?source=CART$/);
+  await expect(page.getByText('请先添加收货地址', { exact: true })).toBeVisible();
+  expect(backend.cartItems).toEqual([{ quantity: 3, selected: true, sku_id: CUSTOMER_ID }]);
   expect(backend.count('/api/v1/store/cart/merge', 'POST')).toBe(1);
   expect(forbiddenBusinessCalls(backend)).toEqual([]);
   const stored = await webStorage(page);

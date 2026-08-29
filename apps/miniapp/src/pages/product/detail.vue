@@ -25,7 +25,7 @@ import {
 } from '../../utils/guest-cart';
 import { guestCartSnapshot } from '../../utils/guest-cart-refresh';
 import { hasRefreshableCustomerSession } from '../../utils/customer-session';
-import { goBackOrHome, openHome, showLoginPrompt } from '../../utils/store-navigation';
+import { goBackOrHome, openCheckout, openHome, showLoginPrompt } from '../../utils/store-navigation';
 
 type DetailState = 'loading' | 'ready' | 'not-found' | 'error' | 'rate-limited';
 type DetailTab = 'introduction' | 'ingredients' | 'usage_method';
@@ -254,8 +254,24 @@ async function confirmSkuSelection() {
 }
 
 function buyNow() {
-  if (allSoldOut.value || !selectedSku.value?.is_salable) return;
-  showLoginPrompt({ type: 'BUY_NOW', product_id: productId.value });
+  const sku = selectedSku.value;
+  if (allSoldOut.value || !sku?.is_salable || quantity.value < 1) return;
+  const action = {
+    type: 'BUY_NOW' as const,
+    product_id: productId.value,
+    sku_id: sku.sku_id,
+    quantity: quantity.value,
+  };
+  if (!hasRefreshableCustomerSession()) {
+    showLoginPrompt(action);
+    return;
+  }
+  openCheckout({
+    source: 'BUY_NOW',
+    product_id: action.product_id,
+    sku_id: action.sku_id,
+    quantity: action.quantity,
+  });
 }
 
 async function favoriteProduct() {

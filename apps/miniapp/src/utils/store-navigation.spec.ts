@@ -68,7 +68,7 @@ describe('store navigation URL safety', () => {
     expect(reLaunch).not.toHaveBeenCalled();
   });
 
-  it('does not ask an authenticated customer to log in for an unopened action', () => {
+  it('opens checkout directly for an authenticated customer', () => {
     const showModal = vi.fn();
     const navigateTo = vi.fn();
     vi.stubGlobal('uni', {
@@ -87,13 +87,8 @@ describe('store navigation URL safety', () => {
 
     showLoginPrompt({ type: 'CHECKOUT' });
 
-    expect(showModal).toHaveBeenCalledWith({
-      confirmText: '知道了',
-      content: '此功能将在后续阶段开放。',
-      showCancel: false,
-      title: '结算尚未开放',
-    });
-    expect(navigateTo).not.toHaveBeenCalled();
+    expect(showModal).not.toHaveBeenCalled();
+    expect(navigateTo).toHaveBeenCalledWith({ url: '/pages/checkout/index?source=CART' });
     expect(peekProtectedAction()).toBeNull();
   });
 });

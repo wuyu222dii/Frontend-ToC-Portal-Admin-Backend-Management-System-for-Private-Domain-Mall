@@ -2,7 +2,7 @@
 
 本目录集中管理三端商城的需求、方案、技术、风控、开发文档和可点击原型。
 
-当前交付状态：B0 至 B8 development 均已通过。B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 已取得普通 CI Run `33141704459` 与 Supabase development rollback-only Run `33142971501` 同 SHA 双绿，B8 development `GO`，CH-017 已自动失效。CH-019/CH-020 已批准，当前产品/API 基线为 v2.4.7/CH-020；B9.0 已在 SHA `97d5f979e63994c4fc136217d870a726f92b3d93` 取得普通 CI Run `33151986949`、Supabase development migration Run `33153469189` 和 rollback-only smoke Run `33153691333` 三项成功证据。B9.1-B9.3 已完成，B9.3 本人订单查询、主动取消与超时释放经独立复审达到 `P0=0/P1=0` 后暂停；B9.4-B9.5 未开始，等待用户批准 B9.4。B9 development 尚未 `GO`，CH-019 仍有效。仅允许 Mock Provider 和脱敏 development；staging、production、真实客户数据、真实微信身份及真实资金链路继续 `NO-GO`。
+当前交付状态：B0 至 B8 development 均已通过。B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 已取得普通 CI Run `33141704459` 与 Supabase development rollback-only Run `33142971501` 同 SHA 双绿，B8 development `GO`，CH-017 已自动失效。CH-019/CH-020 已批准，当前产品/API 基线为 v2.4.7/CH-020；B9.0 已在 SHA `97d5f979e63994c4fc136217d870a726f92b3d93` 取得普通 CI Run `33151986949`、Supabase development migration Run `33153469189` 和 rollback-only smoke Run `33153691333` 三项成功证据。B9.1-B9.4 已完成，B9.4 MP-08/10/11 小程序工程经复审达到 `P0=0/P1=0` 后暂停；B9.5 未开始，等待用户批准。B9 development 尚未 `GO`，CH-019 仍有效。仅允许 Mock Provider 和脱敏 development；staging、production、真实客户数据、真实微信身份及真实资金链路继续 `NO-GO`。
 
 ## 目录
 

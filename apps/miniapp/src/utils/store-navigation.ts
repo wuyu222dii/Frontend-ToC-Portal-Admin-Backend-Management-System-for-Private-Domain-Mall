@@ -9,6 +9,15 @@ export interface StoreBannerTarget {
   target_url: string | null;
 }
 
+export type CheckoutNavigation =
+  | { readonly source: 'CART' }
+  | {
+      readonly source: 'BUY_NOW';
+      readonly product_id: string;
+      readonly sku_id: string;
+      readonly quantity: number;
+    };
+
 function pageUrl(path: string, query: Record<string, string | undefined> = {}): string {
   const parameters = Object.entries(query)
     .filter((entry): entry is [string, string] => entry[1] !== undefined)
@@ -37,6 +46,26 @@ export function openCart(): void {
   void uni.reLaunch({ url: '/pages/cart/index' });
 }
 
+export function openCheckout(input: CheckoutNavigation): void {
+  const query = input.source === 'CART'
+    ? { source: input.source }
+    : {
+        source: input.source,
+        product_id: input.product_id,
+        sku_id: input.sku_id,
+        quantity: String(input.quantity),
+      };
+  void uni.navigateTo({ url: pageUrl('/pages/checkout/index', query) });
+}
+
+export function openOrders(): void {
+  void uni.navigateTo({ url: '/pages/orders/index' });
+}
+
+export function openOrder(orderId: string): void {
+  void uni.navigateTo({ url: pageUrl('/pages/orders/detail', { order_id: orderId }) });
+}
+
 export function openProfile(): void {
   if (hasRefreshableCustomerSession()) {
     void uni.reLaunch({ url: '/pages/profile/index' });
@@ -59,15 +88,20 @@ export function showLoginPrompt(action: ProtectedAction = { type: 'PROFILE' }): 
   if (hasRefreshableCustomerSession()) {
     if (action.type === 'PROFILE') return openProfile();
     if (action.type === 'CART_ADD') return;
+    if (action.type === 'CHECKOUT') return openCheckout({ source: 'CART' });
+    if (action.type === 'BUY_NOW') return openCheckout({
+      source: 'BUY_NOW',
+      product_id: action.product_id,
+      sku_id: action.sku_id,
+      quantity: action.quantity,
+    });
+    if (action.type === 'ORDERS') return openOrders();
+    if (action.type === 'ORDER_DETAIL') return openOrder(action.order_id);
     if (action.type === 'SERVICE_AGENT') {
       void uni.navigateTo({ url: '/pages/profile/agent' });
       return;
     }
-    const title = action.type === 'FAVORITE'
-      ? '收藏尚未开放'
-      : action.type === 'BUY_NOW'
-        ? '立即购买尚未开放'
-        : '结算尚未开放';
+    const title = '操作暂不可用';
     void uni.showModal({
       confirmText: '知道了',
       content: '此功能将在后续阶段开放。',

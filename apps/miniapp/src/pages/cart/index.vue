@@ -41,6 +41,7 @@ import {
 } from '../../utils/guest-cart-refresh';
 import {
   handleBottomNavigation,
+  openCheckout,
   openHome,
   openProduct,
   showLoginPrompt,
@@ -427,7 +428,11 @@ function checkout(): void {
     void uni.showToast({ icon: 'none', title: '请选择可购买商品' });
     return;
   }
-  showLoginPrompt({ type: 'CHECKOUT' });
+  if (!hasRefreshableCustomerSession()) {
+    showLoginPrompt({ type: 'CHECKOUT' });
+    return;
+  }
+  openCheckout({ source: 'CART' });
 }
 
 function retryCartLogin(): void {

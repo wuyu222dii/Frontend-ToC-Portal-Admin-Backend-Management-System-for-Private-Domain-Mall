@@ -1,6 +1,21 @@
 export * from './store-catalog';
 export * from './store-identity';
+export * from './store-orders';
 export * from './store-shopping';
+export type {
+  CheckoutQuote,
+  CheckoutQuoteBlocker,
+  CheckoutQuoteInput,
+  CheckoutQuoteLine,
+  OrderLineInput,
+  OrderSubmitInput,
+  StoreOrder,
+  StoreOrderCompactItem,
+  StoreOrderDetail,
+  StoreOrderList,
+  StoreOrderListItem,
+  StoreOrderListQuery,
+} from '../types/store-orders';
 export type {
   StoreBanner,
   StoreBrand,

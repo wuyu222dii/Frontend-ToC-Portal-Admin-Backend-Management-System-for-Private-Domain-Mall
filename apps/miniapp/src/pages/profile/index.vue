@@ -11,6 +11,7 @@ import QxCatalogState from '../../components/storefront/QxCatalogState.vue';
 import QxStoreShell from '../../components/storefront/QxStoreShell.vue';
 import type { CustomerProfile, ServiceAgent } from '../../types/store-identity';
 import { clearCustomerSession } from '../../utils/customer-session';
+import { clearOrderSubmitJournal } from '../../utils/order-submit-journal';
 import { openLoginForAction } from '../../utils/protected-action';
 import { handleBottomNavigation } from '../../utils/store-navigation';
 
@@ -56,15 +57,6 @@ function openPage(path: string) {
   void uni.navigateTo({ url: path });
 }
 
-function showUnavailable(title: string) {
-  void uni.showModal({
-    confirmText: '知道了',
-    content: '此功能将在后续阶段开放。',
-    showCancel: false,
-    title,
-  });
-}
-
 function confirmLogout() {
   if (logoutPending.value) return;
   void uni.showModal({
@@ -80,6 +72,11 @@ function confirmLogout() {
       } catch {
         clearCustomerSession();
       } finally {
+        try {
+          clearOrderSubmitJournal();
+        } catch {
+          // Session removal still wins if local journal cleanup is unavailable.
+        }
         logoutPending.value = false;
         void uni.reLaunch({ url: '/pages/index/index' });
       }
@@ -149,8 +146,8 @@ onShow(() => {
           <button aria-label="收货地址" class="qx-account-row" @click="openPage('/pages/address/index')">
             <text>收货地址</text><text class="qx-account-row__value">›</text>
           </button>
-          <button class="qx-account-row" @click="showUnavailable('订单尚未开放')">
-            <text>我的订单</text><text class="qx-account-row__value">尚未开放</text>
+          <button aria-label="我的订单" class="qx-account-row" @click="openPage('/pages/orders/index')">
+            <text>我的订单</text><text class="qx-account-row__value">›</text>
           </button>
         </view>
 

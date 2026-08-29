@@ -9,9 +9,16 @@ export type ProtectedAction =
   | { readonly type: 'CHECKOUT' }
   | { readonly type: 'FAVORITE'; readonly product_id: string }
   | { readonly type: 'FAVORITES' }
+  | { readonly type: 'ORDER_DETAIL'; readonly order_id: string }
+  | { readonly type: 'ORDERS' }
   | { readonly type: 'PROFILE' }
   | { readonly type: 'SERVICE_AGENT' }
-  | { readonly type: 'BUY_NOW'; readonly product_id: string };
+  | {
+      readonly type: 'BUY_NOW';
+      readonly product_id: string;
+      readonly sku_id: string;
+      readonly quantity: number;
+    };
 
 let pendingAction: ProtectedAction | null = null;
 
@@ -27,6 +34,13 @@ export function setProtectedAction(action: ProtectedAction): void {
   if (action.type === 'ADDRESS_EDIT' && action.address_id !== undefined &&
     !isUlid(action.address_id)) {
     throw new Error('Protected action address ID is invalid');
+  }
+  if (action.type === 'BUY_NOW' && (!isUlid(action.sku_id) ||
+    !Number.isInteger(action.quantity) || action.quantity < 1 || action.quantity > 99)) {
+    throw new Error('Protected buy-now action is invalid');
+  }
+  if (action.type === 'ORDER_DETAIL' && !isUlid(action.order_id)) {
+    throw new Error('Protected action order ID is invalid');
   }
   pendingAction = action;
 }
@@ -90,6 +104,15 @@ function returnToOrigin(fallbackUrl: string, unavailableTitle?: string): void {
   });
 }
 
+function replaceCurrentPage(url: string): void {
+  void uni.redirectTo({
+    url,
+    fail: () => {
+      void uni.reLaunch({ url });
+    },
+  });
+}
+
 function showResumeResult(title: string): void {
   setTimeout(() => {
     void uni.showToast({ icon: 'none', title });
@@ -134,7 +157,15 @@ export async function resumeProtectedAction(): Promise<void> {
     return;
   }
   if (action.type === 'CHECKOUT') {
-    returnToOrigin('/pages/cart/index', '结算尚未开放');
+    replaceCurrentPage('/pages/checkout/index?source=CART');
+    return;
+  }
+  if (action.type === 'ORDERS') {
+    replaceCurrentPage('/pages/orders/index');
+    return;
+  }
+  if (action.type === 'ORDER_DETAIL') {
+    replaceCurrentPage(`/pages/orders/detail?order_id=${encodeURIComponent(action.order_id)}`);
     return;
   }
   if (action.type === 'FAVORITE') {
@@ -146,10 +177,7 @@ export async function resumeProtectedAction(): Promise<void> {
     showResumeResult('请重新确认加入购物车');
     return;
   }
-  returnToOrigin(
-    `/pages/product/detail?product_id=${encodeURIComponent(action.product_id)}`,
-    '立即购买尚未开放',
-  );
+  replaceCurrentPage(`/pages/checkout/index?source=BUY_NOW&product_id=${encodeURIComponent(action.product_id)}&sku_id=${encodeURIComponent(action.sku_id)}&quantity=${action.quantity}`);
 }
 
 export function openLoginForAction(action: ProtectedAction): void {
@@ -157,6 +185,19 @@ export function openLoginForAction(action: ProtectedAction): void {
   void uni.navigateTo({
     url: '/pages/auth/login',
     fail: clearProtectedAction,
+  });
+}
+
+export function replaceWithLoginForAction(action: ProtectedAction): void {
+  setProtectedAction(action);
+  void uni.redirectTo({
+    url: '/pages/auth/login',
+    fail: () => {
+      void uni.reLaunch({
+        url: '/pages/auth/login',
+        fail: clearProtectedAction,
+      });
+    },
   });
 }
 

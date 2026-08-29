@@ -36,6 +36,27 @@
       }
     },
     {
+      "path": "pages/checkout/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "确认订单"
+      }
+    },
+    {
+      "path": "pages/orders/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "我的订单"
+      }
+    },
+    {
+      "path": "pages/orders/detail",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "订单详情"
+      }
+    },
+    {
       "path": "pages/favorites/index",
       "style": {
         "navigationStyle": "custom",

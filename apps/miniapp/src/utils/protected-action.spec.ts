@@ -5,6 +5,7 @@ import {
   consumeProtectedAction,
   openCandidateDecisionPage,
   openLoginForAction,
+  replaceWithLoginForAction,
   replaceWithLoginForCandidateDecision,
   resumeProtectedAction,
   setProtectedAction,
@@ -48,6 +49,31 @@ describe('closed protected action handoff', () => {
     expect(consumeProtectedAction()).toBeNull();
   });
 
+  it('replaces an expired protected page before reauthentication', () => {
+    const redirectTo = vi.fn();
+    const reLaunch = vi.fn();
+    vi.stubGlobal('uni', { redirectTo, reLaunch });
+    replaceWithLoginForAction({ type: 'CHECKOUT' });
+    expect(redirectTo).toHaveBeenCalledWith(expect.objectContaining({
+      url: '/pages/auth/login',
+    }));
+    expect(reLaunch).not.toHaveBeenCalled();
+    expect(consumeProtectedAction()).toEqual({ type: 'CHECKOUT' });
+  });
+
+  it('resets to login without losing the action when page replacement fails', () => {
+    const redirectTo = vi.fn((options: UniNamespace.RedirectToOptions) => options.fail?.({
+      errMsg: 'redirectTo:fail',
+    }));
+    const reLaunch = vi.fn();
+    vi.stubGlobal('uni', { redirectTo, reLaunch });
+    replaceWithLoginForAction({ type: 'ORDERS' });
+    expect(reLaunch).toHaveBeenCalledWith(expect.objectContaining({
+      url: '/pages/auth/login',
+    }));
+    expect(consumeProtectedAction()).toEqual({ type: 'ORDERS' });
+  });
+
   it('replaces a candidate page with a fixed reauthentication route and preserves the action', () => {
     const redirectTo = vi.fn();
     vi.stubGlobal('uni', { redirectTo });
@@ -65,18 +91,33 @@ describe('closed protected action handoff', () => {
     );
   });
 
-  it('returns to the existing protected page instance and consumes the action once', () => {
-    vi.useFakeTimers();
-    const showModal = vi.fn();
-    const navigateBack = vi.fn((options: UniNamespace.NavigateBackOptions) => options.success?.({
-      errMsg: 'navigateBack:ok',
-    }));
-    vi.stubGlobal('uni', { navigateBack, showModal });
+  it('resumes checkout once without applying an order command', async () => {
+    const redirectTo = vi.fn();
+    const reLaunch = vi.fn();
+    vi.stubGlobal('uni', { redirectTo, reLaunch });
     setProtectedAction({ type: 'CHECKOUT' });
-    resumeProtectedAction();
-    expect(navigateBack).toHaveBeenCalledOnce();
-    vi.runAllTimers();
-    expect(showModal).toHaveBeenCalledWith(expect.objectContaining({ title: '结算尚未开放' }));
+    await resumeProtectedAction();
+    expect(redirectTo).toHaveBeenCalledWith(expect.objectContaining({
+      url: '/pages/checkout/index?source=CART',
+    }));
+    expect(reLaunch).not.toHaveBeenCalled();
+    expect(consumeProtectedAction()).toBeNull();
+  });
+
+  it('validates and resumes an exact buy-now selection once', async () => {
+    const redirectTo = vi.fn();
+    vi.stubGlobal('uni', { redirectTo, reLaunch: vi.fn() });
+    const action = {
+      type: 'BUY_NOW' as const,
+      product_id: '01J00000000000000000000000',
+      sku_id: '01J00000000000000000000001',
+      quantity: 2,
+    };
+    setProtectedAction(action);
+    await resumeProtectedAction();
+    expect(redirectTo).toHaveBeenCalledWith(expect.objectContaining({
+      url: '/pages/checkout/index?source=BUY_NOW&product_id=01J00000000000000000000000&sku_id=01J00000000000000000000001&quantity=2',
+    }));
     expect(consumeProtectedAction()).toBeNull();
   });
 

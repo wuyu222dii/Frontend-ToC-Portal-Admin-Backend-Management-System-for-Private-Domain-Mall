@@ -9,6 +9,7 @@ import QxAccountHeader from '../../components/storefront/QxAccountHeader.vue';
 import QxStoreShell from '../../components/storefront/QxStoreShell.vue';
 import type { DeletionPreview, DeletionResult } from '../../types/store-identity';
 import { clearCustomerSession } from '../../utils/customer-session';
+import { clearOrderSubmitJournal } from '../../utils/order-submit-journal';
 import { openLoginForAction } from '../../utils/protected-action';
 
 const impactLabels: Record<DeletionPreview['impacts'][number], string> = {
@@ -133,6 +134,11 @@ async function submitDeletion() {
       confirmation_hash: current.confirmation_hash,
     }, current.account_version);
     preview.value = null;
+    try {
+      clearOrderSubmitJournal();
+    } catch {
+      // The server-side deletion result remains authoritative if local cleanup is unavailable.
+    }
     stopCountdown();
   } catch (error) {
     if (error instanceof StoreApiError && error.status === 422 &&
@@ -152,6 +158,11 @@ async function submitDeletion() {
       preview.value = null;
       stopCountdown();
       clearCustomerSession();
+      try {
+        clearOrderSubmitJournal();
+      } catch {
+        // An unknown deletion result must not be followed by an old order submission.
+      }
       uncertainResult.value = true;
       message.value = '提交结果未知，请勿重复提交。当前会话已清除；请返回首页，如需确认请联系平台客服。';
     }

@@ -61,6 +61,7 @@ export type StoreQueryValue = boolean | number | string | undefined;
 export interface StoreRequestOptions<T = unknown> {
   readonly data?: unknown;
   readonly decode?: (value: unknown) => T;
+  readonly expectedStatus?: 200 | 201;
   readonly headers?: Readonly<Record<string, string>>;
   readonly method?: 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
   readonly query?: Readonly<Record<string, StoreQueryValue>>;
@@ -231,7 +232,7 @@ function requestUrl(path: string, query: Readonly<Record<string, StoreQueryValue
 
 function invalidResponse(status: number, headers: unknown): StoreApiError {
   return new StoreApiError('服务响应格式不正确', {
-    status: status === 200 ? 502 : status,
+    status: status >= 200 && status < 300 ? 502 : status,
     code: 'INVALID_RESPONSE',
     retryAfterSeconds: parseRetryAfterSeconds(headers),
   });
@@ -273,6 +274,7 @@ export function storeApiRequest<T>(
   const promise = new Promise<T>((resolve, reject) => {
     try {
       const method = options.method ?? 'GET';
+      const expectedStatus = options.expectedStatus ?? 200;
       const headers: Record<string, string> = {
         Accept: 'application/json',
         ...options.headers,
@@ -291,7 +293,7 @@ export function storeApiRequest<T>(
         success(response) {
           if (settled) return;
           settled = true;
-          if (response.statusCode !== 200) {
+          if (response.statusCode !== expectedStatus) {
             reject(httpError(response.statusCode, response.data, response.header));
             return;
           }

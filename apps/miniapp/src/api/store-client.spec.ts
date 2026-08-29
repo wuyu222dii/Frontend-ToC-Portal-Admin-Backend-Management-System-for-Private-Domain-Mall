@@ -209,6 +209,43 @@ describe('Store API uni.request adapter', () => {
     await expect(pending.promise).resolves.toEqual({ saved: true });
   });
 
+  it('accepts only the exact caller-selected 201 status', async () => {
+    const createdRequest = stubRequest();
+    const created = storeApiRequest<{ order_id: string }>('/store/orders', {
+      data: { quote_id: 'quote' },
+      expectedStatus: 201,
+      method: 'POST',
+    });
+    createdRequest.options().success?.({
+      data: {
+        code: 'OK', message: 'success', data: { order_id: 'order' }, request_id: 'req_created',
+      },
+      statusCode: 201,
+      header: {},
+      cookies: [],
+    });
+    await expect(created.promise).resolves.toEqual({ order_id: 'order' });
+
+    const wrongStatusRequest = stubRequest();
+    const wrongStatus = storeApiRequest('/store/orders', {
+      data: { quote_id: 'quote' },
+      expectedStatus: 201,
+      method: 'POST',
+    });
+    wrongStatusRequest.options().success?.({
+      data: {
+        code: 'OK', message: 'success', data: { order_id: 'order' }, request_id: 'req_wrong',
+      },
+      statusCode: 200,
+      header: {},
+      cookies: [],
+    });
+    await expect(wrongStatus.promise).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+      status: 502,
+    });
+  });
+
   it('exposes a valid Retry-After value on a 429 error', async () => {
     const current = stubRequest();
     const pending = storeApiGet('/store/home');

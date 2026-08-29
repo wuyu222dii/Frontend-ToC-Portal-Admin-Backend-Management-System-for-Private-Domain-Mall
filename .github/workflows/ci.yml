@@ -205,6 +205,11 @@ jobs:
           B8_VERTICAL_TEST_MODE: full
         run: pnpm e2e:b8:vertical
 
+      - name: Run B9 browser to Nest, PostgreSQL, Redis, MinIO and Worker vertical smoke
+        env:
+          B9_VERTICAL_TEST_MODE: full
+        run: pnpm e2e:b9:vertical
+
       - name: Test B1 persistence and worker concurrency
         env:
           B1_DATABASE_TEST_MODE: full
@@ -276,6 +281,11 @@ jobs:
           B8_STORE_SHOPPING_DATABASE_TEST_MODE: full
         run: pnpm db:test-b8-store-shopping
 
+      - name: Test B9 checkout, order reservation, cancellation and timeout with PostgreSQL
+        env:
+          B9_STORE_ORDER_DATABASE_TEST_MODE: full
+        run: pnpm db:test-b9-store-orders
+
       - name: Verify Prisma migration drift
         run: pnpm db:diff
 
@@ -311,3 +321,6 @@ jobs:
 
       - name: Run B8 authenticated shopping browser E2E
         run: pnpm e2e:b8
+
+      - name: Run B9 checkout and order browser E2E
+        run: pnpm e2e:b9

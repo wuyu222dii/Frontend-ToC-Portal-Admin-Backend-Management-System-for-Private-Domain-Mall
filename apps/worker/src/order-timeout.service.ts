@@ -9,6 +9,8 @@ import {
   type OutboxRepository,
   runSerializableTransaction,
   type StoreOrderCloseResult,
+  type StoreOrderTimeoutIntegrityCursor,
+  type StoreOrderTimeoutIntegrityIssue,
   type StoreOrderRepository,
 } from '@qingxu/database';
 
@@ -18,13 +20,18 @@ import { OUTBOX_REPOSITORY, WORKER_CONFIG } from './outbox-dispatcher.service';
 export const ORDER_TIMEOUT_REPOSITORY = Symbol('ORDER_TIMEOUT_REPOSITORY');
 export const ORDER_TIMEOUT_AUDIT_REPOSITORY = Symbol('ORDER_TIMEOUT_AUDIT_REPOSITORY');
 
-export type OrderTimeoutRepository = Pick<StoreOrderRepository, 'expireNextOrderInTransaction'>;
+export type OrderTimeoutRepository = Pick<StoreOrderRepository,
+  'expireNextOrderInTransaction' | 'listExpiredOrderIntegrityIssues'
+>;
 export type OrderTimeoutAuditRepository = Pick<AuditRepository, 'append'>;
 export type OrderTimeoutOutboxRepository = Pick<OutboxRepository, 'append'>;
 
 @Injectable()
 export class OrderTimeoutService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(OrderTimeoutService.name);
+  private integrityCursor: StoreOrderTimeoutIntegrityCursor | undefined;
+  private integrityCycleIssueKeys = new Set<string>();
+  private reportedIntegrityIssueKeys = new Set<string>();
   private timer: ReturnType<typeof setTimeout> | undefined;
   private running = false;
   private stopping = false;
@@ -51,12 +58,50 @@ export class OrderTimeoutService implements OnModuleInit, OnApplicationShutdown 
     if (this.running || this.stopping) return;
     this.running = true;
     try {
+      await this.reportIntegrityIssues();
       await this.expireBatch();
     } catch {
       this.logger.error({ code: 'ORDER_TIMEOUT_POLL_FAILED' });
     } finally {
       this.running = false;
     }
+  }
+
+  private async reportIntegrityIssues(): Promise<void> {
+    let issues: StoreOrderTimeoutIntegrityIssue[];
+    try {
+      issues = await this.database.withPrismaTransaction(
+        (transaction) => this.orders.listExpiredOrderIntegrityIssues(transaction, {
+          ...(this.integrityCursor === undefined ? {} : { after: this.integrityCursor }),
+          limit: this.config.worker.batchSize,
+        }),
+        { isolationLevel: 'RepeatableRead' },
+      );
+    } catch {
+      this.logger.error({ code: 'ORDER_TIMEOUT_INTEGRITY_SCAN_FAILED' });
+      return;
+    }
+    for (const issue of issues) {
+      const issueKey = `${issue.orderId}:${issue.issue}`;
+      this.integrityCycleIssueKeys.add(issueKey);
+      if (this.reportedIntegrityIssueKeys.has(issueKey)) continue;
+      this.logger.error({
+        code: 'ORDER_TIMEOUT_INTEGRITY_VIOLATION',
+        issue: issue.issue,
+        orderId: issue.orderId,
+      });
+    }
+    const lastIssue = issues.at(-1);
+    if (issues.length === this.config.worker.batchSize && lastIssue !== undefined) {
+      this.integrityCursor = {
+        orderId: lastIssue.orderId,
+        payExpiresAt: new Date(lastIssue.payExpiresAt),
+      };
+      return;
+    }
+    this.reportedIntegrityIssueKeys = this.integrityCycleIssueKeys;
+    this.integrityCycleIssueKeys = new Set<string>();
+    this.integrityCursor = undefined;
   }
 
   private async expireBatch(): Promise<void> {

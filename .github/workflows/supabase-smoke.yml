@@ -177,3 +177,9 @@ jobs:
           B8_STORE_SHOPPING_DATABASE_TEST_MODE: rollback
           DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
         run: pnpm db:test-b8-store-shopping
+
+      - name: Run rollback-only B9 checkout, order reservation, cancellation and timeout smoke
+        env:
+          B9_STORE_ORDER_DATABASE_TEST_MODE: rollback
+          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
+        run: pnpm db:test-b9-store-orders

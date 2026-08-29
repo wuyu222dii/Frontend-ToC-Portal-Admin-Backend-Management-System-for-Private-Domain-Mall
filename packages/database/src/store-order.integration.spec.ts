@@ -1,4 +1,5 @@
 import { generateUlid } from '@qingxu/platform-core';
+import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { Prisma } from '../.generated/prisma/client';
@@ -25,6 +26,20 @@ const transactionOptions = {
   timeout: 90_000,
 };
 const rollbackSentinel = Object.freeze({ code: 'B9_STORE_ORDER_ROLLBACK_SENTINEL' });
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+const fullFixtureIds = {
+  accountIds: new Set<string>(),
+  addressIds: new Set<string>(),
+  balanceIds: new Set<string>(),
+  brandIds: new Set<string>(),
+  cartIds: new Set<string>(),
+  categoryIds: new Set<string>(),
+  customerIds: new Set<string>(),
+  fileIds: new Set<string>(),
+  imageIds: new Set<string>(),
+  productIds: new Set<string>(),
+  skuIds: new Set<string>(),
+};
 const PAYMENT_INTENT_STATUSES = [
   'CREATING',
   'OPEN',
@@ -105,7 +120,7 @@ function runtimeForMode(): DatabaseRuntime {
 }
 
 function createCatalogFixture(): CatalogFixture {
-  return {
+  const fixture = {
     balanceId: generateUlid(),
     brandId: generateUlid(),
     categoryId: generateUlid(),
@@ -114,24 +129,182 @@ function createCatalogFixture(): CatalogFixture {
     productId: generateUlid(),
     skuId: generateUlid(),
   };
+  if (mode === 'full') {
+    fullFixtureIds.balanceIds.add(fixture.balanceId);
+    fullFixtureIds.brandIds.add(fixture.brandId);
+    fullFixtureIds.categoryIds.add(fixture.categoryId);
+    fullFixtureIds.fileIds.add(fixture.fileId);
+    fullFixtureIds.imageIds.add(fixture.imageId);
+    fullFixtureIds.productIds.add(fixture.productId);
+    fullFixtureIds.skuIds.add(fixture.skuId);
+  }
+  return fixture;
 }
 
 function createCustomerFixture(): CustomerFixture {
-  return {
+  const fixture = {
     accountId: generateUlid(),
     addressId: generateUlid(),
     customerId: generateUlid(),
   };
+  if (mode === 'full') {
+    fullFixtureIds.accountIds.add(fixture.accountId);
+    fullFixtureIds.addressIds.add(fixture.addressId);
+    fullFixtureIds.customerIds.add(fixture.customerId);
+  }
+  return fixture;
 }
 
 function createCartFixture(): CartFixture {
-  return {
+  const fixture = {
     cartId: generateUlid(),
     selectedItemId: generateUlid(),
     unselectedBalanceId: generateUlid(),
     unselectedItemId: generateUlid(),
     unselectedSkuId: generateUlid(),
   };
+  if (mode === 'full') {
+    fullFixtureIds.balanceIds.add(fixture.unselectedBalanceId);
+    fullFixtureIds.cartIds.add(fixture.cartId);
+    fullFixtureIds.skuIds.add(fixture.unselectedSkuId);
+  }
+  return fixture;
+}
+
+function fullCleanupConnectionString(): string {
+  const directUrl = new URL(requiredEnvironment('DIRECT_URL'));
+  const runtimeUrl = new URL(requiredEnvironment('DATABASE_URL'));
+  let database: string;
+  let username: string;
+  try {
+    database = decodeURIComponent(directUrl.pathname.slice(1));
+    username = decodeURIComponent(directUrl.username);
+  } catch {
+    throw new TypeError('B9 Store order cleanup URL contains invalid percent encoding');
+  }
+  if (!['postgres:', 'postgresql:'].includes(directUrl.protocol) ||
+    !LOOPBACK_HOSTS.has(directUrl.hostname) || username !== 'mall_migrator' || !directUrl.password ||
+    directUrl.search !== '' || directUrl.hash !== '' ||
+    !/(?:^|[-_])(?:test|ephemeral|ci)(?:[-_]|$)/i.test(database) ||
+    directUrl.hostname !== runtimeUrl.hostname || (directUrl.port || '5432') !== (runtimeUrl.port || '5432') ||
+    directUrl.pathname !== runtimeUrl.pathname) {
+    throw new TypeError('B9 Store order cleanup requires the matching loopback mall_migrator test database');
+  }
+  return directUrl.toString();
+}
+
+async function cleanupFullFixtures(runtime: DatabaseRuntime): Promise<void> {
+  const accountIds = [...fullFixtureIds.accountIds];
+  const addressIds = [...fullFixtureIds.addressIds];
+  const balanceIds = [...fullFixtureIds.balanceIds];
+  const brandIds = [...fullFixtureIds.brandIds];
+  const cartIds = [...fullFixtureIds.cartIds];
+  const categoryIds = [...fullFixtureIds.categoryIds];
+  const customerIds = [...fullFixtureIds.customerIds];
+  const fileIds = [...fullFixtureIds.fileIds];
+  const imageIds = [...fullFixtureIds.imageIds];
+  const productIds = [...fullFixtureIds.productIds];
+  const skuIds = [...fullFixtureIds.skuIds];
+  const pool = new Pool({
+    application_name: 'qingxu-b9-store-order-cleanup',
+    connectionString: fullCleanupConnectionString(),
+    connectionTimeoutMillis: 5_000,
+    max: 1,
+  });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const orders = await client.query<{ id: string }>(
+      'SELECT id::text FROM public.sales_order WHERE customer_id::text = ANY($1::text[])',
+      [customerIds],
+    );
+    const orderIds = orders.rows.map(({ id }) => id);
+    const reservations = await client.query<{ id: string }>(
+      'SELECT id::text FROM public.inventory_reservation WHERE order_id::text = ANY($1::text[])',
+      [orderIds],
+    );
+    const reservationIds = reservations.rows.map(({ id }) => id);
+    const paymentIntents = await client.query<{ id: string }>(
+      'SELECT id::text FROM public.payment_intent WHERE order_id::text = ANY($1::text[])',
+      [orderIds],
+    );
+    const paymentIntentIds = paymentIntents.rows.map(({ id }) => id);
+    await client.query(
+      'DELETE FROM public.payment_attempt WHERE payment_intent_id::text = ANY($1::text[])',
+      [paymentIntentIds],
+    );
+    await client.query('DELETE FROM public.payment_intent WHERE id::text = ANY($1::text[])', [paymentIntentIds]);
+    await client.query(
+      `DELETE FROM public.audit_log
+       WHERE actor_account_id::text = ANY($1::text[])
+          OR (object_type = 'order' AND object_id = ANY($2::text[]))`,
+      [accountIds, orderIds],
+    );
+    await client.query(
+      `DELETE FROM public.idempotency_record
+       WHERE actor_id::text = ANY($1::text[]) OR resource_id::text = ANY($2::text[])`,
+      [accountIds, orderIds],
+    );
+    await client.query(
+      `DELETE FROM public.outbox_event
+       WHERE aggregate_type = 'order' AND aggregate_id::text = ANY($1::text[])`,
+      [orderIds],
+    );
+    await client.query(
+      `DELETE FROM public.inventory_ledger
+       WHERE sku_id::text = ANY($1::text[]) OR business_id::text = ANY($2::text[])`,
+      [skuIds, reservationIds],
+    );
+    await client.query(
+      'DELETE FROM public.inventory_reservation_item WHERE reservation_id::text = ANY($1::text[])',
+      [reservationIds],
+    );
+    await client.query(
+      'DELETE FROM public.inventory_reservation WHERE id::text = ANY($1::text[])',
+      [reservationIds],
+    );
+    for (const table of ['order_attribution_candidate', 'order_address_snapshot', 'order_item']) {
+      await client.query(`DELETE FROM public.${table} WHERE order_id::text = ANY($1::text[])`, [orderIds]);
+    }
+    await client.query('DELETE FROM public.sales_order WHERE id::text = ANY($1::text[])', [orderIds]);
+    await client.query('DELETE FROM public.cart_item WHERE cart_id::text = ANY($1::text[])', [cartIds]);
+    await client.query('DELETE FROM public.cart WHERE id::text = ANY($1::text[])', [cartIds]);
+    await client.query('DELETE FROM public.customer_address WHERE id::text = ANY($1::text[])', [addressIds]);
+    await client.query('DELETE FROM public.customer_profile WHERE id::text = ANY($1::text[])', [customerIds]);
+    await client.query('DELETE FROM public.account WHERE id::text = ANY($1::text[])', [accountIds]);
+    await client.query('DELETE FROM public.product_image WHERE id::text = ANY($1::text[])', [imageIds]);
+    await client.query('DELETE FROM public.inventory_balance WHERE id::text = ANY($1::text[])', [balanceIds]);
+    await client.query('DELETE FROM public.sku WHERE id::text = ANY($1::text[])', [skuIds]);
+    await client.query('DELETE FROM public.product WHERE id::text = ANY($1::text[])', [productIds]);
+    await client.query('DELETE FROM public.file_asset WHERE id::text = ANY($1::text[])', [fileIds]);
+    await client.query('DELETE FROM public.category WHERE id::text = ANY($1::text[])', [categoryIds]);
+    await client.query('DELETE FROM public.brand WHERE id::text = ANY($1::text[])', [brandIds]);
+    await client.query('COMMIT');
+
+    const residual = await Promise.all([
+      runtime.prisma.salesOrder.count({ where: { customer_id: { in: customerIds } } }),
+      runtime.prisma.inventoryLedger.count({ where: { sku_id: { in: skuIds } } }),
+      runtime.prisma.customerAddress.count({ where: { id: { in: addressIds } } }),
+      runtime.prisma.customerProfile.count({ where: { id: { in: customerIds } } }),
+      runtime.prisma.account.count({ where: { id: { in: accountIds } } }),
+      runtime.prisma.productImage.count({ where: { id: { in: imageIds } } }),
+      runtime.prisma.inventoryBalance.count({ where: { id: { in: balanceIds } } }),
+      runtime.prisma.sku.count({ where: { id: { in: skuIds } } }),
+      runtime.prisma.product.count({ where: { id: { in: productIds } } }),
+      runtime.prisma.fileAsset.count({ where: { id: { in: fileIds } } }),
+      runtime.prisma.category.count({ where: { id: { in: categoryIds } } }),
+      runtime.prisma.brand.count({ where: { id: { in: brandIds } } }),
+    ]);
+    if (residual.some((count) => count !== 0)) {
+      throw new TypeError(`B9 Store order full fixture residue: ${JSON.stringify(residual)}`);
+    }
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+    await pool.end();
+  }
 }
 
 async function seedCustomer(
@@ -515,7 +688,13 @@ databaseDescribe('B9 Store order database integration', () => {
     repository = new StoreOrderRepository(runtime.prisma);
   }, 30_000);
 
-  afterAll(async () => runtime?.disconnect(), 30_000);
+  afterAll(async () => {
+    try {
+      if (mode === 'full') await cleanupFullFixtures(runtime);
+    } finally {
+      await runtime?.disconnect();
+    }
+  }, 30_000);
 
   it('creates every CART order fact atomically and leaves no fixture facts after rollback', async () => {
     const catalog = createCatalogFixture();
@@ -889,6 +1068,129 @@ databaseDescribe('B9 Store order database integration', () => {
         where: { id: { in: [owner.customerId, otherCustomer.customerId] } },
       }),
       runtime.prisma.account.count({ where: { id: { in: [owner.accountId, otherCustomer.accountId] } } }),
+    ])).resolves.toEqual(Array.from({ length: 17 }, () => 0));
+  }, 120_000);
+
+  it('alerts on aggregate reservation corruption and leaves timeout facts untouched after rollback', async () => {
+    const catalog = createCatalogFixture();
+    const customer = createCustomerFixture();
+    const created: CreatedOrderFacts[] = [];
+
+    await expect(runtime.withPrismaTransaction(async (transaction) => {
+      await seedCatalog(transaction, catalog, { physicalQty: 5 });
+      await seedCustomer(transaction, customer, `integrity-${customer.customerId}`);
+      const cancellable = await repository.createOrderInTransaction(
+        transaction,
+        buyNowInput(customer, catalog),
+        createHooks(),
+      );
+      created.push({
+        attributionCandidateId: cancellable.attribution.candidateId,
+        orderId: cancellable.order.orderId,
+        reservationId: cancellable.reservation.reservationId,
+      });
+      created.push(await seedPendingOrder(
+        transaction,
+        customer,
+        catalog,
+        new Date('2001-01-01T00:00:01.000Z'),
+      ));
+
+      const overLockedBalance = await transaction.inventoryBalance.update({
+        data: { locked_qty: 3, version: { increment: 1 } },
+        where: { id: catalog.balanceId },
+      });
+      expect(overLockedBalance).toMatchObject({ locked_qty: 3, physical_qty: 5, version: 4 });
+
+      const overLockedIssues = await repository.listExpiredOrderIntegrityIssues(transaction, { limit: 100 });
+      expect(overLockedIssues.filter(({ orderId }) => created.some((facts) => facts.orderId === orderId)))
+        .toEqual([expect.objectContaining({
+          issue: 'INVENTORY_BALANCE_INVALID',
+          orderId: created[1]!.orderId,
+        })]);
+
+      await expect(repository.cancelOwnedOrderInTransaction(transaction, {
+        accountId: customer.accountId,
+        customerId: customer.customerId,
+        expectedVersion: 1,
+        orderId: created[0]!.orderId,
+      })).rejects.toMatchObject({ code: 'INTERNAL_ERROR' });
+
+      const underLockedBalance = await transaction.inventoryBalance.update({
+        data: { locked_qty: 1, version: { increment: 1 } },
+        where: { id: catalog.balanceId },
+      });
+      expect(underLockedBalance).toMatchObject({ locked_qty: 1, physical_qty: 5, version: 5 });
+      const underLockedIssues = await repository.listExpiredOrderIntegrityIssues(transaction, { limit: 100 });
+      expect(underLockedIssues.filter(({ orderId }) => created.some((facts) => facts.orderId === orderId)))
+        .toEqual([expect.objectContaining({
+          issue: 'INVENTORY_BALANCE_INVALID',
+          orderId: created[1]!.orderId,
+        })]);
+
+      await expect(repository.expireNextOrderInTransaction(transaction)).resolves.toEqual({ kind: 'none' });
+      const orders = await transaction.salesOrder.findMany({
+        where: { id: { in: created.map(({ orderId }) => orderId) } },
+      });
+      expect(new Map(orders.map((order) => [order.id, {
+        closeReason: order.close_reason,
+        status: order.order_status,
+        version: order.version,
+      }]))).toEqual(new Map(created.map(({ orderId }) => [orderId, {
+        closeReason: null,
+        status: 'PENDING_PAYMENT',
+        version: 1,
+      }])));
+      const reservations = await transaction.inventoryReservation.findMany({
+        where: { id: { in: created.map(({ reservationId }) => reservationId) } },
+      });
+      expect(new Map(reservations.map((reservation) => [reservation.id, {
+        releasedAt: reservation.released_at,
+        status: reservation.status,
+      }]))).toEqual(new Map(created.map(({ reservationId }) => [reservationId, {
+        releasedAt: null,
+        status: 'ACTIVE',
+      }])));
+      await expect(transaction.inventoryLedger.count({
+        where: {
+          business_id: { in: created.map(({ reservationId }) => reservationId) },
+          ledger_type: 'ORDER_RELEASE',
+        },
+      })).resolves.toBe(0);
+      await expect(transaction.inventoryBalance.findUniqueOrThrow({ where: { id: catalog.balanceId } }))
+        .resolves.toMatchObject({ locked_qty: 1, physical_qty: 5, version: 5 });
+      throw rollbackSentinel;
+    }, transactionOptions)).rejects.toBe(rollbackSentinel);
+
+    expect(created).toHaveLength(2);
+    await expect(Promise.all([
+      runtime.prisma.salesOrder.count({ where: { id: { in: created.map(({ orderId }) => orderId) } } }),
+      runtime.prisma.orderItem.count({ where: { order_id: { in: created.map(({ orderId }) => orderId) } } }),
+      runtime.prisma.orderAddressSnapshot.count({
+        where: { order_id: { in: created.map(({ orderId }) => orderId) } },
+      }),
+      runtime.prisma.orderAttributionCandidate.count({
+        where: { id: { in: created.map(({ attributionCandidateId }) => attributionCandidateId) } },
+      }),
+      runtime.prisma.inventoryReservation.count({
+        where: { id: { in: created.map(({ reservationId }) => reservationId) } },
+      }),
+      runtime.prisma.inventoryReservationItem.count({
+        where: { reservation_id: { in: created.map(({ reservationId }) => reservationId) } },
+      }),
+      runtime.prisma.inventoryLedger.count({
+        where: { business_id: { in: created.map(({ reservationId }) => reservationId) } },
+      }),
+      runtime.prisma.inventoryBalance.count({ where: { id: catalog.balanceId } }),
+      runtime.prisma.sku.count({ where: { id: catalog.skuId } }),
+      runtime.prisma.productImage.count({ where: { id: catalog.imageId } }),
+      runtime.prisma.fileAsset.count({ where: { id: catalog.fileId } }),
+      runtime.prisma.product.count({ where: { id: catalog.productId } }),
+      runtime.prisma.category.count({ where: { id: catalog.categoryId } }),
+      runtime.prisma.brand.count({ where: { id: catalog.brandId } }),
+      runtime.prisma.customerAddress.count({ where: { id: customer.addressId } }),
+      runtime.prisma.customerProfile.count({ where: { id: customer.customerId } }),
+      runtime.prisma.account.count({ where: { id: customer.accountId } }),
     ])).resolves.toEqual(Array.from({ length: 17 }, () => 0));
   }, 120_000);
 

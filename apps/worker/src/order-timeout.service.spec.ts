@@ -4,6 +4,7 @@ import type {
   DatabaseRuntime,
   StoreOrderCloseResult,
   StoreOrderSnapshot,
+  StoreOrderTimeoutIntegrityIssue,
   StoreOrderTimeoutResult,
 } from '@qingxu/database';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -17,6 +18,9 @@ import {
 
 const ORDER_ID = '01K00000000000000000000000';
 const RESERVATION_ID = '01K00000000000000000000001';
+const SECOND_ORDER_ID = '01K00000000000000000000003';
+const THIRD_ORDER_ID = '01K00000000000000000000004';
+const INTEGRITY_EXPIRY = new Date('2026-08-29T00:30:00.000Z');
 
 const config = {
   worker: { pollIntervalMs: 1_000, batchSize: 3, maxRetries: 3, baseRetryDelayMs: 100 },
@@ -63,19 +67,24 @@ function closedResult(): StoreOrderCloseResult {
   };
 }
 
-function createMocks(results: StoreOrderTimeoutResult[] = [{ kind: 'none' }]) {
+function createMocks(
+  results: StoreOrderTimeoutResult[] = [{ kind: 'none' }],
+  integrityIssues: StoreOrderTimeoutIntegrityIssue[] = [],
+) {
   const transaction = { marker: 'transaction' };
   const prisma = {
     $transaction: vi.fn(async (work: (value: object) => Promise<unknown>) => work(transaction)),
   };
-  const database = { prisma } as unknown as DatabaseRuntime;
+  const withPrismaTransaction = vi.fn(async (work: (value: object) => Promise<unknown>) => work(transaction));
+  const database = { prisma, withPrismaTransaction } as unknown as DatabaseRuntime;
   const queue = [...results];
   const orders = {
     expireNextOrderInTransaction: vi.fn(async () => queue.shift() ?? { kind: 'none' }),
+    listExpiredOrderIntegrityIssues: vi.fn(async () => integrityIssues),
   } as unknown as OrderTimeoutRepository;
   const audit = { append: vi.fn(async () => ({})) } as unknown as OrderTimeoutAuditRepository;
   const outbox = { append: vi.fn(async () => ({})) } as unknown as OrderTimeoutOutboxRepository;
-  return { audit, database, orders, outbox, prisma, transaction };
+  return { audit, database, orders, outbox, prisma, transaction, withPrismaTransaction };
 }
 
 function createService(mocks = createMocks()): OrderTimeoutService {
@@ -136,6 +145,116 @@ describe('OrderTimeoutService', () => {
     expect(mocks.orders.expireNextOrderInTransaction).toHaveBeenCalledOnce();
     expect(mocks.audit.append).not.toHaveBeenCalled();
     expect(mocks.outbox.append).not.toHaveBeenCalled();
+  });
+
+  it('reports bounded structured integrity alerts without PII and keeps the scan read-only', async () => {
+    const mocks = createMocks([{ kind: 'none' }], [
+      { issue: 'ORDER_RESERVATION_ITEMS_MISMATCH', orderId: ORDER_ID, payExpiresAt: INTEGRITY_EXPIRY },
+      { issue: 'INVENTORY_BALANCE_INVALID', orderId: RESERVATION_ID, payExpiresAt: INTEGRITY_EXPIRY },
+    ]);
+    const errorLog = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+    await createService(mocks).pollOnce();
+
+    expect(mocks.withPrismaTransaction).toHaveBeenCalledExactlyOnceWith(expect.any(Function), {
+      isolationLevel: 'RepeatableRead',
+    });
+    expect(mocks.orders.listExpiredOrderIntegrityIssues).toHaveBeenCalledExactlyOnceWith(
+      mocks.transaction,
+      { limit: config.worker.batchSize },
+    );
+    expect(errorLog).toHaveBeenNthCalledWith(1, {
+      code: 'ORDER_TIMEOUT_INTEGRITY_VIOLATION',
+      issue: 'ORDER_RESERVATION_ITEMS_MISMATCH',
+      orderId: ORDER_ID,
+    });
+    expect(errorLog).toHaveBeenNthCalledWith(2, {
+      code: 'ORDER_TIMEOUT_INTEGRITY_VIOLATION',
+      issue: 'INVENTORY_BALANCE_INVALID',
+      orderId: RESERVATION_ID,
+    });
+    expect(JSON.stringify(errorLog.mock.calls)).not.toMatch(/customer|address|recipient|phone/i);
+    expect(mocks.audit.append).not.toHaveBeenCalled();
+    expect(mocks.outbox.append).not.toHaveBeenCalled();
+  });
+
+  it('does not repeat an unchanged integrity alert on every worker poll', async () => {
+    const mocks = createMocks([{ kind: 'none' }], [
+      { issue: 'ORDER_RESERVATION_ITEMS_MISMATCH', orderId: ORDER_ID, payExpiresAt: INTEGRITY_EXPIRY },
+    ]);
+    const errorLog = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const service = createService(mocks);
+
+    await service.pollOnce();
+    await service.pollOnce();
+
+    expect(mocks.orders.listExpiredOrderIntegrityIssues).toHaveBeenCalledTimes(2);
+    expect(errorLog).toHaveBeenCalledExactlyOnceWith({
+      code: 'ORDER_TIMEOUT_INTEGRITY_VIOLATION',
+      issue: 'ORDER_RESERVATION_ITEMS_MISMATCH',
+      orderId: ORDER_ID,
+    });
+  });
+
+  it('advances through every integrity page and suppresses unchanged alerts after wrapping', async () => {
+    const firstPage: StoreOrderTimeoutIntegrityIssue[] = [
+      { issue: 'ORDER_ITEMS_MISSING', orderId: ORDER_ID, payExpiresAt: INTEGRITY_EXPIRY },
+      { issue: 'ACTIVE_RESERVATION_MISSING', orderId: RESERVATION_ID, payExpiresAt: INTEGRITY_EXPIRY },
+      { issue: 'INVENTORY_BALANCE_INVALID', orderId: SECOND_ORDER_ID, payExpiresAt: INTEGRITY_EXPIRY },
+    ];
+    const finalPage: StoreOrderTimeoutIntegrityIssue[] = [
+      {
+        issue: 'ORDER_RESERVATION_ITEMS_MISMATCH',
+        orderId: THIRD_ORDER_ID,
+        payExpiresAt: new Date(INTEGRITY_EXPIRY.getTime() + 1_000),
+      },
+    ];
+    const mocks = createMocks([{ kind: 'none' }]);
+    vi.mocked(mocks.orders.listExpiredOrderIntegrityIssues)
+      .mockResolvedValueOnce(firstPage)
+      .mockResolvedValueOnce(finalPage)
+      .mockResolvedValueOnce(firstPage);
+    const errorLog = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const service = createService(mocks);
+
+    await service.pollOnce();
+    await service.pollOnce();
+    await service.pollOnce();
+
+    expect(mocks.orders.listExpiredOrderIntegrityIssues).toHaveBeenNthCalledWith(1, mocks.transaction, {
+      limit: config.worker.batchSize,
+    });
+    expect(mocks.orders.listExpiredOrderIntegrityIssues).toHaveBeenNthCalledWith(2, mocks.transaction, {
+      after: {
+        orderId: SECOND_ORDER_ID,
+        payExpiresAt: INTEGRITY_EXPIRY,
+      },
+      limit: config.worker.batchSize,
+    });
+    expect(mocks.orders.listExpiredOrderIntegrityIssues).toHaveBeenNthCalledWith(3, mocks.transaction, {
+      limit: config.worker.batchSize,
+    });
+    expect(errorLog).toHaveBeenCalledTimes(4);
+    expect(errorLog).toHaveBeenCalledWith({
+      code: 'ORDER_TIMEOUT_INTEGRITY_VIOLATION',
+      issue: 'ORDER_RESERVATION_ITEMS_MISMATCH',
+      orderId: THIRD_ORDER_ID,
+    });
+  });
+
+  it('uses a fixed scan failure alert and still processes timeout candidates', async () => {
+    const mocks = createMocks([{ kind: 'closed', result: closedResult() }, { kind: 'none' }]);
+    vi.mocked(mocks.orders.listExpiredOrderIntegrityIssues)
+      .mockRejectedValue(new Error('customer phone and address leaked by database'));
+    const errorLog = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+    await createService(mocks).pollOnce();
+
+    expect(errorLog).toHaveBeenCalledExactlyOnceWith({ code: 'ORDER_TIMEOUT_INTEGRITY_SCAN_FAILED' });
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain('customer phone');
+    expect(mocks.orders.expireNextOrderInTransaction).toHaveBeenCalledTimes(2);
+    expect(mocks.audit.append).toHaveBeenCalledOnce();
+    expect(mocks.outbox.append).toHaveBeenCalledOnce();
   });
 
   it('continues after skipped and never exceeds the configured batch size', async () => {

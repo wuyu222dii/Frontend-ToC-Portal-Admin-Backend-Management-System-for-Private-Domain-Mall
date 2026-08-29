@@ -315,6 +315,70 @@ function hooks() {
 afterEach(() => vi.restoreAllMocks());
 
 describe('StoreOrderRepository', () => {
+  it('finds timeout integrity violations with one bounded read-only statement', async () => {
+    const orderId = id(-14_000);
+    const secondOrderId = id(-13_000);
+    const firstExpiry = new Date('2026-08-29T00:01:00.000Z');
+    const secondExpiry = new Date('2026-08-29T00:02:00.000Z');
+    const queryRaw = vi.fn().mockResolvedValue([
+      { issue_code: 'ORDER_RESERVATION_ITEMS_MISMATCH', order_id: orderId, pay_expires_at: firstExpiry },
+      { issue_code: 'INVENTORY_BALANCE_INVALID', order_id: secondOrderId, pay_expires_at: secondExpiry },
+    ]);
+    const transaction = { $queryRaw: queryRaw } as unknown as DatabaseTransaction;
+    const repository = new StoreOrderRepository({} as PrismaClient);
+
+    await expect(repository.listExpiredOrderIntegrityIssues(transaction, { limit: 20 })).resolves.toEqual([
+      { issue: 'ORDER_RESERVATION_ITEMS_MISMATCH', orderId, payExpiresAt: firstExpiry },
+      { issue: 'INVENTORY_BALANCE_INVALID', orderId: secondOrderId, payExpiresAt: secondExpiry },
+    ]);
+
+    const query = queryRaw.mock.calls[0]![0] as { strings: readonly string[]; values: readonly unknown[] };
+    const statement = query.strings.join('?');
+    expect(statement).toContain("so.order_status = 'PENDING_PAYMENT'");
+    expect(statement).toContain('so.pay_expires_at <= transaction_timestamp()');
+    expect(statement).toContain('FROM public.payment_intent');
+    expect(statement).toContain('IS DISTINCT FROM');
+    expect(statement).toContain('LEFT JOIN public.inventory_balance');
+    expect(statement).toContain('SUM(active_iri.quantity)');
+    expect(statement).toContain("active_ir.status = 'ACTIVE' AND active_iri.sku_id = iri.sku_id");
+    expect(statement).toContain('ib.locked_qty <>');
+    expect(statement.indexOf('WHERE issue_code IS NOT NULL')).toBeLessThan(statement.indexOf('LIMIT ?'));
+    expect(statement).not.toMatch(/\b(?:DELETE|INSERT|UPDATE)\b/i);
+    expect(query.values).toEqual([20]);
+  });
+
+  it('rejects invalid timeout integrity scan bounds and malformed database rows', async () => {
+    const queryRaw = vi.fn().mockResolvedValue([
+      {
+        issue_code: 'CUSTOMER_PRIVATE_FACT',
+        order_id: id(-14_000),
+        pay_expires_at: new Date('2026-08-29T00:01:00.000Z'),
+      },
+    ]);
+    const transaction = { $queryRaw: queryRaw } as unknown as DatabaseTransaction;
+    const repository = new StoreOrderRepository({} as PrismaClient);
+
+    await expect(repository.listExpiredOrderIntegrityIssues(transaction, { limit: 0 }))
+      .rejects.toThrow('scan limit must be between 1 and 100');
+    expect(queryRaw).not.toHaveBeenCalled();
+    await expect(repository.listExpiredOrderIntegrityIssues(transaction, { limit: 1 }))
+      .rejects.toMatchObject({ code: 'INTERNAL_ERROR' });
+  });
+
+  it('requires each balance to cover every ACTIVE reservation for the SKU before timeout claiming', async () => {
+    const queryRaw = vi.fn().mockResolvedValue([]);
+    const transaction = { $queryRaw: queryRaw } as unknown as DatabaseTransaction;
+    const repository = new StoreOrderRepository({} as PrismaClient);
+
+    await expect(repository.expireNextOrderInTransaction(transaction)).resolves.toEqual({ kind: 'none' });
+
+    const query = queryRaw.mock.calls[0]![0] as { strings: readonly string[] };
+    const statement = query.strings.join('?');
+    expect(statement).toContain('SUM(active_iri.quantity)');
+    expect(statement).toContain("active_ir.status = 'ACTIVE' AND active_iri.sku_id = iri.sku_id");
+    expect(statement).not.toContain('ib.locked_qty < iri.quantity');
+  });
+
   it('creates one CART order, reserves exact inventory and follows the shared lock order', async () => {
     const state = harness();
     const snapshot = quoteSnapshot();

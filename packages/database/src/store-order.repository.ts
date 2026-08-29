@@ -138,6 +138,21 @@ export type StoreOrderTimeoutResult =
   | { kind: 'skipped' }
   | { kind: 'none' };
 
+export type StoreOrderTimeoutIntegrityCode =
+  | 'ACTIVE_RESERVATION_MISSING'
+  | 'INVENTORY_BALANCE_INVALID'
+  | 'ORDER_ITEMS_MISSING'
+  | 'ORDER_RESERVATION_ITEMS_MISMATCH';
+
+export interface StoreOrderTimeoutIntegrityCursor {
+  orderId: string;
+  payExpiresAt: Date;
+}
+
+export interface StoreOrderTimeoutIntegrityIssue extends StoreOrderTimeoutIntegrityCursor {
+  issue: StoreOrderTimeoutIntegrityCode;
+}
+
 type StoreOrderCloseMode = 'PAYMENT_TIMEOUT' | 'USER_CANCELLED';
 
 export interface StoreOrderItemSnapshot {
@@ -1386,7 +1401,17 @@ export class StoreOrderRepository {
           LEFT JOIN public.inventory_balance AS ib ON ib.sku_id = iri.sku_id
           WHERE ir.order_id = so.id
             AND ir.status = 'ACTIVE'
-            AND (ib.id IS NULL OR ib.locked_qty < iri.quantity OR ib.physical_qty < ib.locked_qty)
+            AND (
+              ib.id IS NULL
+              OR ib.physical_qty < ib.locked_qty
+              OR ib.locked_qty <> (
+                SELECT COALESCE(SUM(active_iri.quantity), 0)
+                FROM public.inventory_reservation AS active_ir
+                INNER JOIN public.inventory_reservation_item AS active_iri
+                  ON active_iri.reservation_id = active_ir.id
+                WHERE active_ir.status = 'ACTIVE' AND active_iri.sku_id = iri.sku_id
+              )
+            )
         )
       ORDER BY so.pay_expires_at ASC, so.id ASC
       FOR UPDATE OF so SKIP LOCKED
@@ -1506,13 +1531,39 @@ export class StoreOrderRepository {
     if (balanceRecords.length !== items.length) {
       throw internalError('Store order release balances changed while locking');
     }
+    const activeReservationTotals = await transaction.$queryRaw<Array<{
+      sku_id: string;
+      total_quantity: bigint;
+    }>>(Prisma.sql`
+      SELECT iri.sku_id, SUM(iri.quantity)::bigint AS total_quantity
+      FROM public.inventory_reservation AS ir
+      INNER JOIN public.inventory_reservation_item AS iri ON iri.reservation_id = ir.id
+      WHERE ir.status = 'ACTIVE' AND iri.sku_id IN (${Prisma.join(skuIds)})
+      GROUP BY iri.sku_id
+      ORDER BY iri.sku_id ASC
+    `);
+    if (activeReservationTotals.length !== items.length) {
+      throw internalError('Store order release active reservation totals are incomplete');
+    }
+    const activeQuantityBySkuId = new Map(activeReservationTotals.map(({ sku_id: aggregateSkuId, total_quantity }) => {
+      if (!isValidUlid(aggregateSkuId) || typeof total_quantity !== 'bigint' || total_quantity < 1n ||
+        total_quantity > BigInt(Number.MAX_SAFE_INTEGER)) {
+        throw internalError('Store order release active reservation totals are invalid');
+      }
+      return [aggregateSkuId, Number(total_quantity)] as const;
+    }));
+    if (activeQuantityBySkuId.size !== items.length) {
+      throw internalError('Store order release active reservation totals contain duplicate SKUs');
+    }
     const bySkuId = new Map(balanceRecords.map((balance) => [balance.sku_id, balance]));
     return {
       balances: items.map(({ skuId }) => {
         const balance = bySkuId.get(skuId);
+        const activeQuantity = activeQuantityBySkuId.get(skuId);
         if (!balance || !isValidUlid(balance.id) || !Number.isSafeInteger(balance.physical_qty) ||
           !Number.isSafeInteger(balance.locked_qty) || !Number.isSafeInteger(balance.version) ||
-          balance.physical_qty < balance.locked_qty || balance.locked_qty < 0 || balance.version < 1) {
+          activeQuantity === undefined || balance.physical_qty < balance.locked_qty ||
+          balance.locked_qty !== activeQuantity || balance.locked_qty < 0 || balance.version < 1) {
           throw internalError('Store order release balance is invalid');
         }
         return {
@@ -1651,6 +1702,120 @@ export class StoreOrderRepository {
     });
     if (result === null) throw internalError('Store order cancellation returned no result');
     return result;
+  }
+
+  async listExpiredOrderIntegrityIssues(
+    transaction: DatabaseTransaction,
+    input: { after?: StoreOrderTimeoutIntegrityCursor; limit: number },
+  ): Promise<StoreOrderTimeoutIntegrityIssue[]> {
+    if (Object.keys(input).some((key) => key !== 'after' && key !== 'limit')) {
+      throw new TypeError('Store order timeout integrity scan contains unsupported fields');
+    }
+    if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) {
+      throw new TypeError('Store order timeout integrity scan limit must be between 1 and 100');
+    }
+    if (input.after !== undefined) {
+      requireExactKeys(input.after, ['orderId', 'payExpiresAt'], 'Store order timeout integrity cursor');
+      requireUlid(input.after.orderId, 'Store order timeout integrity cursor Order ID');
+      if (!(input.after.payExpiresAt instanceof Date) || !Number.isFinite(input.after.payExpiresAt.getTime())) {
+        throw new TypeError('Store order timeout integrity cursor expiry is invalid');
+      }
+    }
+    const cursorFilter = input.after === undefined ? Prisma.sql`` : Prisma.sql`
+      AND (so.pay_expires_at, so.id::text) >
+        (${input.after.payExpiresAt}::timestamptz, ${input.after.orderId}::text)
+    `;
+    const rows = await transaction.$queryRaw<Array<{
+      issue_code: string;
+      order_id: string;
+      pay_expires_at: Date;
+    }>>(Prisma.sql`
+      WITH expired_orders AS (
+        SELECT so.id, so.pay_expires_at
+        FROM public.sales_order AS so
+        WHERE so.order_status = 'PENDING_PAYMENT'
+          AND so.payment_status = 'UNPAID'
+          AND so.refund_progress_status = 'NONE'
+          AND so.refund_processing_status = 'IDLE'
+          AND so.fulfillment_status = 'NOT_STARTED'
+          AND so.close_reason IS NULL
+          AND so.completion_reason IS NULL
+          AND so.payment_resolution = 'NORMAL'
+          AND so.pay_expires_at <= transaction_timestamp()
+          AND NOT EXISTS (
+            SELECT 1 FROM public.payment_intent AS pi WHERE pi.order_id = so.id
+          )
+          ${cursorFilter}
+      ), integrity_issues AS (
+        SELECT
+          expired.id AS order_id,
+          expired.pay_expires_at,
+          CASE
+            WHEN NOT EXISTS (
+              SELECT 1 FROM public.order_item AS oi WHERE oi.order_id = expired.id
+            ) THEN 'ORDER_ITEMS_MISSING'
+            WHEN NOT EXISTS (
+              SELECT 1
+              FROM public.inventory_reservation AS ir
+              WHERE ir.order_id = expired.id AND ir.status = 'ACTIVE'
+            ) THEN 'ACTIVE_RESERVATION_MISSING'
+            WHEN (
+              SELECT jsonb_agg(jsonb_build_array(oi.sku_id, oi.quantity) ORDER BY oi.sku_id)
+              FROM public.order_item AS oi
+              WHERE oi.order_id = expired.id
+            ) IS DISTINCT FROM (
+              SELECT jsonb_agg(jsonb_build_array(iri.sku_id, iri.quantity) ORDER BY iri.sku_id)
+              FROM public.inventory_reservation AS ir
+              INNER JOIN public.inventory_reservation_item AS iri ON iri.reservation_id = ir.id
+              WHERE ir.order_id = expired.id AND ir.status = 'ACTIVE'
+            ) THEN 'ORDER_RESERVATION_ITEMS_MISMATCH'
+            WHEN EXISTS (
+              SELECT 1
+              FROM public.inventory_reservation AS ir
+              INNER JOIN public.inventory_reservation_item AS iri ON iri.reservation_id = ir.id
+              LEFT JOIN public.inventory_balance AS ib ON ib.sku_id = iri.sku_id
+              WHERE ir.order_id = expired.id
+                AND ir.status = 'ACTIVE'
+                AND (
+                  ib.id IS NULL
+                  OR ib.physical_qty < ib.locked_qty
+                  OR ib.locked_qty <> (
+                    SELECT COALESCE(SUM(active_iri.quantity), 0)
+                    FROM public.inventory_reservation AS active_ir
+                    INNER JOIN public.inventory_reservation_item AS active_iri
+                      ON active_iri.reservation_id = active_ir.id
+                    WHERE active_ir.status = 'ACTIVE' AND active_iri.sku_id = iri.sku_id
+                  )
+                )
+            ) THEN 'INVENTORY_BALANCE_INVALID'
+            ELSE NULL
+          END AS issue_code
+        FROM expired_orders AS expired
+      )
+      SELECT order_id, pay_expires_at, issue_code
+      FROM integrity_issues
+      WHERE issue_code IS NOT NULL
+      ORDER BY pay_expires_at ASC, order_id ASC
+      LIMIT ${input.limit}
+    `);
+    const issueCodes = new Set<StoreOrderTimeoutIntegrityCode>([
+      'ACTIVE_RESERVATION_MISSING',
+      'INVENTORY_BALANCE_INVALID',
+      'ORDER_ITEMS_MISSING',
+      'ORDER_RESERVATION_ITEMS_MISMATCH',
+    ]);
+    return rows.map((row) => {
+      if (!isValidUlid(row.order_id) || !(row.pay_expires_at instanceof Date) ||
+        !Number.isFinite(row.pay_expires_at.getTime()) ||
+        !issueCodes.has(row.issue_code as StoreOrderTimeoutIntegrityCode)) {
+        throw internalError('Store order timeout integrity scan returned an invalid row');
+      }
+      return {
+        issue: row.issue_code as StoreOrderTimeoutIntegrityCode,
+        orderId: row.order_id,
+        payExpiresAt: new Date(row.pay_expires_at),
+      };
+    });
   }
 
   async expireNextOrderInTransaction(transaction: DatabaseTransaction): Promise<StoreOrderTimeoutResult> {

@@ -169,7 +169,7 @@ interface Harness {
   service: StorePaymentsService;
 }
 
-function harness(): Harness {
+function harness(runtimeConfig: PlatformRuntimeConfig = config()): Harness {
   const sequence: string[] = [];
   const transaction = {};
   const prisma = {
@@ -240,7 +240,7 @@ function harness(): Harness {
     finalizeOrderCloseInTransaction: vi.fn(),
     getOwnedOrderForReplayInTransaction: vi.fn(),
   };
-  const service = new StorePaymentsService(config(), database, provider);
+  const service = new StorePaymentsService(runtimeConfig, database, provider);
   Object.assign(service as unknown as Record<string, unknown>, {
     audit: audit as unknown as AuditRepository,
     callbackInbox: callbackInbox as unknown as CallbackInboxRepository,
@@ -428,7 +428,7 @@ describe('B10.1 Store payments service', () => {
   });
 
   it('persists a verified Mock callback in Inbox and completes only a HASH_ONLY 202 fact', async () => {
-    const current = harness();
+    const current = harness({ ...config(), environment: 'test' });
     const open = intent({ providerIntentId: 'mock_intent_0001', providerState: 'OPEN', status: 'OPEN' });
     current.payments.getOwnedPaymentIntentInTransaction.mockResolvedValue(open);
     const callback = signedCallback('SUCCEEDED');
@@ -472,6 +472,21 @@ describe('B10.1 Store payments service', () => {
         storage: 'HASH_ONLY',
       },
     );
+  });
+
+  it.each([
+    ['production', { ...config(), environment: 'production' }],
+    ['WECHAT', { ...config(), payment: { ...config().payment, provider: 'WECHAT' } }],
+  ] as const)('hides the Mock result endpoint from %s runtime service calls', async (_name, runtimeConfig) => {
+    const current = harness(runtimeConfig);
+    const error = await current.service.submitMockResult(
+      session, PAYMENT_INTENT_ID, { result: 'SUCCEEDED' }, IDEMPOTENCY_KEY, REQUEST_ID, IP,
+    ).then(() => undefined, (cause: unknown) => cause);
+
+    expect(code(error)).toBe('RESOURCE_NOT_FOUND');
+    expect(current.idempotency.claim).not.toHaveBeenCalled();
+    expect(current.payments.getOwnedPaymentIntentInTransaction).not.toHaveBeenCalled();
+    expect(current.provider.submitResult).not.toHaveBeenCalled();
   });
 
   it('rejects a conflicting Mock result before Inbox or idempotency completion', async () => {

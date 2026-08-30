@@ -1,6 +1,6 @@
 # 技术设计交付索引
 
-> 当前产品/API 基线仍为 MVP/PRD v2.4.8、线协议 CH-022；数据库修复 CH-023（2026-08-30）不改变在线契约。B10.4 已在准确 SHA `8998e4a51605e97a952f13f4538811c19de14b63` 上通过普通 CI Run `33293709228`、Supabase development migration Run `33294573472` 与 rollback-only smoke Run `33294644725`，批次已闭合；B10.5 已本地完成并通过退出复审，B10.6 未开始。B10 不得 `GO`，CH-021 继续有效；仅允许 Mock Provider 和脱敏 development，staging、production 与真实支付均为 `NO-GO`。
+> 当前产品/API 基线仍为 MVP/PRD v2.4.8、线协议 CH-022；数据库修复 CH-023（2026-08-30）不改变在线契约。B10.4 准确 SHA 的三项远端证据保持有效；B10.6 本地实现与总验收已完成，数据库与纵向独立复审 `P0=0/P1=0/P2=0`。最终实现尚未提交且同 SHA 普通 CI/Supabase rollback-only 双绿未取得，B10 不得 `GO`，CH-021 继续有效；仅允许 Mock Provider 和脱敏 development，staging、production 与真实支付均为 `NO-GO`。
 
 | 文件 | 用途 |
 |---|---|
@@ -92,7 +92,7 @@
 - 两份 Prisma schema 保持 76 models / 59 enums，既有 0001/0002 逐字节不变；0003 只增加 payment intent 成功事实与订单 LATE_PAYMENT 退款两个条件唯一索引。
 - 本地契约生成/校验、完整迁移回放、历史重复预检、权限、冻结指纹和 migration diff 门禁已通过；B10.0 准确 SHA 的普通 CI、Supabase development migration 和 rollback-only smoke 也已依次成功。
 - B10.0 文档/契约/迁移/静态原型与三项远端门禁均已完成；B10.1 Provider、支付意图与 Mock Inbox 本地实现/验收及 `P0=0/P1=0` 退出复审已完成。既有 `CREATING` 必须先 query、仅 `NOT_FOUND` 才 create；`OPEN` 原子推进订单为 `PROCESSING` 并递增版本，明确终态恢复 `UNPAID`，陈旧 `If-Match` 新命令返回 409。
-- B10.5 已本地完成并达到 `P0=0/P1=0`；CH-023 保持 SECURITY INVOKER 和 runtime 最小权限。B10.6 未开始；B10 不得 `GO`，CH-021 继续有效并在 B10.6 后才自动失效。
+- B10.6 本地实现与验收已完成，数据库与纵向独立复审为 `P0=0/P1=0/P2=0`；CH-023 保持 SECURITY INVOKER 和 runtime 最小权限。最终同 SHA 远端双绿待取得；B10 不得 `GO`，CH-021 继续有效且不得提前记为失效。
 
 ## B3.1 当前验证状态
 
@@ -123,7 +123,7 @@ B8 的 CH-017/CH-018、冻结契约、串行批次与最终证据见 `../05-开�
 
 B9 的 CH-019/CH-020、契约/迁移边界及最终证据见 `../05-开发管理/B9-订单报价与库存预占.md`。B9.0-B9.5 已完成，最终复审保持 `P0=0/P1=0/P2=1`；最终 SHA `19f9ad57190b28d11922db805b39af95b2f7ba3b` 的普通 CI Run `33230769777` 与 Supabase development rollback-only smoke Run `33233087710` 同 SHA 且均为 `completed/success`，B9 development `GO`，CH-019 已自动失效。唯一 P2 TR-020 不阻断 development；staging 前外部独立复核不得豁免，staging、production 与真实支付仍为 `NO-GO`。
 
-B10 的 CH-021/CH-022/CH-023、契约/迁移边界与批次见 `../05-开发管理/B10-支付对账与迟到支付退款.md`。B10.5 已本地完成并通过退出复审，B10.6 未开始。B10 不得 `GO`，CH-021 继续有效。
+B10 的 CH-021/CH-022/CH-023、契约/迁移边界与批次见 `../05-开发管理/B10-支付对账与迟到支付退款.md`。B10.6 本地总验收已完成；最终实现尚未提交，同一最终 SHA 普通 CI 与 Supabase rollback-only 双绿待取得。B10 不得 `GO`，CH-021 继续有效。
 
 ## 剩余上线门禁
 

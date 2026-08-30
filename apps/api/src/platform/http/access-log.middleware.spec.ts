@@ -55,4 +55,34 @@ describe('createAccessLogEntry', () => {
       status_code: 404,
     });
   });
+
+  it('omits raw account and session identifiers for customer principals', () => {
+    const entry = createAccessLogEntry({
+      method: 'GET',
+      principal: {
+        accountId: 'customer_account_1',
+        assurance: 'WECHAT',
+        permissions: [],
+        restriction: 'NONE',
+        role: 'CUSTOMER',
+        sessionId: 'customer_session_1',
+      },
+      requestId: 'request_3',
+      resultCode: 'OK',
+      route: { path: '/store/orders' },
+    }, { statusCode: 200 }, 1);
+
+    expect(entry).toEqual({
+      actor_role: 'CUSTOMER',
+      duration_ms: 1,
+      method: 'GET',
+      request_id: 'request_3',
+      result_code: 'OK',
+      route: '/store/orders',
+      service: 'api',
+      status_code: 200,
+    });
+    expect(JSON.stringify(entry)).not.toContain('customer_account_1');
+    expect(JSON.stringify(entry)).not.toContain('customer_session_1');
+  });
 });

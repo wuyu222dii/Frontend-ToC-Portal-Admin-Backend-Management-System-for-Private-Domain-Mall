@@ -9,7 +9,7 @@
 | 文档版本 | v2.4.8 |
 | 对应阶段 | 三端标准 MVP |
 | 更新日期 | 2026-08-30 |
-| 当前状态 | B0 至 B9 development 已完成并维持 `GO`；产品/API 基线仍为 `v2.4.8 / 2.4.8-ch022`。B10.5 已本地完成并达到 `P0=0/P1=0`，B10.6 未开始。B10 尚未 `GO`，CH-021 继续有效；仅允许 Mock Provider 和脱敏 development，真实微信支付、staging/production `NO-GO` |
+| 当前状态 | B0 至 B9 development 已完成并维持 `GO`；产品/API 基线仍为 `v2.4.8 / 2.4.8-ch022`。B10.6 本地实现与总验收已完成，数据库与纵向独立复审 `P0=0/P1=0/P2=0`；最终实现尚未提交且同 SHA 远端双绿未取得，B10 尚未 `GO`，CH-021 继续有效；仅允许 Mock Provider 和脱敏 development，真实微信支付、staging/production `NO-GO` |
 | 产品终端 | 消费者微信小程序、一级代理工作台、总部管理后台 |
 | 人员角色 | `CUSTOMER`、`AGENT_ADMIN`、`SUPER_ADMIN` |
 
@@ -30,7 +30,7 @@
 | v2.4.5 | 2026-08-26 | 落实 CH-016：服务端法律文本、角色感知 Store 会话、资料手机号、归因/服务代理与同步账号注销契约 | 已归档；B7 development 已在最终同 SHA 双绿后 `GO`，CH-015 已失效 |
 | v2.4.6 | 2026-08-27 | 落实 CH-018：登录后收藏、服务端购物车、游客合并、收货地址隐私与共享客户限流契约 | 已归档；B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 同 SHA 双绿，B8 development `GO`，CH-017 已失效 |
 | v2.4.7 | 2026-08-28 | 落实 CH-020：结算报价凭证、待付款订单、库存预占、主动取消/超时释放与 0002 索引迁移 | 已归档；B9.0-B9.5 已完成并取得最终同 SHA 双绿，B9 development `GO`，CH-019 已自动失效 |
-| v2.4.8 | 2026-08-29 | 落实 CH-022：Mock 支付意图、结果消费、订单结算、关单对账、迟到支付自动退款与 0003 支付事实索引；CH-023 仅补充 0004 数据库函数权限修复 | 当前产品版本；B10.0-B10.5 已完成本地实施，B10.6 未开始；B10 尚未 `GO` |
+| v2.4.8 | 2026-08-29 | 落实 CH-022：Mock 支付意图、结果消费、订单结算、关单对账、迟到支付自动退款与 0003 支付事实索引；CH-023 仅补充 0004 数据库函数权限修复 | 当前产品版本；B10.0-B10.6 已完成本地实施与验收；最终同 SHA 远端双绿待取得，B10 尚未 `GO` |
 
 ### 文档使用约定
 
@@ -967,7 +967,7 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 ### 11.16 CH-022 支付、对账与迟到支付退款
 
 - OpenAPI 升级为 `2.4.8-ch022`，本地解析实测为 173 paths / 198 operations / 198 unique operationId / 326 schemas / 705 schema refs / 2,678 local refs / 0 dangling refs；所有 order_id、payment_intent_id、refund_id 路径参数统一为 ULID。
-- 服务端按环境选择 `MOCK | WECHAT` Provider，支付请求不得由客户端选择 Provider。B10 development 只注册 Mock；production 配置 Mock 必须拒绝启动，真实微信回调虽保留契约但不注册路由。
+- 服务端按环境选择 `MOCK | WECHAT` Provider，支付请求不得由客户端选择 Provider。Mock result 只在非 production 的 `development|test + MOCK` 注册，其中 `test` 仅服务 B10.6 真实 HTTP 纵向；production 配置 Mock 必须拒绝启动，production/WECHAT 不注册 Mock result，真实微信回调虽保留契约但不注册路由。
 - 创建/继续支付使用 `Idempotency-Key` 和 `If-Match`，先在订单锁下保存稳定 `intent_no + CREATING`，再于事务外调用 Provider。同键重放返回同一 intent 当前投影；已有活动 intent 必须复用查询，只有失败终态且订单仍可支付时才可新建。
 - Mock 结果只允许 `SUCCEEDED | FAILED | CANCELLED`，只验证并写 Inbox 后返回 202；交易号和事件号由服务端稳定生成，客户端不得提交交易号或 `SUCCEEDED_LATE`。支付尝试状态必须与数据库闭合集一致。
 - Worker 在 Serializable 事务中消费支付结果：唯一写 attempt、更新 intent/订单、消费预占、同时扣减实物与锁定库存、写唯一 `ORDER_PAID_DEDUCT`，再冻结最终归因和佣金规则快照。可重建的 `product.sales_count` 仅在结算收敛时递增，首次进入 `MANUAL_REQUIRED` 不递增、补偿成功只递增一次，并在 PostgreSQL `integer` 上限饱和。不可修复的支付后配置异常保留成功收款事实并进入 `MANUAL_REQUIRED`，不得由销量缓存异常否认支付、静默发货或释放库存。
@@ -984,7 +984,7 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 - 产品/PRD 继续使用 `v2.4.8 / CH-022`，OpenAPI 继续使用 `2.4.8-ch022`；不新增或修改页面、FR、AC、US、operation、DTO、错误码或消费者交互。
 - 新增 `0004_b10_commission_position_trigger_fix`，只移除 `enforce_commission_position_snapshot()` 读取不可变佣金快照时不必要的 `FOR SHARE` 并显式保持 `SECURITY INVOKER`；snapshot ID 不可变和原佣金一致性校验保持不变。
 - 不修改 0001-0003，不授予 `mall_runtime` 对不可变 snapshot 的 UPDATE/DELETE，不使用 SECURITY DEFINER，也不新增表、列、枚举、索引或 RLS。
-- B10.2-B10.4 代码及对应准确 SHA 远端门禁均已完成；B10.5 小程序支付结果与 ADM-10 最小对账已本地完成，B10.6 未开始。
+- B10.2-B10.4 代码及对应准确 SHA 远端门禁均已完成；B10.5 小程序支付结果与 ADM-10 最小对账、B10.6 数据库/故障注入/真实纵向和全仓总验收均已本地完成。TR-026、QA-005、`PAYMENT_TIMEOUT` 与跨提交纵向风险已关闭；最终实现尚未提交，同一最终 SHA 远端双绿待取得。
 
 ## 12. 数据与接口边界（产品级）
 
@@ -1557,8 +1557,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | 验收场景 AC | 116 | 0 |
 | 用户故事 US | 24 | 0 |
 
-当前准入结论：B0 至 B9 development 已通过，B9 最终同 SHA 双绿及 `GO` 证据保持有效。CH-021/CH-022/CH-023 已批准；B10.0-B10.5 已完成本地实施，B10.5 退出复审为 `P0=0/P1=0`，B10.6 未开始。B10 development 不得 `GO`。CH-021 继续有效；B10 仅允许 Mock Provider 与脱敏 development，真实支付、staging 和 production 均未放行。
+当前准入结论：B0 至 B9 development 已通过，B9 最终同 SHA 双绿及 `GO` 证据保持有效。CH-021/CH-022/CH-023 已批准；B10.0-B10.6 已完成本地实施与验收，数据库与纵向独立复审为 `P0=0/P1=0/P2=0`。全仓为 2,067 passed/130 designed skips，B10 数据库 85/85、真实纵向 1 passed，契约保持 173/198/198/326。最终实现尚未提交，同一最终 SHA 的普通 CI 与 Supabase rollback-only 双绿仍是唯一阻塞，B10 development 不得 `GO`，CH-021 继续有效；B10 仅允许 Mock Provider 与脱敏 development，真实支付、staging 和 production 均未放行。
 
 ---
 
-PRD 状态：`v2.4.8 / CH-022` 仍为当前产品/API 基线，CH-023 不改变在线契约，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24。B10.5 已本地完成，B10.6 未开始；B10 不得 `GO`，CH-021 继续有效；真实支付、staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。
+PRD 状态：`v2.4.8 / CH-022` 仍为当前产品/API 基线，CH-023 不改变在线契约，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24。B10.6 本地总验收完成；最终同 SHA 普通 CI 与 Supabase rollback-only 双绿尚未取得，B10 不得 `GO`，CH-021 继续有效；真实支付、staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。

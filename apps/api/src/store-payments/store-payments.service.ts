@@ -848,7 +848,9 @@ export class StorePaymentsService {
   }
 
   private assertMockResultEnabled(): void {
-    if (this.runtimeConfig().environment !== 'development' || this.providerName() !== 'MOCK') {
+    const config = this.runtimeConfig();
+    if ((config.environment !== 'development' && config.environment !== 'test') ||
+      config.payment.provider !== 'MOCK') {
       throw new ApplicationError('RESOURCE_NOT_FOUND', 'Resource not found');
     }
   }

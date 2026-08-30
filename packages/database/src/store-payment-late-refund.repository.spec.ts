@@ -530,7 +530,13 @@ describe('StorePaymentRepository late payment refund', () => {
       paymentIntent: {
         findUnique: vi.fn()
           .mockResolvedValueOnce({ id: paymentIntentId, order_id: orderId })
-          .mockResolvedValueOnce(intent([successful], { status: 'SUCCEEDED', version: 4 })),
+          .mockResolvedValueOnce(intent([successful], {
+            next_reconcile_at: null,
+            provider_state: 'SUCCEEDED',
+            status: 'SUCCEEDED',
+            succeeded_at: NOW,
+            version: 4,
+          })),
       },
       salesOrder: { findUnique: vi.fn().mockResolvedValue(pendingOrder()) },
     };

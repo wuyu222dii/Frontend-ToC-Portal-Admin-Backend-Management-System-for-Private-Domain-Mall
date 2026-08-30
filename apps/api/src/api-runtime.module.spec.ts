@@ -132,7 +132,10 @@ describe('ApiRuntimeModule authentication wiring', () => {
       'payments',
       moduleRef.get(StorePaymentsService),
     );
-    expect(() => moduleRef.get(StoreMockPaymentsController)).toThrow();
+    expect(moduleRef.get(StoreMockPaymentsController)).toHaveProperty(
+      'payments',
+      moduleRef.get(StorePaymentsService),
+    );
     await moduleRef.close();
   });
 

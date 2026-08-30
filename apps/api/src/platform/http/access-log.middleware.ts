@@ -42,9 +42,11 @@ export function createAccessLogEntry(
   };
 
   if (request.principal !== undefined) {
-    entry.account_id = request.principal.accountId;
     entry.actor_role = request.principal.role;
-    entry.session_id = request.principal.sessionId;
+    if (request.principal.role !== 'CUSTOMER') {
+      entry.account_id = request.principal.accountId;
+      entry.session_id = request.principal.sessionId;
+    }
   }
 
   return redactLogValue(entry) as AccessLogEntry;

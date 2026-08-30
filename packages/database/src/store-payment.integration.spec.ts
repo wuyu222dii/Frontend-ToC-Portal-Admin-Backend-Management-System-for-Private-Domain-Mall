@@ -1,9 +1,15 @@
 import { generateUlid } from '@qingxu/platform-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { Prisma } from '../.generated/prisma/client';
+import { Prisma, type PrismaClient } from '../.generated/prisma/client';
 import type { DatabaseTransaction } from './idempotency.repository';
+import {
+  type PaymentReconciliationListInput,
+  PaymentReconciliationRepository,
+  type PaymentReconciliationTask,
+} from './payment-reconciliation.repository';
 import { createDatabaseRuntime, type DatabaseRuntime } from './runtime';
+import { StoreOrderRepository } from './store-order.repository';
 import { StorePaymentRepository } from './store-payment.repository';
 
 type DatabaseTestMode = 'full' | 'rollback';
@@ -74,6 +80,23 @@ interface SettlementFixture {
   skuId: string;
 }
 
+interface AdditionalSettlementLineFixture {
+  balanceId: string;
+  orderItemId: string;
+  productId: string;
+  reservationItemId: string;
+  reserveLedgerId: string;
+  skuId: string;
+}
+
+interface AgentCommissionFixture {
+  agentAccountId: string;
+  agentId: string;
+  bindingId: string;
+  ruleEntryId: string;
+  ruleVersionId: string;
+}
+
 function settlementFixture(now: Date): SettlementFixture {
   const id = (offset: number) => generateUlid(now.getTime() - offset);
   return {
@@ -94,6 +117,130 @@ function settlementFixture(now: Date): SettlementFixture {
   };
 }
 
+function additionalSettlementLineFixture(
+  now: Date,
+  productId = generateUlid(now.getTime() - 2_400),
+): AdditionalSettlementLineFixture {
+  return {
+    balanceId: generateUlid(now.getTime() - 2_300),
+    orderItemId: generateUlid(now.getTime() - 2_200),
+    productId,
+    reservationItemId: generateUlid(now.getTime() - 2_100),
+    reserveLedgerId: generateUlid(now.getTime() - 2_000),
+    skuId: generateUlid(now.getTime() - 2_350),
+  };
+}
+
+function agentCommissionFixture(now: Date): AgentCommissionFixture {
+  return {
+    agentAccountId: generateUlid(now.getTime() - 17_000),
+    agentId: generateUlid(now.getTime() - 16_000),
+    bindingId: generateUlid(now.getTime() - 15_000),
+    ruleEntryId: generateUlid(now.getTime() - 1_900),
+    ruleVersionId: generateUlid(now.getTime() - 2_000),
+  };
+}
+
+function reconciliationRepositoryForTransaction(
+  transaction: DatabaseTransaction,
+): PaymentReconciliationRepository {
+  const client = {
+    $transaction: async (callback: (current: DatabaseTransaction) => Promise<unknown>) => callback(transaction),
+  } as unknown as PrismaClient;
+  return new PaymentReconciliationRepository(client);
+}
+
+async function findReconciliationTask(
+  repository: PaymentReconciliationRepository,
+  filters: Omit<PaymentReconciliationListInput, 'page' | 'pageSize'>,
+  predicate: (task: PaymentReconciliationTask) => boolean,
+): Promise<PaymentReconciliationTask | null> {
+  const pageSize = 100;
+  for (let page = 1; ; page += 1) {
+    const result = await repository.listTasks({ ...filters, page, pageSize });
+    const task = result.items.find(predicate);
+    if (task !== undefined) return task;
+    if (page * pageSize >= result.total) return null;
+  }
+}
+
+async function seedActiveAgentWithPublishedCommission(
+  transaction: DatabaseTransaction,
+  fixture: AgentCommissionFixture,
+  now: Date,
+  rate: string,
+): Promise<void> {
+  await transaction.account.create({
+    data: {
+      created_at: now,
+      id: fixture.agentAccountId,
+      login_name: `b102-agent-${fixture.agentAccountId}`,
+      password_hash: 'b102-integration-password-hash',
+      role: 'AGENT_ADMIN',
+      status: 'ACTIVE',
+      updated_at: now,
+      version: 1,
+    },
+  });
+  await transaction.agentProfile.create({
+    data: {
+      account_id: fixture.agentAccountId,
+      agent_no: `B102-${fixture.agentId.slice(-20)}`,
+      created_at: now,
+      id: fixture.agentId,
+      name: 'B10.2 Integration Agent',
+      product_authorization_mode: 'ALL_ACTIVE_PRODUCTS',
+      status: 'ACTIVE',
+      updated_at: now,
+      version: 1,
+    },
+  });
+  const publishedRules = await transaction.commissionRuleVersion.findMany({
+    select: { id: true },
+    where: { status: 'PUBLISHED' },
+  });
+  for (const published of publishedRules) {
+    await transaction.commissionRuleVersion.update({
+      data: { status: 'ARCHIVED' },
+      where: { id: published.id },
+    });
+  }
+  const maximumVersion = await transaction.commissionRuleVersion.aggregate({
+    _max: { version_no: true },
+  });
+  const versionNo = (maximumVersion._max.version_no ?? 0) + 1;
+  expect(Number.isSafeInteger(versionNo)).toBe(true);
+  await transaction.commissionRuleVersion.create({
+    data: {
+      created_at: now,
+      created_by_id: fixture.agentAccountId,
+      effective_at: null,
+      id: fixture.ruleVersionId,
+      reason: `B10.2 ${rate} commission integration fixture`,
+      status: 'DRAFT',
+      version_no: versionNo,
+    },
+  });
+  await transaction.commissionRuleEntry.create({
+    data: {
+      configured_rate: new Prisma.Decimal(rate),
+      created_at: now,
+      id: fixture.ruleEntryId,
+      rule_version_id: fixture.ruleVersionId,
+      target_id: null,
+      target_key: 'PLATFORM',
+      target_type: 'PLATFORM',
+    },
+  });
+  await transaction.commissionRuleVersion.update({
+    data: {
+      effective_at: new Date(now.getTime() - 60_000),
+      status: 'PUBLISHED',
+    },
+    where: { id: fixture.ruleVersionId },
+  });
+}
+
 async function seedSettlementFixture(
   transaction: DatabaseTransaction,
   fixture: SettlementFixture,
@@ -101,9 +248,22 @@ async function seedSettlementFixture(
   options: {
     agent?: { agentId: string; bindingId: string };
     createBalance?: boolean;
+    expiresAt?: Date;
+    paymentStatus?: 'PROCESSING' | 'UNPAID';
+    primaryPhysicalQty?: number;
+    primaryQuantity?: number;
   } = {},
 ): Promise<void> {
-  const { agent, createBalance = true } = options;
+  const {
+    agent,
+    createBalance = true,
+    expiresAt = new Date(now.getTime() + 30 * 60_000),
+    paymentStatus = 'UNPAID',
+    primaryPhysicalQty = 5,
+    primaryQuantity = 1,
+  } = options;
+  const primaryAmount = new Prisma.Decimal('19.90').mul(primaryQuantity);
+  const orderCreatedAt = new Date(expiresAt.getTime() - 30 * 60_000);
   await transaction.account.create({
     data: {
       created_at: now,
@@ -201,29 +361,28 @@ async function seedSettlementFixture(
     await transaction.inventoryBalance.create({
       data: {
         id: fixture.balanceId,
-        locked_qty: 1,
-        physical_qty: 5,
+        locked_qty: primaryQuantity,
+        physical_qty: primaryPhysicalQty,
         sku_id: fixture.skuId,
         updated_at: now,
         version: 1,
       },
     });
   }
-  const expiresAt = new Date(now.getTime() + 30 * 60_000);
   await transaction.salesOrder.create({
     data: {
-      created_at: now,
+      created_at: orderCreatedAt,
       customer_id: fixture.customerId,
       fulfillment_status: 'NOT_STARTED',
-      goods_amount: new Prisma.Decimal('19.90'),
+      goods_amount: primaryAmount,
       id: fixture.orderId,
       order_no: `QX${fixture.orderId}`,
       order_status: 'PENDING_PAYMENT',
       paid_amount: new Prisma.Decimal('0.00'),
       pay_expires_at: expiresAt,
-      payable_amount: new Prisma.Decimal('19.90'),
+      payable_amount: primaryAmount,
       payment_resolution: 'NORMAL',
-      payment_status: 'UNPAID',
+      payment_status: paymentStatus,
       refund_processing_status: 'IDLE',
       refund_progress_status: 'NONE',
       refunded_amount: new Prisma.Decimal('0.00'),
@@ -242,12 +401,12 @@ async function seedSettlementFixture(
       category_name_snapshot: `B102 Category ${fixture.categoryId}`,
       created_at: now,
       id: fixture.orderItemId,
-      line_paid_amount: new Prisma.Decimal('19.90'),
+      line_paid_amount: primaryAmount,
       order_id: fixture.orderId,
       pre_shipment_refunded_qty: 0,
       product_id: fixture.productId,
       product_name_snapshot: `B102 Product ${fixture.productId}`,
-      quantity: 1,
+      quantity: primaryQuantity,
       refunded_amount: new Prisma.Decimal(0),
       refunded_qty: 0,
       shipped_qty: 0,
@@ -296,7 +455,7 @@ async function seedSettlementFixture(
     data: {
       created_at: now,
       id: fixture.reservationItemId,
-      quantity: 1,
+      quantity: primaryQuantity,
       reservation_id: fixture.reservationId,
       sku_id: fixture.skuId,
     },
@@ -307,13 +466,114 @@ async function seedSettlementFixture(
       business_id: fixture.reservationId,
       id: fixture.reserveLedgerId,
       ledger_type: 'ORDER_RESERVE',
-      locked_after: 1,
-      locked_change: 1,
+      locked_after: primaryQuantity,
+      locked_change: primaryQuantity,
       occurred_at: now,
-      physical_after: 5,
+      physical_after: primaryPhysicalQty,
       physical_change: 0,
       reason: 'ORDER_RESERVE',
       sku_id: fixture.skuId,
+    },
+  });
+}
+
+async function seedAdditionalSettlementLine(
+  transaction: DatabaseTransaction,
+  fixture: SettlementFixture,
+  line: AdditionalSettlementLineFixture,
+  now: Date,
+  input: {
+    createProduct: boolean;
+    quantity: number;
+    unitPrice: string;
+  },
+): Promise<void> {
+  const unitPrice = new Prisma.Decimal(input.unitPrice);
+  if (input.createProduct) {
+    await transaction.product.create({
+      data: {
+        brand_id: fixture.brandId,
+        category_id: fixture.categoryId,
+        created_at: now,
+        id: line.productId,
+        name: `B106 Product ${line.productId}`,
+        published_at: now,
+        sales_count: 0,
+        spu_code: `B106-SPU-${line.productId}`,
+        status: 'ACTIVE',
+        updated_at: now,
+      },
+    });
+  }
+  await transaction.sku.create({
+    data: {
+      code: `B106-SKU-${line.skuId}`,
+      created_at: now,
+      id: line.skuId,
+      name: `B106 Payment SKU ${line.skuId}`,
+      product_id: line.productId,
+      retail_price: unitPrice,
+      status: 'ACTIVE',
+      updated_at: now,
+    },
+  });
+  await transaction.inventoryBalance.create({
+    data: {
+      id: line.balanceId,
+      locked_qty: input.quantity,
+      physical_qty: 7,
+      sku_id: line.skuId,
+      updated_at: now,
+      version: 1,
+    },
+  });
+  await transaction.orderItem.create({
+    data: {
+      aftersale_reserved_amount: new Prisma.Decimal(0),
+      aftersale_reserved_qty: 0,
+      brand_name_snapshot: `B102 Brand ${fixture.brandId}`,
+      category_id: fixture.categoryId,
+      category_name_snapshot: `B102 Category ${fixture.categoryId}`,
+      created_at: now,
+      id: line.orderItemId,
+      line_paid_amount: unitPrice.mul(input.quantity),
+      order_id: fixture.orderId,
+      pre_shipment_refunded_qty: 0,
+      product_id: line.productId,
+      product_name_snapshot: `B106 Product ${line.productId}`,
+      quantity: input.quantity,
+      refunded_amount: new Prisma.Decimal(0),
+      refunded_qty: 0,
+      shipped_qty: 0,
+      sku_code_snapshot: `B106-SKU-${line.skuId}`,
+      sku_id: line.skuId,
+      sku_name_snapshot: `B106 Payment SKU ${line.skuId}`,
+      unit_price: unitPrice,
+      version: 1,
+    },
+  });
+  await transaction.inventoryReservationItem.create({
+    data: {
+      created_at: now,
+      id: line.reservationItemId,
+      quantity: input.quantity,
+      reservation_id: fixture.reservationId,
+      sku_id: line.skuId,
+    },
+  });
+  await transaction.inventoryLedger.create({
+    data: {
+      actor_account_id: fixture.accountId,
+      business_id: fixture.reservationId,
+      id: line.reserveLedgerId,
+      ledger_type: 'ORDER_RESERVE',
+      locked_after: input.quantity,
+      locked_change: input.quantity,
+      occurred_at: now,
+      physical_after: 7,
+      physical_change: 0,
+      reason: 'ORDER_RESERVE',
+      sku_id: line.skuId,
     },
   });
 }
@@ -368,6 +628,36 @@ async function closeSettlementFixtureForLatePayment(
     },
     where: { id: fixture.orderId },
   });
+}
+
+async function openSettlementPayment(
+  transaction: DatabaseTransaction,
+  repository: StorePaymentRepository,
+  fixture: SettlementFixture,
+) {
+  const prepared = await repository.prepareOwnedPaymentIntentInTransaction(transaction, {
+    accountId: fixture.accountId,
+    customerId: fixture.customerId,
+    expectedVersion: 1,
+    orderId: fixture.orderId,
+    provider: 'MOCK',
+    reconcileAfterMs: 30_000,
+  });
+  const paymentIntentId = prepared.intent.paymentIntentId;
+  const providerIntentId = `mock-${paymentIntentId}`;
+  const opened = await repository.finalizeProviderOutcomeInTransaction(transaction, {
+    expectedVersion: 1,
+    orderId: fixture.orderId,
+    paymentIntentId,
+    provider: 'MOCK',
+    result: {
+      kind: 'OPEN',
+      nextReconcileAt: new Date(prepared.intent.serverTime.getTime() + 60_000),
+      providerIntentId,
+      providerState: 'OPEN',
+    },
+  });
+  return { opened, paymentIntentId, providerIntentId };
 }
 
 databaseDescribe('B10 Store payment database integration', () => {
@@ -725,6 +1015,224 @@ databaseDescribe('B10 Store payment database integration', () => {
     }
   }, 120_000);
 
+  it('aggregates two SKU quantities into one product sales counter and rolls every fact back', async () => {
+    const now = new Date();
+    const fixture = settlementFixture(now);
+    const secondLine = additionalSettlementLineFixture(now, fixture.productId);
+    let paymentIntentId: string | undefined;
+
+    await expect(runtime.withPrismaTransaction(async (transaction) => {
+      await seedSettlementFixture(transaction, fixture, now, {
+        primaryPhysicalQty: 7,
+        primaryQuantity: 2,
+      });
+      await seedAdditionalSettlementLine(transaction, fixture, secondLine, now, {
+        createProduct: false,
+        quantity: 3,
+        unitPrice: '10.00',
+      });
+      await transaction.salesOrder.update({
+        data: {
+          goods_amount: new Prisma.Decimal('69.80'),
+          payable_amount: new Prisma.Decimal('69.80'),
+          source: 'CART',
+        },
+        where: { id: fixture.orderId },
+      });
+      const opened = await openSettlementPayment(transaction, repository, fixture);
+      paymentIntentId = opened.paymentIntentId;
+      const callbackInput = {
+        amount: '69.80',
+        eventType: 'payment.succeeded' as const,
+        occurredAt: opened.opened.intent.serverTime,
+        outcome: 'SUCCEEDED' as const,
+        provider: 'MOCK' as const,
+        providerEventId: `mock-event-aggregate-${opened.paymentIntentId}`,
+        providerIntentId: opened.providerIntentId,
+        providerTransactionId: `mock-transaction-${opened.paymentIntentId}`,
+      };
+
+      await expect(repository.applyPaymentCallbackInTransaction(transaction, callbackInput))
+        .resolves.toMatchObject({ changed: true, kind: 'SETTLED' });
+      await expect(repository.applyPaymentCallbackInTransaction(transaction, callbackInput))
+        .resolves.toMatchObject({ changed: false, kind: 'REPLAY' });
+      await expect(transaction.product.findUnique({ where: { id: fixture.productId } }))
+        .resolves.toMatchObject({ sales_count: 5 });
+      await expect(transaction.inventoryBalance.findMany({
+        orderBy: { sku_id: 'asc' },
+        where: { id: { in: [fixture.balanceId, secondLine.balanceId] } },
+      })).resolves.toEqual([
+        expect.objectContaining({ locked_qty: 0, physical_qty: 5 }),
+        expect.objectContaining({ locked_qty: 0, physical_qty: 4 }),
+      ]);
+      await expect(transaction.inventoryLedger.count({
+        where: { business_id: fixture.reservationId, ledger_type: 'ORDER_PAID_DEDUCT' },
+      })).resolves.toBe(2);
+      await expect(transaction.paymentAttempt.count({ where: { payment_intent_id: paymentIntentId } }))
+        .resolves.toBe(1);
+      throw rollbackSentinel;
+    }, transactionOptions)).rejects.toBe(rollbackSentinel);
+
+    await expect(runtime.prisma.product.count({ where: { id: fixture.productId } })).resolves.toBe(0);
+    await expect(runtime.prisma.sku.count({ where: { id: { in: [fixture.skuId, secondLine.skuId] } } }))
+      .resolves.toBe(0);
+    await expect(runtime.prisma.inventoryLedger.count({ where: { business_id: fixture.reservationId } }))
+      .resolves.toBe(0);
+    if (paymentIntentId !== undefined) {
+      await expect(runtime.prisma.paymentIntent.count({ where: { id: paymentIntentId } })).resolves.toBe(0);
+      await expect(runtime.prisma.paymentAttempt.count({ where: { payment_intent_id: paymentIntentId } }))
+        .resolves.toBe(0);
+    }
+  }, 120_000);
+
+  it('rolls back the first product sales update when the second product CAS loses its row', async () => {
+    const now = new Date();
+    const fixture = settlementFixture(now);
+    const secondLine = additionalSettlementLineFixture(now);
+    const commissionFixture = agentCommissionFixture(now);
+    let paymentIntentId: string | undefined;
+
+    await expect(runtime.withPrismaTransaction(async (transaction) => {
+      await seedActiveAgentWithPublishedCommission(transaction, commissionFixture, now, '10.0000');
+      await seedSettlementFixture(transaction, fixture, now, {
+        agent: {
+          agentId: commissionFixture.agentId,
+          bindingId: commissionFixture.bindingId,
+        },
+      });
+      await seedAdditionalSettlementLine(transaction, fixture, secondLine, now, {
+        createProduct: true,
+        quantity: 2,
+        unitPrice: '10.00',
+      });
+      await transaction.salesOrder.update({
+        data: {
+          goods_amount: new Prisma.Decimal('39.90'),
+          payable_amount: new Prisma.Decimal('39.90'),
+          source: 'CART',
+        },
+        where: { id: fixture.orderId },
+      });
+      const opened = await openSettlementPayment(transaction, repository, fixture);
+      paymentIntentId = opened.paymentIntentId;
+      await expect(transaction.commissionRuleEntry.findUnique({
+        where: { id: commissionFixture.ruleEntryId },
+      })).resolves.toMatchObject({ configured_rate: new Prisma.Decimal('10.0000') });
+      await expect(transaction.orderAttributionCandidate.findUnique({
+        where: { order_id: fixture.orderId },
+      })).resolves.toMatchObject({
+        binding_id: commissionFixture.bindingId,
+        candidate_agent_id: commissionFixture.agentId,
+        finalization_result: null,
+        submit_channel: 'AGENT',
+      });
+      await transaction.$executeRawUnsafe('SAVEPOINT b10_qa005_settlement');
+
+      const productDelegate = transaction.product;
+      let salesUpdateCount = 0;
+      const failingProductDelegate = new Proxy(productDelegate, {
+        get(target, property) {
+          if (property === 'updateMany') {
+            return async (args: Parameters<typeof productDelegate.updateMany>[0]) => {
+              salesUpdateCount += 1;
+              if (salesUpdateCount === 2) return { count: 0 };
+              return productDelegate.updateMany(args);
+            };
+          }
+          const value = Reflect.get(target, property, target);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
+      const failingTransaction = new Proxy(transaction, {
+        get(target, property) {
+          if (property === 'product') return failingProductDelegate;
+          const value = Reflect.get(target, property, target);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      }) as unknown as DatabaseTransaction;
+      const callbackInput = {
+        amount: '39.90',
+        eventType: 'payment.succeeded' as const,
+        occurredAt: opened.opened.intent.serverTime,
+        outcome: 'SUCCEEDED' as const,
+        provider: 'MOCK' as const,
+        providerEventId: `mock-event-cas-${opened.paymentIntentId}`,
+        providerIntentId: opened.providerIntentId,
+        providerTransactionId: `mock-transaction-${opened.paymentIntentId}`,
+      };
+
+      await expect(repository.applyPaymentCallbackInTransaction(failingTransaction, callbackInput))
+        .rejects.toMatchObject({ code: 'INTERNAL_ERROR' });
+      expect(salesUpdateCount).toBe(2);
+      await expect(transaction.product.findMany({
+        orderBy: { id: 'asc' },
+        select: { id: true, sales_count: true },
+        where: { id: { in: [fixture.productId, secondLine.productId] } },
+      })).resolves.toEqual([
+        { id: fixture.productId, sales_count: 1 },
+        { id: secondLine.productId, sales_count: 0 },
+      ]);
+
+      await transaction.$executeRawUnsafe('ROLLBACK TO SAVEPOINT b10_qa005_settlement');
+      await expect(transaction.product.findMany({
+        orderBy: { id: 'asc' },
+        select: { id: true, sales_count: true },
+        where: { id: { in: [fixture.productId, secondLine.productId] } },
+      })).resolves.toEqual([
+        { id: fixture.productId, sales_count: 0 },
+        { id: secondLine.productId, sales_count: 0 },
+      ]);
+      await expect(transaction.paymentAttempt.count({ where: { payment_intent_id: paymentIntentId } }))
+        .resolves.toBe(0);
+      await expect(transaction.inventoryLedger.count({
+        where: { business_id: fixture.reservationId, ledger_type: 'ORDER_PAID_DEDUCT' },
+      })).resolves.toBe(0);
+      await expect(transaction.inventoryReservation.findUnique({ where: { id: fixture.reservationId } }))
+        .resolves.toMatchObject({ status: 'ACTIVE' });
+      await expect(transaction.inventoryBalance.findMany({
+        orderBy: { sku_id: 'asc' },
+        where: { id: { in: [fixture.balanceId, secondLine.balanceId] } },
+      })).resolves.toEqual([
+        expect.objectContaining({ locked_qty: 1, physical_qty: 5 }),
+        expect.objectContaining({ locked_qty: 2, physical_qty: 7 }),
+      ]);
+      await expect(transaction.orderItemCommissionSnapshot.count({
+        where: { order_item_id: { in: [fixture.orderItemId, secondLine.orderItemId] } },
+      })).resolves.toBe(0);
+      await expect(transaction.orderAttributionSnapshot.count({ where: { order_id: fixture.orderId } }))
+        .resolves.toBe(0);
+      await expect(transaction.agentCustomerPrivacyProjection.count({
+        where: { agent_id: commissionFixture.agentId, customer_id: fixture.customerId },
+      })).resolves.toBe(0);
+      await expect(transaction.commissionLedger.count({ where: { agent_id: commissionFixture.agentId } }))
+        .resolves.toBe(0);
+      await expect(transaction.orderAttributionCandidate.findUnique({
+        where: { order_id: fixture.orderId },
+      })).resolves.toMatchObject({ finalization_result: null, finalized_at: null });
+      throw rollbackSentinel;
+    }, transactionOptions)).rejects.toBe(rollbackSentinel);
+
+    await expect(runtime.prisma.product.count({
+      where: { id: { in: [fixture.productId, secondLine.productId] } },
+    })).resolves.toBe(0);
+    await expect(runtime.prisma.inventoryBalance.count({
+      where: { id: { in: [fixture.balanceId, secondLine.balanceId] } },
+    })).resolves.toBe(0);
+    await expect(runtime.prisma.inventoryLedger.count({ where: { business_id: fixture.reservationId } }))
+      .resolves.toBe(0);
+    await expect(runtime.prisma.agentProfile.count({ where: { id: commissionFixture.agentId } }))
+      .resolves.toBe(0);
+    await expect(runtime.prisma.commissionRuleVersion.count({ where: { id: commissionFixture.ruleVersionId } }))
+      .resolves.toBe(0);
+    await expect(runtime.prisma.commissionLedger.count({ where: { agent_id: commissionFixture.agentId } }))
+      .resolves.toBe(0);
+    if (paymentIntentId !== undefined) {
+      await expect(runtime.prisma.paymentIntent.count({ where: { id: paymentIntentId } })).resolves.toBe(0);
+      await expect(runtime.prisma.paymentAttempt.count({ where: { payment_intent_id: paymentIntentId } }))
+        .resolves.toBe(0);
+    }
+  }, 120_000);
+
   it.each([
     {
       commission: '1.99',
@@ -748,85 +1256,17 @@ databaseDescribe('B10 Store payment database integration', () => {
   }) => {
     const now = new Date();
     const fixture = settlementFixture(now);
-    const agentAccountId = generateUlid(now.getTime() - 17_000);
-    const agentId = generateUlid(now.getTime() - 16_000);
-    const bindingId = generateUlid(now.getTime() - 15_000);
-    const ruleVersionId = generateUlid(now.getTime() - 2_000);
-    const ruleEntryId = generateUlid(now.getTime() - 1_900);
+    const commissionFixture = agentCommissionFixture(now);
+    const {
+      agentId,
+      bindingId,
+      ruleVersionId,
+    } = commissionFixture;
     let paymentIntentId: string | undefined;
 
     await expect(runtime.withPrismaTransaction(async (transaction) => {
-      await transaction.account.create({
-        data: {
-          created_at: now,
-          id: agentAccountId,
-          login_name: `b102-agent-${agentAccountId}`,
-          password_hash: 'b102-integration-password-hash',
-          role: 'AGENT_ADMIN',
-          status: 'ACTIVE',
-          updated_at: now,
-          version: 1,
-        },
-      });
-      await transaction.agentProfile.create({
-        data: {
-          account_id: agentAccountId,
-          agent_no: `B102-${agentId.slice(-20)}`,
-          created_at: now,
-          id: agentId,
-          name: 'B10.2 Integration Agent',
-          product_authorization_mode: 'ALL_ACTIVE_PRODUCTS',
-          status: 'ACTIVE',
-          updated_at: now,
-          version: 1,
-        },
-      });
+      await seedActiveAgentWithPublishedCommission(transaction, commissionFixture, now, rate);
       await seedSettlementFixture(transaction, fixture, now, { agent: { agentId, bindingId } });
-
-      const publishedRules = await transaction.commissionRuleVersion.findMany({
-        select: { id: true },
-        where: { status: 'PUBLISHED' },
-      });
-      for (const published of publishedRules) {
-        await transaction.commissionRuleVersion.update({
-          data: { status: 'ARCHIVED' },
-          where: { id: published.id },
-        });
-      }
-      const maximumVersion = await transaction.commissionRuleVersion.aggregate({
-        _max: { version_no: true },
-      });
-      const versionNo = (maximumVersion._max.version_no ?? 0) + 1;
-      expect(Number.isSafeInteger(versionNo)).toBe(true);
-      await transaction.commissionRuleVersion.create({
-        data: {
-          created_at: now,
-          created_by_id: agentAccountId,
-          effective_at: null,
-          id: ruleVersionId,
-          reason: `B10.2 ${rate} commission integration fixture`,
-          status: 'DRAFT',
-          version_no: versionNo,
-        },
-      });
-      await transaction.commissionRuleEntry.create({
-        data: {
-          configured_rate: new Prisma.Decimal(rate),
-          created_at: now,
-          id: ruleEntryId,
-          rule_version_id: ruleVersionId,
-          target_id: null,
-          target_key: 'PLATFORM',
-          target_type: 'PLATFORM',
-        },
-      });
-      await transaction.commissionRuleVersion.update({
-        data: {
-          effective_at: new Date(now.getTime() - 60_000),
-          status: 'PUBLISHED',
-        },
-        where: { id: ruleVersionId },
-      });
 
       const prepared = await repository.prepareOwnedPaymentIntentInTransaction(transaction, {
         accountId: fixture.accountId,
@@ -1066,6 +1506,206 @@ databaseDescribe('B10 Store payment database integration', () => {
       await expect(runtime.prisma.paymentAttempt.count({ where: { payment_intent_id: paymentIntentId } }))
         .resolves.toBe(0);
       await expect(runtime.prisma.paymentIntent.count({ where: { id: paymentIntentId } })).resolves.toBe(0);
+    }
+  }, 120_000);
+
+  it('closes an expired Provider intent, exposes reconciliation, and refunds a PAYMENT_TIMEOUT late success', async () => {
+    const now = new Date();
+    const fixture = settlementFixture(now);
+    const orderRepository = new StoreOrderRepository();
+    let paymentIntentId: string | undefined;
+    let refundId: string | undefined;
+
+    await expect(runtime.withPrismaTransaction(async (transaction) => {
+      const expiredAt = new Date(now.getTime() - 60_000);
+      await seedSettlementFixture(transaction, fixture, now, {
+        expiresAt: expiredAt,
+        paymentStatus: 'PROCESSING',
+      });
+      paymentIntentId = generateUlid(now.getTime() - 500);
+      const opened = {
+        paymentIntentId,
+        providerIntentId: `mock-${paymentIntentId}`,
+      };
+      await transaction.paymentIntent.create({
+        data: {
+          amount: new Prisma.Decimal('19.90'),
+          create_requested_at: new Date(now.getTime() - 120_000),
+          expires_at: expiredAt,
+          id: paymentIntentId,
+          intent_no: `PI${paymentIntentId}`,
+          next_reconcile_at: now,
+          opened_at: new Date(now.getTime() - 90_000),
+          order_id: fixture.orderId,
+          provider: 'MOCK',
+          provider_intent_id: opened.providerIntentId,
+          provider_state: 'OPEN',
+          status: 'OPEN',
+          updated_at: now,
+          version: 1,
+        },
+      });
+
+      const claimed = await orderRepository.claimOrderCloseInTransaction(transaction, {
+        mode: 'PAYMENT_TIMEOUT',
+        orderId: fixture.orderId,
+      });
+      expect(claimed).toMatchObject({
+        changed: true,
+        kind: 'PROVIDER_REQUIRED',
+        mode: 'PAYMENT_TIMEOUT',
+        providerOperation: 'CLOSE',
+      });
+      if (claimed.paymentIntent === null) throw new Error('Timeout payment intent claim is missing');
+
+      const reconciliation = reconciliationRepositoryForTransaction(transaction);
+      await expect(findReconciliationTask(reconciliation, {
+        intentStatus: 'CLOSE_PENDING',
+        taskType: 'PAYMENT_INTENT',
+      }, (task) => task.paymentIntentId === opened.paymentIntentId)).resolves.toMatchObject({
+        orderId: fixture.orderId,
+        paymentIntentId: opened.paymentIntentId,
+        status: 'CLOSE_PENDING',
+        taskType: 'PAYMENT_INTENT',
+      });
+      await expect(reconciliation.readActionFacts(opened.paymentIntentId)).resolves.toMatchObject({
+        kind: 'PAYMENT_INTENT',
+        orderId: fixture.orderId,
+        status: 'CLOSE_PENDING',
+      });
+
+      const closed = await orderRepository.finalizeOrderCloseInTransaction(transaction, {
+        expectedIntentVersion: claimed.paymentIntent.version,
+        orderId: fixture.orderId,
+        outcome: 'CLOSED',
+        paymentIntentId: opened.paymentIntentId,
+        providerIntentId: opened.providerIntentId,
+        providerState: 'CLOSED',
+      });
+      expect(closed).toMatchObject({
+        kind: 'CLOSED',
+        order: {
+          closeReason: 'PAYMENT_TIMEOUT',
+          orderStatus: 'CLOSED',
+          paymentStatus: 'UNPAID',
+        },
+      });
+      await expect(reconciliation.findCurrentByPaymentIntentId(opened.paymentIntentId))
+        .resolves.toMatchObject({
+          kind: 'CONVERGED',
+          projection: {
+            orderId: fixture.orderId,
+            outcome: 'CONVERGED',
+            paymentIntentStatus: 'CLOSED',
+            paymentResolution: 'NORMAL',
+          },
+        });
+
+      const callbackInput = {
+        amount: '19.90',
+        eventType: 'payment.succeeded' as const,
+        occurredAt: new Date(closed.order.serverTime.getTime() + 1_000),
+        outcome: 'SUCCEEDED' as const,
+        provider: 'MOCK' as const,
+        providerEventId: `mock-event-timeout-${opened.paymentIntentId}`,
+        providerIntentId: opened.providerIntentId,
+        providerTransactionId: `mock-transaction-${opened.paymentIntentId}`,
+      };
+      const late = await repository.applyPaymentCallbackInTransaction(transaction, callbackInput);
+      expect(late).toMatchObject({
+        after: {
+          orderPaymentResolution: 'LATE_SUCCESS_REFUND_PENDING',
+          orderPaymentStatus: 'PAID',
+          orderStatus: 'CLOSED',
+        },
+        changed: true,
+        kind: 'LATE_REFUND_REQUIRED',
+      });
+      if (late.lateRefund === null) throw new Error('Timeout late refund operation is missing');
+      refundId = late.lateRefund.refundId;
+      await expect(findReconciliationTask(reconciliation, {
+        refundStatus: 'PENDING',
+        taskType: 'LATE_PAYMENT_REFUND',
+      }, (task) => task.paymentIntentId === opened.paymentIntentId &&
+        task.refundId === refundId)).resolves.toMatchObject({
+        orderId: fixture.orderId,
+        paymentIntentId: opened.paymentIntentId,
+        refundId,
+        status: 'PENDING',
+        taskType: 'LATE_PAYMENT_REFUND',
+      });
+      await expect(reconciliation.readActionFacts(opened.paymentIntentId)).resolves.toMatchObject({
+        kind: 'LATE_PAYMENT_REFUND',
+        lateRefundOperation: expect.objectContaining({ refundId }),
+        orderId: fixture.orderId,
+        refundId,
+        refundStatus: 'PENDING',
+      });
+
+      const refundClaim = await repository.claimLatePaymentRefundInTransaction(transaction, late.lateRefund);
+      expect(refundClaim.kind).toBe('CLAIMED');
+      if (refundClaim.kind !== 'CLAIMED') throw new Error('Timeout late refund was not claimed');
+      await expect(repository.finalizeLatePaymentRefundInTransaction(transaction, {
+        operation: refundClaim.operation,
+        result: {
+          kind: 'SUCCEEDED',
+          occurredAt: new Date(closed.order.serverTime.getTime() + 2_000),
+          providerEventId: `mock-refund-event-${refundId}`,
+          providerRefundId: `mock-refund-${refundId}`,
+        },
+      })).resolves.toMatchObject({ changed: true, kind: 'REFUNDED' });
+      await expect(reconciliation.findCurrentByPaymentIntentId(opened.paymentIntentId))
+        .resolves.toMatchObject({
+          kind: 'CONVERGED',
+          projection: {
+            orderId: fixture.orderId,
+            paymentIntentStatus: 'SUCCEEDED',
+            paymentResolution: 'LATE_SUCCESS_REFUNDED',
+            refundId,
+            refundStatus: 'SUCCEEDED',
+          },
+        });
+
+      await expect(transaction.salesOrder.findUnique({ where: { id: fixture.orderId } })).resolves.toMatchObject({
+        close_reason: 'PAYMENT_TIMEOUT',
+        order_status: 'CLOSED',
+        payment_resolution: 'LATE_SUCCESS_REFUNDED',
+        payment_status: 'PAID',
+      });
+      await expect(transaction.inventoryReservation.findUnique({ where: { id: fixture.reservationId } }))
+        .resolves.toMatchObject({ consumed_at: null, status: 'EXPIRED' });
+      await expect(transaction.inventoryBalance.findUnique({ where: { id: fixture.balanceId } }))
+        .resolves.toMatchObject({ locked_qty: 0, physical_qty: 5 });
+      await expect(transaction.inventoryLedger.count({
+        where: { business_id: fixture.reservationId, ledger_type: 'ORDER_RELEASE' },
+      })).resolves.toBe(1);
+      await expect(transaction.inventoryLedger.count({
+        where: { business_id: fixture.reservationId, ledger_type: 'ORDER_PAID_DEDUCT' },
+      })).resolves.toBe(0);
+      await expect(transaction.paymentAttempt.count({ where: { payment_intent_id: opened.paymentIntentId } }))
+        .resolves.toBe(1);
+      await expect(transaction.refund.count({
+        where: { order_id: fixture.orderId, origin_type: 'LATE_PAYMENT' },
+      })).resolves.toBe(1);
+      await expect(transaction.product.findUnique({ where: { id: fixture.productId } }))
+        .resolves.toMatchObject({ sales_count: 0 });
+      throw rollbackSentinel;
+    }, transactionOptions)).rejects.toBe(rollbackSentinel);
+
+    await expect(runtime.prisma.salesOrder.count({ where: { id: fixture.orderId } })).resolves.toBe(0);
+    await expect(runtime.prisma.inventoryReservation.count({ where: { id: fixture.reservationId } }))
+      .resolves.toBe(0);
+    await expect(runtime.prisma.inventoryLedger.count({ where: { business_id: fixture.reservationId } }))
+      .resolves.toBe(0);
+    await expect(runtime.prisma.product.count({ where: { id: fixture.productId } })).resolves.toBe(0);
+    if (paymentIntentId !== undefined) {
+      await expect(runtime.prisma.paymentIntent.count({ where: { id: paymentIntentId } })).resolves.toBe(0);
+      await expect(runtime.prisma.paymentAttempt.count({ where: { payment_intent_id: paymentIntentId } }))
+        .resolves.toBe(0);
+    }
+    if (refundId !== undefined) {
+      await expect(runtime.prisma.refund.count({ where: { id: refundId } })).resolves.toBe(0);
+      await expect(runtime.prisma.refundAttempt.count({ where: { refund_id: refundId } })).resolves.toBe(0);
     }
   }, 120_000);
 

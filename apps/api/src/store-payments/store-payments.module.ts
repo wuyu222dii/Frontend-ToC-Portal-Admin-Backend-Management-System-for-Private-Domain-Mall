@@ -38,7 +38,8 @@ function createPaymentProvider(config: PlatformRuntimeConfig, redis: ApiRedisCli
 @Module({})
 export class StorePaymentsModule {
   static register(config: PlatformRuntimeConfig): DynamicModule {
-    const exposeMockResult = config.environment === 'development' && config.payment.provider === 'MOCK';
+    const exposeMockResult = (config.environment === 'development' || config.environment === 'test') &&
+      config.payment.provider === 'MOCK';
     return {
       global: true,
       module: StorePaymentsModule,

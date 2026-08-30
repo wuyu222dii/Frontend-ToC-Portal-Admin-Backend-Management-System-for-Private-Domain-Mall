@@ -1,5 +1,6 @@
 import {
   type INestApplication,
+  Logger,
   MiddlewareConsumer,
   Module,
   type NestModule,
@@ -17,6 +18,7 @@ import { RbacGuard } from '../platform/access/rbac.guard';
 import { AuthenticationGuard } from '../platform/auth/authentication.guard';
 import { API_RUNTIME_CONFIG } from '../platform/config/api-runtime-config';
 import { API_DATABASE_RUNTIME } from '../platform/database/api-database-runtime';
+import { AccessLogMiddleware } from '../platform/http/access-log.middleware';
 import { configureApi } from '../platform/http/configure-api';
 import { ErrorEnvelopeFilter } from '../platform/http/error-envelope.filter';
 import { RequestIdMiddleware } from '../platform/http/request-id.middleware';
@@ -135,7 +137,8 @@ function expectNoStore(response: { headers: Record<string, string | string[] | u
 })
 class StorePaymentsRoutesTestModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(RequestIdMiddleware).forRoutes({ method: RequestMethod.ALL, path: '{*path}' });
+    consumer.apply(RequestIdMiddleware, AccessLogMiddleware)
+      .forRoutes({ method: RequestMethod.ALL, path: '{*path}' });
   }
 }
 
@@ -198,6 +201,29 @@ describe('B10.1 Store payment HTTP boundary', () => {
       expect.any(String),
     );
     expectNoStore(response);
+  });
+
+  it('omits customer account, profile and session identifiers from the HTTP access log', async () => {
+    const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    try {
+      await request(app.getHttpServer())
+        .post(`/api/v1/store/mock-payments/${PAYMENT_INTENT_ID}/result`)
+        .set('Authorization', `Bearer ${storeToken}`)
+        .set('Idempotency-Key', IDEMPOTENCY_KEY)
+        .send({ result: 'SUCCEEDED' })
+        .expect(202);
+
+      const serialized = JSON.stringify(log.mock.calls);
+      expect(log.mock.calls.some(([entry]) =>
+        typeof entry === 'object' && entry !== null &&
+        (entry as Record<string, unknown>).actor_role === 'CUSTOMER' &&
+        (entry as Record<string, unknown>).status_code === 202)).toBe(true);
+      expect(serialized).not.toContain(ACCOUNT_ID);
+      expect(serialized).not.toContain(CUSTOMER_ID);
+      expect(serialized).not.toContain(SESSION_ID);
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it('rejects missing headers, open inputs and unknown fields before dispatch', async () => {
@@ -274,15 +300,17 @@ describe('B10.1 Store payment HTTP boundary', () => {
     expectNoStore(limited);
   });
 
-  it('registers the Mock result controller only for development with the Mock Provider', () => {
+  it('registers the Mock result controller only for development or test with the Mock Provider', () => {
     const development = StorePaymentsModule.register(runtimeConfig);
     const test = StorePaymentsModule.register({ ...runtimeConfig, environment: 'test' });
+    const production = StorePaymentsModule.register({ ...runtimeConfig, environment: 'production' });
     const wechat = StorePaymentsModule.register({
       ...runtimeConfig,
       payment: { ...runtimeConfig.payment, provider: 'WECHAT' },
     });
     expect(development.controllers).toContain(StoreMockPaymentsController);
-    expect(test.controllers).not.toContain(StoreMockPaymentsController);
+    expect(test.controllers).toContain(StoreMockPaymentsController);
+    expect(production.controllers).not.toContain(StoreMockPaymentsController);
     expect(wechat.controllers).not.toContain(StoreMockPaymentsController);
   });
 });

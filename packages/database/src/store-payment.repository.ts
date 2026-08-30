@@ -1160,8 +1160,26 @@ export class StorePaymentRepository {
       matchingAttempt.provider_transaction_id !== input.providerTransactionId)) {
       throw paymentResultConflict();
     }
-    const otherSuccess = intent.attempts.find(({ status }) =>
+    const successfulAttempts = intent.attempts.filter(({ status }) =>
       status === 'SUCCEEDED' || status === 'SUCCEEDED_LATE');
+    if (successfulAttempts.length > 1) throw internalError('Payment intent has duplicate successful attempts');
+    const otherSuccess = successfulAttempts[0] ?? null;
+    if (otherSuccess !== null) {
+      const initiatedAt = otherSuccess.initiated_at;
+      const finishedAt = otherSuccess.finished_at;
+      const succeededAt = intent.succeeded_at;
+      const successfulFactsExact = otherSuccess.amount.equals(intent.amount) &&
+        otherSuccess.provider === intent.provider && otherSuccess.failure_code === null &&
+        otherSuccess.provider_payload === null && typeof otherSuccess.provider_transaction_id === 'string' &&
+        otherSuccess.provider_transaction_id.length > 0 && initiatedAt instanceof Date &&
+        Number.isFinite(initiatedAt.getTime()) && finishedAt instanceof Date &&
+        Number.isFinite(finishedAt.getTime()) && initiatedAt.getTime() === finishedAt.getTime() &&
+        intent.status === 'SUCCEEDED' && intent.provider_state === 'SUCCEEDED' &&
+        succeededAt instanceof Date && Number.isFinite(succeededAt.getTime()) &&
+        succeededAt.getTime() === finishedAt.getTime() && intent.last_error_code === null &&
+        intent.next_reconcile_at === null;
+      if (!successfulFactsExact) throw internalError('Payment success facts are inconsistent');
+    }
     if (otherSuccess && input.outcome !== 'SUCCEEDED') {
       return {
         after: before,

@@ -69,6 +69,21 @@ function intent(attempts: Array<Record<string, unknown>> = [], overrides: Record
   };
 }
 
+function successfulPaymentAttempt(overrides: Record<string, unknown> = {}) {
+  return {
+    amount: new Prisma.Decimal('19.90'),
+    failure_code: null,
+    finished_at: NOW,
+    id: generateUlid(NOW.getTime() - 800),
+    initiated_at: NOW,
+    provider: 'MOCK',
+    provider_payload: null,
+    provider_transaction_id: providerTransactionId,
+    status: 'SUCCEEDED',
+    ...overrides,
+  };
+}
+
 function orderItemFixture(overrides: Record<string, unknown> = {}) {
   return {
     aftersale_reserved_amount: new Prisma.Decimal('0.00'),
@@ -1107,14 +1122,7 @@ describe('StorePaymentRepository callback settlement', () => {
   });
 
   it('compensates MANUAL_REQUIRED without duplicating the attempt or incrementing sales again', async () => {
-    const successfulAttempt = {
-      amount: new Prisma.Decimal('19.90'),
-      finished_at: NOW,
-      id: generateUlid(NOW.getTime() - 800),
-      provider: 'MOCK',
-      provider_transaction_id: providerTransactionId,
-      status: 'SUCCEEDED',
-    };
+    const successfulAttempt = successfulPaymentAttempt();
     const transaction = agentSettlementHarness('10.0000');
     transaction.paymentIntent.findUnique.mockReset()
       .mockResolvedValueOnce({ id: intentId, order_id: orderId })
@@ -1177,14 +1185,7 @@ describe('StorePaymentRepository callback settlement', () => {
   });
 
   it('replays an exact success after fulfillment and refund state have advanced', async () => {
-    const successfulAttempt = {
-      amount: new Prisma.Decimal('19.90'),
-      finished_at: NOW,
-      id: generateUlid(NOW.getTime() - 750),
-      provider: 'MOCK',
-      provider_transaction_id: providerTransactionId,
-      status: 'SUCCEEDED',
-    };
+    const successfulAttempt = successfulPaymentAttempt({ id: generateUlid(NOW.getTime() - 750) });
     const transaction = agentSettlementHarness('10.0000');
     transaction.paymentIntent.findUnique.mockReset()
       .mockResolvedValueOnce({ id: intentId, order_id: orderId })
@@ -1221,15 +1222,93 @@ describe('StorePaymentRepository callback settlement', () => {
     expect(transaction.inventoryBalance.updateMany).not.toHaveBeenCalled();
   });
 
+  it.each([
+    {
+      attemptOverrides: { initiated_at: null },
+      label: 'missing initiation time',
+    },
+    {
+      attemptOverrides: { initiated_at: new Date(NOW.getTime() - 1) },
+      label: 'initiation and completion times differ',
+    },
+    {
+      attemptOverrides: { failure_code: 'LEGACY_SUCCESS_ERROR' },
+      label: 'success carries a failure code',
+    },
+    {
+      attemptOverrides: { provider_payload: { raw: 'legacy-provider-payload' } },
+      label: 'success retains a Provider payload',
+    },
+    {
+      attemptOverrides: { finished_at: null },
+      label: 'success has no completion time',
+    },
+    {
+      intentOverrides: { provider_state: 'OPEN' },
+      label: 'intent Provider state is not successful',
+    },
+    {
+      intentOverrides: { succeeded_at: null },
+      label: 'intent has no success time',
+    },
+    {
+      intentOverrides: { succeeded_at: new Date(NOW.getTime() + 1) },
+      label: 'intent and attempt success times differ',
+    },
+    {
+      intentOverrides: { last_error_code: 'LEGACY_PROVIDER_ERROR' },
+      label: 'successful intent retains an error',
+    },
+    {
+      intentOverrides: { next_reconcile_at: new Date(NOW.getTime() + 60_000) },
+      label: 'successful intent remains scheduled for reconciliation',
+    },
+    {
+      callbackOverrides: {
+        eventType: 'payment.failed' as const,
+        outcome: 'FAILED' as const,
+        providerTransactionId: null,
+      },
+      attemptOverrides: { provider_payload: { raw: 'legacy-provider-payload' } },
+      label: 'a later terminal callback observes malformed success history',
+    },
+  ])('fails closed before writes when $label', async ({
+    attemptOverrides = {},
+    callbackOverrides = {},
+    intentOverrides = {},
+  }) => {
+    const transaction = agentSettlementHarness('10.0000');
+    transaction.paymentIntent.findUnique.mockReset()
+      .mockResolvedValueOnce({ id: intentId, order_id: orderId })
+      .mockResolvedValueOnce(intent([successfulPaymentAttempt(attemptOverrides)], {
+        next_reconcile_at: null,
+        provider_state: 'SUCCEEDED',
+        status: 'SUCCEEDED',
+        succeeded_at: NOW,
+        version: 3,
+        ...intentOverrides,
+      }));
+    transaction.salesOrder.findUnique.mockResolvedValue(activeAgentOrder({
+      paid_amount: new Prisma.Decimal('19.90'),
+      paid_at: NOW,
+      payment_resolution: 'MANUAL_REQUIRED',
+      payment_status: 'PAID',
+      version: 4,
+    }));
+
+    await expect(repository.applyPaymentCallbackInTransaction(
+      transaction as unknown as DatabaseTransaction,
+      callback(callbackOverrides),
+    )).rejects.toMatchObject({ code: 'INTERNAL_ERROR' });
+    expect(transaction.paymentAttempt.create).not.toHaveBeenCalled();
+    expect(transaction.paymentIntent.updateMany).not.toHaveBeenCalled();
+    expect(transaction.product.updateMany).not.toHaveBeenCalled();
+    expect(transaction.inventoryBalance.updateMany).not.toHaveBeenCalled();
+    expect(transaction.salesOrder.updateMany).not.toHaveBeenCalled();
+  });
+
   it('retries a still-blocked manual settlement without duplicating attempt or sales count', async () => {
-    const successfulAttempt = {
-      amount: new Prisma.Decimal('19.90'),
-      finished_at: NOW,
-      id: generateUlid(NOW.getTime() - 1_000),
-      provider: 'MOCK',
-      provider_transaction_id: providerTransactionId,
-      status: 'SUCCEEDED',
-    };
+    const successfulAttempt = successfulPaymentAttempt({ id: generateUlid(NOW.getTime() - 1_000) });
     const transaction = {
       $queryRaw: rawResults([
         [{ id: orderId }],
@@ -1291,14 +1370,7 @@ describe('StorePaymentRepository callback settlement', () => {
   });
 
   it('replays a still-blocked manual settlement when catalog data remains incomplete', async () => {
-    const successfulAttempt = {
-      amount: new Prisma.Decimal('19.90'),
-      finished_at: NOW,
-      id: generateUlid(NOW.getTime() - 950),
-      provider: 'MOCK',
-      provider_transaction_id: providerTransactionId,
-      status: 'SUCCEEDED',
-    };
+    const successfulAttempt = successfulPaymentAttempt({ id: generateUlid(NOW.getTime() - 950) });
     const transaction = agentSettlementHarness('10.0000');
     transaction.paymentIntent.findUnique.mockReset()
       .mockResolvedValueOnce({ id: intentId, order_id: orderId })

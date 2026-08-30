@@ -213,6 +213,11 @@ jobs:
           B9_VERTICAL_TEST_MODE: full
         run: pnpm e2e:b9:vertical
 
+      - name: Run B10 browser to Nest, PostgreSQL, Redis, MinIO, Worker and Mock Provider vertical smoke
+        env:
+          B10_VERTICAL_TEST_MODE: full
+        run: pnpm e2e:b10:vertical
+
       - name: Test B1 persistence and worker concurrency
         env:
           B1_DATABASE_TEST_MODE: full
@@ -332,3 +337,6 @@ jobs:
 
       - name: Run B9 checkout and order browser E2E
         run: pnpm e2e:b9
+
+      - name: Run B10 payment and reconciliation browser E2E
+        run: pnpm e2e:b10

@@ -215,6 +215,9 @@ importers:
       '@qingxu/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@qingxu/payment':
+        specifier: workspace:*
+        version: link:../../packages/payment
       '@qingxu/storage':
         specifier: workspace:*
         version: link:../../packages/storage

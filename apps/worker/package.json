@@ -16,6 +16,7 @@
     "@nestjs/platform-express": "^11.1.9",
     "@qingxu/config": "workspace:*",
     "@qingxu/database": "workspace:*",
+    "@qingxu/payment": "workspace:*",
     "@qingxu/storage": "workspace:*",
     "redis": "6.1.0",
     "reflect-metadata": "^0.2.2",

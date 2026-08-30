@@ -9,7 +9,7 @@
 | 文档版本 | v2.4.8 |
 | 对应阶段 | 三端标准 MVP |
 | 更新日期 | 2026-08-30 |
-| 当前状态 | B0 至 B9 development 已完成并维持 `GO`；产品/API 基线仍为 `v2.4.8 / 2.4.8-ch022`。B10.0/B10.1 既有结论保持。B10.2/CH-023 的实现、0004 完整迁移链和真实 `mall_runtime` 正佣金/0% 本地验收已通过；当前等待准确 SHA 的普通 CI、Supabase development migration 与随后 rollback-only smoke。三项闭合前 B10.2 尚未完成，B10 不得 `GO`，CH-021 继续有效；仅允许 Mock Provider 和脱敏 development，真实微信支付、staging/production `NO-GO` |
+| 当前状态 | B0 至 B9 development 已完成并维持 `GO`；产品/API 基线仍为 `v2.4.8 / 2.4.8-ch022`。B10.2/CH-023 已在准确 SHA `dc045fbc15d6abdd48959915ec14df9e90bc4306` 通过普通 CI `33253341654`、Supabase development migration `33279894978` 与 rollback-only smoke `33280068003`；B10.3 已开始并通过本地关单/对账定向验收，远端三项证据 pending。B10 尚未 `GO`，CH-021 继续有效；仅允许 Mock Provider 和脱敏 development，真实微信支付、staging/production `NO-GO` |
 | 产品终端 | 消费者微信小程序、一级代理工作台、总部管理后台 |
 | 人员角色 | `CUSTOMER`、`AGENT_ADMIN`、`SUPER_ADMIN` |
 
@@ -1557,8 +1557,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | 验收场景 AC | 116 | 0 |
 | 用户故事 US | 24 | 0 |
 
-当前准入结论：B0 至 B9 development 已通过，B9 最终同 SHA 双绿及 `GO` 证据保持有效。CH-021/CH-022/CH-023 已批准；B10.0/B10.1 既有结论保持。B10.2/0004 本地验收已通过，准确 SHA 的普通 CI、development migration、rollback-only smoke 尚待闭合；此前不得标记 B10.2 完成或 B10 development `GO`。CH-021 继续有效；B10 仅允许 Mock Provider 与脱敏 development，真实支付、staging 和 production 均未放行。
+当前准入结论：B0 至 B9 development 已通过，B9 最终同 SHA 双绿及 `GO` 证据保持有效。CH-021/CH-022/CH-023 已批准；B10.0-B10.2 既有结论保持，B10.2/0004 已在准确 SHA `dc045fbc15d6abdd48959915ec14df9e90bc4306` 通过普通 CI `33253341654`、development migration `33279894978`、rollback-only smoke `33280068003`。B10.3 已开始并通过本地关单/对账定向验收，远端三项证据 pending；B10 development 不得 `GO`。CH-021 继续有效；B10 仅允许 Mock Provider 与脱敏 development，真实支付、staging 和 production 均未放行。
 
 ---
 
-PRD 状态：`v2.4.8 / CH-022` 仍为当前产品/API 基线，CH-023 不改变在线契约，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24。B10.2/0004 本地验收已通过但准确 SHA 三项远端证据尚待闭合，因此 B10.2 尚未完成，B10 不得 `GO`，CH-021 继续有效；真实支付、staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。
+PRD 状态：`v2.4.8 / CH-022` 仍为当前产品/API 基线，CH-023 不改变在线契约，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24。B10.2/0004 已在准确 SHA `dc045fbc15d6abdd48959915ec14df9e90bc4306` 完成三项远端门禁；B10.3 已开始并通过本地关单/对账定向验收，远端证据 pending，因此 B10 不得 `GO`，CH-021 继续有效；真实支付、staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。

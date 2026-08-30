@@ -12,10 +12,17 @@ import {
   type Prisma,
   runSerializableTransaction,
   StorePaymentRepository,
+  StoreOrderRepository,
+  type StoreOrderCloseClaimResult,
+  type StoreOrderClosePaymentIntent,
+  type StoreOrderCloseProviderInput,
+  type StoreOrderCloseProviderOutcome,
+  type StoreOrderSnapshot,
   type StorePaymentIntentSnapshot,
   type StorePaymentProviderFinalization,
 } from '@qingxu/database';
 import {
+  createSignedMockPaymentSuccessCallback,
   type MockPaymentResultPort,
   type PaymentProviderIntentResult,
   type PaymentProviderPort,
@@ -36,6 +43,19 @@ export const PAYMENT_PROVIDER = Symbol('PAYMENT_PROVIDER');
 interface PreparedPaymentCommand {
   intent: StorePaymentIntentSnapshot;
   providerOperation: 'CREATE' | 'QUERY';
+}
+
+/**
+ * Result of the three-phase order close workflow.  The Provider capability or
+ * any other Provider payload is intentionally absent: a close request either
+ * converges to a closed order or remains pending while the reservation stays
+ * locked.
+ */
+export interface StoreOrderCancellationResult {
+  kind: 'CLOSED' | 'PAYMENT_CONFIRMED' | 'PENDING';
+  order: StoreOrderSnapshot;
+  paymentIntent: StoreOrderClosePaymentIntent | null;
+  statusCode: 200 | 202;
 }
 
 function internal(message: string, cause?: unknown): ApplicationError {
@@ -65,6 +85,7 @@ function safeProviderErrorCode(result: PaymentProviderIntentResult): string {
 
 @Injectable()
 export class StorePaymentsService {
+  private readonly orders!: StoreOrderRepository;
   private readonly payments!: StorePaymentRepository;
   private readonly audit!: AuditRepository;
   private readonly callbackInbox!: CallbackInboxRepository;
@@ -77,12 +98,156 @@ export class StorePaymentsService {
     @Optional() @Inject(PAYMENT_PROVIDER) private readonly provider?: PaymentProviderPort,
   ) {
     if (config && database) {
+      this.orders = new StoreOrderRepository(database.prisma);
       this.payments = new StorePaymentRepository();
       this.audit = new AuditRepository(config.encryption.ipHashKey);
       this.callbackInbox = new CallbackInboxRepository(database);
       this.idempotency = new IdempotencyRepository(config.encryption.idempotencyHashKeys);
       this.outbox = new OutboxRepository(database);
     }
+  }
+
+  /**
+   * Request a customer cancellation using the same claim -> Provider
+   * query/close -> finalize protocol as the timeout worker.  No Provider call
+   * is made while a database transaction is open.
+   */
+  async requestOrderCancellation(
+    session: CurrentStoreSession,
+    orderId: string,
+    expectedVersion: number,
+    idempotencyKey: string,
+    requestId: string,
+    ipAddress?: string,
+  ): Promise<StoreOrderCancellationResult> {
+    const claim = this.orderCloseClaim(session.accountId, orderId, expectedVersion, idempotencyKey);
+    const prepared = await runSerializableTransaction(this.runtime().prisma, async (transaction) => {
+      const claimed = await this.idempotencyRepository().claim(transaction, claim);
+      if (claimed.kind === 'replay') {
+        const resourceId = claimed.record.resource_id;
+        if (resourceId !== orderId) throw internal('Order cancellation replay resource is invalid');
+        const order = await this.orderRepository().getOwnedOrderForReplayInTransaction(transaction, {
+          accountId: session.accountId,
+          customerId: session.customerId,
+          orderId,
+        });
+        const responseStatus = claimed.record.response_status === 202 ? 202 : 200;
+        this.idempotencyRepository().assertHashOnlyReplay(claimed.record, {
+          resourceId: orderId,
+          responseForHash: this.orderCloseIdempotencyResponse(orderId),
+          responseStatus,
+          storage: 'HASH_ONLY',
+        });
+        return {
+          kind: responseStatus === 202 ? 'PENDING' as const : 'CLOSED' as const,
+          order,
+          paymentIntent: null,
+          statusCode: responseStatus as 200 | 202,
+        };
+      }
+
+      const result = await this.orderRepository().claimOrderCloseInTransaction(transaction, {
+        accountId: session.accountId,
+        customerId: session.customerId,
+        expectedVersion,
+        mode: 'USER_CANCELLED',
+        orderId,
+      });
+      if (result.kind === 'CLOSED') {
+        if (result.changed) {
+          await this.appendOrderCloseAudit(
+            transaction,
+            session,
+            result,
+            idempotencyKey,
+            requestId,
+            ipAddress,
+          );
+          await this.appendOrderCloseOutbox(transaction, result.order);
+        }
+        await this.idempotencyRepository().complete(transaction, claim, {
+          resourceId: orderId,
+          responseForHash: this.orderCloseIdempotencyResponse(orderId),
+          responseStatus: 200,
+          storage: 'HASH_ONLY',
+        });
+        return {
+          kind: 'CLOSED' as const,
+          order: result.order,
+          paymentIntent: null,
+          statusCode: 200 as const,
+        };
+      }
+      if (result.kind === 'SKIPPED') {
+        throw new ApplicationError('ORDER_NOT_CANCELLABLE', 'Order cannot be cancelled');
+      }
+      return { kind: 'EXECUTE' as const, claimResult: result };
+    });
+
+    if (prepared.kind !== 'EXECUTE') return prepared;
+    const providerInput = await this.closeProviderInput(prepared.claimResult);
+    const finalized = await runSerializableTransaction(this.runtime().prisma, async (transaction) => {
+      const reclaimed = await this.idempotencyRepository().claim(transaction, claim);
+      if (reclaimed.kind === 'replay') {
+        const resourceId = reclaimed.record.resource_id;
+        if (resourceId !== orderId) throw internal('Order cancellation replay resource is invalid');
+        const order = await this.orderRepository().getOwnedOrderForReplayInTransaction(transaction, {
+          accountId: session.accountId,
+          customerId: session.customerId,
+          orderId,
+        });
+        const responseStatus = reclaimed.record.response_status === 202 ? 202 : 200;
+        this.idempotencyRepository().assertHashOnlyReplay(reclaimed.record, {
+          resourceId: orderId,
+          responseForHash: this.orderCloseIdempotencyResponse(orderId),
+          responseStatus,
+          storage: 'HASH_ONLY',
+        });
+        if (providerInput.outcome === 'SUCCEEDED' && prepared.claimResult.paymentIntent !== null) {
+          await this.persistRecoveredMockSuccess(
+            transaction,
+            prepared.claimResult.paymentIntent,
+            providerInput,
+          );
+        }
+        return {
+          kind: responseStatus === 202 ? 'PENDING' as const : 'CLOSED' as const,
+          order,
+          paymentIntent: null,
+          statusCode: responseStatus as 200 | 202,
+        };
+      }
+
+      const result = await this.orderRepository().finalizeOrderCloseInTransaction(transaction, providerInput);
+      if (result.kind === 'PAYMENT_CONFIRMED') {
+        await this.persistRecoveredMockSuccess(transaction, result.paymentIntent, providerInput);
+      }
+      if (result.kind === 'CLOSED' && result.closeResult?.changed) {
+        await this.appendOrderCloseAudit(
+          transaction,
+          session,
+          result.closeResult,
+          idempotencyKey,
+          requestId,
+          ipAddress,
+        );
+        await this.appendOrderCloseOutbox(transaction, result.order);
+      }
+      const statusCode: 200 | 202 = result.kind === 'CLOSED' ? 200 : 202;
+      await this.idempotencyRepository().complete(transaction, claim, {
+        resourceId: orderId,
+        responseForHash: this.orderCloseIdempotencyResponse(orderId),
+        responseStatus: statusCode,
+        storage: 'HASH_ONLY',
+      });
+      return { ...result, statusCode };
+    });
+    return {
+      kind: finalized.kind,
+      order: finalized.order,
+      paymentIntent: finalized.paymentIntent,
+      statusCode: finalized.statusCode,
+    };
   }
 
   async createOrReuseIntent(
@@ -366,6 +531,176 @@ export class StorePaymentsService {
     });
   }
 
+  /** Execute the external close/query operation using only stable intent facts. */
+  private async closeProviderInput(
+    claim: StoreOrderCloseClaimResult,
+  ): Promise<StoreOrderCloseProviderInput> {
+    const intent = claim.paymentIntent;
+    if (intent === null || claim.providerOperation === null) {
+      throw internal('Order close Provider facts are unavailable');
+    }
+    let providerResult: PaymentProviderIntentResult;
+    try {
+      const locate = {
+        intentNo: intent.intentNo,
+        providerIntentId: intent.providerIntentId,
+      };
+      providerResult = claim.providerOperation === 'QUERY'
+        ? await this.paymentProvider().query(locate)
+        : await this.paymentProvider().close(locate);
+
+      // A CREATING intent has no Provider ID yet.  If query finds an OPEN
+      // external intent, close it in the same provider phase; terminal and
+      // NOT_FOUND results can be finalized directly.
+      if (claim.providerOperation === 'QUERY' && providerResult.outcome === 'OPEN' &&
+        providerResult.providerIntentId !== null) {
+        providerResult = await this.paymentProvider().close({
+          intentNo: intent.intentNo,
+          providerIntentId: providerResult.providerIntentId,
+        });
+      }
+    } catch {
+      providerResult = {
+        capability: null,
+        failureCode: 'PROVIDER_UNAVAILABLE',
+        occurredAt: null,
+        outcome: 'UNKNOWN',
+        providerEventId: null,
+        providerIntentId: intent.providerIntentId,
+        providerTransactionId: null,
+      };
+    }
+
+    return {
+      errorCode: providerResult.failureCode,
+      expectedIntentVersion: intent.version,
+      occurredAt: providerResult.occurredAt,
+      outcome: this.normalizeCloseOutcome(providerResult.outcome),
+      orderId: claim.order.orderId,
+      paymentIntentId: intent.paymentIntentId,
+      providerEventId: providerResult.providerEventId,
+      providerIntentId: providerResult.providerIntentId,
+      providerState: providerResult.outcome,
+      providerTransactionId: providerResult.providerTransactionId,
+    };
+  }
+
+  private normalizeCloseOutcome(
+    outcome: PaymentProviderIntentResult['outcome'],
+  ): StoreOrderCloseProviderOutcome {
+    // Provider's CLOSED/FAILED/CANCELLED/EXPIRED/NOT_FOUND/OPEN/SUCCEEDED/
+    // UNKNOWN union is intentionally mirrored by the repository contract.
+    switch (outcome) {
+      case 'CANCELLED':
+      case 'CLOSED':
+      case 'FAILED':
+      case 'NOT_FOUND':
+      case 'OPEN':
+      case 'SUCCEEDED':
+      case 'UNKNOWN':
+        return outcome;
+      default:
+        throw internal('Provider close outcome is unsupported');
+    }
+  }
+
+  private async persistRecoveredMockSuccess(
+    transaction: DatabaseTransaction,
+    intent: StoreOrderClosePaymentIntent,
+    providerInput: StoreOrderCloseProviderInput,
+  ): Promise<void> {
+    const signingKey = this.runtimeConfig().payment.mockSigningKey;
+    if (intent.provider !== 'MOCK' || this.runtimeConfig().payment.provider !== 'MOCK' || signingKey === undefined) {
+      throw internal('Recovered payment success cannot be verified');
+    }
+    const callback = createSignedMockPaymentSuccessCallback(signingKey, intent.amount, {
+      capability: null,
+      failureCode: null,
+      occurredAt: providerInput.occurredAt ?? null,
+      outcome: 'SUCCEEDED',
+      providerEventId: providerInput.providerEventId ?? null,
+      providerIntentId: providerInput.providerIntentId ?? null,
+      providerTransactionId: providerInput.providerTransactionId ?? null,
+    });
+    if (!verifyMockPaymentCallback(callback, signingKey)) {
+      throw internal('Recovered payment success signature is invalid');
+    }
+    await this.inboxRepository().receive(transaction, {
+      eventType: callback.eventType,
+      headers: callback.headers,
+      payload: callback.payload as unknown as Prisma.InputJsonValue,
+      provider: 'MOCK',
+      providerEventId: callback.providerEventId,
+      rawBody: callback.rawBody,
+      signatureValid: true,
+    });
+  }
+
+  private orderCloseClaim(
+    actorId: string,
+    orderId: string,
+    expectedVersion: number,
+    idempotencyKey: string,
+  ): IdempotencyClaim {
+    return {
+      actorId,
+      idempotencyKey,
+      request: {
+        body: { expected_version: expectedVersion },
+        method: 'POST',
+        pathParameters: { order_id: orderId },
+        route: '/store/orders/{order_id}/cancel',
+      },
+    };
+  }
+
+  private orderCloseIdempotencyResponse(orderId: string) {
+    return { order_closed: { order_id: orderId } };
+  }
+
+  private async appendOrderCloseAudit(
+    transaction: DatabaseTransaction,
+    session: CurrentStoreSession,
+    result: { before: StoreOrderSnapshot; order: StoreOrderSnapshot },
+    idempotencyKey: string,
+    requestId: string,
+    ipAddress?: string,
+  ): Promise<void> {
+    await this.auditRepository().append(transaction, {
+      action: 'CANCEL',
+      actorAccountId: session.accountId,
+      actorRole: 'CUSTOMER',
+      after: { status: result.order.orderStatus, version: result.order.version },
+      before: { status: result.before.orderStatus, version: result.before.version },
+      idempotencyKey,
+      ...(ipAddress === undefined ? {} : { ipAddress }),
+      module: 'order',
+      objectId: result.order.orderId,
+      objectType: 'order',
+      requestId,
+      result: 'SUCCESS',
+      resultCode: 'OK',
+      summaryPolicy: 'STATUS_VERSION',
+    });
+  }
+
+  private appendOrderCloseOutbox(
+    transaction: DatabaseTransaction,
+    order: StoreOrderSnapshot,
+  ) {
+    return this.outboxRepository().append(transaction, {
+      aggregateId: order.orderId,
+      aggregateType: 'order',
+      eventType: 'order.closed',
+      payload: {
+        event_version: 1,
+        resource_id: order.orderId,
+        resource_type: 'order',
+        resource_version: order.version,
+      },
+    });
+  }
+
   private providerFinalization(
     intent: StorePaymentIntentSnapshot,
     result: PaymentProviderIntentResult,
@@ -548,6 +883,11 @@ export class StorePaymentsService {
   private repository(): StorePaymentRepository {
     if (!this.payments) throw internal('Store payment repository is unavailable');
     return this.payments;
+  }
+
+  private orderRepository(): StoreOrderRepository {
+    if (!this.orders) throw internal('Store order close repository is unavailable');
+    return this.orders;
   }
 
   private auditRepository(): AuditRepository {

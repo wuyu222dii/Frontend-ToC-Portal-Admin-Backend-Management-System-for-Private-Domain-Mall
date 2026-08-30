@@ -15,6 +15,7 @@ import {
 const ORDER_ITEM_LIMIT = 100;
 const ORDER_QUANTITY_LIMIT = 99;
 const PAYMENT_TIMEOUT_MS = 30 * 60 * 1_000;
+const ORDER_CLOSE_RECONCILE_DELAY_MS = 60_000;
 const MAX_POSTGRES_INTEGER = 2_147_483_647;
 const PHONE_LAST4 = /^[0-9]{4}$/;
 
@@ -153,7 +154,119 @@ export interface StoreOrderTimeoutIntegrityIssue extends StoreOrderTimeoutIntegr
   issue: StoreOrderTimeoutIntegrityCode;
 }
 
-type StoreOrderCloseMode = 'PAYMENT_TIMEOUT' | 'USER_CANCELLED';
+/**
+ * A bounded, stable view of every order eligible for timeout processing.  This
+ * deliberately differs from the integrity-issue scan: an order without an
+ * integrity issue must still advance the cursor so a later problematic order
+ * cannot be skipped.  Callers should pass `nextCursor` back as `after` until
+ * it is null, then start a new cycle.
+ */
+export interface StoreOrderTimeoutCandidate {
+  orderId: string;
+  payExpiresAt: Date;
+}
+
+export interface StoreOrderTimeoutCandidatePage {
+  items: StoreOrderTimeoutCandidate[];
+  nextCursor: StoreOrderTimeoutIntegrityCursor | null;
+}
+
+export type StoreOrderCloseMode = 'PAYMENT_TIMEOUT' | 'USER_CANCELLED';
+
+/**
+ * The close workflow is deliberately split around the Provider call.  These
+ * records contain only the immutable identifiers and state required by the
+ * caller to perform that external operation; Provider payloads and secrets
+ * never cross the database boundary.
+ */
+export interface StoreOrderClosePaymentIntent {
+  amount: string;
+  closeRequestedAt: Date | null;
+  expiresAt: Date;
+  intentNo: string;
+  paymentIntentId: string;
+  provider: 'MOCK' | 'WECHAT';
+  providerIntentId: string | null;
+  status: 'CANCELLED' | 'CLOSED' | 'CLOSE_PENDING' | 'CREATING' | 'EXPIRED' | 'FAILED' | 'OPEN' | 'SUCCEEDED';
+  version: number;
+}
+
+export type StoreOrderCloseClaimKind = 'CLOSED' | 'PROVIDER_REQUIRED' | 'PENDING' | 'SKIPPED';
+
+export interface StoreOrderCloseClaimInput {
+  accountId?: string;
+  customerId?: string;
+  expectedVersion?: number;
+  mode: StoreOrderCloseMode;
+  orderId: string;
+}
+
+export interface StoreOrderCloseClaimResult {
+  before: StoreOrderSnapshot;
+  changed: boolean;
+  kind: StoreOrderCloseClaimKind;
+  mode: StoreOrderCloseMode;
+  order: StoreOrderSnapshot;
+  paymentIntent: StoreOrderClosePaymentIntent | null;
+  providerOperation: 'CLOSE' | 'QUERY' | null;
+  reservationId: string | null;
+}
+
+export type StoreOrderCloseClaimNextResult = StoreOrderCloseClaimResult | { kind: 'NONE' };
+
+export type StoreOrderCloseProviderOutcome =
+  | 'CANCELLED'
+  | 'CLOSED'
+  | 'EXPIRED'
+  | 'FAILED'
+  | 'NOT_FOUND'
+  | 'OPEN'
+  | 'SUCCEEDED'
+  | 'UNKNOWN';
+
+export interface StoreOrderCloseProviderInput {
+  occurredAt?: Date | null;
+  outcome: StoreOrderCloseProviderOutcome;
+  paymentIntentId: string;
+  providerEventId?: string | null;
+  providerIntentId?: string | null;
+  providerState?: string | null;
+  providerTransactionId?: string | null;
+  errorCode?: string | null;
+  nextReconcileAt?: Date | null;
+  orderId: string;
+  expectedIntentVersion: number;
+}
+
+export type StoreOrderCloseFinalizeKind = 'CLOSED' | 'PAYMENT_CONFIRMED' | 'PENDING';
+
+export interface StoreOrderCloseFinalizeResult {
+  kind: StoreOrderCloseFinalizeKind;
+  order: StoreOrderSnapshot;
+  paymentIntent: StoreOrderClosePaymentIntent;
+  reservationId: string | null;
+  closeResult: StoreOrderCloseResult | null;
+}
+
+interface LockedPaymentIntentForClose {
+  amount: Prisma.Decimal;
+  close_attempt_count: number;
+  close_requested_at: Date | null;
+  closed_at: Date | null;
+  expires_at: Date;
+  id: string;
+  intent_no: string;
+  last_error_code: string | null;
+  next_reconcile_at: Date | null;
+  order_id: string;
+  provider: 'MOCK' | 'WECHAT';
+  provider_intent_id: string | null;
+  provider_state: string | null;
+  reconciliation_attempt_count: number;
+  status: StoreOrderClosePaymentIntent['status'];
+  updated_at: Date;
+  version: number;
+}
 
 export interface StoreOrderItemSnapshot {
   brandName: string;
@@ -275,7 +388,7 @@ const ORDER_READ_INCLUDE = {
     select: { id: true, status: true },
     take: 1,
   },
-  inventory_reservation: { select: { status: true } },
+  inventory_reservation: { select: { id: true, status: true } },
   items: ORDER_WITH_ITEMS.items,
   payment_intents: {
     orderBy: [{ id: 'asc' }] satisfies Prisma.PaymentIntentOrderByWithRelationInput[],
@@ -385,6 +498,84 @@ function validateCancelInput(input: StoreOrderCancelInput): void {
   if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1 ||
     input.expectedVersion > MAX_POSTGRES_INTEGER) {
     throw new TypeError('Store order cancellation version is invalid');
+  }
+}
+
+function validateCloseClaimInput(input: StoreOrderCloseClaimInput): void {
+  if (!plainObject(input)) throw new TypeError('Store order close claim input must be a plain object');
+  const keys = Object.keys(input);
+  const allowed = new Set(['accountId', 'customerId', 'expectedVersion', 'mode', 'orderId']);
+  if (keys.some((key) => !allowed.has(key))) {
+    throw new TypeError('Store order close claim input contains unsupported fields');
+  }
+  requireUlid(input.orderId, 'Store order close order ID');
+  if (input.accountId !== undefined) requireUlid(input.accountId, 'Store order close Account ID');
+  if (input.customerId !== undefined) requireUlid(input.customerId, 'Store order close Customer ID');
+  if ((input.accountId === undefined) !== (input.customerId === undefined)) {
+    throw new TypeError('Store order close owner must include Account ID and Customer ID together');
+  }
+  if (input.expectedVersion !== undefined &&
+    (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1 ||
+      input.expectedVersion > MAX_POSTGRES_INTEGER)) {
+    throw new TypeError('Store order close expected version is invalid');
+  }
+  if (input.mode !== 'PAYMENT_TIMEOUT' && input.mode !== 'USER_CANCELLED') {
+    throw new TypeError('Store order close mode is invalid');
+  }
+}
+
+function validateCloseProviderInput(input: StoreOrderCloseProviderInput): void {
+  if (!plainObject(input)) throw new TypeError('Store order close Provider input must be a plain object');
+  const allowed = new Set([
+    'errorCode',
+    'expectedIntentVersion',
+    'nextReconcileAt',
+    'occurredAt',
+    'outcome',
+    'paymentIntentId',
+    'providerEventId',
+    'providerIntentId',
+    'providerState',
+    'providerTransactionId',
+    'orderId',
+  ]);
+  if (Object.keys(input).some((key) => !allowed.has(key))) {
+    throw new TypeError('Store order close Provider input contains unsupported fields');
+  }
+  requireUlid(input.orderId, 'Store order close Provider order ID');
+  requireUlid(input.paymentIntentId, 'Store order close Provider payment intent ID');
+  if (!Number.isSafeInteger(input.expectedIntentVersion) || input.expectedIntentVersion < 1 ||
+    input.expectedIntentVersion > MAX_POSTGRES_INTEGER) {
+    throw new TypeError('Store order close Provider intent version is invalid');
+  }
+  const outcomes: readonly StoreOrderCloseProviderOutcome[] = [
+    'CANCELLED', 'CLOSED', 'EXPIRED', 'FAILED', 'NOT_FOUND', 'OPEN', 'SUCCEEDED', 'UNKNOWN',
+  ];
+  if (!outcomes.includes(input.outcome)) throw new TypeError('Store order close Provider outcome is invalid');
+  for (const [label, value, maximum] of [
+    ['Provider close event ID', input.providerEventId, 128],
+    ['Provider close intent ID', input.providerIntentId, 128],
+    ['Provider close transaction ID', input.providerTransactionId, 128],
+    ['Provider close error code', input.errorCode, 120],
+    ['Provider close state', input.providerState, 80],
+  ] as const) {
+    if (value !== undefined && value !== null &&
+      (typeof value !== 'string' || value.length < 1 || value.length > maximum ||
+        Array.from(value).some((character) => {
+          const codePoint = character.codePointAt(0);
+          return codePoint === undefined || codePoint <= 0x1f || codePoint === 0x7f;
+        }))) {
+      throw new TypeError(`${label} is invalid`);
+    }
+  }
+  for (const [label, value] of [
+    ['Provider close occurredAt', input.occurredAt],
+    ['Provider close nextReconcileAt', input.nextReconcileAt],
+  ] as const) {
+    if (value !== undefined && value !== null &&
+      (!(value instanceof Date) || !Number.isFinite(value.getTime()))) {
+      throw new TypeError(`${label} is invalid`);
+    }
   }
 }
 
@@ -532,6 +723,10 @@ function orderNotCancellable(): ApplicationError {
 
 function orderVersionConflict(): ApplicationError {
   return new ApplicationError('RESOURCE_VERSION_CONFLICT', 'Order version changed');
+}
+
+function paymentResultConflict(): ApplicationError {
+  return new ApplicationError('PAYMENT_RESULT_CONFLICT', 'Payment Provider result conflicts with the close state');
 }
 
 function requoteRequired(message = 'Checkout facts changed; request a new quote'): ApplicationError {
@@ -1426,16 +1621,122 @@ export class StoreOrderRepository {
   private async lockPaymentIntents(
     transaction: DatabaseTransaction,
     orderId: string,
-  ): Promise<boolean> {
-    const rows = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-      SELECT id
+  ): Promise<LockedPaymentIntentForClose[]> {
+    const rows = await transaction.$queryRaw<LockedPaymentIntentForClose[]>(Prisma.sql`
+      SELECT id,
+             intent_no,
+             order_id,
+             provider::text AS provider,
+             provider_intent_id,
+             status::text AS status,
+             amount,
+             expires_at,
+             close_requested_at,
+             close_attempt_count,
+             closed_at,
+             last_error_code,
+             next_reconcile_at,
+             provider_state,
+             reconciliation_attempt_count,
+             updated_at,
+             version
       FROM public.payment_intent
       WHERE order_id = ${orderId}
       ORDER BY id ASC
       FOR UPDATE
     `);
-    rows.forEach(({ id }) => requireUlid(id, 'Store order payment intent ID'));
+    rows.forEach((row) => {
+      requireUlid(row.id, 'Store order payment intent ID');
+      requireUlid(row.order_id, 'Store order payment intent order ID');
+      if (row.order_id !== orderId || typeof row.intent_no !== 'string' ||
+        row.intent_no.length < 1 || row.intent_no.length > 32 || !/^[\x20-\x7e]+$/.test(row.intent_no)) {
+        throw internalError('Store order payment intent identity is invalid');
+      }
+      if (row.provider !== 'MOCK' && row.provider !== 'WECHAT') {
+        throw internalError('Store order payment intent Provider is invalid');
+      }
+      for (const [label, value, maximum] of [
+        ['Store order provider intent ID', row.provider_intent_id, 128],
+        ['Store order provider state', row.provider_state, 80],
+        ['Store order payment error code', row.last_error_code, 120],
+      ] as const) {
+        if (value !== null &&
+          (typeof value !== 'string' || value.length < 1 || value.length > maximum ||
+            Array.from(value).some((character) => {
+              const codePoint = character.codePointAt(0);
+              return codePoint === undefined || codePoint <= 0x1f || codePoint === 0x7f;
+            }))) {
+          throw internalError(`${label} is invalid`);
+        }
+      }
+      if (!Number.isSafeInteger(row.version) || row.version < 1 || row.version > MAX_POSTGRES_INTEGER ||
+        !Number.isSafeInteger(row.close_attempt_count) || row.close_attempt_count < 0 ||
+        row.close_attempt_count > MAX_POSTGRES_INTEGER ||
+        !Prisma.Decimal.isDecimal(row.amount) || !Number.isFinite(row.amount.toNumber()) || row.amount.isNegative() ||
+        !(row.expires_at instanceof Date) || !Number.isFinite(row.expires_at.getTime()) ||
+        (row.close_requested_at !== null &&
+          (!(row.close_requested_at instanceof Date) || !Number.isFinite(row.close_requested_at.getTime()))) ||
+        (row.closed_at !== null &&
+          (!(row.closed_at instanceof Date) || !Number.isFinite(row.closed_at.getTime()))) ||
+        (row.next_reconcile_at !== null &&
+          (!(row.next_reconcile_at instanceof Date) || !Number.isFinite(row.next_reconcile_at.getTime()))) ||
+        !(row.updated_at instanceof Date) || !Number.isFinite(row.updated_at.getTime()) ||
+        !Number.isSafeInteger(row.reconciliation_attempt_count) || row.reconciliation_attempt_count < 0 ||
+        row.reconciliation_attempt_count > MAX_POSTGRES_INTEGER ||
+        !['CANCELLED', 'CLOSED', 'CLOSE_PENDING', 'CREATING', 'EXPIRED', 'FAILED', 'OPEN', 'SUCCEEDED']
+          .includes(row.status)) {
+        throw internalError('Store order payment intent facts are invalid');
+      }
+    });
+    return rows;
+  }
+
+  private closePaymentIntentSnapshot(
+    intent: LockedPaymentIntentForClose,
+  ): StoreOrderClosePaymentIntent {
+    return {
+      amount: new Prisma.Decimal(intent.amount).toFixed(2),
+      closeRequestedAt: intent.close_requested_at === null ? null : new Date(intent.close_requested_at),
+      expiresAt: new Date(intent.expires_at),
+      intentNo: intent.intent_no,
+      paymentIntentId: intent.id,
+      provider: intent.provider,
+      providerIntentId: intent.provider_intent_id,
+      status: intent.status,
+      version: intent.version,
+    };
+  }
+
+  private async paymentIntentHasSuccessfulAttempt(
+    transaction: DatabaseTransaction,
+    paymentIntentIds: readonly string[],
+  ): Promise<boolean> {
+    if (paymentIntentIds.length === 0) return false;
+    const rows = await transaction.$queryRaw<Array<{ payment_intent_id: string }>>(Prisma.sql`
+      SELECT payment_intent_id
+      FROM public.payment_attempt
+      WHERE payment_intent_id IN (${Prisma.join(paymentIntentIds)})
+        AND status IN ('SUCCEEDED'::public."PaymentAttemptStatus", 'SUCCEEDED_LATE'::public."PaymentAttemptStatus")
+      GROUP BY payment_intent_id
+      ORDER BY payment_intent_id ASC
+    `);
+    rows.forEach(({ payment_intent_id }) => requireUlid(payment_intent_id, 'Store order payment attempt intent ID'));
     return rows.length > 0;
+  }
+
+  private validateTerminalPaymentIntents(
+    intents: readonly LockedPaymentIntentForClose[],
+    orderPayExpiresAt: Date,
+  ): void {
+    for (const intent of intents) {
+      if (!['CANCELLED', 'CLOSED', 'EXPIRED', 'FAILED'].includes(intent.status)) {
+        throw orderNotCancellable();
+      }
+      if (intent.expires_at.getTime() !== orderPayExpiresAt.getTime() || intent.closed_at === null ||
+        !Number.isFinite(intent.closed_at.getTime())) {
+        throw orderNotCancellable();
+      }
+    }
   }
 
   private async lockReleaseInventory(
@@ -1586,6 +1887,12 @@ export class StoreOrderRepository {
       expectedVersion?: number;
       mode: StoreOrderCloseMode;
       orderId: string;
+      /**
+       * The timestamp at which the close decision was made.  Provider I/O is
+       * deliberately outside the transaction, so a user cancellation that
+       * was valid before expiry may be finalized after the order expires.
+       */
+      requestedAt?: Date;
     },
   ): Promise<StoreOrderCloseResult | null> {
     const occurredAt = await this.transactionTime(transaction);
@@ -1603,17 +1910,30 @@ export class StoreOrderRepository {
       record.refund_progress_status === 'NONE' && record.refund_processing_status === 'IDLE' &&
       record.fulfillment_status === 'NOT_STARTED' && record.close_reason === null &&
       record.completion_reason === null && record.payment_resolution === 'NORMAL';
+    const requestedAt = input.requestedAt ?? occurredAt;
+    if (!(requestedAt instanceof Date) || !Number.isFinite(requestedAt.getTime()) ||
+      requestedAt.getTime() > occurredAt.getTime()) {
+      throw internalError('Store order close request timestamp is invalid');
+    }
     const timeEligible = input.mode === 'USER_CANCELLED'
-      ? record.pay_expires_at.getTime() > occurredAt.getTime()
-      : record.pay_expires_at.getTime() <= occurredAt.getTime();
+      ? record.pay_expires_at.getTime() > requestedAt.getTime()
+      : record.pay_expires_at.getTime() <= requestedAt.getTime();
     if (!baseEligible || !timeEligible) {
       if (input.mode === 'PAYMENT_TIMEOUT') return null;
       throw orderNotCancellable();
     }
-    if (await this.lockPaymentIntents(transaction, input.orderId)) {
+    const paymentIntents = await this.lockPaymentIntents(transaction, input.orderId);
+    if (await this.paymentIntentHasSuccessfulAttempt(transaction, paymentIntents.map(({ id }) => id))) {
       if (input.mode === 'PAYMENT_TIMEOUT') return null;
       throw orderNotCancellable();
     }
+    const activePaymentIntents = paymentIntents.filter(({ status }) =>
+      status === 'CREATING' || status === 'OPEN' || status === 'CLOSE_PENDING');
+    if (activePaymentIntents.length > 0) {
+      if (input.mode === 'PAYMENT_TIMEOUT') return null;
+      throw orderNotCancellable();
+    }
+    this.validateTerminalPaymentIntents(paymentIntents, record.pay_expires_at);
     if (input.expectedVersion !== undefined && record.version !== input.expectedVersion) {
       throw orderVersionConflict();
     }
@@ -1687,6 +2007,534 @@ export class StoreOrderRepository {
     };
   }
 
+  private async lockCloseOrderRows(
+    transaction: DatabaseTransaction,
+    orderId: string,
+    customerId?: string,
+  ): Promise<void> {
+    const rows = customerId === undefined
+      ? await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+          SELECT id FROM public.sales_order WHERE id = ${orderId} FOR UPDATE
+        `)
+      : await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+          SELECT id FROM public.sales_order
+          WHERE id = ${orderId} AND customer_id = ${customerId}
+          FOR UPDATE
+        `);
+    if (rows.length !== 1 || rows[0]?.id !== orderId) throw orderNotFound();
+    await transaction.$queryRaw(Prisma.sql`
+      SELECT id FROM public.order_item
+      WHERE order_id = ${orderId}
+      ORDER BY id ASC
+      FOR UPDATE
+    `);
+  }
+
+  private closeModeForTimestamp(
+    closeRequestedAt: Date | null,
+    payExpiresAt: Date,
+    fallback: StoreOrderCloseMode,
+  ): StoreOrderCloseMode {
+    if (closeRequestedAt === null) return fallback;
+    if (!(closeRequestedAt instanceof Date) || !Number.isFinite(closeRequestedAt.getTime())) {
+      throw internalError('Store order close request timestamp is invalid');
+    }
+    return closeRequestedAt.getTime() < payExpiresAt.getTime() ? 'USER_CANCELLED' : 'PAYMENT_TIMEOUT';
+  }
+
+  /**
+   * First phase of cancellation/timeout.  It performs no Provider I/O.  An
+   * active intent is claimed by changing it to CLOSE_PENDING and returning
+   * only the stable Provider lookup facts; callers must perform query/close
+   * outside the database transaction and invoke finalizeOrderCloseInTransaction
+   * with the result.
+   */
+  async claimOrderCloseInTransaction(
+    transaction: DatabaseTransaction,
+    input: StoreOrderCloseClaimInput,
+  ): Promise<StoreOrderCloseClaimResult> {
+    validateCloseClaimInput(input);
+    if (input.accountId !== undefined && input.customerId !== undefined) {
+      await this.acquireCustomerLocks(transaction, {
+        accountId: input.accountId,
+        customerId: input.customerId,
+      });
+    }
+    await this.lockCloseOrderRows(transaction, input.orderId, input.customerId);
+    const occurredAt = await this.transactionTime(transaction);
+    const record = await transaction.salesOrder.findUnique({
+      include: ORDER_READ_INCLUDE,
+      where: { id: input.orderId },
+    });
+    if (!record) throw orderNotFound();
+    if (input.customerId !== undefined && record.customer_id !== input.customerId) throw orderNotFound();
+    const before = orderSnapshot(record, occurredAt);
+    if (input.expectedVersion !== undefined && record.version !== input.expectedVersion) {
+      throw orderVersionConflict();
+    }
+    if (record.order_status === 'CLOSED' && record.close_reason === 'USER_CANCELLED' &&
+      input.mode === 'USER_CANCELLED') {
+      return {
+        before,
+        changed: false,
+        kind: 'CLOSED',
+        mode: 'USER_CANCELLED',
+        order: before,
+        paymentIntent: null,
+        providerOperation: null,
+        reservationId: null,
+      };
+    }
+    // Inspect the locked intent before applying the wall-clock eligibility
+    // check.  A user cancellation may have been claimed before expiry and
+    // then wait on Provider I/O; its original decision remains valid even if
+    // this retry arrives after `pay_expires_at`.
+    const intents = await this.lockPaymentIntents(transaction, input.orderId);
+    const active = intents.filter(({ status }) =>
+      status === 'CREATING' || status === 'OPEN' || status === 'CLOSE_PENDING');
+    if (active.length > 1) throw internalError('Store order has multiple active payment intents');
+    const existingCloseRequestedAt = active[0]?.close_requested_at ?? null;
+    const existingMode = existingCloseRequestedAt === null
+      ? null
+      : this.closeModeForTimestamp(existingCloseRequestedAt, record.pay_expires_at, input.mode);
+    const eligibilityMode = existingMode ?? input.mode;
+    const requestedTimeEligible = input.mode === 'USER_CANCELLED'
+      ? (record.pay_expires_at.getTime() > occurredAt.getTime() || existingMode === 'USER_CANCELLED')
+      : (eligibilityMode === 'USER_CANCELLED'
+        ? existingMode === 'USER_CANCELLED'
+        : record.pay_expires_at.getTime() <= occurredAt.getTime());
+    if (!requestedTimeEligible) {
+      if (input.mode === 'PAYMENT_TIMEOUT') {
+        return {
+          before,
+          changed: false,
+          kind: 'SKIPPED',
+          mode: input.mode,
+          order: before,
+          paymentIntent: null,
+          providerOperation: null,
+          reservationId: null,
+        };
+      }
+      throw orderNotCancellable();
+    }
+    const baseEligible = record.order_status === 'PENDING_PAYMENT' &&
+      (record.payment_status === 'UNPAID' || record.payment_status === 'PROCESSING') &&
+      record.refund_progress_status === 'NONE' && record.refund_processing_status === 'IDLE' &&
+      record.fulfillment_status === 'NOT_STARTED' && record.close_reason === null &&
+      record.completion_reason === null && record.payment_resolution === 'NORMAL';
+    if (!baseEligible) {
+      if (input.mode === 'PAYMENT_TIMEOUT') return {
+        before,
+        changed: false,
+        kind: 'SKIPPED',
+        mode: input.mode,
+        order: before,
+        paymentIntent: null,
+        providerOperation: null,
+        reservationId: null,
+      };
+      throw orderNotCancellable();
+    }
+
+    const successful = await this.paymentIntentHasSuccessfulAttempt(transaction, intents.map(({ id }) => id));
+    if (successful || intents.some(({ status }) => status === 'SUCCEEDED')) {
+      if (input.mode === 'PAYMENT_TIMEOUT') return {
+        before,
+        changed: false,
+        kind: 'SKIPPED',
+        mode: input.mode,
+        order: before,
+        paymentIntent: null,
+        providerOperation: null,
+        reservationId: record.inventory_reservation?.id ?? null,
+      };
+      throw orderNotCancellable();
+    }
+    if (active.length === 1) {
+      const intent = active[0]!;
+      if (intent.expires_at.getTime() !== record.pay_expires_at.getTime()) {
+        throw orderNotCancellable();
+      }
+      const mode = this.closeModeForTimestamp(intent.close_requested_at, record.pay_expires_at, input.mode);
+      if (intent.close_requested_at !== null && mode !== input.mode) {
+        // A timeout worker may win the race after a user request (or vice
+        // versa).  Return the already claimed state instead of overwriting
+        // the original close reason.
+        const current = this.closePaymentIntentSnapshot(intent);
+        return {
+          before,
+          changed: false,
+          kind: 'PENDING',
+          mode,
+          order: before,
+          paymentIntent: current,
+          providerOperation: intent.provider_intent_id === null ? 'QUERY' : 'CLOSE',
+          reservationId: record.inventory_reservation?.id ?? null,
+        };
+      }
+      let current = intent;
+      let changed = false;
+      if (intent.status !== 'CLOSE_PENDING' || intent.close_requested_at === null) {
+        const updated = await transaction.paymentIntent.updateMany({
+          data: {
+            close_requested_at: intent.close_requested_at ?? occurredAt,
+            close_attempt_count: { increment: 1 },
+            last_error_code: null,
+            next_reconcile_at: new Date(occurredAt.getTime() + ORDER_CLOSE_RECONCILE_DELAY_MS),
+            provider_state: intent.provider_state ?? (intent.status === 'CREATING' ? 'CLOSE_REQUESTED' : 'OPEN'),
+            status: 'CLOSE_PENDING',
+            updated_at: occurredAt,
+            version: { increment: 1 },
+          },
+          where: { id: intent.id, order_id: input.orderId, version: intent.version },
+        });
+        if (updated.count !== 1) throw internalError('Store order close claim lost its payment intent');
+        current = {
+          ...intent,
+          close_requested_at: intent.close_requested_at ?? occurredAt,
+          close_attempt_count: intent.close_attempt_count + 1,
+          last_error_code: null,
+          next_reconcile_at: new Date(occurredAt.getTime() + ORDER_CLOSE_RECONCILE_DELAY_MS),
+          provider_state: intent.provider_state ?? (intent.status === 'CREATING' ? 'CLOSE_REQUESTED' : 'OPEN'),
+          status: 'CLOSE_PENDING',
+          updated_at: occurredAt,
+          version: intent.version + 1,
+        };
+        changed = true;
+      }
+      const currentOrder = changed
+        ? await transaction.salesOrder.findUnique({ include: ORDER_READ_INCLUDE, where: { id: input.orderId } })
+        : record;
+      if (!currentOrder) throw internalError('Store order close claim order disappeared');
+      return {
+        before,
+        changed,
+        kind: changed ? 'PROVIDER_REQUIRED' : 'PENDING',
+        mode,
+        order: orderSnapshot(currentOrder, occurredAt),
+        paymentIntent: this.closePaymentIntentSnapshot(current),
+        providerOperation: current.provider_intent_id === null ? 'QUERY' : 'CLOSE',
+        reservationId: currentOrder.inventory_reservation?.id ?? null,
+      };
+    }
+
+    this.validateTerminalPaymentIntents(intents, record.pay_expires_at);
+    if (record.payment_status !== 'UNPAID') {
+      if (input.mode === 'PAYMENT_TIMEOUT') return {
+        before,
+        changed: false,
+        kind: 'SKIPPED',
+        mode: input.mode,
+        order: before,
+        paymentIntent: null,
+        providerOperation: null,
+        reservationId: record.inventory_reservation?.id ?? null,
+      };
+      throw orderNotCancellable();
+    }
+    const closed = await this.closeLockedOrder(transaction, {
+      ...(input.accountId === undefined ? {} : { accountId: input.accountId }),
+      ...(input.expectedVersion === undefined ? {} : { expectedVersion: input.expectedVersion }),
+      mode: input.mode,
+      orderId: input.orderId,
+    });
+    if (closed === null) return {
+      before,
+      changed: false,
+      kind: 'SKIPPED',
+      mode: input.mode,
+      order: before,
+      paymentIntent: null,
+      providerOperation: null,
+      reservationId: null,
+    };
+    return {
+      before: closed.before,
+      changed: closed.changed,
+      kind: 'CLOSED',
+      mode: input.mode,
+      order: closed.order,
+      paymentIntent: null,
+      providerOperation: null,
+      reservationId: closed.reservationId,
+    };
+  }
+
+  /**
+   * Claim one due timeout/reconciliation candidate.  The locator is kept
+   * intentionally small and deterministic; payment intents that are active
+   * but not yet due are left for a later reconciliation pass.  The returned
+   * claim contains only stable Provider lookup facts and never performs I/O.
+   */
+  async claimNextOrderCloseInTransaction(
+    transaction: DatabaseTransaction,
+  ): Promise<StoreOrderCloseClaimNextResult> {
+    const rows = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT so.id
+      FROM public.sales_order AS so
+      WHERE so.order_status = 'PENDING_PAYMENT'
+        AND so.payment_status IN ('UNPAID', 'PROCESSING')
+        AND so.refund_progress_status = 'NONE'
+        AND so.refund_processing_status = 'IDLE'
+        AND so.fulfillment_status = 'NOT_STARTED'
+        AND so.close_reason IS NULL
+        AND so.completion_reason IS NULL
+        AND so.payment_resolution = 'NORMAL'
+        AND (
+          (
+            so.pay_expires_at <= transaction_timestamp()
+            AND so.payment_status = 'UNPAID'
+            AND NOT EXISTS (
+              SELECT 1 FROM public.payment_intent AS no_active
+              WHERE no_active.order_id = so.id
+                AND no_active.status IN ('CREATING', 'OPEN', 'CLOSE_PENDING')
+            )
+          )
+          OR EXISTS (
+            SELECT 1 FROM public.payment_intent AS due
+            WHERE due.order_id = so.id
+              AND due.status IN ('CREATING', 'OPEN', 'CLOSE_PENDING')
+              AND due.provider_state IS DISTINCT FROM 'SUCCEEDED'
+              -- An active intent is reconciled before expiry only after a
+              -- user has explicitly requested cancellation.  Otherwise the
+              -- timeout worker must wait for expiry; selecting an early OPEN
+              -- intent would repeatedly return SKIPPED and starve later due
+              -- orders in the deterministic queue.
+              AND (
+                (
+                  due.status IN ('CREATING', 'OPEN')
+                  AND so.pay_expires_at <= transaction_timestamp()
+                )
+                OR (
+                  due.status = 'CLOSE_PENDING'
+                  AND due.close_requested_at IS NOT NULL
+                  AND (
+                    due.next_reconcile_at IS NULL
+                    OR due.next_reconcile_at <= transaction_timestamp()
+                  )
+                )
+              )
+          )
+        )
+        -- A malformed reservation is reported by the read-only integrity
+        -- scan and must not prevent later healthy orders from being claimed.
+        AND (
+          SELECT jsonb_agg(jsonb_build_array(oi.sku_id, oi.quantity) ORDER BY oi.sku_id)
+          FROM public.order_item AS oi
+          WHERE oi.order_id = so.id
+        ) = (
+          SELECT jsonb_agg(jsonb_build_array(iri.sku_id, iri.quantity) ORDER BY iri.sku_id)
+          FROM public.inventory_reservation AS ir
+          INNER JOIN public.inventory_reservation_item AS iri ON iri.reservation_id = ir.id
+          WHERE ir.order_id = so.id AND ir.status = 'ACTIVE'
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM public.inventory_reservation AS ir
+          INNER JOIN public.inventory_reservation_item AS iri ON iri.reservation_id = ir.id
+          LEFT JOIN public.inventory_balance AS ib ON ib.sku_id = iri.sku_id
+          WHERE ir.order_id = so.id
+            AND ir.status = 'ACTIVE'
+            AND (
+              ib.id IS NULL
+              OR ib.physical_qty < ib.locked_qty
+              OR ib.locked_qty <> (
+                SELECT COALESCE(SUM(active_iri.quantity), 0)
+                FROM public.inventory_reservation AS active_ir
+                INNER JOIN public.inventory_reservation_item AS active_iri
+                  ON active_iri.reservation_id = active_ir.id
+                WHERE active_ir.status = 'ACTIVE' AND active_iri.sku_id = iri.sku_id
+              )
+            )
+        )
+      ORDER BY so.pay_expires_at ASC, so.id ASC
+      FOR UPDATE OF so SKIP LOCKED
+      LIMIT 1
+    `);
+    if (rows.length > 1) throw internalError('Expired Store order claim returned too many rows');
+    const orderId = rows[0]?.id;
+    if (orderId === undefined) return { kind: 'NONE' };
+    requireUlid(orderId, 'Next Store order close ID');
+    return this.claimOrderCloseInTransaction(transaction, {
+      mode: 'PAYMENT_TIMEOUT',
+      orderId,
+    });
+  }
+
+  /**
+   * Final phase of the close workflow.  This method accepts only normalized
+   * Provider outcome fields and performs all local state changes atomically.
+   * Unknown/open/success outcomes retain the reservation; definitive
+   * non-payable outcomes transition the intent and then reuse the same
+   * order/inventory release routine as a payment-free close.
+   */
+  async finalizeOrderCloseInTransaction(
+    transaction: DatabaseTransaction,
+    input: StoreOrderCloseProviderInput,
+  ): Promise<StoreOrderCloseFinalizeResult> {
+    validateCloseProviderInput(input);
+    await this.lockCloseOrderRows(transaction, input.orderId);
+    const intents = await this.lockPaymentIntents(transaction, input.orderId);
+    const intent = intents.find(({ id }) => id === input.paymentIntentId);
+    if (!intent || intent.status !== 'CLOSE_PENDING') throw orderNotCancellable();
+    if (intent.version !== input.expectedIntentVersion) throw orderVersionConflict();
+    // Provider timestamps are untrusted observations.  Every persisted close
+    // fact must use the database transaction clock so a future or stale
+    // Provider clock can never move local order/inventory time backwards or
+    // forwards.  `input.occurredAt` is still shape-validated above for callers
+    // that retain it for transport compatibility, but is intentionally not
+    // used for any local state transition.
+    const occurredAt = await this.transactionTime(transaction);
+    const record = await transaction.salesOrder.findUnique({
+      include: ORDER_READ_INCLUDE,
+      where: { id: input.orderId },
+    });
+    if (!record) throw orderNotFound();
+    const mode = this.closeModeForTimestamp(intent.close_requested_at, record.pay_expires_at, 'PAYMENT_TIMEOUT');
+    const providerIntentId = input.providerIntentId ?? intent.provider_intent_id;
+    if (providerIntentId !== null &&
+      (providerIntentId.length < 1 || providerIntentId.length > 128 || !/^[\x20-\x7e]+$/.test(providerIntentId))) {
+      throw new TypeError('Provider intent ID is invalid');
+    }
+    if (intent.provider_intent_id !== null && input.providerIntentId !== undefined &&
+      input.providerIntentId !== null && input.providerIntentId !== intent.provider_intent_id) {
+      throw paymentResultConflict();
+    }
+
+    if (input.outcome === 'UNKNOWN' || input.outcome === 'OPEN') {
+      const nextReconcileAt = input.nextReconcileAt ?? new Date(occurredAt.getTime() + 60_000);
+      if (nextReconcileAt.getTime() <= occurredAt.getTime() ||
+        nextReconcileAt.getTime() > occurredAt.getTime() + 24 * 60 * 60 * 1_000) {
+        throw new TypeError('Provider close reconciliation time is invalid');
+      }
+      const updated = await transaction.paymentIntent.updateMany({
+        data: {
+          last_error_code: input.errorCode ?? (input.outcome === 'UNKNOWN' ? 'PROVIDER_UNKNOWN' : null),
+          last_reconciled_at: occurredAt,
+          next_reconcile_at: nextReconcileAt,
+          provider_intent_id: providerIntentId,
+          provider_state: input.providerState ?? input.outcome,
+          ...(input.outcome === 'UNKNOWN' ? { reconciliation_attempt_count: { increment: 1 } } : {}),
+          updated_at: occurredAt,
+          version: { increment: 1 },
+        },
+        where: { id: intent.id, order_id: input.orderId, version: intent.version },
+      });
+      if (updated.count !== 1) throw internalError('Store order close Provider update lost its locked row');
+      const updatedIntent = await transaction.paymentIntent.findUnique({ where: { id: intent.id } });
+      if (!updatedIntent) throw internalError('Updated Store order close payment intent is unavailable');
+      const updatedOrder = await transaction.salesOrder.findUnique({ include: ORDER_READ_INCLUDE, where: { id: input.orderId } });
+      if (!updatedOrder) throw internalError('Updated Store order close order is unavailable');
+      return {
+        kind: 'PENDING',
+        order: orderSnapshot(updatedOrder, occurredAt),
+        paymentIntent: this.closePaymentIntentSnapshot({
+          ...intent,
+          close_requested_at: intent.close_requested_at,
+          closed_at: updatedIntent.closed_at,
+          provider_intent_id: updatedIntent.provider_intent_id,
+          provider_state: updatedIntent.provider_state,
+          status: 'CLOSE_PENDING',
+          version: updatedIntent.version,
+        }),
+        reservationId: updatedOrder.inventory_reservation?.id ?? null,
+        closeResult: null,
+      };
+    }
+
+    if (input.outcome === 'SUCCEEDED') {
+      // Keep CLOSE_PENDING until the signed/provider callback is consumed by
+      // the payment settlement worker.  This preserves the reservation and
+      // prevents a query response from being mistaken for a local payment
+      // fact.
+      const updated = await transaction.paymentIntent.updateMany({
+        data: {
+          last_error_code: null,
+          last_reconciled_at: occurredAt,
+          next_reconcile_at: null,
+          provider_intent_id: providerIntentId,
+          provider_state: input.providerState ?? 'SUCCEEDED',
+          updated_at: occurredAt,
+          version: { increment: 1 },
+        },
+        where: { id: intent.id, order_id: input.orderId, version: intent.version },
+      });
+      if (updated.count !== 1) throw internalError('Store order close success update lost its locked row');
+      const updatedIntent = await transaction.paymentIntent.findUnique({ where: { id: intent.id } });
+      if (!updatedIntent) throw internalError('Updated Store order close payment intent is unavailable');
+      const updatedOrder = await transaction.salesOrder.findUnique({ include: ORDER_READ_INCLUDE, where: { id: input.orderId } });
+      if (!updatedOrder) throw internalError('Updated Store order close order is unavailable');
+      return {
+        kind: 'PAYMENT_CONFIRMED',
+        order: orderSnapshot(updatedOrder, occurredAt),
+        paymentIntent: this.closePaymentIntentSnapshot({
+          ...intent,
+          closed_at: updatedIntent.closed_at,
+          provider_intent_id: updatedIntent.provider_intent_id,
+          provider_state: updatedIntent.provider_state,
+          status: 'CLOSE_PENDING',
+          version: updatedIntent.version,
+        }),
+        reservationId: updatedOrder.inventory_reservation?.id ?? null,
+        closeResult: null,
+      };
+    }
+
+    const targetStatus = input.outcome === 'NOT_FOUND'
+      ? (mode === 'PAYMENT_TIMEOUT' ? 'EXPIRED' : 'CANCELLED')
+      : input.outcome;
+    const intentChanged = await transaction.paymentIntent.updateMany({
+      data: {
+        closed_at: occurredAt,
+        last_error_code: input.errorCode ?? (input.outcome === 'FAILED' ? 'PAYMENT_FAILED' : null),
+        last_reconciled_at: occurredAt,
+        next_reconcile_at: null,
+        provider_intent_id: providerIntentId,
+        provider_state: input.providerState ?? input.outcome,
+        status: targetStatus,
+        updated_at: occurredAt,
+        version: { increment: 1 },
+      },
+      where: { id: intent.id, order_id: input.orderId, version: intent.version },
+    });
+    if (intentChanged.count !== 1) throw internalError('Store order close terminal update lost its locked row');
+    const orderAfterIntent = await transaction.salesOrder.findUnique({ where: { id: input.orderId } });
+    if (!orderAfterIntent) throw orderNotFound();
+    let orderVersion = orderAfterIntent.version;
+    if (orderAfterIntent.payment_status !== 'UNPAID') {
+      const changed = await transaction.salesOrder.updateMany({
+        data: { payment_status: 'UNPAID', updated_at: occurredAt, version: { increment: 1 } },
+        where: { id: input.orderId, payment_status: orderAfterIntent.payment_status, version: orderAfterIntent.version },
+      });
+      if (changed.count !== 1) throw internalError('Store order close payment status update lost its locked row');
+      orderVersion += 1;
+    }
+    const closed = await this.closeLockedOrder(transaction, {
+      mode,
+      orderId: input.orderId,
+      expectedVersion: orderVersion,
+      requestedAt: intent.close_requested_at ?? occurredAt,
+    });
+    if (closed === null) throw internalError('Store order close terminal result was not eligible');
+    const updatedIntent = await transaction.paymentIntent.findUnique({ where: { id: intent.id } });
+    if (!updatedIntent) throw internalError('Updated Store order close payment intent is unavailable');
+    return {
+      kind: 'CLOSED',
+      order: closed.order,
+      paymentIntent: this.closePaymentIntentSnapshot({
+        ...intent,
+        closed_at: updatedIntent.closed_at,
+        provider_intent_id: updatedIntent.provider_intent_id,
+        provider_state: updatedIntent.provider_state,
+        status: targetStatus,
+        version: updatedIntent.version,
+      }),
+      reservationId: closed.reservationId,
+      closeResult: closed,
+    };
+  }
+
   async cancelOwnedOrderInTransaction(
     transaction: DatabaseTransaction,
     input: StoreOrderCancelInput,
@@ -1734,7 +2582,7 @@ export class StoreOrderRepository {
         SELECT so.id, so.pay_expires_at
         FROM public.sales_order AS so
         WHERE so.order_status = 'PENDING_PAYMENT'
-          AND so.payment_status = 'UNPAID'
+          AND so.payment_status IN ('UNPAID', 'PROCESSING')
           AND so.refund_progress_status = 'NONE'
           AND so.refund_processing_status = 'IDLE'
           AND so.fulfillment_status = 'NOT_STARTED'
@@ -1742,10 +2590,9 @@ export class StoreOrderRepository {
           AND so.completion_reason IS NULL
           AND so.payment_resolution = 'NORMAL'
           AND so.pay_expires_at <= transaction_timestamp()
-          AND NOT EXISTS (
-            SELECT 1 FROM public.payment_intent AS pi WHERE pi.order_id = so.id
-          )
           ${cursorFilter}
+        ORDER BY so.pay_expires_at ASC, so.id ASC
+        LIMIT ${input.limit}
       ), integrity_issues AS (
         SELECT
           expired.id AS order_id,
@@ -1796,7 +2643,6 @@ export class StoreOrderRepository {
       FROM integrity_issues
       WHERE issue_code IS NOT NULL
       ORDER BY pay_expires_at ASC, order_id ASC
-      LIMIT ${input.limit}
     `);
     const issueCodes = new Set<StoreOrderTimeoutIntegrityCode>([
       'ACTIVE_RESERVATION_MISSING',
@@ -1816,6 +2662,77 @@ export class StoreOrderRepository {
         payExpiresAt: new Date(row.pay_expires_at),
       };
     });
+  }
+
+  /**
+   * Enumerate every timeout candidate in `(pay_expires_at, id)` order.  The
+   * query intentionally does not inspect payment intents or reservation
+   * integrity; those facts are resolved by the close claim itself.  Keeping
+   * the candidate scan independent means a clean order advances the cursor
+   * just like a corrupt one and prevents the old "only issues are paged"
+   * starvation bug (TR-020).
+   */
+  async listExpiredOrderCandidates(
+    transaction: DatabaseTransaction,
+    input: { after?: StoreOrderTimeoutIntegrityCursor; limit: number },
+  ): Promise<StoreOrderTimeoutCandidatePage> {
+    if (!plainObject(input)) throw new TypeError('Store order timeout candidate input must be a plain object');
+    const keys = Object.keys(input);
+    if (keys.some((key) => key !== 'after' && key !== 'limit')) {
+      throw new TypeError('Store order timeout candidate input contains unsupported fields');
+    }
+    if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100) {
+      throw new TypeError('Store order timeout candidate limit must be between 1 and 100');
+    }
+    if (input.after !== undefined) {
+      requireExactKeys(input.after, ['orderId', 'payExpiresAt'], 'Store order timeout candidate cursor');
+      requireUlid(input.after.orderId, 'Store order timeout candidate cursor Order ID');
+      if (!(input.after.payExpiresAt instanceof Date) || !Number.isFinite(input.after.payExpiresAt.getTime())) {
+        throw new TypeError('Store order timeout candidate cursor expiry is invalid');
+      }
+    }
+    const cursorFilter = input.after === undefined ? Prisma.sql`` : Prisma.sql`
+      AND (so.pay_expires_at, so.id::text) >
+        (${input.after.payExpiresAt}::timestamptz, ${input.after.orderId}::text)
+    `;
+    const rows = await transaction.$queryRaw<Array<{
+      order_id: string;
+      pay_expires_at: Date;
+    }>>(Prisma.sql`
+      SELECT so.id AS order_id, so.pay_expires_at
+      FROM public.sales_order AS so
+      WHERE so.order_status = 'PENDING_PAYMENT'
+        AND so.payment_status IN ('UNPAID', 'PROCESSING')
+        AND so.refund_progress_status = 'NONE'
+        AND so.refund_processing_status = 'IDLE'
+        AND so.fulfillment_status = 'NOT_STARTED'
+        AND so.close_reason IS NULL
+        AND so.completion_reason IS NULL
+        AND so.payment_resolution = 'NORMAL'
+        AND so.pay_expires_at <= transaction_timestamp()
+        ${cursorFilter}
+      ORDER BY so.pay_expires_at ASC, so.id ASC
+      LIMIT ${input.limit + 1}
+    `);
+    if (rows.length > input.limit + 1) {
+      throw internalError('Store order timeout candidate query returned too many rows');
+    }
+    const candidates = rows.map((row) => {
+      requireUlid(row.order_id, 'Expired Store order candidate ID');
+      if (!(row.pay_expires_at instanceof Date) || !Number.isFinite(row.pay_expires_at.getTime())) {
+        throw internalError('Expired Store order candidate expiry is invalid');
+      }
+      return { orderId: row.order_id, payExpiresAt: new Date(row.pay_expires_at) };
+    });
+    const hasMore = candidates.length > input.limit;
+    const items = hasMore ? candidates.slice(0, input.limit) : candidates;
+    const last = items.at(-1);
+    return {
+      items,
+      nextCursor: hasMore && last !== undefined
+        ? { orderId: last.orderId, payExpiresAt: new Date(last.payExpiresAt) }
+        : null,
+    };
   }
 
   async expireNextOrderInTransaction(transaction: DatabaseTransaction): Promise<StoreOrderTimeoutResult> {

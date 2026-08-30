@@ -26,7 +26,7 @@ import { SuccessEnvelopeInterceptor } from '../platform/http/success-envelope.in
 import { API_REDIS_CLIENT, type ApiRedisClient } from '../platform/redis/api-redis-runtime';
 import { StoreCustomerRateLimitGuard } from '../store-auth/store-customer-rate-limit.guard';
 import { StoreOrdersController } from './store-orders.controller';
-import { StoreOrdersService } from './store-orders.service';
+import { STORE_ORDER_HTTP_STATUS, StoreOrdersService } from './store-orders.service';
 
 const ACCOUNT_ID = '01J00000000000000000000001';
 const CUSTOMER_ID = '01J00000000000000000000002';
@@ -354,6 +354,28 @@ describe('B9.2-B9.3 Store order HTTP boundary', () => {
       expect.any(String),
     );
     expectNoStore(cancelled);
+  });
+
+  it('returns 202 when cancellation remains CLOSE_PENDING', async () => {
+    const pendingResponse = { ...orderResponse } as Record<string | symbol, unknown>;
+    Object.defineProperty(pendingResponse, STORE_ORDER_HTTP_STATUS, {
+      configurable: false,
+      enumerable: false,
+      value: 202,
+      writable: false,
+    });
+    cancelOrder.mockResolvedValueOnce(pendingResponse);
+
+    const response = await request(app.getHttpServer())
+      .post(`/api/v1/store/orders/${ORDER_ID}/cancel`)
+      .set('Authorization', `Bearer ${storeToken}`)
+      .set('Idempotency-Key', IDEMPOTENCY_KEY)
+      .set('If-Match', '"3"')
+      .send({})
+      .expect(202);
+
+    expect(response.body.data).toEqual(orderResponse);
+    expectNoStore(response);
   });
 
   it('applies B9.3 list defaults at the HTTP boundary', async () => {

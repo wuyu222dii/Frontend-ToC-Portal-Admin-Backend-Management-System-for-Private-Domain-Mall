@@ -9,6 +9,10 @@ import {
   StoreOrderRepository,
   StorePaymentRepository,
 } from '@qingxu/database';
+import {
+  RedisMockPaymentProvider,
+  type PaymentProviderPort,
+} from '@qingxu/payment';
 import { createS3ObjectStorage } from '@qingxu/storage';
 import { createClient } from 'redis';
 
@@ -23,6 +27,7 @@ import {
   FILE_OBJECT_STORAGE,
   FileCleanupService,
   WORKER_REDIS_CLIENT,
+  type WorkerRedisClient,
 } from './file-cleanup.service';
 import {
   CALLBACK_INBOX_REPOSITORY,
@@ -39,6 +44,7 @@ import {
 } from './payment-callback.service';
 import {
   ORDER_TIMEOUT_AUDIT_REPOSITORY,
+  ORDER_TIMEOUT_PAYMENT_PROVIDER,
   ORDER_TIMEOUT_REPOSITORY,
   OrderTimeoutService,
 } from './order-timeout.service';
@@ -46,6 +52,62 @@ import { WorkerController } from './worker.controller';
 
 export function workerRedisReconnectDelay(retries: number): number {
   return Math.min(100 * 2 ** Math.min(retries, 5), 5_000);
+}
+
+function unavailablePaymentProvider(): PaymentProviderPort {
+  return {
+    close: async () => ({
+      capability: null,
+      failureCode: 'PROVIDER_UNAVAILABLE' as const,
+      occurredAt: null,
+      outcome: 'UNKNOWN' as const,
+      providerEventId: null,
+      providerIntentId: null,
+      providerTransactionId: null,
+    }),
+    create: async () => ({
+      capability: null,
+      failureCode: 'PROVIDER_UNAVAILABLE' as const,
+      occurredAt: null,
+      outcome: 'UNKNOWN' as const,
+      providerEventId: null,
+      providerIntentId: null,
+      providerTransactionId: null,
+    }),
+    query: async () => ({
+      capability: null,
+      failureCode: 'PROVIDER_UNAVAILABLE' as const,
+      occurredAt: null,
+      outcome: 'UNKNOWN' as const,
+      providerEventId: null,
+      providerIntentId: null,
+      providerTransactionId: null,
+    }),
+    refund: async () => ({
+      failureCode: 'PROVIDER_UNAVAILABLE' as const,
+      occurredAt: null,
+      outcome: 'UNKNOWN' as const,
+      providerEventId: null,
+      providerRefundId: null,
+    }),
+  };
+}
+
+export function createWorkerPaymentProvider(
+  config: PlatformRuntimeConfig,
+  redis: WorkerRedisClient,
+): PaymentProviderPort {
+  if ((config.environment === 'development' || config.environment === 'test') &&
+    config.payment.provider === 'MOCK' && config.payment.mockSigningKey !== undefined) {
+    return new RedisMockPaymentProvider({
+      environment: config.environment,
+      signingKey: config.payment.mockSigningKey,
+      timeoutMs: config.payment.providerTimeoutMs,
+    }, redis);
+  }
+  // Production/WECHAT is deliberately fail-closed until the dedicated
+  // provider implementation and credentials are introduced in staging.
+  return unavailablePaymentProvider();
 }
 
 export function mergePaymentCallbackHandlers(
@@ -158,6 +220,11 @@ export class WorkerModule {
               reconnectStrategy: workerRedisReconnectDelay,
             },
           }),
+        },
+        {
+          provide: ORDER_TIMEOUT_PAYMENT_PROVIDER,
+          inject: [WORKER_CONFIG, WORKER_REDIS_CLIENT],
+          useFactory: createWorkerPaymentProvider,
         },
         OutboxDispatcherService,
         FileCleanupService,

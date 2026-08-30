@@ -2,16 +2,20 @@ import { Logger } from '@nestjs/common';
 import type { PlatformRuntimeConfig } from '@qingxu/config';
 import type {
   DatabaseRuntime,
+  StoreOrderCloseClaimResult,
+  StoreOrderCloseFinalizeResult,
   StoreOrderCloseResult,
   StoreOrderSnapshot,
   StoreOrderTimeoutIntegrityIssue,
   StoreOrderTimeoutResult,
 } from '@qingxu/database';
+import { type MockPaymentCallback, verifyMockPaymentCallback } from '@qingxu/payment';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   OrderTimeoutService,
   type OrderTimeoutAuditRepository,
+  type OrderTimeoutCallbackInboxRepository,
   type OrderTimeoutOutboxRepository,
   type OrderTimeoutRepository,
 } from './order-timeout.service';
@@ -21,8 +25,11 @@ const RESERVATION_ID = '01K00000000000000000000001';
 const SECOND_ORDER_ID = '01K00000000000000000000003';
 const THIRD_ORDER_ID = '01K00000000000000000000004';
 const INTEGRITY_EXPIRY = new Date('2026-08-29T00:30:00.000Z');
+const PAYMENT_SIGNING_KEY = Buffer.alloc(32, 71);
 
 const config = {
+  environment: 'test',
+  payment: { mockSigningKey: PAYMENT_SIGNING_KEY, provider: 'MOCK', providerTimeoutMs: 1_000 },
   worker: { pollIntervalMs: 1_000, batchSize: 3, maxRetries: 3, baseRetryDelayMs: 100 },
 } as PlatformRuntimeConfig;
 
@@ -83,12 +90,21 @@ function createMocks(
     listExpiredOrderIntegrityIssues: vi.fn(async () => integrityIssues),
   } as unknown as OrderTimeoutRepository;
   const audit = { append: vi.fn(async () => ({})) } as unknown as OrderTimeoutAuditRepository;
+  const callbacks = { receive: vi.fn(async () => ({ created: true })) } as unknown as OrderTimeoutCallbackInboxRepository;
   const outbox = { append: vi.fn(async () => ({})) } as unknown as OrderTimeoutOutboxRepository;
-  return { audit, database, orders, outbox, prisma, transaction, withPrismaTransaction };
+  return { audit, callbacks, database, orders, outbox, prisma, transaction, withPrismaTransaction };
 }
 
 function createService(mocks = createMocks()): OrderTimeoutService {
-  return new OrderTimeoutService(mocks.database, config, mocks.orders, mocks.audit, mocks.outbox);
+  return new OrderTimeoutService(
+    mocks.database,
+    config,
+    mocks.orders,
+    mocks.audit,
+    mocks.outbox,
+    undefined,
+    mocks.callbacks,
+  );
 }
 
 afterEach(() => {
@@ -353,5 +369,234 @@ describe('OrderTimeoutService', () => {
     expect('disconnect' in mocks.database).toBe(false);
     await service.pollOnce();
     expect(mocks.orders.expireNextOrderInTransaction).toHaveBeenCalledOnce();
+  });
+
+  it('advances the integrity cursor over clean candidates instead of paging only issue rows', async () => {
+    const mocks = createMocks([{ kind: 'none' }]);
+    const candidatePage = vi.fn()
+      .mockResolvedValueOnce({
+        items: [
+          { orderId: ORDER_ID, payExpiresAt: INTEGRITY_EXPIRY },
+          { orderId: SECOND_ORDER_ID, payExpiresAt: new Date(INTEGRITY_EXPIRY.getTime() + 1_000) },
+          { orderId: THIRD_ORDER_ID, payExpiresAt: new Date(INTEGRITY_EXPIRY.getTime() + 2_000) },
+        ],
+        nextCursor: { orderId: THIRD_ORDER_ID, payExpiresAt: new Date(INTEGRITY_EXPIRY.getTime() + 2_000) },
+      })
+      .mockResolvedValueOnce({
+        items: [],
+        nextCursor: null,
+      });
+    const integrityPage = vi.mocked(mocks.orders.listExpiredOrderIntegrityIssues)
+      .mockResolvedValueOnce([
+        { issue: 'INVENTORY_BALANCE_INVALID', orderId: SECOND_ORDER_ID, payExpiresAt: new Date(INTEGRITY_EXPIRY.getTime() + 1_000) },
+      ])
+      .mockResolvedValueOnce([]);
+    (mocks.orders as OrderTimeoutRepository).listExpiredOrderCandidates = candidatePage;
+    const service = createService(mocks);
+
+    await service.pollOnce();
+    await service.pollOnce();
+
+    expect(candidatePage).toHaveBeenNthCalledWith(1, mocks.transaction, { limit: config.worker.batchSize });
+    expect(candidatePage).toHaveBeenNthCalledWith(2, mocks.transaction, {
+      after: { orderId: THIRD_ORDER_ID, payExpiresAt: new Date(INTEGRITY_EXPIRY.getTime() + 2_000) },
+      limit: config.worker.batchSize,
+    });
+    expect(integrityPage).toHaveBeenNthCalledWith(2, mocks.transaction, {
+      after: { orderId: THIRD_ORDER_ID, payExpiresAt: new Date(INTEGRITY_EXPIRY.getTime() + 2_000) },
+      limit: config.worker.batchSize,
+    });
+  });
+
+  it('keeps Provider I/O outside the transaction and atomically records a definitive close', async () => {
+    const mocks = createMocks([{ kind: 'none' }]);
+    const claim = {
+      before: order({ payExpiresAt: INTEGRITY_EXPIRY }),
+      changed: true,
+      kind: 'PROVIDER_REQUIRED',
+      mode: 'PAYMENT_TIMEOUT',
+      order: order({ payExpiresAt: INTEGRITY_EXPIRY, version: 2 }),
+      paymentIntent: {
+        amount: '20.00',
+        closeRequestedAt: INTEGRITY_EXPIRY,
+        expiresAt: INTEGRITY_EXPIRY,
+        intentNo: 'PI-close-worker',
+        paymentIntentId: '01K00000000000000000000005',
+        provider: 'MOCK',
+        providerIntentId: 'mock-close-worker',
+        status: 'CLOSE_PENDING',
+        version: 2,
+      },
+      providerOperation: 'CLOSE',
+      reservationId: RESERVATION_ID,
+    } satisfies StoreOrderCloseClaimResult;
+    const finalResult = {
+      kind: 'CLOSED',
+      order: order({ closeReason: 'PAYMENT_TIMEOUT', orderStatus: 'CLOSED', version: 3 }),
+      paymentIntent: claim.paymentIntent,
+      reservationId: RESERVATION_ID,
+      closeResult: closedResult(),
+    } satisfies StoreOrderCloseFinalizeResult;
+    const claimNext = vi.fn()
+      .mockResolvedValueOnce(claim)
+      .mockResolvedValueOnce({ kind: 'NONE' as const });
+    const finalize = vi.fn().mockResolvedValue(finalResult);
+    (mocks.orders as OrderTimeoutRepository).claimNextOrderCloseInTransaction = claimNext;
+    (mocks.orders as OrderTimeoutRepository).finalizeOrderCloseInTransaction = finalize;
+    const provider = {
+      close: vi.fn().mockResolvedValue({
+        capability: null,
+        failureCode: null,
+        occurredAt: INTEGRITY_EXPIRY,
+        outcome: 'CLOSED',
+        providerEventId: 'mock-close-event',
+        providerIntentId: 'mock-close-worker',
+        providerTransactionId: null,
+      }),
+      query: vi.fn(),
+    };
+    const service = new OrderTimeoutService(
+      mocks.database,
+      config,
+      mocks.orders,
+      mocks.audit,
+      mocks.outbox,
+      provider,
+      mocks.callbacks,
+    );
+
+    await service.pollOnce();
+
+    expect(provider.close).toHaveBeenCalledOnce();
+    expect(provider.close).toHaveBeenCalledWith({
+      intentNo: 'PI-close-worker',
+      providerIntentId: 'mock-close-worker',
+    });
+    expect(finalize).toHaveBeenCalledWith(mocks.transaction, expect.objectContaining({
+      outcome: 'CLOSED',
+      orderId: ORDER_ID,
+      paymentIntentId: '01K00000000000000000000005',
+      expectedIntentVersion: 2,
+    }));
+    expect(mocks.audit.append).toHaveBeenCalledOnce();
+    expect(mocks.outbox.append).toHaveBeenCalledOnce();
+  });
+
+  it('records UNKNOWN reconciliation without releasing inventory or writing close facts', async () => {
+    const mocks = createMocks([{ kind: 'none' }]);
+    const claim = {
+      before: order({ payExpiresAt: INTEGRITY_EXPIRY }),
+      changed: true,
+      kind: 'PROVIDER_REQUIRED',
+      mode: 'PAYMENT_TIMEOUT',
+      order: order({ payExpiresAt: INTEGRITY_EXPIRY, version: 2 }),
+      paymentIntent: {
+        amount: '20.00', closeRequestedAt: INTEGRITY_EXPIRY, expiresAt: INTEGRITY_EXPIRY,
+        intentNo: 'PI-unknown-worker', paymentIntentId: '01K00000000000000000000006',
+        provider: 'MOCK', providerIntentId: 'mock-unknown-worker', status: 'CLOSE_PENDING', version: 2,
+      },
+      providerOperation: 'CLOSE',
+      reservationId: RESERVATION_ID,
+    } satisfies StoreOrderCloseClaimResult;
+    const pending = {
+      kind: 'PENDING',
+      order: claim.order,
+      paymentIntent: claim.paymentIntent,
+      reservationId: RESERVATION_ID,
+      closeResult: null,
+    } satisfies StoreOrderCloseFinalizeResult;
+    const claimNext = vi.fn().mockResolvedValueOnce(claim).mockResolvedValueOnce({ kind: 'NONE' as const });
+    (mocks.orders as OrderTimeoutRepository).claimNextOrderCloseInTransaction = claimNext;
+    (mocks.orders as OrderTimeoutRepository).finalizeOrderCloseInTransaction = vi.fn().mockResolvedValue(pending);
+    const provider = {
+      close: vi.fn().mockResolvedValue({
+        capability: null, failureCode: 'PROVIDER_UNAVAILABLE', occurredAt: null, outcome: 'UNKNOWN',
+        providerEventId: null, providerIntentId: 'mock-unknown-worker', providerTransactionId: null,
+      }),
+      query: vi.fn(),
+    };
+    const service = new OrderTimeoutService(mocks.database, config, mocks.orders, mocks.audit, mocks.outbox, provider);
+
+    await service.pollOnce();
+
+    expect(mocks.audit.append).not.toHaveBeenCalled();
+    expect(mocks.outbox.append).not.toHaveBeenCalled();
+    expect(provider.close).toHaveBeenCalledOnce();
+  });
+
+  it('persists a signed success Inbox fact in the same transaction as reconciliation finalization', async () => {
+    const mocks = createMocks([{ kind: 'none' }]);
+    const claim = {
+      before: order({ payExpiresAt: INTEGRITY_EXPIRY }),
+      changed: true,
+      kind: 'PROVIDER_REQUIRED',
+      mode: 'PAYMENT_TIMEOUT',
+      order: order({ payExpiresAt: INTEGRITY_EXPIRY, version: 2 }),
+      paymentIntent: {
+        amount: '20.00', closeRequestedAt: INTEGRITY_EXPIRY, expiresAt: INTEGRITY_EXPIRY,
+        intentNo: 'PI-success-worker', paymentIntentId: '01K00000000000000000000007',
+        provider: 'MOCK', providerIntentId: 'mock_success_worker', status: 'CLOSE_PENDING', version: 2,
+      },
+      providerOperation: 'CLOSE',
+      reservationId: RESERVATION_ID,
+    } satisfies StoreOrderCloseClaimResult;
+    const confirmed = {
+      closeResult: null,
+      kind: 'PAYMENT_CONFIRMED',
+      order: claim.order,
+      paymentIntent: { ...claim.paymentIntent, version: 3 },
+      reservationId: RESERVATION_ID,
+    } satisfies StoreOrderCloseFinalizeResult;
+    (mocks.orders as OrderTimeoutRepository).claimNextOrderCloseInTransaction = vi.fn()
+      .mockResolvedValueOnce(claim)
+      .mockResolvedValueOnce({ kind: 'NONE' as const });
+    (mocks.orders as OrderTimeoutRepository).finalizeOrderCloseInTransaction = vi.fn()
+      .mockResolvedValueOnce(confirmed);
+    const provider = {
+      close: vi.fn().mockResolvedValue({
+        capability: null,
+        failureCode: null,
+        occurredAt: new Date('2026-08-29T00:31:10.000Z'),
+        outcome: 'SUCCEEDED',
+        providerEventId: 'mock_event_success_worker',
+        providerIntentId: 'mock_success_worker',
+        providerTransactionId: 'mock_transaction_success_worker',
+      }),
+      query: vi.fn(),
+    };
+    const service = new OrderTimeoutService(
+      mocks.database,
+      config,
+      mocks.orders,
+      mocks.audit,
+      mocks.outbox,
+      provider,
+      mocks.callbacks,
+    );
+
+    await service.pollOnce();
+
+    expect(mocks.callbacks.receive).toHaveBeenCalledOnce();
+    const received = vi.mocked(mocks.callbacks.receive).mock.calls[0]?.[1] as unknown as {
+      eventType: 'payment.succeeded';
+      headers: MockPaymentCallback['headers'];
+      payload: MockPaymentCallback['payload'];
+      providerEventId: string;
+      rawBody: Uint8Array;
+    };
+    expect(received).toMatchObject({
+      eventType: 'payment.succeeded',
+      payload: {
+        amount: '20.00',
+        outcome: 'SUCCEEDED',
+        provider_event_id: 'mock_event_success_worker',
+        provider_transaction_id: 'mock_transaction_success_worker',
+      },
+      providerEventId: 'mock_event_success_worker',
+    });
+    expect(verifyMockPaymentCallback({ ...received }, PAYMENT_SIGNING_KEY)).toBe(true);
+    expect(Buffer.from(received.rawBody).toString('utf8')).not.toContain(ORDER_ID);
+    expect(mocks.audit.append).not.toHaveBeenCalled();
+    expect(mocks.outbox.append).not.toHaveBeenCalled();
   });
 });

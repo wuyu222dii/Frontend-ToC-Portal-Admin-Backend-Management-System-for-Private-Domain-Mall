@@ -40,6 +40,7 @@ export class StorePaymentsModule {
   static register(config: PlatformRuntimeConfig): DynamicModule {
     const exposeMockResult = config.environment === 'development' && config.payment.provider === 'MOCK';
     return {
+      global: true,
       module: StorePaymentsModule,
       controllers: [StorePaymentsController, ...(exposeMockResult ? [StoreMockPaymentsController] : [])],
       providers: [
@@ -51,6 +52,7 @@ export class StorePaymentsModule {
           useFactory: createPaymentProvider,
         },
       ],
+      exports: [StorePaymentsService, PAYMENT_PROVIDER],
     };
   }
 }

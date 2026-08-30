@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  createSignedMockPaymentSuccessCallback,
   mockPaymentIntentStateKey,
   mockPaymentRefundStateKey,
   RedisMockPaymentProvider,
@@ -219,6 +220,39 @@ describe('RedisMockPaymentProvider', () => {
     await expect(payments.submitResult({ ...input, result: 'SUCCEEDED' })).resolves.toMatchObject({
       submission: 'CONFLICT', callback: null,
     });
+  });
+
+  it('creates a verifiable success callback from a trusted Provider query result', () => {
+    const callback = createSignedMockPaymentSuccessCallback(SIGNING_KEY, '39.80', {
+      capability: null,
+      failureCode: null,
+      occurredAt: new Date(NOW_MS),
+      outcome: 'SUCCEEDED',
+      providerEventId: 'mock_ev_recovered_success',
+      providerIntentId: 'mock_pi_recovered_success',
+      providerTransactionId: 'mock_tx_recovered_success',
+    });
+
+    expect(callback).toMatchObject({
+      eventType: 'payment.succeeded',
+      payload: {
+        amount: '39.80',
+        outcome: 'SUCCEEDED',
+        provider_event_id: 'mock_ev_recovered_success',
+        provider_intent_id: 'mock_pi_recovered_success',
+        provider_transaction_id: 'mock_tx_recovered_success',
+      },
+    });
+    expect(verifyMockPaymentCallback(callback, SIGNING_KEY)).toBe(true);
+    expect(() => createSignedMockPaymentSuccessCallback(SIGNING_KEY, '39.80', {
+      capability: null,
+      failureCode: null,
+      occurredAt: new Date(NOW_MS),
+      outcome: 'SUCCEEDED',
+      providerEventId: null,
+      providerIntentId: 'mock_pi_recovered_success',
+      providerTransactionId: 'mock_tx_recovered_success',
+    })).toThrow('success facts are incomplete');
   });
 
   it('creates exactly one stable successful refund projection', async () => {

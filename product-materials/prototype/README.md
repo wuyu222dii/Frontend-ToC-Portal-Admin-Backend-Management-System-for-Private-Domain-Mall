@@ -10,7 +10,7 @@
 
 三个原型均为纯静态文件，可直接用浏览器打开，不需要安装依赖或启动服务。所有数据均为原型演示数据。
 
-当前产品/API 基线为 v2.4.8/CH-022。B0-B9 development 已完成；B10.0 已在 SHA `8cd5781eed9349d6f110fa43510e78c7f525a482` 取得普通 CI Run `33242561514`、Supabase development migration Run `33243979003`、rollback-only smoke Run `33244107293` 三项成功证据。当前目录已将 MP-09、订单 PAY/CANCEL、Mock 支付状态矩阵及 ADM-10 只读对账待办同步到 B10.0 静态参考；B10.1 Provider/支付意图/Mock Inbox 本地实现与验收已完成并以 `P0=0/P1=0` 退出，现暂停等待用户批准进入 B10.2。B10.2 未开始，B10 尚未 `GO`，CH-021 继续有效。本原型自身不构成这些工程能力或真实资金链路的验收证据。
+当前产品/API 基线为 v2.4.8/CH-022。B0-B9 development 已完成；B10.0 已在 SHA `8cd5781eed9349d6f110fa43510e78c7f525a482` 取得普通 CI Run `33242561514`、Supabase development migration Run `33243979003`、rollback-only smoke Run `33244107293` 三项成功证据。当前目录已将 MP-09、订单 PAY/CANCEL、Mock 支付状态矩阵及 ADM-10 只读对账待办同步到 B10.0 静态参考；B10.2/CH-023 已在准确 SHA `dc045fbc15d6abdd48959915ec14df9e90bc4306` 取得 CI `33253341654`、development migration `33279894978`、rollback-only smoke `33280068003` 三项成功证据。B10.3 已开始并通过本地关单/对账定向验收，远端证据 pending；B10 尚未 `GO`，CH-021 继续有效。本原型自身不构成这些工程能力或真实资金链路的验收证据。
 
 ## 验收脚本
 

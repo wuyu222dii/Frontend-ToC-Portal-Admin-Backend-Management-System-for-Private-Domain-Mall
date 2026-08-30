@@ -332,6 +332,45 @@ function callbackFor(state: StoredPaymentState): MockPaymentCallback | undefined
   };
 }
 
+/**
+ * Turn a trusted Mock Provider success query into the same signed callback
+ * envelope emitted by submitResult. Persisting this envelope in CallbackInbox
+ * lets the normal settlement worker recover when the original callback was
+ * lost, without treating an unsigned query response as a local payment fact.
+ */
+export function createSignedMockPaymentSuccessCallback(
+  signingKey: Uint8Array,
+  amount: string,
+  result: PaymentProviderIntentResult,
+): MockPaymentCallback {
+  if (result.outcome !== 'SUCCEEDED' || result.providerIntentId === null ||
+    result.providerTransactionId === null || result.providerEventId === null || result.occurredAt === null) {
+    throw new TypeError('Mock payment success facts are incomplete');
+  }
+  const occurredAt = validDate(result.occurredAt, 'Payment occurrence');
+  const payload: MockPaymentCallbackPayload = {
+    amount: money(amount),
+    occurred_at: occurredAt.toISOString(),
+    outcome: 'SUCCEEDED',
+    provider_event_id: reference(result.providerEventId, 'Provider event ID'),
+    provider_intent_id: reference(result.providerIntentId, 'Provider intent ID'),
+    provider_transaction_id: reference(result.providerTransactionId, 'Provider transaction ID'),
+    version: 1,
+  };
+  const rawBody = Buffer.from(JSON.stringify(payload), 'utf8');
+  const timestamp = String(occurredAt.getTime());
+  return {
+    eventType: 'payment.succeeded',
+    headers: {
+      mock_signature: callbackSignature(signingKey, timestamp, rawBody).toString('base64'),
+      mock_timestamp: timestamp,
+    },
+    payload,
+    providerEventId: payload.provider_event_id,
+    rawBody,
+  };
+}
+
 export function verifyMockPaymentCallback(callback: MockPaymentCallback, signingKey: Uint8Array): boolean {
   try {
     if (!(callback.rawBody instanceof Uint8Array) || callback.providerEventId !== callback.payload.provider_event_id ||

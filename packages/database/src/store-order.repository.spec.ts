@@ -187,6 +187,93 @@ function orderRecord(
   };
 }
 
+function closeOrderRecord(overrides: Record<string, unknown> = {}) {
+  const closeOrderId = id(-8_000);
+  const closeItemId = id(-7_000);
+  const expiresAt = new Date(NOW.getTime() + 30 * 60 * 1_000);
+  return {
+    _count: { aftersales: 0 },
+    aftersale_expires_at: null,
+    aftersales: [],
+    business_rule_version_id: null,
+    close_reason: null,
+    closed_at: null,
+    completed_at: null,
+    completion_reason: null,
+    created_at: new Date(NOW.getTime() - 60_000),
+    customer_id: customerId,
+    final_agent_id: null,
+    final_channel: null,
+    fulfillment_status: 'NOT_STARTED',
+    goods_amount: new Prisma.Decimal('19.90'),
+    id: closeOrderId,
+    inventory_reservation: { id: id(-6_000), status: 'ACTIVE' },
+    items: [{
+      aftersale_reserved_amount: new Prisma.Decimal('0.00'),
+      aftersale_reserved_qty: 0,
+      brand_name_snapshot: 'Close Brand',
+      category_id: categoryId,
+      category_name_snapshot: 'Close Category',
+      created_at: new Date(NOW.getTime() - 50_000),
+      id: closeItemId,
+      line_paid_amount: new Prisma.Decimal('19.90'),
+      pre_shipment_refunded_qty: 0,
+      product_id: productId,
+      product_name_snapshot: 'Close Product',
+      quantity: 1,
+      refunded_amount: new Prisma.Decimal('0.00'),
+      refunded_qty: 0,
+      shipped_qty: 0,
+      sku_code_snapshot: 'CLOSE-SKU',
+      sku_id: skuId,
+      sku_name_snapshot: 'Close SKU',
+      unit_price: new Prisma.Decimal('19.90'),
+      version: 1,
+    }],
+    order_no: `QX${closeOrderId}`,
+    order_status: 'PENDING_PAYMENT',
+    paid_amount: new Prisma.Decimal('0.00'),
+    paid_at: null,
+    pay_expires_at: expiresAt,
+    payable_amount: new Prisma.Decimal('19.90'),
+    payment_intents: [],
+    payment_resolution: 'NORMAL',
+    payment_status: 'UNPAID',
+    refund_processing_status: 'IDLE',
+    refund_progress_status: 'NONE',
+    refunded_amount: new Prisma.Decimal('0.00'),
+    shipping_amount: new Prisma.Decimal('0.00'),
+    source: 'BUY_NOW',
+    updated_at: NOW,
+    version: 1,
+    ...overrides,
+  };
+}
+
+function closeIntentRecord(orderId: string, overrides: Record<string, unknown> = {}) {
+  const intentId = id(-5_000);
+  return {
+    amount: new Prisma.Decimal('19.90'),
+    close_attempt_count: 0,
+    close_requested_at: null,
+    closed_at: null,
+    expires_at: new Date(NOW.getTime() + 30 * 60 * 1_000),
+    id: intentId,
+    intent_no: `PI${intentId}`,
+    last_error_code: null,
+    next_reconcile_at: null,
+    order_id: orderId,
+    provider: 'MOCK',
+    provider_intent_id: 'mock-close-intent',
+    provider_state: 'OPEN',
+    reconciliation_attempt_count: 0,
+    status: 'OPEN',
+    updated_at: NOW,
+    version: 1,
+    ...overrides,
+  };
+}
+
 function harness(options: {
   catalogDrift?: boolean;
   catalogMissingAfterLock?: boolean;
@@ -336,13 +423,12 @@ describe('StoreOrderRepository', () => {
     const statement = query.strings.join('?');
     expect(statement).toContain("so.order_status = 'PENDING_PAYMENT'");
     expect(statement).toContain('so.pay_expires_at <= transaction_timestamp()');
-    expect(statement).toContain('FROM public.payment_intent');
     expect(statement).toContain('IS DISTINCT FROM');
     expect(statement).toContain('LEFT JOIN public.inventory_balance');
     expect(statement).toContain('SUM(active_iri.quantity)');
     expect(statement).toContain("active_ir.status = 'ACTIVE' AND active_iri.sku_id = iri.sku_id");
     expect(statement).toContain('ib.locked_qty <>');
-    expect(statement.indexOf('WHERE issue_code IS NOT NULL')).toBeLessThan(statement.indexOf('LIMIT ?'));
+    expect(statement.indexOf('LIMIT ?')).toBeLessThan(statement.indexOf('WHERE issue_code IS NOT NULL'));
     expect(statement).not.toMatch(/\b(?:DELETE|INSERT|UPDATE)\b/i);
     expect(query.values).toEqual([20]);
   });
@@ -377,6 +463,295 @@ describe('StoreOrderRepository', () => {
     expect(statement).toContain('SUM(active_iri.quantity)');
     expect(statement).toContain("active_ir.status = 'ACTIVE' AND active_iri.sku_id = iri.sku_id");
     expect(statement).not.toContain('ib.locked_qty < iri.quantity');
+  });
+
+  it('pages every expired candidate with a stable cursor, including clean orders', async () => {
+    const firstOrderId = id(-12_000);
+    const secondOrderId = id(-11_000);
+    const thirdOrderId = id(-10_000);
+    const firstExpiry = new Date('2026-08-29T00:01:00.000Z');
+    const secondExpiry = new Date('2026-08-29T00:02:00.000Z');
+    const thirdExpiry = new Date('2026-08-29T00:03:00.000Z');
+    const queryRaw = vi.fn().mockResolvedValue([
+      { order_id: firstOrderId, pay_expires_at: firstExpiry },
+      { order_id: secondOrderId, pay_expires_at: secondExpiry },
+      { order_id: thirdOrderId, pay_expires_at: thirdExpiry },
+    ]);
+    const transaction = { $queryRaw: queryRaw } as unknown as DatabaseTransaction;
+    const repository = new StoreOrderRepository({} as PrismaClient);
+
+    await expect(repository.listExpiredOrderCandidates(transaction, { limit: 2 })).resolves.toEqual({
+      items: [
+        { orderId: firstOrderId, payExpiresAt: firstExpiry },
+        { orderId: secondOrderId, payExpiresAt: secondExpiry },
+      ],
+      nextCursor: { orderId: secondOrderId, payExpiresAt: secondExpiry },
+    });
+    const query = queryRaw.mock.calls[0]![0] as { strings: readonly string[]; values: readonly unknown[] };
+    const statement = query.strings.join('?');
+    expect(statement).toContain("so.payment_status IN ('UNPAID', 'PROCESSING')");
+    expect(statement).toContain('ORDER BY so.pay_expires_at ASC, so.id ASC');
+    expect(statement).not.toContain('WHERE issue_code IS NOT NULL');
+    expect(statement).not.toMatch(/\b(?:DELETE|INSERT|UPDATE)\b/i);
+    expect(query.values).toEqual([3]);
+  });
+
+  it('rejects malformed timeout candidate rows and cursor bounds', async () => {
+    const queryRaw = vi.fn().mockResolvedValue([
+      { order_id: id(-12_000), pay_expires_at: new Date('invalid') },
+    ]);
+    const transaction = { $queryRaw: queryRaw } as unknown as DatabaseTransaction;
+    const repository = new StoreOrderRepository({} as PrismaClient);
+    await expect(repository.listExpiredOrderCandidates(transaction, { limit: 0 }))
+      .rejects.toThrow('candidate limit must be between 1 and 100');
+    expect(queryRaw).not.toHaveBeenCalled();
+    await expect(repository.listExpiredOrderCandidates(transaction, { limit: 1 }))
+      .rejects.toMatchObject({ code: 'INTERNAL_ERROR' });
+  });
+
+  it('claims an active OPEN payment intent without touching the reservation', async () => {
+    const record = closeOrderRecord();
+    const intent = closeIntentRecord(record.id);
+    const transactionStub = {
+      paymentIntent: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      salesOrder: {
+        findUnique: vi.fn().mockResolvedValueOnce(record).mockResolvedValueOnce({
+          ...record,
+          payment_intents: [{ id: intent.id }],
+        }),
+      },
+    } as unknown as DatabaseTransaction;
+    const repository = new StoreOrderRepository({} as PrismaClient);
+    const internals = repository as unknown as {
+      acquireCustomerLocks: ReturnType<typeof vi.fn>;
+      lockCloseOrderRows: ReturnType<typeof vi.fn>;
+      lockPaymentIntents: ReturnType<typeof vi.fn>;
+      paymentIntentHasSuccessfulAttempt: ReturnType<typeof vi.fn>;
+      transactionTime: ReturnType<typeof vi.fn>;
+    };
+    internals.acquireCustomerLocks = vi.fn().mockResolvedValue(undefined);
+    internals.lockCloseOrderRows = vi.fn().mockResolvedValue(undefined);
+    internals.lockPaymentIntents = vi.fn().mockResolvedValue([intent]);
+    internals.paymentIntentHasSuccessfulAttempt = vi.fn().mockResolvedValue(false);
+    internals.transactionTime = vi.fn().mockResolvedValue(NOW);
+    // Assigning through the structural view lets this test isolate the
+    // transaction orchestration without weakening production visibility.
+    const result = await repository.claimOrderCloseInTransaction(transactionStub, {
+      accountId,
+      customerId,
+      expectedVersion: 1,
+      mode: 'USER_CANCELLED',
+      orderId: record.id,
+    });
+    expect(result).toMatchObject({
+      changed: true,
+      kind: 'PROVIDER_REQUIRED',
+      mode: 'USER_CANCELLED',
+      paymentIntent: {
+        paymentIntentId: intent.id,
+        status: 'CLOSE_PENDING',
+        version: 2,
+      },
+      providerOperation: 'CLOSE',
+    });
+    expect(transactionStub.paymentIntent.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        next_reconcile_at: new Date(NOW.getTime() + 60_000),
+        status: 'CLOSE_PENDING',
+        version: { increment: 1 },
+      }),
+      where: { id: intent.id, order_id: record.id, version: 1 },
+    }));
+  });
+
+  it('continues a pre-expiry user cancellation after the order has expired', async () => {
+    const expiresAt = new Date(NOW.getTime() - 30 * 60 * 1_000);
+    const closeRequestedAt = new Date(expiresAt.getTime() - 1_000);
+    const record = closeOrderRecord({ pay_expires_at: expiresAt });
+    const intent = closeIntentRecord(record.id, {
+      close_requested_at: closeRequestedAt,
+      expires_at: expiresAt,
+      status: 'CLOSE_PENDING',
+      version: 2,
+    });
+    const transactionStub = {
+      salesOrder: { findUnique: vi.fn().mockResolvedValue(record) },
+      paymentIntent: { updateMany: vi.fn() },
+    } as unknown as DatabaseTransaction;
+    const repository = new StoreOrderRepository({} as PrismaClient);
+    const internals = repository as unknown as {
+      acquireCustomerLocks: ReturnType<typeof vi.fn>;
+      lockCloseOrderRows: ReturnType<typeof vi.fn>;
+      lockPaymentIntents: ReturnType<typeof vi.fn>;
+      paymentIntentHasSuccessfulAttempt: ReturnType<typeof vi.fn>;
+      transactionTime: ReturnType<typeof vi.fn>;
+    };
+    internals.acquireCustomerLocks = vi.fn().mockResolvedValue(undefined);
+    internals.lockCloseOrderRows = vi.fn().mockResolvedValue(undefined);
+    internals.lockPaymentIntents = vi.fn().mockResolvedValue([intent]);
+    internals.paymentIntentHasSuccessfulAttempt = vi.fn().mockResolvedValue(false);
+    internals.transactionTime = vi.fn().mockResolvedValue(NOW);
+
+    await expect(repository.claimOrderCloseInTransaction(transactionStub, {
+      accountId,
+      customerId,
+      expectedVersion: record.version,
+      mode: 'USER_CANCELLED',
+      orderId: record.id,
+    })).resolves.toMatchObject({
+      changed: false,
+      kind: 'PENDING',
+      mode: 'USER_CANCELLED',
+      paymentIntent: { status: 'CLOSE_PENDING', version: 2 },
+    });
+    expect(transactionStub.paymentIntent.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('records UNKNOWN Provider close results as pending and preserves the reservation', async () => {
+    const record = closeOrderRecord();
+    const intent = closeIntentRecord(record.id, {
+      close_requested_at: NOW,
+      status: 'CLOSE_PENDING',
+      version: 2,
+    });
+    const updatedIntent = {
+      ...intent,
+      last_error_code: 'PROVIDER_UNKNOWN',
+      last_reconciled_at: NOW,
+      next_reconcile_at: new Date(NOW.getTime() + 60_000),
+      provider_state: 'UNKNOWN',
+      reconciliation_attempt_count: 1,
+      updated_at: NOW,
+      version: 3,
+    };
+    const transactionStub = {
+      $queryRaw: vi.fn().mockResolvedValue([{ transaction_time: NOW }]),
+      paymentIntent: {
+        findUnique: vi.fn().mockResolvedValue(updatedIntent),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      salesOrder: {
+        findUnique: vi.fn().mockResolvedValue(record),
+      },
+    } as unknown as DatabaseTransaction;
+    const repository = new StoreOrderRepository({} as PrismaClient);
+    const internals = repository as unknown as {
+      lockCloseOrderRows: ReturnType<typeof vi.fn>;
+      lockPaymentIntents: ReturnType<typeof vi.fn>;
+    };
+    internals.lockCloseOrderRows = vi.fn().mockResolvedValue(undefined);
+    internals.lockPaymentIntents = vi.fn().mockResolvedValue([intent]);
+    const result = await repository.finalizeOrderCloseInTransaction(transactionStub, {
+      errorCode: 'PROVIDER_UNKNOWN',
+      expectedIntentVersion: 2,
+      orderId: record.id,
+      outcome: 'UNKNOWN',
+      paymentIntentId: intent.id,
+      providerIntentId: intent.provider_intent_id,
+      // A Provider clock is not authoritative.  The repository must persist
+      // the database transaction timestamp instead of this future observation.
+      occurredAt: new Date(NOW.getTime() + 24 * 60 * 60 * 1_000),
+    });
+    expect(result).toMatchObject({
+      kind: 'PENDING',
+      order: { orderId: record.id, orderStatus: 'PENDING_PAYMENT' },
+      paymentIntent: { status: 'CLOSE_PENDING', version: 3 },
+      reservationId: record.inventory_reservation.id,
+      closeResult: null,
+    });
+    expect(transactionStub.paymentIntent.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        last_error_code: 'PROVIDER_UNKNOWN',
+        last_reconciled_at: NOW,
+        next_reconcile_at: expect.any(Date),
+        updated_at: NOW,
+      }),
+    }));
+  });
+
+  it('uses the database clock and preserves a pre-expiry user-cancel decision after Provider delay', async () => {
+    const expiresAt = new Date(NOW.getTime() + 30 * 60 * 1_000);
+    const closeRequestedAt = new Date(NOW.getTime() + 5 * 60 * 1_000);
+    const transactionNow = new Date(expiresAt.getTime() + 5 * 60 * 1_000);
+    const record = closeOrderRecord({ pay_expires_at: expiresAt });
+    const intent = closeIntentRecord(record.id, {
+      close_requested_at: closeRequestedAt,
+      expires_at: expiresAt,
+      status: 'CLOSE_PENDING',
+      version: 2,
+    });
+    const updatedIntent = {
+      ...intent,
+      closed_at: transactionNow,
+      status: 'CANCELLED',
+      version: 3,
+    };
+    const transactionStub = {
+      paymentIntent: {
+        findUnique: vi.fn().mockResolvedValue(updatedIntent),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      salesOrder: {
+        findUnique: vi.fn().mockResolvedValueOnce(record).mockResolvedValueOnce(record),
+      },
+    } as unknown as DatabaseTransaction;
+    const repository = new StoreOrderRepository({} as PrismaClient);
+    const internals = repository as unknown as {
+      closeLockedOrder: ReturnType<typeof vi.fn>;
+      lockCloseOrderRows: ReturnType<typeof vi.fn>;
+      lockPaymentIntents: ReturnType<typeof vi.fn>;
+      transactionTime: ReturnType<typeof vi.fn>;
+    };
+    internals.closeLockedOrder = vi.fn().mockResolvedValue({
+      before: {},
+      changed: true,
+      order: {},
+      reservationId: record.inventory_reservation.id,
+    });
+    internals.lockCloseOrderRows = vi.fn().mockResolvedValue(undefined);
+    internals.lockPaymentIntents = vi.fn().mockResolvedValue([intent]);
+    internals.transactionTime = vi.fn().mockResolvedValue(transactionNow);
+
+    await expect(repository.finalizeOrderCloseInTransaction(transactionStub, {
+      expectedIntentVersion: intent.version,
+      occurredAt: new Date(transactionNow.getTime() + 24 * 60 * 60 * 1_000),
+      orderId: record.id,
+      outcome: 'NOT_FOUND',
+      paymentIntentId: intent.id,
+      providerIntentId: intent.provider_intent_id,
+    })).resolves.toMatchObject({ kind: 'CLOSED' });
+
+    expect(internals.closeLockedOrder).toHaveBeenCalledWith(transactionStub, {
+      expectedVersion: record.version,
+      mode: 'USER_CANCELLED',
+      orderId: record.id,
+      requestedAt: closeRequestedAt,
+    });
+    expect(transactionStub.paymentIntent.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        closed_at: transactionNow,
+        last_reconciled_at: transactionNow,
+        updated_at: transactionNow,
+      }),
+    }));
+  });
+
+  it('does not select an early OPEN intent for timeout reconciliation', async () => {
+    const queryRaw = vi.fn().mockResolvedValue([]);
+    const transaction = { $queryRaw: queryRaw } as unknown as DatabaseTransaction;
+    const repository = new StoreOrderRepository({} as PrismaClient);
+
+    await expect(repository.claimNextOrderCloseInTransaction(transaction)).resolves.toEqual({ kind: 'NONE' });
+
+    const query = queryRaw.mock.calls[0]![0] as { strings: readonly string[] };
+    const statement = query.strings.join('?');
+    expect(statement).toContain("due.status IN ('CREATING', 'OPEN')");
+    expect(statement).toContain("due.status = 'CLOSE_PENDING'");
+    expect(statement).toContain('due.next_reconcile_at <= transaction_timestamp()');
+    expect(statement).not.toContain('OR so.pay_expires_at <= transaction_timestamp()\n              )');
+    expect(statement).toContain('FOR UPDATE OF so SKIP LOCKED');
   });
 
   it('creates one CART order, reserves exact inventory and follows the shared lock order', async () => {

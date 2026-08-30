@@ -34,7 +34,8 @@ const SECOND_SKU_ID = '01J40000000000000000000000';
 const QUOTE_ID = '01J50000000000000000000000';
 const ORDER_ID = '01J60000000000000000000000';
 const IDEMPOTENCY_KEY = '123e4567-e89b-42d3-a456-426614174000';
-const NOW = Date.parse('2026-08-29T01:00:00.000Z');
+// Keep the fixture outside the one-day journal TTL as the calendar advances.
+const NOW = Date.parse('2099-08-29T01:00:00.000Z');
 
 const order = { order_id: ORDER_ID } as unknown as StoreOrder;
 

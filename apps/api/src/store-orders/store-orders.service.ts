@@ -32,7 +32,11 @@ import {
   storeCheckoutQuoteRequestBinding,
 } from '../store-checkout/store-checkout.service';
 import { StoreCheckoutQuoteCredential } from '../store-checkout/store-checkout-quote-credential';
+import { StorePaymentsService } from '../store-payments/store-payments.service';
 import type { StoreOrderListQuery, StoreOrderSubmitRequest } from './store-orders.dto';
+
+/** Internal, non-serialized marker consumed only by StoreOrdersController. */
+export const STORE_ORDER_HTTP_STATUS = Symbol('STORE_ORDER_HTTP_STATUS');
 
 const ORDER_COLLECTION_ROUTE = '/store/orders';
 const ORDER_CANCEL_ROUTE = '/store/orders/{order_id}/cancel';
@@ -88,6 +92,7 @@ export class StoreOrdersService {
     @Optional() @Inject(API_RUNTIME_CONFIG) private readonly config?: PlatformRuntimeConfig,
     @Optional() @Inject(API_DATABASE_RUNTIME) private readonly database?: DatabaseRuntime,
     @Optional() @Inject(API_OBJECT_STORAGE) private readonly storage?: ObjectStoragePort,
+    @Optional() @Inject(StorePaymentsService) private readonly payments?: StorePaymentsService,
   ) {
     if (config && database) {
       this.orders = new StoreOrderRepository(database.prisma);
@@ -201,7 +206,7 @@ export class StoreOrdersService {
     });
   }
 
-  cancelOrder(
+  async cancelOrder(
     session: CurrentStoreSession,
     orderId: string,
     expectedVersion: number,
@@ -209,6 +214,29 @@ export class StoreOrdersService {
     requestId: string,
     ipAddress?: string,
   ) {
+    // B10.3 uses the shared claim -> Provider -> finalize protocol when the
+    // payment module is available. Unit-level callers without that module
+    // retain the B9 local close path.
+    if (this.payments) {
+      const result = await this.payments.requestOrderCancellation(
+        session,
+        orderId,
+        expectedVersion,
+        idempotencyKey,
+        requestId,
+        ipAddress,
+      );
+      const view = this.orderView(result.order) as Record<string | symbol, unknown>;
+      if (result.statusCode !== 200) {
+        Object.defineProperty(view, STORE_ORDER_HTTP_STATUS, {
+          configurable: false,
+          enumerable: false,
+          value: result.statusCode,
+          writable: false,
+        });
+      }
+      return view;
+    }
     const claim = this.cancelClaim(session.accountId, orderId, expectedVersion, idempotencyKey);
     return runSerializableTransaction(this.databaseRuntime().prisma, async (transaction) => {
       const claimed = await this.idempotencyRepository().claim(transaction, claim);

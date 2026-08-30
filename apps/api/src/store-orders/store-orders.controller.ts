@@ -8,8 +8,11 @@ import {
   Param,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+
+type HttpResponse = { status(code: number): HttpResponse };
 
 import { RequireRoles } from '../platform/access/rbac.metadata';
 import { IdempotencyKey } from '../platform/http/idempotency-key.decorator';
@@ -29,7 +32,7 @@ import {
   parseStoreOrderListQuery,
   parseStoreOrderSubmitBody,
 } from './store-orders.dto';
-import { StoreOrdersService } from './store-orders.service';
+import { STORE_ORDER_HTTP_STATUS, StoreOrdersService } from './store-orders.service';
 
 @Controller('store/orders')
 @RequireRoles('CUSTOMER')
@@ -89,17 +92,18 @@ export class StoreOrdersController {
   @Post(':order_id/cancel')
   @HttpCode(HttpStatus.OK)
   @NoStore()
-  cancel(
+  async cancel(
     @Param('order_id') orderIdValue: string,
     @Body() body: unknown,
     @Query() query: unknown,
     @IfMatchVersion() expectedVersion: number,
     @IdempotencyKey() key: string,
     @StoreAuthRequest() request: StoreAuthRequestContext,
+    @Res({ passthrough: true }) response: HttpResponse,
   ) {
     parseStoreEmptyBody(body);
     parseStoreAuthEmptyQuery(query);
-    return this.orders.cancelOrder(
+    const result = await this.orders.cancelOrder(
       requireStoreSession(request),
       parseStoreOrderId(orderIdValue),
       expectedVersion,
@@ -107,5 +111,8 @@ export class StoreOrdersController {
       requireStoreRequestId(request),
       storeRequestIp(request),
     );
+    const status = (result as Record<string | symbol, unknown>)[STORE_ORDER_HTTP_STATUS];
+    if (status === HttpStatus.ACCEPTED) response.status(HttpStatus.ACCEPTED);
+    return result;
   }
 }

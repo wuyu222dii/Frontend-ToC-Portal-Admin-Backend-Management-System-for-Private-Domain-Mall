@@ -308,7 +308,7 @@ test('browser creates, queries and closes B9 reservations through real API, data
     await uniButton(page, '取消订单').click();
     await page.getByText('确认取消', { exact: true }).last().click();
     expect((await cancelPromise).status()).toBe(200);
-    await expect(page.getByText('订单已取消，预占库存已释放。', { exact: true })).toBeVisible();
+    await expect(page.getByText('订单已取消，服务端已确认关闭。', { exact: true })).toBeVisible();
     await expect(page.getByText('用户取消订单', { exact: true })).toBeVisible();
 
     await navigate(page, `/pages/orders/detail?order_id=${expiredOrderId}`, 'reLaunch');

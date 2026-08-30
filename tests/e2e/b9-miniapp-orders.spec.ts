@@ -829,7 +829,7 @@ test('B9.4 issues exact list filters and safely retries cancel after 409 and res
   await expect(page.getByText(/取消结果暂时无法确认/, { exact: false })).toBeVisible();
   await uniButton(page, '取消订单').click();
   await confirmModal(page, '确认取消');
-  await expect(page.getByText('订单已取消，预占库存已释放。', { exact: true })).toBeVisible();
+  await expect(page.getByText('订单已取消，服务端已确认关闭。', { exact: true })).toBeVisible();
   await expect(page.getByText('已关闭', { exact: true })).toBeVisible();
 
   const cancelCalls = backend.calls.filter(({ method, path }) =>

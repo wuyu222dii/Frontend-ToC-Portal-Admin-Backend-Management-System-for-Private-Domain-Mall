@@ -1,6 +1,6 @@
 # 技术设计交付索引
 
-> 当前产品/API 基线仍为 MVP/PRD v2.4.8、线协议 CH-022；数据库修复 CH-023（2026-08-30）不改变在线契约。B10.2/0004 已在准确 SHA `dc045fbc15d6abdd48959915ec14df9e90bc4306` 上通过普通 CI Run `33253341654`、Supabase development migration Run `33279894978` 与 rollback-only smoke Run `33280068003`，本地复审为 `P0=0/P1=0/P2=2`。B10.3 已开始，关单/对账与稳定候选游标的本地定向验收已通过；B10.3 远端 CI、development migration 与 rollback-only smoke 仍 pending。B10 不得 `GO`，CH-021 继续有效；仅允许 Mock Provider 和脱敏 development，staging、production 与真实支付均为 `NO-GO`。
+> 当前产品/API 基线仍为 MVP/PRD v2.4.8、线协议 CH-022；数据库修复 CH-023（2026-08-30）不改变在线契约。B10.3 已在准确 SHA `524ffe84cc6e88d0e0b6b1fb9c132a9dc752317f` 上通过普通 CI Run `33288346901`、Supabase development migration Run `33290094491` 与 rollback-only smoke Run `33290244592`。B10.4 迟到支付与全额自动退款已完成本地实现、验收与 `P0=0/P1=0` 复审，远端三项证据 pending。B10 不得 `GO`，CH-021 继续有效；仅允许 Mock Provider 和脱敏 development，staging、production 与真实支付均为 `NO-GO`。
 
 | 文件 | 用途 |
 |---|---|
@@ -92,7 +92,7 @@
 - 两份 Prisma schema 保持 76 models / 59 enums，既有 0001/0002 逐字节不变；0003 只增加 payment intent 成功事实与订单 LATE_PAYMENT 退款两个条件唯一索引。
 - 本地契约生成/校验、完整迁移回放、历史重复预检、权限、冻结指纹和 migration diff 门禁已通过；B10.0 准确 SHA 的普通 CI、Supabase development migration 和 rollback-only smoke 也已依次成功。
 - B10.0 文档/契约/迁移/静态原型与三项远端门禁均已完成；B10.1 Provider、支付意图与 Mock Inbox 本地实现/验收及 `P0=0/P1=0` 退出复审已完成。既有 `CREATING` 必须先 query、仅 `NOT_FOUND` 才 create；`OPEN` 原子推进订单为 `PROCESSING` 并递增版本，明确终态恢复 `UNPAID`，陈旧 `If-Match` 新命令返回 409。
-- B10.2/0004 完整迁移链和真实 `mall_runtime` 正佣金/0% 验收已在准确 SHA `dc045fbc15d6abdd48959915ec14df9e90bc4306` 通过普通 CI `33253341654`、development migration `33279894978` 与 rollback-only smoke `33280068003`；CH-023 保持 SECURITY INVOKER 和 runtime 最小权限。B10.3 已开始并通过本地关单/对账定向验收，远端证据 pending，B10 不得 `GO`，CH-021 继续有效并在 B10.6 后才自动失效。
+- B10.3 已在准确 SHA `524ffe84cc6e88d0e0b6b1fb9c132a9dc752317f` 通过普通 CI `33288346901`、development migration `33290094491` 与 rollback-only smoke `33290244592`；CH-023 保持 SECURITY INVOKER 和 runtime 最小权限。B10.4 本地迟到退款实现、真实 rollback 验收与复审完成，远端证据 pending，B10 不得 `GO`，CH-021 继续有效并在 B10.6 后才自动失效。
 
 ## B3.1 当前验证状态
 
@@ -123,7 +123,7 @@ B8 的 CH-017/CH-018、冻结契约、串行批次与最终证据见 `../05-开�
 
 B9 的 CH-019/CH-020、契约/迁移边界及最终证据见 `../05-开发管理/B9-订单报价与库存预占.md`。B9.0-B9.5 已完成，最终复审保持 `P0=0/P1=0/P2=1`；最终 SHA `19f9ad57190b28d11922db805b39af95b2f7ba3b` 的普通 CI Run `33230769777` 与 Supabase development rollback-only smoke Run `33233087710` 同 SHA 且均为 `completed/success`，B9 development `GO`，CH-019 已自动失效。唯一 P2 TR-020 不阻断 development；staging 前外部独立复核不得豁免，staging、production 与真实支付仍为 `NO-GO`。
 
-B10 的 CH-021/CH-022/CH-023、契约/迁移边界与批次见 `../05-开发管理/B10-支付对账与迟到支付退款.md`。B10.2/0004 已在准确 SHA `dc045fbc15d6abdd48959915ec14df9e90bc4306` 通过普通 CI `33253341654`、development migration `33279894978` 和 rollback-only smoke `33280068003`；B10.3 已开始并通过本地关单/对账定向测试，但其远端三项证据仍 pending。B10.2 已完成，B10 不得 `GO`，CH-021 继续有效。静态 Mock 支付原型或旧 0003 远端记录不等于 B10.3 验收证据。
+B10 的 CH-021/CH-022/CH-023、契约/迁移边界与批次见 `../05-开发管理/B10-支付对账与迟到支付退款.md`。B10.3 已在准确 SHA `524ffe84cc6e88d0e0b6b1fb9c132a9dc752317f` 通过普通 CI `33288346901`、development migration `33290094491` 和 rollback-only smoke `33290244592`；B10.4 本地迟到退款实现、真实 rollback 测试与复审完成，其远端三项证据仍 pending。B10 不得 `GO`，CH-021 继续有效。静态 Mock 支付原型或 B10.3 远端记录不等于 B10.4 验收证据。
 
 ## 剩余上线门禁
 

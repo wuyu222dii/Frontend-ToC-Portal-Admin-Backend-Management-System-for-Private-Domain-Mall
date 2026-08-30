@@ -1,8 +1,11 @@
 import type {
   DatabaseRuntime,
   DatabaseTransaction,
+  StoreLatePaymentRefundFinalizeInput,
+  StoreLatePaymentRefundOperation,
   StorePaymentCallbackResult,
 } from '@qingxu/database';
+import type { PaymentProviderPort } from '@qingxu/payment';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { WorkerCallbackHandler } from './outbox-dispatcher.service';
@@ -21,6 +24,8 @@ const OCCURRED_AT = '2026-08-29T08:00:00.000Z';
 const PAYMENT_INTENT_ID = '01K00000000000000000000003';
 const ORDER_ID = '01K00000000000000000000004';
 const COMMISSION_ID = '01K00000000000000000000005';
+const REFUND_ID = '01K0000000000000000000000A';
+const REFUND_ATTEMPT_ID = '01K0000000000000000000000B';
 
 function callbackEvent(
   outcome: MockPaymentCallbackOutcome = 'SUCCEEDED',
@@ -87,11 +92,55 @@ function callbackResult(outcome: MockPaymentCallbackOutcome = 'SUCCEEDED'): Stor
     finalChannel: outcome === 'SUCCEEDED' ? 'AGENT' : null,
     inventoryLedgerIds: outcome === 'SUCCEEDED' ? ['01K00000000000000000000007'] : [],
     kind: outcome === 'SUCCEEDED' ? 'SETTLED' : 'TERMINAL',
+    lateRefund: null,
     orderId: ORDER_ID,
     outcome,
     paymentAttemptId: '01K00000000000000000000008',
     paymentIntentId: PAYMENT_INTENT_ID,
     providerEventId: 'mock_ev_0123456789abcdef',
+    reservationId: '01K00000000000000000000009',
+  };
+}
+
+function lateRefundResult(changed = true): StorePaymentCallbackResult {
+  const operation = {
+    amount: '12.34',
+    orderId: ORDER_ID,
+    paymentIntentId: PAYMENT_INTENT_ID,
+    provider: 'MOCK' as const,
+    providerIntentId: 'mock_pi_0123456789abcdef',
+    providerTransactionId: 'mock_tx_0123456789abcdef',
+    refundAttemptId: REFUND_ATTEMPT_ID,
+    refundId: REFUND_ID,
+    refundNo: `RF${REFUND_ID}`,
+    refundVersion: 1,
+  };
+  return {
+    ...callbackResult(),
+    after: {
+      intentStatus: 'SUCCEEDED',
+      intentVersion: 3,
+      orderPaymentResolution: 'LATE_SUCCESS_REFUND_PENDING',
+      orderPaymentStatus: 'PAID',
+      orderStatus: 'CLOSED',
+      orderVersion: 5,
+    },
+    before: {
+      intentStatus: changed ? 'CLOSED' : 'SUCCEEDED',
+      intentVersion: changed ? 2 : 3,
+      orderPaymentResolution: changed ? 'NORMAL' : 'LATE_SUCCESS_REFUND_PENDING',
+      orderPaymentStatus: changed ? 'UNPAID' : 'PAID',
+      orderStatus: 'CLOSED',
+      orderVersion: changed ? 4 : 5,
+    },
+    changed,
+    commissionLedgerIds: [],
+    commissionSnapshotIds: [],
+    finalAgentId: null,
+    finalChannel: null,
+    inventoryLedgerIds: [],
+    kind: 'LATE_REFUND_REQUIRED',
+    lateRefund: operation,
     reservationId: '01K00000000000000000000009',
   };
 }
@@ -103,14 +152,45 @@ function createMocks(outcome: MockPaymentCallbackOutcome = 'SUCCEEDED') {
   const database = { prisma } as unknown as DatabaseRuntime;
   const payments = {
     applyPaymentCallbackInTransaction: vi.fn(async () => callbackResult(outcome)),
+    claimLatePaymentRefundInTransaction: vi.fn(async (
+      _transaction: DatabaseTransaction,
+      operation: StoreLatePaymentRefundOperation,
+    ) => ({
+      kind: 'CLAIMED' as const,
+      operation: { ...operation, refundVersion: operation.refundVersion + 1 },
+    })),
+    finalizeLatePaymentRefundInTransaction: vi.fn(async (
+      _transaction: DatabaseTransaction,
+      input: StoreLatePaymentRefundFinalizeInput,
+    ) => ({
+      afterOrderVersion: 6,
+      afterRefundStatus: input.result.kind === 'SUCCEEDED' ? 'SUCCEEDED' as const : 'FAILED' as const,
+      afterRefundVersion: 3,
+      beforeOrderVersion: 5,
+      beforeRefundStatus: 'PROCESSING' as const,
+      beforeRefundVersion: 2,
+      changed: true,
+      kind: input.result.kind === 'SUCCEEDED' ? 'REFUNDED' as const : 'MANUAL_REQUIRED' as const,
+      orderId: ORDER_ID,
+      refundId: REFUND_ID,
+    })),
   } as unknown as WorkerPaymentCallbackRepository;
   const audit = { append: vi.fn(async () => ({})) } as unknown as PaymentCallbackAuditRepository;
   const outbox = { append: vi.fn(async () => ({})) } as unknown as PaymentCallbackOutboxRepository;
-  return { audit, database, outbox, payments, prisma };
+  const provider = {
+    refund: vi.fn(async () => ({
+      failureCode: null,
+      occurredAt: new Date(OCCURRED_AT),
+      outcome: 'SUCCEEDED' as const,
+      providerEventId: 'mock_re_0123456789abcdef',
+      providerRefundId: 'mock_rf_0123456789abcdef',
+    })),
+  } as unknown as Pick<PaymentProviderPort, 'refund'>;
+  return { audit, database, outbox, payments, prisma, provider };
 }
 
 function createService(mocks = createMocks()): PaymentCallbackService {
-  return new PaymentCallbackService(mocks.database, mocks.payments, mocks.audit, mocks.outbox);
+  return new PaymentCallbackService(mocks.database, mocks.payments, mocks.audit, mocks.outbox, mocks.provider);
 }
 
 describe('PaymentCallbackService', () => {
@@ -368,6 +448,109 @@ describe('PaymentCallbackService', () => {
       ]);
     },
   );
+
+  it('commits a late-payment fact before calling Provider and then finalizes the full refund', async () => {
+    const mocks = createMocks();
+    vi.mocked(mocks.payments.applyPaymentCallbackInTransaction).mockResolvedValue(lateRefundResult());
+
+    await createService(mocks).handle(callbackEvent());
+
+    expect(mocks.prisma.$transaction).toHaveBeenCalledTimes(3);
+    expect(mocks.payments.applyPaymentCallbackInTransaction).toHaveBeenCalledBefore(
+      vi.mocked(mocks.payments.claimLatePaymentRefundInTransaction),
+    );
+    expect(mocks.payments.claimLatePaymentRefundInTransaction).toHaveBeenCalledBefore(
+      vi.mocked(mocks.provider.refund),
+    );
+    expect(mocks.provider.refund).toHaveBeenCalledBefore(
+      vi.mocked(mocks.payments.finalizeLatePaymentRefundInTransaction),
+    );
+    expect(mocks.provider.refund).toHaveBeenCalledWith({
+      amount: '12.34',
+      providerIntentId: 'mock_pi_0123456789abcdef',
+      providerTransactionId: 'mock_tx_0123456789abcdef',
+      refundNo: `RF${REFUND_ID}`,
+    });
+    expect(vi.mocked(mocks.outbox.append).mock.calls.map(([, input]) => input.eventType)).toEqual([
+      'payment.succeeded',
+      'order.late_payment_refund_pending',
+      'refund.created',
+      'refund.succeeded',
+      'order.late_payment_refunded',
+    ]);
+    expect(vi.mocked(mocks.outbox.append).mock.calls.flatMap(([, input]) =>
+      Object.keys(input.payload))).not.toContain('provider_refund_id');
+  });
+
+  it('moves an unknown or thrown Provider refund to MANUAL_REQUIRED without leaking the exception', async () => {
+    const mocks = createMocks();
+    vi.mocked(mocks.payments.applyPaymentCallbackInTransaction).mockResolvedValue(lateRefundResult());
+    vi.mocked(mocks.provider.refund).mockRejectedValue(new Error('provider payload must stay private'));
+
+    await createService(mocks).handle(callbackEvent());
+
+    expect(mocks.payments.finalizeLatePaymentRefundInTransaction).toHaveBeenCalledWith(
+      TRANSACTION,
+      expect.objectContaining({
+        result: { failureCode: 'PROVIDER_UNAVAILABLE', kind: 'FAILED', occurredAt: null },
+      }),
+    );
+    expect(vi.mocked(mocks.outbox.append).mock.calls.map(([, input]) => input.eventType)).toEqual([
+      'payment.succeeded',
+      'order.late_payment_refund_pending',
+      'refund.created',
+      'refund.manual_required',
+      'order.payment_manual_required',
+    ]);
+    expect(JSON.stringify(vi.mocked(mocks.audit.append).mock.calls)).not.toContain('provider payload');
+    expect(JSON.stringify(vi.mocked(mocks.outbox.append).mock.calls)).not.toContain('provider payload');
+  });
+
+  it('maps an explicit Provider UNKNOWN result to a failed refund fact for manual review', async () => {
+    const mocks = createMocks();
+    vi.mocked(mocks.payments.applyPaymentCallbackInTransaction).mockResolvedValue(lateRefundResult());
+    vi.mocked(mocks.provider.refund).mockResolvedValue({
+      failureCode: 'PROVIDER_UNAVAILABLE',
+      occurredAt: null,
+      outcome: 'UNKNOWN',
+      providerEventId: null,
+      providerRefundId: null,
+    });
+
+    await createService(mocks).handle(callbackEvent());
+
+    expect(mocks.payments.finalizeLatePaymentRefundInTransaction).toHaveBeenCalledWith(
+      TRANSACTION,
+      expect.objectContaining({
+        result: { failureCode: 'PROVIDER_UNAVAILABLE', kind: 'FAILED', occurredAt: null },
+      }),
+    );
+    expect(vi.mocked(mocks.outbox.append).mock.calls.map(([, input]) => input.eventType)).toEqual([
+      'payment.succeeded',
+      'order.late_payment_refund_pending',
+      'refund.created',
+      'refund.manual_required',
+      'order.payment_manual_required',
+    ]);
+  });
+
+  it('retries the same Provider refund after local finalization loses its response', async () => {
+    const mocks = createMocks();
+    vi.mocked(mocks.payments.applyPaymentCallbackInTransaction)
+      .mockResolvedValueOnce(lateRefundResult())
+      .mockResolvedValueOnce(lateRefundResult(false));
+    vi.mocked(mocks.payments.finalizeLatePaymentRefundInTransaction)
+      .mockRejectedValueOnce(new Error('database response lost'));
+    const service = createService(mocks);
+
+    await expect(service.handle(callbackEvent())).rejects.toThrow('database response lost');
+    await expect(service.handle(callbackEvent())).resolves.toBeUndefined();
+
+    expect(mocks.provider.refund).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(mocks.provider.refund).mock.calls[0]?.[0])
+      .toEqual(vi.mocked(mocks.provider.refund).mock.calls[1]?.[0]);
+    expect(mocks.payments.finalizeLatePaymentRefundInTransaction).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('decodeMockPaymentCallback', () => {

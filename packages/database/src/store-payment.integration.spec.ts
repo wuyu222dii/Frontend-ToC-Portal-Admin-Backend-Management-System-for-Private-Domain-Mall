@@ -318,6 +318,58 @@ async function seedSettlementFixture(
   });
 }
 
+async function closeSettlementFixtureForLatePayment(
+  transaction: DatabaseTransaction,
+  fixture: SettlementFixture,
+  paymentIntentId: string,
+  closedAt: Date,
+): Promise<void> {
+  await transaction.paymentIntent.update({
+    data: {
+      close_requested_at: closedAt,
+      closed_at: closedAt,
+      next_reconcile_at: null,
+      provider_state: 'CLOSED',
+      status: 'CLOSED',
+      version: { increment: 1 },
+    },
+    where: { id: paymentIntentId },
+  });
+  await transaction.inventoryBalance.update({
+    data: { locked_qty: 0, version: { increment: 1 } },
+    where: { id: fixture.balanceId },
+  });
+  await transaction.inventoryReservation.update({
+    data: { released_at: closedAt, status: 'RELEASED' },
+    where: { id: fixture.reservationId },
+  });
+  await transaction.inventoryLedger.create({
+    data: {
+      actor_account_id: fixture.accountId,
+      business_id: fixture.reservationId,
+      id: generateUlid(closedAt.getTime() - 1),
+      ledger_type: 'ORDER_RELEASE',
+      locked_after: 0,
+      locked_change: -1,
+      occurred_at: closedAt,
+      physical_after: 5,
+      physical_change: 0,
+      reason: 'USER_CANCELLED',
+      sku_id: fixture.skuId,
+    },
+  });
+  await transaction.salesOrder.update({
+    data: {
+      close_reason: 'USER_CANCELLED',
+      closed_at: closedAt,
+      order_status: 'CLOSED',
+      payment_status: 'UNPAID',
+      version: { increment: 1 },
+    },
+    where: { id: fixture.orderId },
+  });
+}
+
 databaseDescribe('B10 Store payment database integration', () => {
   let runtime: DatabaseRuntime;
   const repository = new StorePaymentRepository();
@@ -1014,6 +1066,240 @@ databaseDescribe('B10 Store payment database integration', () => {
       await expect(runtime.prisma.paymentAttempt.count({ where: { payment_intent_id: paymentIntentId } }))
         .resolves.toBe(0);
       await expect(runtime.prisma.paymentIntent.count({ where: { id: paymentIntentId } })).resolves.toBe(0);
+    }
+  }, 120_000);
+
+  it('refunds a late success once while preserving the closed order and released inventory', async () => {
+    const now = new Date();
+    const fixture = settlementFixture(now);
+    let paymentIntentId: string | undefined;
+    let refundId: string | undefined;
+
+    await expect(runtime.withPrismaTransaction(async (transaction) => {
+      await seedSettlementFixture(transaction, fixture, now);
+      const prepared = await repository.prepareOwnedPaymentIntentInTransaction(transaction, {
+        accountId: fixture.accountId,
+        customerId: fixture.customerId,
+        expectedVersion: 1,
+        orderId: fixture.orderId,
+        provider: 'MOCK',
+        reconcileAfterMs: 30_000,
+      });
+      paymentIntentId = prepared.intent.paymentIntentId;
+      const providerIntentId = `mock-${paymentIntentId}`;
+      const opened = await repository.finalizeProviderOutcomeInTransaction(transaction, {
+        expectedVersion: 1,
+        orderId: fixture.orderId,
+        paymentIntentId,
+        provider: 'MOCK',
+        result: {
+          kind: 'OPEN',
+          nextReconcileAt: new Date(prepared.intent.serverTime.getTime() + 60_000),
+          providerIntentId,
+          providerState: 'OPEN',
+        },
+      });
+      const closedAt = opened.intent.serverTime;
+      await closeSettlementFixtureForLatePayment(transaction, fixture, paymentIntentId, closedAt);
+
+      const callbackInput = {
+        amount: '19.90',
+        eventType: 'payment.succeeded' as const,
+        occurredAt: new Date(closedAt.getTime() + 1_000),
+        outcome: 'SUCCEEDED' as const,
+        provider: 'MOCK' as const,
+        providerEventId: `mock-event-${paymentIntentId}`,
+        providerIntentId,
+        providerTransactionId: `mock-transaction-${paymentIntentId}`,
+      };
+      const late = await repository.applyPaymentCallbackInTransaction(transaction, callbackInput);
+      expect(late).toMatchObject({
+        after: {
+          orderPaymentResolution: 'LATE_SUCCESS_REFUND_PENDING',
+          orderPaymentStatus: 'PAID',
+          orderStatus: 'CLOSED',
+        },
+        changed: true,
+        kind: 'LATE_REFUND_REQUIRED',
+      });
+      if (late.lateRefund === null) throw new Error('Late refund operation is missing');
+      refundId = late.lateRefund.refundId;
+      const claimed = await repository.claimLatePaymentRefundInTransaction(transaction, late.lateRefund);
+      expect(claimed.kind).toBe('CLAIMED');
+      if (claimed.kind !== 'CLAIMED') throw new Error('Late refund was not claimed');
+      await expect(repository.finalizeLatePaymentRefundInTransaction(transaction, {
+        operation: claimed.operation,
+        result: {
+          kind: 'SUCCEEDED',
+          occurredAt: new Date(closedAt.getTime() + 2_000),
+          providerEventId: `mock-refund-event-${refundId}`,
+          providerRefundId: `mock-refund-${refundId}`,
+        },
+      })).resolves.toMatchObject({ changed: true, kind: 'REFUNDED' });
+      await expect(repository.applyPaymentCallbackInTransaction(transaction, {
+        ...callbackInput,
+        occurredAt: new Date(callbackInput.occurredAt.getTime() + 5_000),
+        providerEventId: `${callbackInput.providerEventId}-retry`,
+      }))
+        .resolves.toMatchObject({ changed: false, kind: 'REPLAY', paymentAttemptId: late.paymentAttemptId });
+
+      await expect(transaction.salesOrder.findUnique({ where: { id: fixture.orderId } })).resolves.toMatchObject({
+        close_reason: 'USER_CANCELLED',
+        fulfillment_status: 'NOT_STARTED',
+        order_status: 'CLOSED',
+        paid_amount: new Prisma.Decimal('19.90'),
+        payment_resolution: 'LATE_SUCCESS_REFUNDED',
+        payment_status: 'PAID',
+        refunded_amount: new Prisma.Decimal('19.90'),
+        refund_processing_status: 'IDLE',
+        refund_progress_status: 'FULL',
+      });
+      await expect(transaction.orderItem.findUnique({ where: { id: fixture.orderItemId } })).resolves.toMatchObject({
+        pre_shipment_refunded_qty: 1,
+        refunded_amount: new Prisma.Decimal('19.90'),
+        refunded_qty: 1,
+        shipped_qty: 0,
+      });
+      await expect(transaction.refund.count({
+        where: { order_id: fixture.orderId, origin_type: 'LATE_PAYMENT' },
+      })).resolves.toBe(1);
+      await expect(transaction.refundAttempt.count({ where: { refund_id: refundId } })).resolves.toBe(1);
+      await expect(transaction.paymentAttempt.findMany({ where: { payment_intent_id: paymentIntentId } }))
+        .resolves.toEqual([expect.objectContaining({ status: 'SUCCEEDED_LATE' })]);
+      await expect(transaction.inventoryReservation.findUnique({ where: { id: fixture.reservationId } }))
+        .resolves.toMatchObject({ consumed_at: null, status: 'RELEASED' });
+      await expect(transaction.inventoryBalance.findUnique({ where: { id: fixture.balanceId } }))
+        .resolves.toMatchObject({ locked_qty: 0, physical_qty: 5 });
+      await expect(transaction.inventoryLedger.count({
+        where: { business_id: fixture.reservationId, ledger_type: 'ORDER_PAID_DEDUCT' },
+      })).resolves.toBe(0);
+      await expect(transaction.orderAttributionSnapshot.count({ where: { order_id: fixture.orderId } }))
+        .resolves.toBe(0);
+      await expect(transaction.orderItemCommissionSnapshot.count({
+        where: { order_item_id: fixture.orderItemId },
+      })).resolves.toBe(0);
+      await expect(transaction.product.findUnique({ where: { id: fixture.productId } }))
+        .resolves.toMatchObject({ sales_count: 0 });
+      throw rollbackSentinel;
+    }, transactionOptions)).rejects.toBe(rollbackSentinel);
+
+    await expect(runtime.prisma.salesOrder.count({ where: { id: fixture.orderId } })).resolves.toBe(0);
+    if (paymentIntentId !== undefined) {
+      await expect(runtime.prisma.paymentIntent.count({ where: { id: paymentIntentId } })).resolves.toBe(0);
+    }
+    if (refundId !== undefined) {
+      await expect(runtime.prisma.refund.count({ where: { id: refundId } })).resolves.toBe(0);
+    }
+  }, 120_000);
+
+  it('routes a failed late-payment refund to manual review without restoring inventory or commission', async () => {
+    const now = new Date();
+    const fixture = settlementFixture(now);
+    let paymentIntentId: string | undefined;
+    let refundId: string | undefined;
+
+    await expect(runtime.withPrismaTransaction(async (transaction) => {
+      await seedSettlementFixture(transaction, fixture, now);
+      const prepared = await repository.prepareOwnedPaymentIntentInTransaction(transaction, {
+        accountId: fixture.accountId,
+        customerId: fixture.customerId,
+        expectedVersion: 1,
+        orderId: fixture.orderId,
+        provider: 'MOCK',
+        reconcileAfterMs: 30_000,
+      });
+      paymentIntentId = prepared.intent.paymentIntentId;
+      const providerIntentId = `mock-${paymentIntentId}`;
+      const opened = await repository.finalizeProviderOutcomeInTransaction(transaction, {
+        expectedVersion: 1,
+        orderId: fixture.orderId,
+        paymentIntentId,
+        provider: 'MOCK',
+        result: {
+          kind: 'OPEN',
+          nextReconcileAt: new Date(prepared.intent.serverTime.getTime() + 60_000),
+          providerIntentId,
+          providerState: 'OPEN',
+        },
+      });
+      const closedAt = opened.intent.serverTime;
+      await closeSettlementFixtureForLatePayment(transaction, fixture, paymentIntentId, closedAt);
+      const callbackInput = {
+        amount: '19.90',
+        eventType: 'payment.succeeded' as const,
+        occurredAt: new Date(closedAt.getTime() + 1_000),
+        outcome: 'SUCCEEDED' as const,
+        provider: 'MOCK' as const,
+        providerEventId: `mock-event-failed-refund-${paymentIntentId}`,
+        providerIntentId,
+        providerTransactionId: `mock-transaction-${paymentIntentId}`,
+      };
+      const late = await repository.applyPaymentCallbackInTransaction(transaction, callbackInput);
+      expect(late.kind).toBe('LATE_REFUND_REQUIRED');
+      if (late.lateRefund === null) throw new Error('Late refund operation is missing');
+      refundId = late.lateRefund.refundId;
+      const claimed = await repository.claimLatePaymentRefundInTransaction(transaction, late.lateRefund);
+      expect(claimed.kind).toBe('CLAIMED');
+      if (claimed.kind !== 'CLAIMED') throw new Error('Late refund was not claimed');
+      await expect(repository.finalizeLatePaymentRefundInTransaction(transaction, {
+        operation: claimed.operation,
+        result: { failureCode: 'PROVIDER_UNAVAILABLE', kind: 'FAILED', occurredAt: null },
+      })).resolves.toMatchObject({ changed: true, kind: 'MANUAL_REQUIRED' });
+      await expect(repository.applyPaymentCallbackInTransaction(transaction, {
+        ...callbackInput,
+        occurredAt: new Date(callbackInput.occurredAt.getTime() + 5_000),
+        providerEventId: `${callbackInput.providerEventId}-retry`,
+      })).resolves.toMatchObject({ changed: false, kind: 'REPLAY', paymentAttemptId: late.paymentAttemptId });
+
+      await expect(transaction.salesOrder.findUnique({ where: { id: fixture.orderId } })).resolves.toMatchObject({
+        fulfillment_status: 'NOT_STARTED',
+        order_status: 'CLOSED',
+        paid_amount: new Prisma.Decimal('19.90'),
+        payment_resolution: 'MANUAL_REQUIRED',
+        payment_status: 'PAID',
+        refunded_amount: new Prisma.Decimal(0),
+        refund_processing_status: 'FAILED',
+        refund_progress_status: 'NONE',
+      });
+      await expect(transaction.refund.findUnique({
+        include: { attempts: true, items: true },
+        where: { id: refundId },
+      })).resolves.toMatchObject({
+        amount: new Prisma.Decimal('19.90'),
+        attempts: [expect.objectContaining({ failure_code: 'PROVIDER_UNAVAILABLE', status: 'FAILED' })],
+        failure_code: 'PROVIDER_UNAVAILABLE',
+        items: [expect.objectContaining({ auto_restock: false, commission_reversal: new Prisma.Decimal(0) })],
+        status: 'FAILED',
+      });
+      await expect(transaction.orderItem.findUnique({ where: { id: fixture.orderItemId } })).resolves.toMatchObject({
+        pre_shipment_refunded_qty: 0,
+        refunded_amount: new Prisma.Decimal(0),
+        refunded_qty: 0,
+        shipped_qty: 0,
+      });
+      await expect(transaction.inventoryReservation.findUnique({ where: { id: fixture.reservationId } }))
+        .resolves.toMatchObject({ consumed_at: null, status: 'RELEASED' });
+      await expect(transaction.inventoryBalance.findUnique({ where: { id: fixture.balanceId } }))
+        .resolves.toMatchObject({ locked_qty: 0, physical_qty: 5 });
+      await expect(transaction.inventoryLedger.count({
+        where: { business_id: fixture.reservationId, ledger_type: 'ORDER_PAID_DEDUCT' },
+      })).resolves.toBe(0);
+      await expect(transaction.orderAttributionSnapshot.count({ where: { order_id: fixture.orderId } }))
+        .resolves.toBe(0);
+      await expect(transaction.orderItemCommissionSnapshot.count({
+        where: { order_item_id: fixture.orderItemId },
+      })).resolves.toBe(0);
+      await expect(transaction.product.findUnique({ where: { id: fixture.productId } }))
+        .resolves.toMatchObject({ sales_count: 0 });
+      throw rollbackSentinel;
+    }, transactionOptions)).rejects.toBe(rollbackSentinel);
+
+    await expect(runtime.prisma.salesOrder.count({ where: { id: fixture.orderId } })).resolves.toBe(0);
+    if (paymentIntentId !== undefined) {
+      await expect(runtime.prisma.paymentIntent.count({ where: { id: paymentIntentId } })).resolves.toBe(0);
+    }
+    if (refundId !== undefined) {
+      await expect(runtime.prisma.refund.count({ where: { id: refundId } })).resolves.toBe(0);
     }
   }, 120_000);
 });

@@ -88,10 +88,11 @@ const tests = ['src/store-payment.integration.spec.ts'];
 if (mode === 'full') {
   tests.unshift(
     'src/commission-position-trigger-migration.spec.ts',
+    'src/store-payment-late-refund.repository.spec.ts',
     'src/store-payment.repository.spec.ts',
     'src/store-payment-settlement.repository.spec.ts',
   );
 }
 run(['--filter', '@qingxu/database', 'exec', 'vitest', 'run', ...tests]);
 
-process.stdout.write(`B10.2 Store payment ${mode} database checks passed.\n`);
+process.stdout.write(`B10 Store payment ${mode} database checks passed.\n`);

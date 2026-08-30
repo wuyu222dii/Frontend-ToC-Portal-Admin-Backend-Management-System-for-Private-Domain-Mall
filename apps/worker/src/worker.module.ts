@@ -39,6 +39,7 @@ import {
 } from './outbox-dispatcher.service';
 import {
   PAYMENT_CALLBACK_AUDIT_REPOSITORY,
+  PAYMENT_CALLBACK_PAYMENT_PROVIDER,
   PAYMENT_CALLBACK_REPOSITORY,
   PaymentCallbackService,
 } from './payment-callback.service';
@@ -171,6 +172,10 @@ export class WorkerModule {
           inject: [WORKER_CONFIG],
           useFactory: (runtimeConfig: PlatformRuntimeConfig) =>
             new AuditRepository(runtimeConfig.encryption.ipHashKey),
+        },
+        {
+          provide: PAYMENT_CALLBACK_PAYMENT_PROVIDER,
+          useExisting: ORDER_TIMEOUT_PAYMENT_PROVIDER,
         },
         PaymentCallbackService,
         {

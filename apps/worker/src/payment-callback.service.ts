@@ -6,10 +6,12 @@ import {
   type AuditRepository,
   type DatabaseRuntime,
   type OutboxRepository,
+  type StoreLatePaymentRefundFinalization,
   type StorePaymentCallbackInput,
   type StorePaymentCallbackResult,
   type StorePaymentRepository,
 } from '@qingxu/database';
+import type { PaymentProviderPort, PaymentProviderRefundResult } from '@qingxu/payment';
 
 import { DATABASE_RUNTIME } from './database-runtime.provider';
 import type {
@@ -43,10 +45,16 @@ export type MockPaymentCallbackEventType = typeof MOCK_PAYMENT_CALLBACK_EVENT_TY
 export type MockPaymentCallbackOutcome = 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
 
 export type PaymentCallbackRepositoryInput = StorePaymentCallbackInput;
-export type WorkerPaymentCallbackRepository = Pick<StorePaymentRepository, 'applyPaymentCallbackInTransaction'>;
+export type WorkerPaymentCallbackRepository = Pick<
+  StorePaymentRepository,
+  | 'applyPaymentCallbackInTransaction'
+  | 'claimLatePaymentRefundInTransaction'
+  | 'finalizeLatePaymentRefundInTransaction'
+>;
 
 export const PAYMENT_CALLBACK_REPOSITORY = Symbol('PAYMENT_CALLBACK_REPOSITORY');
 export const PAYMENT_CALLBACK_AUDIT_REPOSITORY = Symbol('PAYMENT_CALLBACK_AUDIT_REPOSITORY');
+export const PAYMENT_CALLBACK_PAYMENT_PROVIDER = Symbol('PAYMENT_CALLBACK_PAYMENT_PROVIDER');
 
 export type PaymentCallbackAuditRepository = Pick<AuditRepository, 'append'>;
 export type PaymentCallbackOutboxRepository = Pick<OutboxRepository, 'append'>;
@@ -146,17 +154,49 @@ function assertRepositoryResult(
     result.commissionLedgerIds.some((id) => typeof id !== 'string')) {
     throw new TypeError('Payment callback repository result is invalid');
   }
-  if (result.changed === (result.kind === 'REPLAY') ||
+  if ((result.kind === 'REPLAY' && result.changed) ||
+    (!result.changed && result.kind !== 'REPLAY' && result.kind !== 'LATE_REFUND_REQUIRED') ||
     (input.outcome === 'SUCCEEDED' && result.kind !== 'SETTLED' && result.kind !== 'MANUAL_REQUIRED' &&
-      result.kind !== 'REPLAY') ||
+      result.kind !== 'LATE_REFUND_REQUIRED' && result.kind !== 'REPLAY') ||
     (input.outcome !== 'SUCCEEDED' && result.kind !== 'ATTEMPT_RECORDED' &&
       result.kind !== 'TERMINAL' && result.kind !== 'REPLAY')) {
+    throw new TypeError('Payment callback repository result is invalid');
+  }
+  if ((result.kind === 'LATE_REFUND_REQUIRED') !== (result.lateRefund !== null) ||
+    (result.lateRefund !== null && (
+      result.lateRefund.orderId !== result.orderId ||
+      result.lateRefund.paymentIntentId !== result.paymentIntentId ||
+      result.lateRefund.provider !== input.provider ||
+      result.lateRefund.providerIntentId !== input.providerIntentId ||
+      result.lateRefund.providerTransactionId !== input.providerTransactionId ||
+      result.lateRefund.amount !== input.amount
+    ))) {
     throw new TypeError('Payment callback repository result is invalid');
   }
   if (result.changed && result.before.intentStatus === result.after.intentStatus &&
     result.kind !== 'ATTEMPT_RECORDED' && result.kind !== 'SETTLED') {
     throw new TypeError('Payment callback repository result is invalid');
   }
+}
+
+function normalizeRefundResult(result: PaymentProviderRefundResult): StoreLatePaymentRefundFinalization {
+  if (result.outcome === 'SUCCEEDED' && result.failureCode === null && validReference(result.providerRefundId) &&
+    validReference(result.providerEventId) && result.occurredAt instanceof Date &&
+    Number.isFinite(result.occurredAt.getTime())) {
+    return {
+      kind: 'SUCCEEDED',
+      occurredAt: result.occurredAt,
+      providerEventId: result.providerEventId,
+      providerRefundId: result.providerRefundId,
+    };
+  }
+  return {
+    failureCode: result.failureCode ?? 'INVALID_PROVIDER_STATE',
+    kind: 'FAILED',
+    occurredAt: result.occurredAt instanceof Date && Number.isFinite(result.occurredAt.getTime())
+      ? result.occurredAt
+      : null,
+  };
 }
 
 function resourcePayload(resourceType: string, resourceId: string, resourceVersion: number) {
@@ -210,6 +250,8 @@ export class PaymentCallbackService {
     @Inject(PAYMENT_CALLBACK_REPOSITORY) private readonly payments: WorkerPaymentCallbackRepository,
     @Inject(PAYMENT_CALLBACK_AUDIT_REPOSITORY) private readonly audit: PaymentCallbackAuditRepository,
     @Inject(OUTBOX_REPOSITORY) private readonly outbox: PaymentCallbackOutboxRepository,
+    @Inject(PAYMENT_CALLBACK_PAYMENT_PROVIDER)
+    private readonly provider: Pick<PaymentProviderPort, 'refund'>,
   ) {}
 
   registrations(): readonly CallbackHandlerRegistration[] {
@@ -222,11 +264,11 @@ export class PaymentCallbackService {
 
   async handle(event: CallbackInboxEvent): Promise<void> {
     const input = decodeMockPaymentCallback(event);
-    await runSerializableTransaction(this.database.prisma, async (transaction) => {
+    const requestId = `req_${createHash('sha256').update(input.providerEventId).digest('hex').slice(0, 32)}`;
+    const prepared = await runSerializableTransaction(this.database.prisma, async (transaction) => {
       const result = await this.payments.applyPaymentCallbackInTransaction(transaction, input);
       assertRepositoryResult(input, result);
-      if (!result.changed) return;
-      const requestId = `req_${createHash('sha256').update(input.providerEventId).digest('hex').slice(0, 32)}`;
+      if (!result.changed) return result;
       if (result.before.intentStatus !== result.after.intentStatus) {
         await this.audit.append(transaction, {
           action: 'PAY',
@@ -274,6 +316,42 @@ export class PaymentCallbackService {
             payload: resourcePayload('commission', commissionLedgerId, 1),
           });
         }
+      } else if (result.kind === 'LATE_REFUND_REQUIRED' && result.lateRefund !== null) {
+        await this.audit.append(transaction, {
+          action: 'PAY',
+          after: { status: result.after.orderStatus, version: result.after.orderVersion },
+          before: { status: result.before.orderStatus, version: result.before.orderVersion },
+          module: 'payment',
+          objectId: result.orderId,
+          objectType: 'order',
+          requestId,
+          result: 'SUCCESS',
+          resultCode: 'OK',
+          summaryPolicy: 'STATUS_VERSION',
+        });
+        await this.audit.append(transaction, {
+          action: 'REFUND',
+          after: { status: 'PENDING', version: result.lateRefund.refundVersion },
+          module: 'refund',
+          objectId: result.lateRefund.refundId,
+          objectType: 'refund',
+          requestId,
+          result: 'SUCCESS',
+          resultCode: 'OK',
+          summaryPolicy: 'STATUS_VERSION',
+        });
+        await this.outbox.append(transaction, {
+          aggregateId: result.orderId,
+          aggregateType: 'order',
+          eventType: 'order.late_payment_refund_pending',
+          payload: resourcePayload('order', result.orderId, result.after.orderVersion),
+        });
+        await this.outbox.append(transaction, {
+          aggregateId: result.lateRefund.refundId,
+          aggregateType: 'refund',
+          eventType: 'refund.created',
+          payload: resourcePayload('refund', result.lateRefund.refundId, result.lateRefund.refundVersion),
+        });
       } else if (result.kind === 'MANUAL_REQUIRED') {
         await this.audit.append(transaction, {
           action: 'PAY',
@@ -294,6 +372,75 @@ export class PaymentCallbackService {
           payload: resourcePayload('order', result.orderId, result.after.orderVersion),
         });
       }
+      return result;
+    });
+    if (prepared.kind !== 'LATE_REFUND_REQUIRED' || prepared.lateRefund === null) return;
+
+    const claimed = await runSerializableTransaction(this.database.prisma, (transaction) =>
+      this.payments.claimLatePaymentRefundInTransaction(transaction, prepared.lateRefund!));
+    if (claimed.kind === 'TERMINAL') return;
+    let providerResult: PaymentProviderRefundResult;
+    try {
+      providerResult = await this.provider.refund({
+        amount: claimed.operation.amount,
+        providerIntentId: claimed.operation.providerIntentId,
+        providerTransactionId: claimed.operation.providerTransactionId,
+        refundNo: claimed.operation.refundNo,
+      });
+    } catch {
+      providerResult = {
+        failureCode: 'PROVIDER_UNAVAILABLE',
+        occurredAt: null,
+        outcome: 'UNKNOWN',
+        providerEventId: null,
+        providerRefundId: null,
+      };
+    }
+    const finalization = normalizeRefundResult(providerResult);
+    await runSerializableTransaction(this.database.prisma, async (transaction) => {
+      const result = await this.payments.finalizeLatePaymentRefundInTransaction(transaction, {
+        operation: claimed.operation,
+        result: finalization,
+      });
+      if (!result.changed) return;
+      await this.audit.append(transaction, {
+        action: 'REFUND',
+        after: { status: result.afterRefundStatus, version: result.afterRefundVersion },
+        before: { status: result.beforeRefundStatus, version: result.beforeRefundVersion },
+        module: 'refund',
+        objectId: result.refundId,
+        objectType: 'refund',
+        requestId,
+        result: 'SUCCESS',
+        resultCode: 'OK',
+        summaryPolicy: 'STATUS_VERSION',
+      });
+      await this.audit.append(transaction, {
+        action: 'REFUND',
+        after: { status: 'CLOSED', version: result.afterOrderVersion },
+        before: { status: 'CLOSED', version: result.beforeOrderVersion },
+        module: 'payment',
+        objectId: result.orderId,
+        objectType: 'order',
+        requestId,
+        result: 'SUCCESS',
+        resultCode: 'OK',
+        summaryPolicy: 'STATUS_VERSION',
+      });
+      await this.outbox.append(transaction, {
+        aggregateId: result.refundId,
+        aggregateType: 'refund',
+        eventType: result.kind === 'REFUNDED' ? 'refund.succeeded' : 'refund.manual_required',
+        payload: resourcePayload('refund', result.refundId, result.afterRefundVersion),
+      });
+      await this.outbox.append(transaction, {
+        aggregateId: result.orderId,
+        aggregateType: 'order',
+        eventType: result.kind === 'REFUNDED'
+          ? 'order.late_payment_refunded'
+          : 'order.payment_manual_required',
+        payload: resourcePayload('order', result.orderId, result.afterOrderVersion),
+      });
     });
   }
 }

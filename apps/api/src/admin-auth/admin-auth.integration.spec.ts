@@ -258,7 +258,12 @@ integrationDescribe('B2 administrator authentication PostgreSQL API integration'
       .get('/api/v1/admin/auth/current')
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
-    expect(current.body.data).toMatchObject({ account_id: accountId, assurance: 'MFA', role: 'SUPER_ADMIN' });
+    expect(current.body.data).toMatchObject({
+      account_id: accountId,
+      assurance: 'MFA',
+      permissions: ['ORDER_FULFILLMENT_PII_READ'],
+      role: 'SUPER_ADMIN',
+    });
 
     const refreshed = await request(app.getHttpServer())
       .post('/api/v1/admin/auth/refresh')

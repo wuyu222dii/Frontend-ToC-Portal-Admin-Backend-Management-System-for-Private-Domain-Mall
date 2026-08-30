@@ -12,6 +12,7 @@ import { AdminCatalogModule } from './admin-catalog/admin-catalog.module';
 import { AdminAuthModule } from './admin-auth/admin-auth.module';
 import { AdminBannersModule } from './admin-banners/admin-banners.module';
 import { AdminInventoryModule } from './admin-inventory/admin-inventory.module';
+import { AdminOrdersModule } from './admin-orders/admin-orders.module';
 import { AdminPaymentsModule } from './admin-payments/admin-payments.module';
 import { AdminProductsModule } from './admin-products/admin-products.module';
 import { HealthModule } from './health/health.module';
@@ -40,6 +41,7 @@ import { StorePaymentsModule } from './store-payments/store-payments.module';
     AdminBannersModule,
     AdminCatalogModule,
     AdminInventoryModule,
+    AdminOrdersModule,
     AdminPaymentsModule,
     AdminProductsModule,
     FilesModule,

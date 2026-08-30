@@ -47,7 +47,8 @@ const HTTP_ERROR_MAP: Readonly<Record<number, Omit<ResolvedError, 'status'>>> = 
   503: { code: 'INTERNAL_ERROR', message: 'Service is temporarily unavailable' },
 };
 
-const SENSITIVE_STORE_EXACT_PATHS = new Set([
+const SENSITIVE_EXACT_PATHS = new Set([
+  '/api/v1/admin/orders',
   '/api/v1/store/addresses',
   '/api/v1/store/legal-documents',
   '/api/v1/store/cart',
@@ -57,7 +58,8 @@ const SENSITIVE_STORE_EXACT_PATHS = new Set([
   '/api/v1/store/profile',
   '/api/v1/store/service-agent',
 ]);
-const SENSITIVE_STORE_PATH_PREFIXES = [
+const SENSITIVE_PATH_PREFIXES = [
+  '/api/v1/admin/orders/',
   '/api/v1/store/addresses/',
   '/api/v1/store/auth/',
   '/api/v1/store/attribution/',
@@ -76,10 +78,10 @@ function requestPath(request: ErrorRequest): string {
   return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
 }
 
-function isSensitiveStoreRequest(request: ErrorRequest): boolean {
+function isSensitiveRequest(request: ErrorRequest): boolean {
   const path = requestPath(request);
-  return SENSITIVE_STORE_EXACT_PATHS.has(path) ||
-    SENSITIVE_STORE_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
+  return SENSITIVE_EXACT_PATHS.has(path) ||
+    SENSITIVE_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
 }
 
 function frameworkClientStatus(exception: unknown): number | undefined {
@@ -172,7 +174,7 @@ export class ErrorEnvelopeFilter implements ExceptionFilter {
       );
     }
     this.adapterHost.httpAdapter.setHeader(response, 'X-Request-Id', requestId);
-    if (isSensitiveStoreRequest(request)) {
+    if (isSensitiveRequest(request)) {
       this.adapterHost.httpAdapter.setHeader(response, 'Cache-Control', 'no-store, private');
       this.adapterHost.httpAdapter.setHeader(response, 'Pragma', 'no-cache');
     }

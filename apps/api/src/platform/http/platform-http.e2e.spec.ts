@@ -310,6 +310,16 @@ describe('API platform HTTP pipeline (e2e)', () => {
     expect(stillDenied.body.code).toBe('AUTH_REQUIRED');
   });
 
+  it('marks Admin order authorization failures as private and non-cacheable', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/v1/admin/orders')
+      .expect(401);
+
+    expect(response.body.code).toBe('AUTH_REQUIRED');
+    expect(response.headers['cache-control']).toBe('no-store, private');
+    expect(response.headers.pragma).toBe('no-cache');
+  });
+
   it('does not treat a middleware-injected permission as authentication', async () => {
     testPrincipal = {
       accountId: 'admin_1',

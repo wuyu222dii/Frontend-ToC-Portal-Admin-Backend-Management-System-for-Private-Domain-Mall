@@ -10,7 +10,7 @@
 | 目标用户 | 终端消费者、一级代理、总部商城经营人员 |
 | 人员角色 | `SUPER_ADMIN`、`AGENT_ADMIN`、`CUSTOMER` |
 | 更新日期 | 2026-08-30 |
-| 文档状态 | B0 至 B10 development 已完成并维持 `GO`；CH-024 已批准，产品/API 基线为 `v2.4.9 / 2.4.9-ch024`。B11.0 本地治理、契约、冻结数据库与静态原型门禁已全部通过并暂停，`P0=0/P1=0`；CH-025 尚未批准，因此不得开始 B11.1 业务代码，也不得标记 B11 `GO`。仅允许 Mock Provider 和脱敏 development，真实微信支付、staging/production 均为 `NO-GO` |
+| 文档状态 | B0 至 B10 development 已完成并维持 `GO`；CH-024 已批准，产品/API 基线为 `v2.4.9 / 2.4.9-ch024`。B11.0 已完成；CH-025 已批准且仅适用于 B11.1-B11.5 脱敏 development。B11.1 查询与 PII 已完成本地验收，`P0=0/P1=0`，当前暂停在 B11.2 前；B11 整体不得标记 `GO`，尚无最终普通 CI/Supabase smoke 同 SHA 双绿。真实客户数据、真实微信支付、真实物流、staging/production 均为 `NO-GO` |
 
 ## 1. MVP 概述
 
@@ -151,7 +151,7 @@
 - 已发货订单可由消费者确认收货，或由总部填写原因后兜底完成。两条完成路径必须幂等并按订单版本串行，订单/履约状态、审计和 Outbox 只收敛一次。
 - 订单首次完成时，将支付阶段冻结的 `EXPECTED` 佣金一次性转为 `AVAILABLE`；重复确认、并发确认或重复消息不得重复入账。完成动作不改写支付、库存扣减、历史归因或佣金快照。
 - B11 不新增数据库迁移，复用现有订单、包裹、包裹项、物流事件、履约状态、佣金头寸及流水模型；冻结 Schema、既有迁移和 `migration diff=0` 继续作为门禁。
-- B11 明确排除普通售后退款、第三方物流 Provider、自动确认收货、多包裹/拆包/部分先发、真实微信支付、staging 和 production。CH-025 尚未批准，且是进入 B11.1 业务实现前的独立前置条件。
+- B11 明确排除普通售后退款、第三方物流 Provider、自动确认收货、多包裹/拆包/部分先发、真实微信支付、真实客户数据、staging 和 production。CH-025 已批准且仅覆盖 B11.1-B11.5 脱敏 development；B11.1 已完成本地验收并暂停在 B11.2 前，CH-025 继续有效至 B11.5 完成。
 
 ## 3. 角色与核心任务
 
@@ -418,14 +418,14 @@ Supabase 在当前 MVP 中仅作为 PostgreSQL 托管服务。消费者小程序
 
 ## 9. 里程碑建议
 
-B10.0-B10.6 已完成且 development `GO`，最终同 SHA 双绿与 CH-021 自动失效证据继续保留。CH-024 已批准并启动 B11.0 契约与治理同步；当前仍须通过契约、生成漂移、冻结数据库和 `migration diff=0` 门禁。CH-025 尚未批准，B11.1 业务代码不得开始，B11 也不得标记 `GO`。任何 development 结果都不等同于 staging 或生产许可，真实支付、staging 和 production 仍为 `NO-GO`。
+B10.0-B10.6 已完成且 development `GO`，最终同 SHA 双绿与 CH-021 自动失效证据继续保留。CH-024 已批准，B11.0 契约、生成漂移、冻结数据库和 `migration diff=0` 门禁已通过。CH-025 已批准；B11.1 查询与 PII 已完成本地验收并暂停在 B11.2 前，`P0=0/P1=0`。B11 整体仍不得标记 `GO`，任何 development 结果都不等同于 staging 或生产许可，真实客户数据、真实支付、真实物流、staging 和 production 仍为 `NO-GO`。
 
 | 阶段 | 主要交付物 | 当前状态 |
 |---|---|---|
-| 需求确认 | MVP、三端角色确认、变更记录 | CH-024 已批准，基线升级为 v2.4.9/CH-024；CH-025 尚未批准且是 B11.1 前置 |
+| 需求确认 | MVP、三端角色确认、变更记录 | CH-024 已批准，基线升级为 v2.4.9/CH-024；CH-025 已批准且仅覆盖 B11.1-B11.5 脱敏 development |
 | 产品设计 | PRD、三端信息架构、可点击原型、Figma 重建规范 | B11 一单一包裹、人工物流、确认收货/兜底完成及佣金一次入账边界已同步；继续复用 21/9/22 页面 |
 | 技术设计 | 系统架构、数据库 ERD、接口文档、OpenAPI、Prisma 草案与部署拓扑 | OpenAPI `2.4.9-ch024`；B11 零迁移并复用冻结模型，统计、生成漂移和 `migration diff=0` 已通过门禁实测 |
-| 开发与测试 | 三端工程、API、数据库、自动化测试 | B0-B10 development `GO`；B11.0 已完成并暂停，B11.1 未准入且无业务代码 |
+| 开发与测试 | 三端工程、API、数据库、自动化测试 | B0-B10 development `GO`；B11.0 与 B11.1 本地门禁已完成，B11.1 `P0=0/P1=0`，暂停在 B11.2 前；B11 整体未 `GO` |
 | 上线准备 | 微信资质、真实支付退款、隐私合规、部署与验收 | 未开始 |
 
 ## 10. 风险与应对
@@ -515,8 +515,8 @@ B10.0-B10.6 已完成且 development `GO`，最终同 SHA 双绿与 CH-021 自�
 3. B10.3 关单/对账及准确 SHA 三项远端证据均已登记；B10.4 迟到支付/自动退款的本地实现、真实 rollback 与复审已完成。
 4. B10.6 最终 SHA `f5e59169b53a97704711c3aae3049e5b5d16a930` 已取得普通 CI 与 Supabase rollback-only 同 SHA 双绿，B10 development `GO`；不得扩大 runtime 权限或修改冻结迁移。
 5. CH-021 已在 B10 development 最终门禁通过后自动失效；第一次进入 staging 前仍须外部独立复核。
-6. 完成 CH-024 契约、生成漂移、冻结数据库与 `migration diff=0` 门禁并取得 CH-025 明确批准后，才可开始 B11.1；不得用静态原型替代工程证据。
+6. B11.1 已完成独立 Fulfillment 查询、Admin/Store 投影、受控履约地址和审计的本地验收；进入 B11.2 前继续暂停，且不得用静态原型替代工程证据。
 
 ---
 
-项目状态：三端 MVP 产品/API 基线为 `v2.4.9 / 2.4.9-ch024`。B0 至 B10 development 已完成，B10 最终 SHA `f5e59169b53a97704711c3aae3049e5b5d16a930` 的普通 CI 与 Supabase rollback-only 同 SHA 双绿，CH-021 已自动失效。B11.0 本地门禁已全部通过并暂停，`P0=0/P1=0`；CH-025 未批准，B11.1 未准入，B11 不得标记 `GO`。仅允许 Mock Provider 和脱敏 development；真实支付、普通售后、第三方物流、staging/production 仍为 `NO-GO`，进入 staging 前须外部独立复核。
+项目状态：三端 MVP 产品/API 基线为 `v2.4.9 / 2.4.9-ch024`。B0 至 B10 development 已完成，B10 最终 SHA `f5e59169b53a97704711c3aae3049e5b5d16a930` 的普通 CI 与 Supabase rollback-only 同 SHA 双绿，CH-021 已自动失效。B11.0 已完成；CH-025 已批准且仅适用于 B11.1-B11.5 脱敏 development。B11.1 已完成本地验收，`P0=0/P1=0`，暂停在 B11.2 前；B11 不得标记 `GO`，尚无 B11 最终远端同 SHA 双绿。CH-025 尚未失效；真实客户数据、真实支付、普通售后、真实物流、staging/production 仍为 `NO-GO`，进入 staging 前须外部独立复核。

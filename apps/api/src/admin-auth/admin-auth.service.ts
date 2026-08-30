@@ -67,6 +67,8 @@ const ROUTES = {
   refresh: '/admin/auth/refresh',
 } as const;
 
+const SUPER_ADMIN_PERMISSIONS = ['ORDER_FULFILLMENT_PII_READ'] as const;
+
 // Login happens before an authenticated actor exists. A fixed non-account ULID
 // keeps idempotency behavior identical for existing, disabled, and unknown names.
 const ADMIN_LOGIN_IDEMPOTENCY_ACTOR = '00000000000000000000000000';
@@ -384,7 +386,7 @@ export class AdminAuthService {
       account_id: session.accountId,
       assurance: 'MFA',
       mfa_verified_at: session.mfaVerifiedAt.toISOString(),
-      permissions: [],
+      permissions: [...SUPER_ADMIN_PERMISSIONS],
       restriction: 'NONE',
       role: 'SUPER_ADMIN',
       session_id: session.sessionId,
@@ -660,7 +662,8 @@ export class AdminAuthService {
     const sessionId = generateUlid();
     const refreshToken = generateOpaqueToken('rfr');
     const signed = signAccessToken(this.tokenConfig, {
-      accountId, assurance: 'MFA', permissions: [], restriction: 'NONE', role: 'SUPER_ADMIN',
+      accountId, assurance: 'MFA', permissions: SUPER_ADMIN_PERMISSIONS,
+      restriction: 'NONE', role: 'SUPER_ADMIN',
       sessionId, tokenId: accessJti,
     }, this.config.authentication.accessTokenTtlSeconds, now);
     return {

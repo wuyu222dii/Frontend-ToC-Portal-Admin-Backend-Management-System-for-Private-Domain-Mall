@@ -5,6 +5,7 @@ import {
   type CurrentStoreSession,
   type DatabaseRuntime,
   type DatabaseTransaction,
+  FulfillmentRepository,
   IdempotencyRepository,
   type IdempotencyClaim,
   OutboxRepository,
@@ -13,12 +14,15 @@ import {
   type StoreOrderCloseResult,
   type StoreOrderDetailSnapshot,
   type StoreOrderListItemSnapshot,
+  type OwnedFulfillmentProjection,
   StoreOrderRepository,
   type StoreOrderSnapshot,
 } from '@qingxu/database';
 import {
   ApplicationError,
   createStoreOrderAddressSecurityMaterial,
+  projectOrderDisplayStatus,
+  type OrderDisplayStatus,
   verifyStoreAddressSecurityMaterial,
   verifyStoreOrderAddressSecurityMaterial,
 } from '@qingxu/platform-core';
@@ -50,38 +54,13 @@ function internal(message: string, cause?: unknown): ApplicationError {
   );
 }
 
-export function storeOrderDisplayStatus(order: StoreOrderSnapshot):
-  | '待付款'
-  | '待发货'
-  | '运输中'
-  | '已完成'
-  | '退款处理中'
-  | '部分退款'
-  | '退款完成'
-  | '退款异常待处理'
-  | '已关闭'
-  | '支付异常处理中' {
-  if (order.paymentResolution === 'MANUAL_REQUIRED') return '支付异常处理中';
-  if (order.refundProcessingStatus === 'FAILED') return '退款异常待处理';
-  if (order.paymentResolution === 'LATE_SUCCESS_REFUND_PENDING' ||
-    order.refundProcessingStatus === 'REFUNDING') return '退款处理中';
-  if (order.paymentResolution === 'LATE_SUCCESS_REFUNDED' || order.refundProgressStatus === 'FULL') {
-    return '退款完成';
-  }
-  if (order.refundProgressStatus === 'PARTIAL') return '部分退款';
-  if (order.orderStatus === 'CLOSED') return '已关闭';
-  if (order.orderStatus === 'PENDING_PAYMENT') return '待付款';
-  if (order.orderStatus === 'PENDING_SHIPMENT' || order.fulfillmentStatus === 'READY_TO_SHIP') {
-    return '待发货';
-  }
-  if (order.orderStatus === 'SHIPPING' || order.fulfillmentStatus === 'SHIPPED' ||
-    order.fulfillmentStatus === 'IN_TRANSIT') return '运输中';
-  if (order.orderStatus === 'COMPLETED' || order.fulfillmentStatus === 'DELIVERED') return '已完成';
-  throw internal('Stored order status axes cannot produce a display status');
+export function storeOrderDisplayStatus(order: StoreOrderSnapshot): OrderDisplayStatus {
+  return projectOrderDisplayStatus(order);
 }
 
 @Injectable()
 export class StoreOrdersService {
+  private readonly fulfillment!: FulfillmentRepository;
   private readonly orders!: StoreOrderRepository;
   private readonly audit!: AuditRepository;
   private readonly idempotency!: IdempotencyRepository;
@@ -95,6 +74,7 @@ export class StoreOrdersService {
     @Optional() @Inject(StorePaymentsService) private readonly payments?: StorePaymentsService,
   ) {
     if (config && database) {
+      this.fulfillment = new FulfillmentRepository(database.prisma);
       this.orders = new StoreOrderRepository(database.prisma);
       this.audit = new AuditRepository(config.encryption.ipHashKey);
       this.idempotency = new IdempotencyRepository(config.encryption.idempotencyHashKeys);
@@ -104,28 +84,51 @@ export class StoreOrdersService {
   }
 
   async listOrders(session: CurrentStoreSession, query: StoreOrderListQuery) {
-    const result = await this.databaseRuntime().prisma.$transaction(
-      (transaction: DatabaseTransaction) => this.repository().listOwnedOrdersInTransaction(transaction, {
-        customerId: session.customerId,
-        ...query,
-      }),
+    const resource = await this.databaseRuntime().prisma.$transaction(
+      async (transaction: DatabaseTransaction) => {
+        const result = await this.repository().listOwnedOrdersInTransaction(transaction, {
+          customerId: session.customerId,
+          ...query,
+        });
+        const fulfillment = await this.fulfillmentRepository()
+          .listOwnedFulfillmentProjectionsInTransaction(transaction, {
+            customerId: session.customerId,
+            orderIds: result.items.map(({ order }) => order.orderId),
+          });
+        return { fulfillment, result };
+      },
       { isolationLevel: 'RepeatableRead' },
     );
     return {
-      items: result.items.map((item) => this.listItemView(item)),
-      pagination: { page: query.page, page_size: query.pageSize, total: result.total },
+      items: resource.result.items.map((item) => {
+        const fulfillment = resource.fulfillment.get(item.order.orderId);
+        if (fulfillment === undefined) {
+          throw internal('Owned order fulfillment projection is unavailable');
+        }
+        return this.listItemView(item, fulfillment);
+      }),
+      pagination: { page: query.page, page_size: query.pageSize, total: resource.result.total },
     };
   }
 
   async getOrder(session: CurrentStoreSession, orderId: string) {
-    const detail = await this.databaseRuntime().prisma.$transaction(
-      (transaction: DatabaseTransaction) => this.repository().getOwnedOrderDetailInTransaction(transaction, {
-        customerId: session.customerId,
-        orderId,
-      }),
+    const resource = await this.databaseRuntime().prisma.$transaction(
+      async (transaction: DatabaseTransaction) => {
+        const [detail, fulfillment] = await Promise.all([
+          this.repository().getOwnedOrderDetailInTransaction(transaction, {
+            customerId: session.customerId,
+            orderId,
+          }),
+          this.fulfillmentRepository().getOwnedFulfillmentProjectionInTransaction(transaction, {
+            customerId: session.customerId,
+            orderId,
+          }),
+        ]);
+        return { detail, fulfillment };
+      },
       { isolationLevel: 'RepeatableRead' },
     );
-    return this.detailView(detail);
+    return this.detailView(resource.detail, resource.fulfillment);
   }
 
   createOrder(
@@ -393,14 +396,23 @@ export class StoreOrdersService {
     return { order_closed: { order_id: orderId } };
   }
 
-  private availableActions(canPay: boolean, canCancel: boolean): Array<'PAY' | 'CANCEL'> {
+  private availableActions(
+    canPay: boolean,
+    canCancel: boolean,
+    fulfillment?: OwnedFulfillmentProjection,
+  ): Array<'PAY' | 'CANCEL' | 'VIEW_LOGISTICS' | 'CONFIRM_RECEIPT'> {
     return [
       ...(canPay ? ['PAY' as const] : []),
       ...(canCancel ? ['CANCEL' as const] : []),
+      ...(fulfillment?.canViewLogistics === true ? ['VIEW_LOGISTICS' as const] : []),
+      ...(fulfillment?.canConfirmReceipt === true ? ['CONFIRM_RECEIPT' as const] : []),
     ];
   }
 
-  private listItemView(resource: StoreOrderListItemSnapshot) {
+  private listItemView(
+    resource: StoreOrderListItemSnapshot,
+    fulfillment: OwnedFulfillmentProjection,
+  ) {
     const imageByItem = new Map(resource.itemImages.map(({ objectKey, orderItemId }) => [orderItemId, objectKey]));
     return {
       aftersale_summary: {
@@ -409,7 +421,7 @@ export class StoreOrdersService {
         latest_status: resource.aftersaleSummary.latestStatus,
         refunded_amount: resource.aftersaleSummary.refundedAmount,
       },
-      available_actions: this.availableActions(resource.canPay, resource.canCancel),
+      available_actions: this.availableActions(resource.canPay, resource.canCancel, fulfillment),
       close_reason: resource.order.closeReason,
       completion_reason: resource.order.completionReason,
       created_at: resource.order.createdAt.toISOString(),
@@ -440,7 +452,7 @@ export class StoreOrdersService {
     };
   }
 
-  private detailView(resource: StoreOrderDetailSnapshot) {
+  private detailView(resource: StoreOrderDetailSnapshot, fulfillment: OwnedFulfillmentProjection) {
     let address: { detail: string; phone: string };
     try {
       address = verifyStoreOrderAddressSecurityMaterial({
@@ -454,7 +466,7 @@ export class StoreOrdersService {
       throw internal('Stored order address snapshot is unreadable', cause);
     }
     const timeline: Array<{
-      axis: 'ORDER' | 'PAYMENT' | 'REFUND';
+      axis: 'FULFILLMENT' | 'ORDER' | 'PAYMENT' | 'REFUND';
       event: string;
       event_id: string;
       from_status: string | null;
@@ -519,6 +531,26 @@ export class StoreOrdersService {
         to_status: attempt.status,
       });
     }
+    if (fulfillment.shipment !== null) {
+      timeline.push({
+        axis: 'FULFILLMENT',
+        event: 'SHIPMENT_SHIPPED',
+        event_id: `${fulfillment.shipment.shipmentId}:shipped`,
+        from_status: 'READY_TO_SHIP',
+        occurred_at: fulfillment.shipment.shippedAt.toISOString(),
+        to_status: 'SHIPPED',
+      });
+      for (const event of fulfillment.shipment.events) {
+        timeline.push({
+          axis: 'FULFILLMENT',
+          event: event.eventType === 'STATUS' ? `SHIPMENT_${event.statusCode}` : 'TRACKING_CORRECTION',
+          event_id: event.eventId,
+          from_status: null,
+          occurred_at: event.occurredAt.toISOString(),
+          to_status: event.statusCode ?? fulfillment.shipment.status,
+        });
+      }
+    }
     timeline.sort((left, right) => left.occurred_at.localeCompare(right.occurred_at) ||
       left.event_id.localeCompare(right.event_id));
     const errors = [
@@ -528,9 +560,36 @@ export class StoreOrdersService {
     return {
       ...this.orderView(resource.order),
       aftersales: [],
-      available_actions: this.availableActions(resource.canPay, resource.canCancel),
+      available_actions: this.availableActions(resource.canPay, resource.canCancel, fulfillment),
       errors,
-      packages: [],
+      packages: fulfillment.shipment === null ? [] : [{
+        carrier_name: fulfillment.shipment.carrierName,
+        delivered_at: fulfillment.shipment.deliveredAt?.toISOString() ?? null,
+        events: fulfillment.shipment.events.map((event) => ({
+          carrier_code: event.carrierCode,
+          carrier_name: event.carrierName,
+          description: event.description,
+          event_id: event.eventId,
+          event_key: event.eventKey,
+          event_type: event.eventType,
+          location: event.location,
+          occurred_at: event.occurredAt.toISOString(),
+          reason: event.reason,
+          status_code: event.statusCode,
+          tracking_no: event.trackingNo,
+        })),
+        items: fulfillment.shipment.items.map((item) => ({
+          order_item_id: item.orderItemId,
+          product_name: item.productName,
+          quantity: item.quantity,
+          sku_id: item.skuId,
+          sku_name: item.skuName,
+        })),
+        shipment_id: fulfillment.shipment.shipmentId,
+        shipped_at: fulfillment.shipment.shippedAt.toISOString(),
+        status: fulfillment.shipment.status,
+        tracking_no: fulfillment.shipment.trackingNo,
+      }],
       payment_attempts: paymentAttempts,
       refund_attempts: refundAttempts,
       shipping_address: {
@@ -641,6 +700,11 @@ export class StoreOrdersService {
   private repository(): StoreOrderRepository {
     if (!this.orders) throw internal('Store order repository is unavailable');
     return this.orders;
+  }
+
+  private fulfillmentRepository(): FulfillmentRepository {
+    if (!this.fulfillment) throw internal('Fulfillment repository is unavailable');
+    return this.fulfillment;
   }
 
   private idempotencyRepository(): IdempotencyRepository {

@@ -1,6 +1,7 @@
 import type { PlatformRuntimeConfig } from '@qingxu/config';
 import type {
   CurrentStoreSession,
+  OwnedFulfillmentProjection,
   StoreCheckoutQuoteSnapshot,
   StoreOrderCloseResult,
   StoreOrderCreationResult,
@@ -17,7 +18,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { StoreOrderListQuery, StoreOrderSubmitRequest } from './store-orders.dto';
-import { StoreOrdersService } from './store-orders.service';
+import { storeOrderDisplayStatus, StoreOrdersService } from './store-orders.service';
 
 const ACCOUNT_ID = '01J00000000000000000000001';
 const CUSTOMER_ID = '01J00000000000000000000002';
@@ -47,6 +48,24 @@ const QUOTE_TOKEN = 'signed.checkout.quote.'.padEnd(64, 'q');
 const CONFIRMATION_HASH = 'a'.repeat(64);
 const NOW = new Date('2026-08-28T00:00:00.000Z');
 const PAY_EXPIRES_AT = new Date('2026-08-28T00:30:00.000Z');
+
+function fulfillmentProjection(
+  overrides: Partial<OwnedFulfillmentProjection> = {},
+): OwnedFulfillmentProjection {
+  return {
+    canConfirmReceipt: false,
+    canViewLogistics: false,
+    customerId: CUSTOMER_ID,
+    fulfillmentStatus: 'NOT_STARTED',
+    orderId: ORDER_ID,
+    orderStatus: 'PENDING_PAYMENT',
+    paymentResolution: 'NORMAL',
+    paymentStatus: 'UNPAID',
+    shipment: null,
+    version: 1,
+    ...overrides,
+  };
+}
 
 type MockClaimResult =
   | { kind: 'execute' }
@@ -333,6 +352,12 @@ function harness() {
     getOwnedOrderDetailInTransaction: vi.fn(async () => detailSnapshot()),
     listOwnedOrdersInTransaction: vi.fn(async () => ({ items: [listItemSnapshot()], total: 1 })),
   };
+  const fulfillment = {
+    getOwnedFulfillmentProjectionInTransaction: vi.fn(async () => fulfillmentProjection()),
+    listOwnedFulfillmentProjectionsInTransaction: vi.fn(async () => new Map([
+      [ORDER_ID, fulfillmentProjection()],
+    ])),
+  };
   const audit = {
     append: vi.fn(async () => {
       sequence.push('audit');
@@ -347,11 +372,22 @@ function harness() {
     publicUrl: vi.fn((objectKey: string) => `https://assets.example.test/${objectKey}`),
   };
   const service = new StoreOrdersService();
-  Object.assign(service, { audit, config, credentials, database, idempotency, orders, outbox, storage });
+  Object.assign(service, {
+    audit,
+    config,
+    credentials,
+    database,
+    fulfillment,
+    idempotency,
+    orders,
+    outbox,
+    storage,
+  });
   return {
     audit,
     credentials,
     database,
+    fulfillment,
     get protectedAddress() { return protectedAddress; },
     idempotency,
     orders,
@@ -366,6 +402,14 @@ function harness() {
 
 describe('B9.2-B9.3 StoreOrdersService', () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it('uses the shared closed display projection for pending payment and incomplete shipment axes', () => {
+    expect(storeOrderDisplayStatus(orderSnapshot({ paymentStatus: 'PROCESSING' }))).toBe('待付款');
+    expect(() => storeOrderDisplayStatus(orderSnapshot({
+      fulfillmentStatus: 'NOT_STARTED',
+      orderStatus: 'PENDING_SHIPMENT',
+    }))).toThrow(expect.objectContaining({ code: 'INTERNAL_ERROR' }));
+  });
 
   it('creates, protects and records an order in the required transaction order without persisting secrets', async () => {
     const current = harness();
@@ -588,8 +632,34 @@ describe('B9.2-B9.3 StoreOrdersService', () => {
       customerId: CUSTOMER_ID,
       ...query,
     });
+    expect(current.fulfillment.listOwnedFulfillmentProjectionsInTransaction).toHaveBeenCalledWith(
+      current.transaction,
+      { customerId: CUSTOMER_ID, orderIds: [ORDER_ID] },
+    );
     expect(current.storage.publicUrl).toHaveBeenCalledOnce();
     expect(current.storage.publicUrl).toHaveBeenCalledWith(`public/${FILE_ID}`);
+  });
+
+  it('projects current fulfillment actions in the order list and fails closed on a missing projection', async () => {
+    const current = harness();
+    const query: StoreOrderListQuery = {
+      displayGroup: 'ALL',
+      page: 1,
+      pageSize: 20,
+      sort: 'CREATED_DESC',
+    };
+    current.fulfillment.listOwnedFulfillmentProjectionsInTransaction.mockResolvedValueOnce(new Map([
+      [ORDER_ID, fulfillmentProjection({ canViewLogistics: true })],
+    ]));
+
+    await expect(current.service.listOrders(session, query)).resolves.toMatchObject({
+      items: [{ available_actions: ['PAY', 'CANCEL', 'VIEW_LOGISTICS'], order_id: ORDER_ID }],
+    });
+
+    current.fulfillment.listOwnedFulfillmentProjectionsInTransaction.mockResolvedValueOnce(new Map());
+    await expect(current.service.listOrders(session, query)).rejects.toMatchObject({
+      code: 'INTERNAL_ERROR',
+    });
   });
 
   it('returns only the owned detail projection and decrypts the frozen address through key rotation', async () => {
@@ -629,6 +699,10 @@ describe('B9.2-B9.3 StoreOrdersService', () => {
       customerId: CUSTOMER_ID,
       orderId: ORDER_ID,
     });
+    expect(current.fulfillment.getOwnedFulfillmentProjectionInTransaction).toHaveBeenCalledWith(
+      current.transaction,
+      { customerId: CUSTOMER_ID, orderId: ORDER_ID },
+    );
   });
 
   it('fails closed with a generic error when the frozen address ciphertext is unreadable', async () => {

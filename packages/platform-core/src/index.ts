@@ -7,6 +7,7 @@ export * from './identifiers';
 export * from './idempotency-key';
 export * from './if-match';
 export * from './outbox-backoff';
+export * from './order-display-status';
 export * from './password';
 export * from './rbac';
 export * from './redaction';

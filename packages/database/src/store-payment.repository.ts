@@ -1353,12 +1353,16 @@ export class StorePaymentRepository {
         };
       }
       if (matchingAttempt?.status === 'SUCCEEDED_LATE') {
-        if (!existingRefund || existingRefund.attempts.length !== 1 ||
+        const latestRefundAttempt = existingRefund?.attempts.at(-1);
+        const attemptSequenceValid = existingRefund?.attempts.every((attempt, index) =>
+          attempt.attempt_no === index + 1 &&
+          attempt.idempotency_key === `late-payment:${existingRefund.id}:${index + 1}`) ?? false;
+        if (!existingRefund || existingRefund.attempts.length < 1 || !latestRefundAttempt ||
+          !attemptSequenceValid ||
           existingRefund.items.length !== order.items.length ||
           existingRefund.amount.toFixed(2) !== input.amount || existingRefund.provider !== input.provider ||
           existingRefund.is_late_payment_refund !== true || existingRefund.refund_no !== `RF${existingRefund.id}` ||
-          existingRefund.attempts[0]?.attempt_no !== 1 ||
-          existingRefund.attempts[0]?.idempotency_key !== `late-payment:${existingRefund.id}:1`) {
+          latestRefundAttempt.provider !== input.provider) {
           throw internalError('Late payment refund facts are incomplete');
         }
         const operation: StoreLatePaymentRefundOperation = {
@@ -1368,7 +1372,7 @@ export class StorePaymentRepository {
           provider: input.provider,
           providerIntentId: input.providerIntentId,
           providerTransactionId: input.providerTransactionId!,
-          refundAttemptId: existingRefund.attempts[0].id,
+          refundAttemptId: latestRefundAttempt.id,
           refundId: existingRefund.id,
           refundNo: existingRefund.refund_no,
           refundVersion: existingRefund.version,
@@ -1378,7 +1382,7 @@ export class StorePaymentRepository {
           order.refund_progress_status === 'NONE' && order.refund_processing_status === 'REFUNDING' &&
           order.paid_amount.equals(order.payable_amount) && order.refunded_amount.equals(0) &&
           (existingRefund.status === 'PENDING' || existingRefund.status === 'PROCESSING') &&
-          (existingRefund.attempts[0].status === 'INITIATED' || existingRefund.attempts[0].status === 'PROCESSING');
+          (latestRefundAttempt.status === 'INITIATED' || latestRefundAttempt.status === 'PROCESSING');
         if (pending) {
           return {
             after: before,
@@ -1400,11 +1404,11 @@ export class StorePaymentRepository {
           };
         }
         const refunded = existingRefund.status === 'SUCCEEDED' &&
-          existingRefund.attempts[0].status === 'SUCCEEDED' && order.payment_status === 'PAID' &&
+          latestRefundAttempt.status === 'SUCCEEDED' && order.payment_status === 'PAID' &&
           order.payment_resolution === 'LATE_SUCCESS_REFUNDED' && order.refund_progress_status === 'FULL' &&
           order.refund_processing_status === 'IDLE' && order.refunded_amount.equals(order.paid_amount);
         const manual = existingRefund.status === 'FAILED' &&
-          existingRefund.attempts[0].status === 'FAILED' && order.payment_status === 'PAID' &&
+          latestRefundAttempt.status === 'FAILED' && order.payment_status === 'PAID' &&
           order.payment_resolution === 'MANUAL_REQUIRED' && order.refund_progress_status === 'NONE' &&
           order.refund_processing_status === 'FAILED' && order.refunded_amount.equals(0);
         if (!refunded && !manual) throw internalError('Late payment refund state is inconsistent');
@@ -2233,7 +2237,8 @@ export class StorePaymentRepository {
       include: { items: { orderBy: [{ id: 'asc' }] } },
       where: { id: input.orderId },
     });
-    const refundAttempt = refund?.attempts[0];
+    const refundAttempt = refund?.attempts.find(({ id }) => id === input.refundAttemptId);
+    const latestRefundAttempt = refund?.attempts.at(-1);
     const latePaymentAttempts = intent?.attempts.filter(({ status }) => status === 'SUCCEEDED_LATE') ?? [];
     const paymentAttempt = latePaymentAttempts[0];
     if (!refund || !intent || !order || refund.order_id !== input.orderId ||
@@ -2241,9 +2246,9 @@ export class StorePaymentRepository {
       refund.provider !== input.provider || refund.amount.toFixed(2) !== input.amount ||
       refund.refund_no !== input.refundNo || refund.reason !== 'LATE_PAYMENT_AUTOMATIC_FULL_REFUND' ||
       refund.aftersale_id !== null || refund.manual_compensation_id !== null ||
-      refund.attempts.length !== 1 || !refundAttempt || refundAttempt.id !== input.refundAttemptId ||
-      refundAttempt.attempt_no !== 1 || refundAttempt.provider !== input.provider ||
-      refundAttempt.idempotency_key !== `late-payment:${input.refundId}:1` ||
+      refund.attempts.length < 1 || !refundAttempt || latestRefundAttempt?.id !== refundAttempt.id ||
+      refundAttempt.attempt_no !== refund.attempts.length || refundAttempt.provider !== input.provider ||
+      refundAttempt.idempotency_key !== `late-payment:${input.refundId}:${refundAttempt.attempt_no}` ||
       intent.order_id !== input.orderId || intent.provider !== input.provider ||
       intent.provider_intent_id !== input.providerIntentId || intent.status !== 'SUCCEEDED' ||
       intent.provider_state !== 'SUCCEEDED' || intent.succeeded_at === null ||
@@ -2380,7 +2385,8 @@ export class StorePaymentRepository {
       include: { items: { orderBy: [{ id: 'asc' }] } },
       where: { id: operation.orderId },
     });
-    const refundAttempt = refund?.attempts[0];
+    const refundAttempt = refund?.attempts.find(({ id }) => id === operation.refundAttemptId);
+    const latestRefundAttempt = refund?.attempts.at(-1);
     const latePaymentAttempts = intent?.attempts.filter(({ status }) => status === 'SUCCEEDED_LATE') ?? [];
     const paymentAttempt = latePaymentAttempts[0];
     if (!refund || !intent || !order || refund.order_id !== operation.orderId ||
@@ -2388,9 +2394,9 @@ export class StorePaymentRepository {
       refund.provider !== operation.provider || refund.amount.toFixed(2) !== operation.amount ||
       refund.refund_no !== operation.refundNo || refund.reason !== 'LATE_PAYMENT_AUTOMATIC_FULL_REFUND' ||
       refund.aftersale_id !== null || refund.manual_compensation_id !== null ||
-      refund.attempts.length !== 1 || !refundAttempt || refundAttempt.id !== operation.refundAttemptId ||
-      refundAttempt.attempt_no !== 1 || refundAttempt.provider !== operation.provider ||
-      refundAttempt.idempotency_key !== `late-payment:${operation.refundId}:1` ||
+      refund.attempts.length < 1 || !refundAttempt || latestRefundAttempt?.id !== refundAttempt.id ||
+      refundAttempt.attempt_no !== refund.attempts.length || refundAttempt.provider !== operation.provider ||
+      refundAttempt.idempotency_key !== `late-payment:${operation.refundId}:${refundAttempt.attempt_no}` ||
       intent.order_id !== operation.orderId || intent.provider !== operation.provider ||
       intent.provider_intent_id !== operation.providerIntentId || intent.status !== 'SUCCEEDED' ||
       intent.provider_state !== 'SUCCEEDED' || intent.succeeded_at === null ||

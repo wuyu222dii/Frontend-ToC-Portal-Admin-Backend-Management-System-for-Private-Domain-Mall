@@ -6,6 +6,7 @@ import { ApiDatabaseLifecycleService } from './api-database-runtime';
 function fakeRuntime(overrides: Partial<DatabaseRuntime> = {}): DatabaseRuntime {
   return {
     connect: vi.fn().mockResolvedValue(undefined),
+    coordinationPool: {} as DatabaseRuntime['coordinationPool'],
     disconnect: vi.fn().mockResolvedValue(undefined),
     ping: vi.fn().mockResolvedValue(undefined),
     pool: {} as DatabaseRuntime['pool'],

@@ -23,6 +23,11 @@ export interface PrismaTransactionOptions {
 }
 
 export interface DatabaseRuntime {
+  /**
+   * A separately budgeted single-connection pool for session-scoped locks
+   * whose protected work may use the main Prisma pool.
+   */
+  readonly coordinationPool: Pool;
   readonly prisma: PrismaClient;
   readonly pool: Pool;
   connect(): Promise<void>;
@@ -196,6 +201,10 @@ export function createDatabaseRuntime(config: DatabaseRuntimeConfig): DatabaseRu
   };
   if (connection.ssl !== undefined) poolConfig.ssl = connection.ssl;
   const pool = new Pool(poolConfig);
+  const coordinationPool = new Pool({ ...poolConfig, max: 1 });
+  // pg emits idle-client network failures through EventEmitter. Keep the API
+  // alive; the next lock attempt still receives its own connection error.
+  coordinationPool.on('error', () => undefined);
   const adapter = new PrismaPg(pool, {
     disposeExternalPool: false,
     onPoolError: () => undefined,
@@ -204,6 +213,7 @@ export function createDatabaseRuntime(config: DatabaseRuntimeConfig): DatabaseRu
   let disconnected = false;
 
   return {
+    coordinationPool,
     prisma,
     pool,
     async connect(): Promise<void> {
@@ -215,7 +225,7 @@ export function createDatabaseRuntime(config: DatabaseRuntimeConfig): DatabaseRu
       if (disconnected) return;
       disconnected = true;
       await prisma.$disconnect();
-      await pool.end();
+      await Promise.all([pool.end(), coordinationPool.end()]);
     },
     async ping(): Promise<void> {
       await pool.query('SELECT 1');

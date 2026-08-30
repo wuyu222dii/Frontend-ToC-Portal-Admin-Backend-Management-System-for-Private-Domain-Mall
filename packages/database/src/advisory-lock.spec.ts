@@ -1,9 +1,12 @@
+import { EventEmitter } from 'node:events';
+
 import { describe, expect, it, vi } from 'vitest';
 import type { Pool, PoolClient } from 'pg';
 
 import {
   acquireTransactionLock,
   acquireTransactionLocks,
+  withBoundedSessionAdvisoryLock,
   withSessionAdvisoryLock,
 } from './advisory-lock';
 
@@ -12,10 +15,10 @@ function poolWithClient(client: PoolClient): Pool {
 }
 
 function clientWithQuery(query: (sql: string) => Promise<unknown>): PoolClient {
-  return {
+  return Object.assign(new EventEmitter(), {
     query: vi.fn(query),
     release: vi.fn(),
-  } as unknown as PoolClient;
+  }) as unknown as PoolClient;
 }
 
 describe('transaction advisory locks', () => {
@@ -110,5 +113,83 @@ describe('withSessionAdvisoryLock', () => {
     await expect(withSessionAdvisoryLock(poolWithClient(client), 'outbox', 'event-1', async () => 'done'))
       .rejects.toBe(unlockError);
     expect(client.release).toHaveBeenCalledWith(true);
+  });
+
+  it('fails closed and destroys a checked-out connection that is lost during work', async () => {
+    const client = clientWithQuery(async () => ({ rows: [{ acquired: true }] }));
+
+    await expect(withSessionAdvisoryLock(poolWithClient(client), 'outbox', 'event-1', async () => {
+      client.emit('error', new Error('socket reset'));
+      return 'not-authoritative';
+    })).rejects.toThrow('Session advisory lock connection was lost');
+
+    expect(client.release).toHaveBeenCalledWith(true);
+    expect(client.listenerCount('error')).toBe(0);
+  });
+});
+
+describe('withBoundedSessionAdvisoryLock', () => {
+  it('blocks with a local timeout and runs work on the lock-owning session', async () => {
+    const client = clientWithQuery(async () => ({ rowCount: 1, rows: [{}] }));
+    const work = vi.fn(async (lockedClient: PoolClient) => {
+      expect(lockedClient).toBe(client);
+      return 'queued';
+    });
+
+    await expect(withBoundedSessionAdvisoryLock(
+      poolWithClient(client), 'callback-inbox', 'inbox-1', 15_000, work,
+    )).resolves.toEqual({ acquired: true, value: 'queued' });
+
+    expect(client.query).toHaveBeenNthCalledWith(1, 'BEGIN');
+    expect(client.query).toHaveBeenNthCalledWith(
+      2,
+      "SELECT set_config('lock_timeout', $1, true)",
+      ['15000ms'],
+    );
+    expect(String(client.query.mock.calls[2]?.[0])).toContain('pg_advisory_lock(');
+    expect(client.query.mock.calls[2]?.[1]).toEqual(['callback-inbox', 'inbox-1']);
+    expect(client.query).toHaveBeenNthCalledWith(4, 'COMMIT');
+    expect(String(client.query.mock.calls[4]?.[0])).toContain('pg_advisory_unlock(');
+    expect(work).toHaveBeenCalledOnce();
+    expect(client.release).toHaveBeenCalledWith(false);
+  });
+
+  it('returns a bounded busy result after PostgreSQL cancels the lock wait', async () => {
+    const lockTimeout = Object.assign(new Error('lock timeout'), { code: '55P03' });
+    const client = clientWithQuery(async (sql) => {
+      if (sql.includes('pg_advisory_lock(')) throw lockTimeout;
+      return { rowCount: null, rows: [] };
+    });
+    const work = vi.fn(async () => 'unused');
+
+    await expect(withBoundedSessionAdvisoryLock(
+      poolWithClient(client), 'callback-inbox', 'inbox-1', 15_000, work,
+    )).resolves.toEqual({ acquired: false });
+
+    expect(work).not.toHaveBeenCalled();
+    expect(client.query).toHaveBeenLastCalledWith('ROLLBACK');
+    expect(client.release).toHaveBeenCalledWith(false);
+  });
+
+  it('fails closed and destroys a bounded lock connection lost during protected work', async () => {
+    const client = clientWithQuery(async () => ({ rowCount: 1, rows: [{}] }));
+
+    await expect(withBoundedSessionAdvisoryLock(
+      poolWithClient(client), 'callback-inbox', 'inbox-1', 15_000, async () => {
+        client.emit('error', new Error('socket reset'));
+        return 'not-authoritative';
+      },
+    )).rejects.toThrow('Session advisory lock connection was lost');
+
+    expect(client.release).toHaveBeenCalledWith(true);
+    expect(client.listenerCount('error')).toBe(0);
+  });
+
+  it.each([0, 60_001, 1.5])('rejects an unsafe timeout value: %s', async (timeoutMs) => {
+    const pool = { connect: vi.fn() } as unknown as Pool;
+    await expect(withBoundedSessionAdvisoryLock(
+      pool, 'callback-inbox', 'inbox-1', timeoutMs, async () => undefined,
+    )).rejects.toThrow('timeout must be between 1 and 60000 ms');
+    expect(pool.connect).not.toHaveBeenCalled();
   });
 });

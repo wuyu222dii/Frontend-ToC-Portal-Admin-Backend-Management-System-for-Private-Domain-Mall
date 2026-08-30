@@ -251,7 +251,13 @@ onUnload(() => {
           </button>
           <view class="order-card__footer">
             <text
-              v-if="order.available_actions.includes('CANCEL')"
+              v-if="order.available_actions.includes('PAY')"
+              class="order-card__available"
+            >
+              可支付
+            </text>
+            <text
+              v-else-if="order.available_actions.includes('CANCEL')"
               class="order-card__available"
             >
               可取消

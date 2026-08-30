@@ -258,6 +258,25 @@ describe('AuditRepository', () => {
       .rejects.toThrow();
   });
 
+  it('accepts the closed PROCESSING status used by refund-attempt lifecycle audits', async () => {
+    const transaction = transactionStub();
+    await new AuditRepository(ipHashKey).append(transaction, {
+      ...baseInput,
+      after: { status: 'PROCESSING', version: 2 },
+      before: { status: 'PENDING', version: 1 },
+      module: 'refund',
+      objectType: 'refund',
+      summaryPolicy: 'STATUS_VERSION',
+    });
+
+    expect(transaction.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        after_json: { status: 'PROCESSING', version: 2 },
+        before_json: { status: 'PENDING', version: 1 },
+      }),
+    }));
+  });
+
   it('NONE policy rejects caller-defined summary keys', async () => {
     await expect(new AuditRepository(ipHashKey).append(transactionStub(), {
       ...baseInput,

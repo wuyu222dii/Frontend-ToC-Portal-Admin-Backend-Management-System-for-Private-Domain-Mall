@@ -57,11 +57,12 @@ export class StoreApiError extends Error {
 
 type PlainRecord = Record<string, unknown>;
 export type StoreQueryValue = boolean | number | string | undefined;
+export type StoreSuccessStatus = 200 | 201 | 202;
 
 export interface StoreRequestOptions<T = unknown> {
   readonly data?: unknown;
   readonly decode?: (value: unknown) => T;
-  readonly expectedStatus?: 200 | 201;
+  readonly expectedStatus?: StoreSuccessStatus | readonly StoreSuccessStatus[];
   readonly headers?: Readonly<Record<string, string>>;
   readonly method?: 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT';
   readonly query?: Readonly<Record<string, StoreQueryValue>>;
@@ -275,6 +276,7 @@ export function storeApiRequest<T>(
     try {
       const method = options.method ?? 'GET';
       const expectedStatus = options.expectedStatus ?? 200;
+      const expectedStatuses = Array.isArray(expectedStatus) ? expectedStatus : [expectedStatus];
       const headers: Record<string, string> = {
         Accept: 'application/json',
         ...options.headers,
@@ -293,7 +295,7 @@ export function storeApiRequest<T>(
         success(response) {
           if (settled) return;
           settled = true;
-          if (response.statusCode !== expectedStatus) {
+          if (!expectedStatuses.includes(response.statusCode as StoreSuccessStatus)) {
             reject(httpError(response.statusCode, response.data, response.header));
             return;
           }

@@ -393,8 +393,11 @@ export class StoreOrdersService {
     return { order_closed: { order_id: orderId } };
   }
 
-  private availableActions(canCancel: boolean): Array<'CANCEL'> {
-    return canCancel ? ['CANCEL'] : [];
+  private availableActions(canPay: boolean, canCancel: boolean): Array<'PAY' | 'CANCEL'> {
+    return [
+      ...(canPay ? ['PAY' as const] : []),
+      ...(canCancel ? ['CANCEL' as const] : []),
+    ];
   }
 
   private listItemView(resource: StoreOrderListItemSnapshot) {
@@ -406,7 +409,7 @@ export class StoreOrdersService {
         latest_status: resource.aftersaleSummary.latestStatus,
         refunded_amount: resource.aftersaleSummary.refundedAmount,
       },
-      available_actions: this.availableActions(resource.canCancel),
+      available_actions: this.availableActions(resource.canPay, resource.canCancel),
       close_reason: resource.order.closeReason,
       completion_reason: resource.order.completionReason,
       created_at: resource.order.createdAt.toISOString(),
@@ -451,7 +454,7 @@ export class StoreOrdersService {
       throw internal('Stored order address snapshot is unreadable', cause);
     }
     const timeline: Array<{
-      axis: 'ORDER';
+      axis: 'ORDER' | 'PAYMENT' | 'REFUND';
       event: string;
       event_id: string;
       from_status: string | null;
@@ -475,14 +478,61 @@ export class StoreOrdersService {
         to_status: 'CLOSED',
       });
     }
+    const paymentAttempts = resource.paymentAttempts.map((attempt) => ({
+      amount: attempt.amount,
+      created_at: attempt.createdAt.toISOString(),
+      intent_no: attempt.intentNo,
+      last_error: this.safeAttemptError(attempt.failureCode, attempt.updatedAt),
+      payment_attempt_id: attempt.paymentAttemptId,
+      provider_transaction_id_masked: this.maskProviderReference(attempt.providerTransactionId),
+      status: attempt.status,
+      updated_at: attempt.updatedAt.toISOString(),
+    }));
+    const refundAttempts = resource.refundAttempts.map((attempt) => ({
+      amount: attempt.amount,
+      attempt_no: attempt.attemptNo,
+      created_at: attempt.createdAt.toISOString(),
+      last_error: this.safeAttemptError(attempt.failureCode, attempt.updatedAt),
+      origin_type: attempt.originType,
+      refund_id: attempt.refundId,
+      refund_no: attempt.refundNo,
+      status: attempt.status,
+      updated_at: attempt.updatedAt.toISOString(),
+    }));
+    for (const attempt of resource.paymentAttempts) {
+      timeline.push({
+        axis: 'PAYMENT',
+        event: `PAYMENT_${attempt.status}`,
+        event_id: attempt.paymentAttemptId,
+        from_status: attempt.status === 'INITIATED' ? null : 'INITIATED',
+        occurred_at: attempt.updatedAt.toISOString(),
+        to_status: attempt.status,
+      });
+    }
+    for (const attempt of resource.refundAttempts) {
+      timeline.push({
+        axis: 'REFUND',
+        event: `REFUND_${attempt.status}`,
+        event_id: `${attempt.refundId}:${attempt.attemptNo}`,
+        from_status: attempt.status === 'INITIATED' ? null : 'INITIATED',
+        occurred_at: attempt.updatedAt.toISOString(),
+        to_status: attempt.status,
+      });
+    }
+    timeline.sort((left, right) => left.occurred_at.localeCompare(right.occurred_at) ||
+      left.event_id.localeCompare(right.event_id));
+    const errors = [
+      ...paymentAttempts.map(({ last_error }) => last_error),
+      ...refundAttempts.map(({ last_error }) => last_error),
+    ].filter((error): error is NonNullable<typeof error> => error !== null);
     return {
       ...this.orderView(resource.order),
       aftersales: [],
-      available_actions: this.availableActions(resource.canCancel),
-      errors: [],
+      available_actions: this.availableActions(resource.canPay, resource.canCancel),
+      errors,
       packages: [],
-      payment_attempts: [],
-      refund_attempts: [],
+      payment_attempts: paymentAttempts,
+      refund_attempts: refundAttempts,
       shipping_address: {
         city: resource.address.city,
         detail: address.detail,
@@ -493,6 +543,24 @@ export class StoreOrdersService {
       },
       timeline,
       version: resource.order.version,
+    };
+  }
+
+  private maskProviderReference(value: string | null): string | null {
+    if (value === null) return null;
+    const suffix = Array.from(value).slice(-4).join('');
+    return `****${suffix}`;
+  }
+
+  private safeAttemptError(code: string | null, occurredAt: Date) {
+    if (code === null) return null;
+    const retryable = code === 'PROVIDER_UNAVAILABLE' || code === 'PROVIDER_UNKNOWN' ||
+      code === 'INVALID_PROVIDER_STATE';
+    return {
+      error_code: code,
+      message: retryable ? '支付服务暂未确认结果，请稍后刷新' : '支付或退款未能完成',
+      occurred_at: occurredAt.toISOString(),
+      retryable,
     };
   }
 

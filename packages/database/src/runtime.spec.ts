@@ -53,6 +53,10 @@ describe('createDatabaseRuntime', () => {
     runtimes.push(runtime);
     const options = runtime.pool.options;
     expect(options.ssl).toBeUndefined();
+    expect(runtime.coordinationPool).not.toBe(runtime.pool);
+    expect(runtime.coordinationPool.options.max).toBe(1);
+    expect(runtime.coordinationPool.options.connectionString).toBe(runtime.pool.options.connectionString);
+    expect(runtime.coordinationPool.listenerCount('error')).toBeGreaterThan(0);
   });
 
   it('requires the approved Supabase endpoint, project scope and trusted CA', () => {
@@ -81,6 +85,7 @@ describe('createDatabaseRuntime', () => {
 
     expect(runtime.pool.options.connectionString).not.toMatch(/sslmode|sslrootcert/);
     expect(runtime.pool.options.ssl).toEqual({ ca: TEST_CERTIFICATE, rejectUnauthorized: true });
+    expect(runtime.coordinationPool.options.ssl).toEqual({ ca: TEST_CERTIFICATE, rejectUnauthorized: true });
   });
 
   it('rejects query options that could override explicit TLS verification', () => {

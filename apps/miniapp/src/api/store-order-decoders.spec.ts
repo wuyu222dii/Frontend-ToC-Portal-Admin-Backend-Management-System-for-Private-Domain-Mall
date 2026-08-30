@@ -15,6 +15,8 @@ const QUOTE_ID = '01J30000000000000000000000';
 const ORDER_ID = '01J40000000000000000000000';
 const ORDER_ITEM_ID = '01J50000000000000000000000';
 const AFTERSALE_ID = '01J60000000000000000000000';
+const PAYMENT_ATTEMPT_ID = '01J70000000000000000000000';
+const REFUND_ID = '01J80000000000000000000000';
 const HASH = 'a'.repeat(64);
 const PHONE = ['100', '0000', '0000'].join('');
 
@@ -122,7 +124,7 @@ function listItem() {
     payable_amount: order.amounts.payable,
     items: [compactItem()],
     pay_expires_at: order.pay_expires_at,
-    available_actions: ['CANCEL'],
+    available_actions: ['PAY', 'CANCEL'],
     aftersale_summary: {
       active_count: 1,
       latest_aftersale_id: AFTERSALE_ID,
@@ -144,7 +146,7 @@ function orderDetail() {
       district: '西湖区',
       detail: '文一路 1 号',
     },
-    available_actions: ['CANCEL'],
+    available_actions: ['PAY', 'CANCEL'],
     timeline: [{
       event_id: 'order-created',
       axis: 'ORDER',
@@ -155,9 +157,38 @@ function orderDetail() {
     }],
     packages: [],
     aftersales: [],
-    payment_attempts: [],
-    refund_attempts: [],
-    errors: [],
+    payment_attempts: [{
+      payment_attempt_id: PAYMENT_ATTEMPT_ID,
+      intent_no: 'PI01J90000000000000000000000',
+      status: 'FAILED',
+      amount: '78.00',
+      provider_transaction_id_masked: null,
+      last_error: {
+        error_code: 'PAYMENT_FAILED',
+        message: '支付未完成',
+        retryable: true,
+        occurred_at: '2026-08-29T01:02:00.000Z',
+      },
+      created_at: '2026-08-29T01:01:00.000Z',
+      updated_at: '2026-08-29T01:02:00.000Z',
+    }],
+    refund_attempts: [{
+      refund_id: REFUND_ID,
+      refund_no: 'RF01J80000000000000000000000',
+      attempt_no: 1,
+      origin_type: 'LATE_PAYMENT',
+      status: 'PROCESSING',
+      amount: '78.00',
+      last_error: null,
+      created_at: '2026-08-29T01:03:00.000Z',
+      updated_at: '2026-08-29T01:03:00.000Z',
+    }],
+    errors: [{
+      error_code: 'PAYMENT_RESULT_PENDING',
+      message: '正在确认支付结果',
+      retryable: true,
+      occurred_at: '2026-08-29T01:03:00.000Z',
+    }],
     version: 1,
   };
 }
@@ -228,9 +259,13 @@ describe('B9 order response decoders', () => {
     expect(() => decodeStoreOrder(value)).toThrow(StoreEnvelopeFormatError);
   });
 
-  it('rejects list and detail surfaces that expose unsupported B10 actions or payloads', () => {
-    expect(() => decodeStoreOrderList({
+  it('accepts PAY but rejects unknown actions and unopened detail surfaces', () => {
+    expect(decodeStoreOrderList({
       items: [{ ...listItem(), available_actions: ['PAY'] }],
+      pagination: { page: 1, page_size: 20, total: 1 },
+    }).items[0]?.available_actions).toEqual(['PAY']);
+    expect(() => decodeStoreOrderList({
+      items: [{ ...listItem(), available_actions: ['SHIP'] }],
       pagination: { page: 1, page_size: 20, total: 1 },
     })).toThrow(StoreEnvelopeFormatError);
     expect(() => decodeStoreOrderDetail({
@@ -245,6 +280,37 @@ describe('B9 order response decoders', () => {
       ...orderDetail(),
       timeline: [{ ...orderDetail().timeline[0], extra: true }],
     })).toThrow(StoreEnvelopeFormatError);
+  });
+
+  it.each([
+    {
+      ...orderDetail(),
+      payment_attempts: [{ ...orderDetail().payment_attempts[0], status: 'UNKNOWN' }],
+    },
+    {
+      ...orderDetail(),
+      payment_attempts: [{ ...orderDetail().payment_attempts[0], extra: true }],
+    },
+    {
+      ...orderDetail(),
+      payment_attempts: [{ ...orderDetail().payment_attempts[0], last_error: {
+        ...orderDetail().payment_attempts[0]?.last_error, provider_payload: 'unsafe',
+      } }],
+    },
+    {
+      ...orderDetail(),
+      refund_attempts: [{ ...orderDetail().refund_attempts[0], attempt_no: 0 }],
+    },
+    {
+      ...orderDetail(),
+      refund_attempts: [{ ...orderDetail().refund_attempts[0], origin_type: 'CUSTOMER_REQUEST' }],
+    },
+    {
+      ...orderDetail(),
+      errors: [{ ...orderDetail().errors[0], occurred_at: 'not-a-date' }],
+    },
+  ])('rejects malformed payment, refund, and safe error details', (value) => {
+    expect(() => decodeStoreOrderDetail(value)).toThrow(StoreEnvelopeFormatError);
   });
 
   it('keeps detail display copy server-driven while command responses stay closed', () => {

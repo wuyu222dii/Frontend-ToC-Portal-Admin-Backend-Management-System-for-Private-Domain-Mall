@@ -246,6 +246,41 @@ describe('Store API uni.request adapter', () => {
     });
   });
 
+  it('accepts only statuses from a caller-selected closed success set', async () => {
+    const acceptedRequest = stubRequest();
+    const accepted = storeApiRequest<{ state: string }>('/store/orders/order/cancel', {
+      expectedStatus: [200, 202],
+      method: 'POST',
+    });
+    acceptedRequest.options().success?.({
+      data: {
+        code: 'OK', message: 'success', data: { state: 'pending' }, request_id: 'req_pending',
+      },
+      statusCode: 202,
+      header: {},
+      cookies: [],
+    });
+    await expect(accepted.promise).resolves.toEqual({ state: 'pending' });
+
+    const rejectedRequest = stubRequest();
+    const rejected = storeApiRequest('/store/orders/order/cancel', {
+      expectedStatus: [200, 202],
+      method: 'POST',
+    });
+    rejectedRequest.options().success?.({
+      data: {
+        code: 'OK', message: 'success', data: { state: 'created' }, request_id: 'req_created',
+      },
+      statusCode: 201,
+      header: {},
+      cookies: [],
+    });
+    await expect(rejected.promise).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+      status: 502,
+    });
+  });
+
   it('exposes a valid Retry-After value on a 429 error', async () => {
     const current = stubRequest();
     const pending = storeApiGet('/store/home');

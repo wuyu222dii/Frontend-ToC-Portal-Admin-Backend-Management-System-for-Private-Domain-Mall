@@ -71,6 +71,7 @@ export function cancelStoreOrder(
 ): Promise<StoreOrder> {
   return authenticatedRequest(`/store/orders/${ulidPath(orderId, 'order_id')}/cancel`, {
     decode: decodeStoreOrder,
+    expectedStatus: [200, 202],
     headers: { 'Idempotency-Key': idempotencyKey, 'If-Match': versionHeader(version) },
     method: 'POST',
   });

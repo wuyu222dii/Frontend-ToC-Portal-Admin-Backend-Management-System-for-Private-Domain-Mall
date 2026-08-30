@@ -18684,7 +18684,7 @@ components:
                   pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
                 payment_intent_status:
                   type: "string"
-                  enum: ["CLOSED", "EXPIRED"]
+                  enum: ["CLOSED", "EXPIRED", "SUCCEEDED"]
                 refund_status:
                   const: "SUCCEEDED"
                 payment_resolution:

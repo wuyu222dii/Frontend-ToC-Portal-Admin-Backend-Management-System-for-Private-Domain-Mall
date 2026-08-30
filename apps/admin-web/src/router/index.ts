@@ -92,6 +92,12 @@ export const router = createRouter({
       path: '/content/banners',
     },
     {
+      component: () => import('../views/payments/PaymentReconciliationView.vue'),
+      meta: { access: 'session', title: '支付对账' },
+      name: 'payment-reconciliation',
+      path: '/orders/reconciliation',
+    },
+    {
       component: () => import('../views/security/SecurityHomeView.vue'),
       meta: { access: 'session', title: '账户安全' },
       name: 'security',

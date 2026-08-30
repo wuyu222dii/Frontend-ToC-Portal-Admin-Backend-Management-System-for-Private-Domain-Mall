@@ -91,6 +91,7 @@ describe('B9 authenticated order client', () => {
 
     expect(mocks.authenticatedRequest).toHaveBeenCalledWith(`/store/orders/${ORDER_ID}/cancel`, {
       decode: expect.any(Function),
+      expectedStatus: [200, 202],
       headers: { 'Idempotency-Key': 'fixed-cancel-key', 'If-Match': '"4"' },
       method: 'POST',
     });

@@ -6,6 +6,7 @@ import {
   goBackOrHome,
   handleBottomNavigation,
   isSafeHttpsUrl,
+  openPaymentResult,
   showLoginPrompt,
 } from './store-navigation';
 
@@ -90,5 +91,14 @@ describe('store navigation URL safety', () => {
     expect(showModal).not.toHaveBeenCalled();
     expect(navigateTo).toHaveBeenCalledWith({ url: '/pages/checkout/index?source=CART' });
     expect(peekProtectedAction()).toBeNull();
+  });
+
+  it('opens payment result with only the encoded order ID', () => {
+    const navigateTo = vi.fn();
+    vi.stubGlobal('uni', { navigateTo });
+    openPaymentResult('01J00000000000000000000000');
+    expect(navigateTo).toHaveBeenCalledWith({
+      url: '/pages/payment/result?order_id=01J00000000000000000000000',
+    });
   });
 });

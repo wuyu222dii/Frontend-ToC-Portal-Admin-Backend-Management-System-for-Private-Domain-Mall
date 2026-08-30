@@ -1,6 +1,7 @@
 export * from './store-catalog';
 export * from './store-identity';
 export * from './store-orders';
+export * from './store-payments';
 export * from './store-shopping';
 export type {
   CheckoutQuote,
@@ -16,6 +17,14 @@ export type {
   StoreOrderListItem,
   StoreOrderListQuery,
 } from '../types/store-orders';
+export type {
+  MockPaymentResultInput,
+  PaymentAttemptDetail,
+  PaymentIntent,
+  PaymentProviderCapability,
+  RefundAttemptDetail,
+  SafeDomainError,
+} from '../types/store-payments';
 export type {
   StoreBanner,
   StoreBrand,

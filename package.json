@@ -56,6 +56,7 @@
     "e2e:b7": "playwright test --config playwright.b7.config.ts",
     "e2e:b8": "playwright test --config playwright.b8-ui.config.ts",
     "e2e:b9": "playwright test --config playwright.b9-ui.config.ts",
+    "e2e:b10": "playwright test --config playwright.b10-miniapp.config.ts && playwright test --config playwright.b10-admin.config.ts",
     "e2e:b4:vertical": "node scripts/ci/test-b4-vertical.mjs",
     "e2e:b5:vertical": "node scripts/ci/test-b5-vertical.mjs",
     "e2e:b6:vertical": "node scripts/ci/test-b6-vertical.mjs",

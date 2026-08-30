@@ -228,6 +228,7 @@ function listItemSnapshot(overrides: Partial<StoreOrderListItemSnapshot> = {}): 
       refundedAmount: '0.00',
     },
     canCancel: true,
+    canPay: true,
     itemImages: [{ objectKey: `public/${FILE_ID}`, orderItemId: ORDER_ITEM_ID }],
     order: orderSnapshot(),
     ...overrides,
@@ -253,8 +254,11 @@ function detailSnapshot(overrides: Partial<StoreOrderDetailSnapshot> = {}): Stor
       snapshotId: ADDRESS_SNAPSHOT_ID,
     },
     canCancel: true,
+    canPay: true,
     closedAt: null,
     order: orderSnapshot(),
+    paymentAttempts: [],
+    refundAttempts: [],
     ...overrides,
   };
 }
@@ -564,7 +568,7 @@ describe('B9.2-B9.3 StoreOrdersService', () => {
           latest_status: null,
           refunded_amount: '0.00',
         },
-        available_actions: ['CANCEL'],
+        available_actions: ['PAY', 'CANCEL'],
         display_status: '待付款',
         items: [expect.objectContaining({
           order_item_id: ORDER_ITEM_ID,
@@ -593,7 +597,7 @@ describe('B9.2-B9.3 StoreOrdersService', () => {
 
     await expect(current.service.getOrder(session, ORDER_ID)).resolves.toMatchObject({
       aftersales: [],
-      available_actions: ['CANCEL'],
+      available_actions: ['PAY', 'CANCEL'],
       errors: [],
       order_id: ORDER_ID,
       packages: [],

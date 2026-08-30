@@ -26,9 +26,10 @@ const fulfillmentStatuses = new Set(['NOT_STARTED', 'READY_TO_SHIP', 'SHIPPED', 
 const closeReasons = new Set(['USER_CANCELLED', 'PAYMENT_TIMEOUT', 'FULL_REFUND_BEFORE_SHIPMENT']);
 const completionReasons = new Set(['CUSTOMER_CONFIRMED', 'ADMIN_FORCED', 'FULL_REFUND_AFTER_SHIPMENT']);
 const paymentResolutions = new Set(['NORMAL', 'LATE_SUCCESS_REFUND_PENDING', 'LATE_SUCCESS_REFUNDED', 'MANUAL_REQUIRED']);
+const orderActions = new Set(['PAY', 'CANCEL']);
 const commandDisplayStatuses = new Set([
   '待付款', '待发货', '运输中', '已完成', '退款处理中', '部分退款', '退款完成',
-  '退款异常待处理', '已关闭', '支付异常处理中',
+  '退款异常待处理', '已关闭', '支付处理中', '支付确认中', '关单确认中', '支付异常处理中',
 ]);
 const blockers = new Set<CheckoutQuoteBlocker>([
   'CART_SELECTION_CHANGED', 'ITEM_UNAVAILABLE', 'INSUFFICIENT_STOCK',
@@ -276,7 +277,8 @@ function listItem(value: unknown): StoreOrderListItem {
     'available_actions', 'aftersale_summary', 'created_at',
   ]);
   if (!Array.isArray(current.items) || current.items.length < 1 || !Array.isArray(current.available_actions) ||
-    current.available_actions.some((entry) => entry !== 'CANCEL') || new Set(current.available_actions).size !== current.available_actions.length) invalid();
+    current.available_actions.some((entry) => typeof entry !== 'string' || !orderActions.has(entry)) ||
+    new Set(current.available_actions).size !== current.available_actions.length) invalid();
   const aftersale = record(current.aftersale_summary, [
     'active_count', 'latest_aftersale_id', 'latest_status', 'refunded_amount',
   ]);
@@ -291,7 +293,7 @@ function listItem(value: unknown): StoreOrderListItem {
   return {
     order_id: orderId, order_no: orderNo, ...axes(current), payable_amount: money(current.payable_amount),
     items: current.items.map(compactItem), pay_expires_at: nullable(current.pay_expires_at, dateTime),
-    available_actions: current.available_actions as 'CANCEL'[],
+    available_actions: current.available_actions as StoreOrderListItem['available_actions'],
     aftersale_summary: {
       active_count: integer(aftersale.active_count),
       latest_aftersale_id: nullable(aftersale.latest_aftersale_id, ulid),
@@ -315,6 +317,55 @@ export function decodeStoreOrderList(value: unknown): StoreOrderList {
   };
 }
 
+function safeDomainError(value: unknown): StoreOrderDetail['errors'][number] {
+  const current = record(value, ['error_code', 'message', 'retryable', 'occurred_at']);
+  return {
+    error_code: text(current.error_code),
+    message: text(current.message),
+    retryable: booleanValue(current.retryable),
+    occurred_at: dateTime(current.occurred_at),
+  };
+}
+
+function paymentAttempt(value: unknown): StoreOrderDetail['payment_attempts'][number] {
+  const current = record(value, [
+    'payment_attempt_id', 'intent_no', 'status', 'amount', 'provider_transaction_id_masked',
+    'last_error', 'created_at', 'updated_at',
+  ]);
+  return {
+    payment_attempt_id: ulid(current.payment_attempt_id),
+    intent_no: text(current.intent_no),
+    status: enumValue(current.status, new Set([
+      'INITIATED', 'SUCCEEDED', 'SUCCEEDED_LATE', 'FAILED', 'CANCELLED',
+    ])),
+    amount: money(current.amount),
+    provider_transaction_id_masked: nullable(current.provider_transaction_id_masked, text),
+    last_error: nullable(current.last_error, safeDomainError),
+    created_at: dateTime(current.created_at),
+    updated_at: dateTime(current.updated_at),
+  } as StoreOrderDetail['payment_attempts'][number];
+}
+
+function refundAttempt(value: unknown): StoreOrderDetail['refund_attempts'][number] {
+  const current = record(value, [
+    'refund_id', 'refund_no', 'attempt_no', 'origin_type', 'status', 'amount',
+    'last_error', 'created_at', 'updated_at',
+  ]);
+  return {
+    refund_id: ulid(current.refund_id),
+    refund_no: text(current.refund_no),
+    attempt_no: integer(current.attempt_no, 1),
+    origin_type: enumValue(current.origin_type, new Set([
+      'AFTERSALE', 'LATE_PAYMENT', 'MANUAL_COMPENSATION',
+    ])),
+    status: enumValue(current.status, new Set(['INITIATED', 'PROCESSING', 'SUCCEEDED', 'FAILED'])),
+    amount: money(current.amount),
+    last_error: nullable(current.last_error, safeDomainError),
+    created_at: dateTime(current.created_at),
+    updated_at: dateTime(current.updated_at),
+  } as StoreOrderDetail['refund_attempts'][number];
+}
+
 export function decodeStoreOrderDetail(value: unknown): StoreOrderDetail {
   const current = record(value, [
     'order_id', 'order_no', 'order_status', 'payment_status', 'refund_progress_status',
@@ -324,13 +375,13 @@ export function decodeStoreOrderDetail(value: unknown): StoreOrderDetail {
     'payment_attempts', 'refund_attempts', 'errors', 'version',
   ]);
   if (!Array.isArray(current.items) || current.items.length < 1 ||
-    !Array.isArray(current.available_actions) || current.available_actions.some((entry) => entry !== 'CANCEL') ||
+    !Array.isArray(current.available_actions) ||
+    current.available_actions.some((entry) => typeof entry !== 'string' || !orderActions.has(entry)) ||
     new Set(current.available_actions).size !== current.available_actions.length ||
     !Array.isArray(current.timeline) || !Array.isArray(current.errors) ||
     !Array.isArray(current.packages) || current.packages.length !== 0 ||
     !Array.isArray(current.aftersales) || current.aftersales.length !== 0 ||
-    !Array.isArray(current.payment_attempts) || current.payment_attempts.length !== 0 ||
-    !Array.isArray(current.refund_attempts) || current.refund_attempts.length !== 0) invalid();
+    !Array.isArray(current.payment_attempts) || !Array.isArray(current.refund_attempts)) invalid();
   const base = decodeStoreOrderProjection(Object.fromEntries(Object.entries(current).filter(([key]) => [
     'order_id', 'order_no', 'order_status', 'payment_status', 'refund_progress_status',
     'refund_processing_status', 'fulfillment_status', 'close_reason', 'completion_reason',
@@ -346,7 +397,7 @@ export function decodeStoreOrderDetail(value: unknown): StoreOrderDetail {
       province: text(address.province, 1, 80), city: text(address.city, 1, 80),
       district: text(address.district, 1, 80), detail: text(address.detail, 1, 300),
     },
-    available_actions: current.available_actions as 'CANCEL'[],
+    available_actions: current.available_actions as StoreOrderDetail['available_actions'],
     timeline: current.timeline.map((entry) => {
       const event = record(entry, ['event_id', 'axis', 'event', 'from_status', 'to_status', 'occurred_at']);
       return {
@@ -356,14 +407,10 @@ export function decodeStoreOrderDetail(value: unknown): StoreOrderDetail {
         to_status: text(event.to_status), occurred_at: dateTime(event.occurred_at),
       } as StoreOrderDetail['timeline'][number];
     }),
-    packages: [], aftersales: [], payment_attempts: [], refund_attempts: [],
-    errors: current.errors.map((entry) => {
-      const error = record(entry, ['error_code', 'message', 'retryable', 'occurred_at']);
-      return {
-        error_code: text(error.error_code), message: text(error.message),
-        retryable: booleanValue(error.retryable), occurred_at: dateTime(error.occurred_at),
-      };
-    }),
+    packages: [], aftersales: [],
+    payment_attempts: current.payment_attempts.map(paymentAttempt),
+    refund_attempts: current.refund_attempts.map(refundAttempt),
+    errors: current.errors.map(safeDomainError),
     version: integer(current.version, 1),
   } as StoreOrderDetail;
 }

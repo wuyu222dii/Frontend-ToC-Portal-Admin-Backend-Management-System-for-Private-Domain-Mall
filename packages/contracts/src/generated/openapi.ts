@@ -5982,7 +5982,7 @@ export interface components {
                 refund_id: string;
                 order_id: string;
                 /** @enum {string} */
-                payment_intent_status: "CLOSED" | "EXPIRED";
+                payment_intent_status: "CLOSED" | "EXPIRED" | "SUCCEEDED";
                 /** @constant */
                 refund_status: "SUCCEEDED";
                 /** @constant */

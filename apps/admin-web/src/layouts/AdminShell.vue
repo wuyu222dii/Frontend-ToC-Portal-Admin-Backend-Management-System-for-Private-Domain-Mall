@@ -6,6 +6,7 @@ import {
   Lock,
   PictureFilled,
   PriceTag,
+  Refresh,
   SwitchButton,
   User,
 } from '@element-plus/icons-vue';
@@ -87,6 +88,14 @@ async function endCurrentSession(): Promise<void> {
         >
           <el-icon><PictureFilled /></el-icon>
           <span>Banner</span>
+        </RouterLink>
+        <RouterLink
+          to="/orders/reconciliation"
+          :class="{ active: route.name === 'payment-reconciliation' }"
+          title="支付对账"
+        >
+          <el-icon><Refresh /></el-icon>
+          <span>支付对账</span>
         </RouterLink>
         <RouterLink
           to="/settings/account/security"

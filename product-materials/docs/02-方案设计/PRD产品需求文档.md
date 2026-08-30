@@ -9,7 +9,7 @@
 | 文档版本 | v2.4.8 |
 | 对应阶段 | 三端标准 MVP |
 | 更新日期 | 2026-08-30 |
-| 当前状态 | B0 至 B9 development 已完成并维持 `GO`；产品/API 基线仍为 `v2.4.8 / 2.4.8-ch022`。B10.3 已在准确 SHA `524ffe84cc6e88d0e0b6b1fb9c132a9dc752317f` 通过普通 CI `33288346901`、Supabase development migration `33290094491` 与 rollback-only smoke `33290244592`；B10.4 迟到支付与全额自动退款已完成本地实现、验收与 `P0=0/P1=0` 复审，远端三项证据 pending。B10 尚未 `GO`，CH-021 继续有效；仅允许 Mock Provider 和脱敏 development，真实微信支付、staging/production `NO-GO` |
+| 当前状态 | B0 至 B9 development 已完成并维持 `GO`；产品/API 基线仍为 `v2.4.8 / 2.4.8-ch022`。B10.5 已本地完成并达到 `P0=0/P1=0`，B10.6 未开始。B10 尚未 `GO`，CH-021 继续有效；仅允许 Mock Provider 和脱敏 development，真实微信支付、staging/production `NO-GO` |
 | 产品终端 | 消费者微信小程序、一级代理工作台、总部管理后台 |
 | 人员角色 | `CUSTOMER`、`AGENT_ADMIN`、`SUPER_ADMIN` |
 
@@ -30,7 +30,7 @@
 | v2.4.5 | 2026-08-26 | 落实 CH-016：服务端法律文本、角色感知 Store 会话、资料手机号、归因/服务代理与同步账号注销契约 | 已归档；B7 development 已在最终同 SHA 双绿后 `GO`，CH-015 已失效 |
 | v2.4.6 | 2026-08-27 | 落实 CH-018：登录后收藏、服务端购物车、游客合并、收货地址隐私与共享客户限流契约 | 已归档；B8 最终 SHA `0fc5a8d3d1f07d3b5c9fcadf7ea4ca9560a0911a` 同 SHA 双绿，B8 development `GO`，CH-017 已失效 |
 | v2.4.7 | 2026-08-28 | 落实 CH-020：结算报价凭证、待付款订单、库存预占、主动取消/超时释放与 0002 索引迁移 | 已归档；B9.0-B9.5 已完成并取得最终同 SHA 双绿，B9 development `GO`，CH-019 已自动失效 |
-| v2.4.8 | 2026-08-29 | 落实 CH-022：Mock 支付意图、结果消费、订单结算、关单对账、迟到支付自动退款与 0003 支付事实索引；CH-023 仅补充 0004 数据库函数权限修复 | 当前产品版本；B10.0-B10.3 已完成，B10.4 本地验收已通过且等待准确 SHA 三项远端证据；B10 尚未 `GO` |
+| v2.4.8 | 2026-08-29 | 落实 CH-022：Mock 支付意图、结果消费、订单结算、关单对账、迟到支付自动退款与 0003 支付事实索引；CH-023 仅补充 0004 数据库函数权限修复 | 当前产品版本；B10.0-B10.5 已完成本地实施，B10.6 未开始；B10 尚未 `GO` |
 
 ### 文档使用约定
 
@@ -984,7 +984,7 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 - 产品/PRD 继续使用 `v2.4.8 / CH-022`，OpenAPI 继续使用 `2.4.8-ch022`；不新增或修改页面、FR、AC、US、operation、DTO、错误码或消费者交互。
 - 新增 `0004_b10_commission_position_trigger_fix`，只移除 `enforce_commission_position_snapshot()` 读取不可变佣金快照时不必要的 `FOR SHARE` 并显式保持 `SECURITY INVOKER`；snapshot ID 不可变和原佣金一致性校验保持不变。
 - 不修改 0001-0003，不授予 `mall_runtime` 对不可变 snapshot 的 UPDATE/DELETE，不使用 SECURITY DEFINER，也不新增表、列、枚举、索引或 RLS。
-- B10.2/B10.3 代码及对应准确 SHA 远端门禁均已完成；B10.4 迟到退款代码、真实 `mall_runtime` rollback 验收与复审已通过，当前等待准确实现 SHA 的 CI→development migration→rollback-only smoke。
+- B10.2-B10.4 代码及对应准确 SHA 远端门禁均已完成；B10.5 小程序支付结果与 ADM-10 最小对账已本地完成，B10.6 未开始。
 
 ## 12. 数据与接口边界（产品级）
 
@@ -1557,8 +1557,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | 验收场景 AC | 116 | 0 |
 | 用户故事 US | 24 | 0 |
 
-当前准入结论：B0 至 B9 development 已通过，B9 最终同 SHA 双绿及 `GO` 证据保持有效。CH-021/CH-022/CH-023 已批准；B10.0-B10.3 已完成，B10.3 准确 SHA `524ffe84cc6e88d0e0b6b1fb9c132a9dc752317f` 的普通 CI `33288346901`、development migration `33290094491`、rollback-only smoke `33290244592` 均成功。B10.4 本地迟到退款实现与验收完成，远端三项证据 pending；B10 development 不得 `GO`。CH-021 继续有效；B10 仅允许 Mock Provider 与脱敏 development，真实支付、staging 和 production 均未放行。
+当前准入结论：B0 至 B9 development 已通过，B9 最终同 SHA 双绿及 `GO` 证据保持有效。CH-021/CH-022/CH-023 已批准；B10.0-B10.5 已完成本地实施，B10.5 退出复审为 `P0=0/P1=0`，B10.6 未开始。B10 development 不得 `GO`。CH-021 继续有效；B10 仅允许 Mock Provider 与脱敏 development，真实支付、staging 和 production 均未放行。
 
 ---
 
-PRD 状态：`v2.4.8 / CH-022` 仍为当前产品/API 基线，CH-023 不改变在线契约，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24。B10.3 已在准确 SHA `524ffe84cc6e88d0e0b6b1fb9c132a9dc752317f` 完成三项远端门禁；B10.4 本地实现、验收与复审完成，远端证据 pending，因此 B10 不得 `GO`，CH-021 继续有效；真实支付、staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。
+PRD 状态：`v2.4.8 / CH-022` 仍为当前产品/API 基线，CH-023 不改变在线契约，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24。B10.5 已本地完成，B10.6 未开始；B10 不得 `GO`，CH-021 继续有效；真实支付、staging/production 尚未放行，进入 staging 前须外部独立复核，生产上线须单独审批。

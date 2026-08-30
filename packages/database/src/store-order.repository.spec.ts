@@ -738,6 +738,182 @@ describe('StoreOrderRepository', () => {
     }));
   });
 
+  it('repairs a terminal intent whose original close did not reach the order and reservation', async () => {
+    const expiresAt = new Date(NOW.getTime() + 30 * 60 * 1_000);
+    const closeRequestedAt = new Date(NOW.getTime() - 1_000);
+    const record = closeOrderRecord({ payment_status: 'PROCESSING', pay_expires_at: expiresAt });
+    const intent = closeIntentRecord(record.id, {
+      close_requested_at: closeRequestedAt,
+      closed_at: NOW,
+      expires_at: expiresAt,
+      status: 'CANCELLED',
+      version: 3,
+    });
+    const repaired = {
+      before: { orderId: record.id },
+      changed: true,
+      order: { orderId: record.id, orderStatus: 'CLOSED' },
+      reservationId: record.inventory_reservation.id,
+    };
+    const transactionStub = {
+      salesOrder: {
+        findUnique: vi.fn().mockResolvedValue(record),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+    } as unknown as DatabaseTransaction;
+    const repository = new StoreOrderRepository({} as PrismaClient);
+    const internals = repository as unknown as {
+      closeLockedOrder: ReturnType<typeof vi.fn>;
+      lockCloseOrderRows: ReturnType<typeof vi.fn>;
+      lockPaymentIntents: ReturnType<typeof vi.fn>;
+      paymentIntentHasSuccessfulAttempt: ReturnType<typeof vi.fn>;
+      transactionTime: ReturnType<typeof vi.fn>;
+    };
+    internals.closeLockedOrder = vi.fn().mockResolvedValue(repaired);
+    internals.lockCloseOrderRows = vi.fn().mockResolvedValue(undefined);
+    internals.lockPaymentIntents = vi.fn().mockResolvedValue([intent]);
+    internals.paymentIntentHasSuccessfulAttempt = vi.fn().mockResolvedValue(false);
+    internals.transactionTime = vi.fn().mockResolvedValue(NOW);
+
+    await expect(repository.repairTerminalOrderCloseInTransaction(transactionStub, {
+      expectedIntentVersion: intent.version,
+      orderId: record.id,
+      paymentIntentId: intent.id,
+    })).resolves.toMatchObject({
+      ...repaired,
+      before: {
+        orderId: record.id,
+        orderStatus: 'PENDING_PAYMENT',
+        paymentStatus: 'PROCESSING',
+        version: record.version,
+      },
+    });
+
+    expect(transactionStub.salesOrder.updateMany).toHaveBeenCalledWith({
+      data: { payment_status: 'UNPAID', updated_at: NOW, version: { increment: 1 } },
+      where: { id: record.id, payment_status: 'PROCESSING', version: record.version },
+    });
+    expect(internals.closeLockedOrder).toHaveBeenCalledWith(transactionStub, {
+      mode: 'USER_CANCELLED',
+      orderId: record.id,
+      repairTerminalClose: true,
+      requestedAt: closeRequestedAt,
+    });
+  });
+
+  it('releases an ACTIVE reservation left behind on an already closed order without closing it twice', async () => {
+    const expiresAt = new Date(NOW.getTime() + 30 * 60 * 1_000);
+    const closeRequestedAt = new Date(NOW.getTime() - 1_000);
+    const record = closeOrderRecord({
+      close_reason: 'USER_CANCELLED',
+      closed_at: NOW,
+      order_status: 'CLOSED',
+      pay_expires_at: expiresAt,
+    });
+    const intent = closeIntentRecord(record.id, {
+      close_requested_at: closeRequestedAt,
+      closed_at: NOW,
+      expires_at: expiresAt,
+      status: 'CANCELLED',
+      version: 3,
+    });
+    const projected = { orderId: record.id, orderStatus: 'CLOSED' };
+    const transactionStub = {
+      inventoryBalance: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      inventoryLedger: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      inventoryReservation: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      salesOrder: {
+        findUnique: vi.fn().mockResolvedValue(record),
+        updateMany: vi.fn(),
+      },
+    } as unknown as DatabaseTransaction;
+    const repository = new StoreOrderRepository({} as PrismaClient);
+    const internals = repository as unknown as {
+      lockCloseOrderRows: ReturnType<typeof vi.fn>;
+      lockPaymentIntents: ReturnType<typeof vi.fn>;
+      lockReleaseInventory: ReturnType<typeof vi.fn>;
+      paymentIntentHasSuccessfulAttempt: ReturnType<typeof vi.fn>;
+      readOwnedOrder: ReturnType<typeof vi.fn>;
+      transactionTime: ReturnType<typeof vi.fn>;
+    };
+    internals.lockCloseOrderRows = vi.fn().mockResolvedValue(undefined);
+    internals.lockPaymentIntents = vi.fn().mockResolvedValue([intent]);
+    internals.lockReleaseInventory = vi.fn().mockResolvedValue({
+      balances: [{ id: balanceId, lockedQty: 1, physicalQty: 5, skuId, version: 2 }],
+      items: [{ quantity: 1, skuId }],
+      reservationId: record.inventory_reservation.id,
+    });
+    internals.paymentIntentHasSuccessfulAttempt = vi.fn().mockResolvedValue(false);
+    internals.readOwnedOrder = vi.fn().mockResolvedValue(projected);
+    internals.transactionTime = vi.fn().mockResolvedValue(NOW);
+
+    await expect(repository.repairTerminalOrderCloseInTransaction(transactionStub, {
+      expectedIntentVersion: intent.version,
+      orderId: record.id,
+      paymentIntentId: intent.id,
+    })).resolves.toMatchObject({
+      changed: true,
+      order: projected,
+      reservationId: record.inventory_reservation.id,
+    });
+
+    expect(transactionStub.salesOrder.updateMany).not.toHaveBeenCalled();
+    expect(transactionStub.inventoryReservation.updateMany).toHaveBeenCalledWith({
+      data: { released_at: NOW, status: 'RELEASED' },
+      where: { id: record.inventory_reservation.id, order_id: record.id, status: 'ACTIVE' },
+    });
+    expect(transactionStub.inventoryBalance.updateMany).toHaveBeenCalledWith({
+      data: { locked_qty: 0, updated_at: NOW, version: { increment: 1 } },
+      where: { id: balanceId, locked_qty: 1, physical_qty: 5, sku_id: skuId, version: 2 },
+    });
+    expect(transactionStub.inventoryLedger.createMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({
+        business_id: record.inventory_reservation.id,
+        ledger_type: 'ORDER_RELEASE',
+        locked_after: 0,
+        locked_change: -1,
+        reason: 'USER_CANCELLED',
+        sku_id: skuId,
+      })],
+    });
+  });
+
+  it('fails closed when a terminal order repair target is stale or has a successful payment fact', async () => {
+    const record = closeOrderRecord();
+    const intent = closeIntentRecord(record.id, {
+      close_requested_at: NOW,
+      closed_at: NOW,
+      status: 'FAILED',
+      version: 3,
+    });
+    const transactionStub = {
+      salesOrder: { findUnique: vi.fn().mockResolvedValue(record), updateMany: vi.fn() },
+    } as unknown as DatabaseTransaction;
+    const repository = new StoreOrderRepository({} as PrismaClient);
+    const internals = repository as unknown as {
+      lockCloseOrderRows: ReturnType<typeof vi.fn>;
+      lockPaymentIntents: ReturnType<typeof vi.fn>;
+      paymentIntentHasSuccessfulAttempt: ReturnType<typeof vi.fn>;
+    };
+    internals.lockCloseOrderRows = vi.fn().mockResolvedValue(undefined);
+    internals.lockPaymentIntents = vi.fn().mockResolvedValue([intent]);
+    internals.paymentIntentHasSuccessfulAttempt = vi.fn().mockResolvedValue(false);
+
+    await expect(repository.repairTerminalOrderCloseInTransaction(transactionStub, {
+      expectedIntentVersion: intent.version - 1,
+      orderId: record.id,
+      paymentIntentId: intent.id,
+    })).rejects.toMatchObject({ code: 'RESOURCE_VERSION_CONFLICT' });
+
+    internals.paymentIntentHasSuccessfulAttempt.mockResolvedValue(true);
+    await expect(repository.repairTerminalOrderCloseInTransaction(transactionStub, {
+      expectedIntentVersion: intent.version,
+      orderId: record.id,
+      paymentIntentId: intent.id,
+    })).rejects.toMatchObject({ code: 'PAYMENT_RESULT_CONFLICT' });
+    expect(transactionStub.salesOrder.updateMany).not.toHaveBeenCalled();
+  });
+
   it('does not select an early OPEN intent for timeout reconciliation', async () => {
     const queryRaw = vi.fn().mockResolvedValue([]);
     const transaction = { $queryRaw: queryRaw } as unknown as DatabaseTransaction;

@@ -9,6 +9,7 @@ export * from './idempotency.repository';
 export * from './inventory.repository';
 export * from './master-data.repository';
 export * from './outbox.repository';
+export * from './payment-reconciliation.repository';
 export * from './product-catalog.repository';
 export * from './store-attribution.repository';
 export * from './store-address.repository';

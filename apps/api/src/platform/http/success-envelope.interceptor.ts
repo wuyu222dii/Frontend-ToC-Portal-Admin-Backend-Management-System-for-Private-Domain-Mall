@@ -25,14 +25,27 @@ export interface SuccessEnvelope<T> {
   request_id: string;
 }
 
+export interface AcceptedEnvelope<T> {
+  code: 'ACCEPTED';
+  message: 'accepted';
+  data: T;
+  request_id: string;
+}
+
+export type BusinessSuccessEnvelope<T> = SuccessEnvelope<T> | AcceptedEnvelope<T>;
+
 const PRE_ENVELOPED_RESPONSE = Symbol('pre-enveloped-response');
 
 export interface PreEnvelopedResponse<T> {
   readonly [PRE_ENVELOPED_RESPONSE]: true;
-  readonly envelope: SuccessEnvelope<T>;
+  readonly envelope: BusinessSuccessEnvelope<T>;
 }
 
 export function preEnvelopedResponse<T>(envelope: SuccessEnvelope<T>): PreEnvelopedResponse<T> {
+  return { [PRE_ENVELOPED_RESPONSE]: true, envelope };
+}
+
+export function preEnvelopedAcceptedResponse<T>(envelope: AcceptedEnvelope<T>): PreEnvelopedResponse<T> {
   return { [PRE_ENVELOPED_RESPONSE]: true, envelope };
 }
 
@@ -47,8 +60,8 @@ function isBusinessPath(request: EnvelopeRequest): boolean {
 }
 
 @Injectable()
-export class SuccessEnvelopeInterceptor<T> implements NestInterceptor<T, T | SuccessEnvelope<T>> {
-  intercept(context: ExecutionContext, next: CallHandler<T>): Observable<T | SuccessEnvelope<T>> {
+export class SuccessEnvelopeInterceptor<T> implements NestInterceptor<T, T | BusinessSuccessEnvelope<T>> {
+  intercept(context: ExecutionContext, next: CallHandler<T>): Observable<T | BusinessSuccessEnvelope<T>> {
     const request = context.switchToHttp().getRequest<EnvelopeRequest>();
     const response = context.switchToHttp().getResponse<StatusResponse>();
 

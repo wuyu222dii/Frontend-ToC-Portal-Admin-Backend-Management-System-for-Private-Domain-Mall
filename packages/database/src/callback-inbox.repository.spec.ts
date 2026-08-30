@@ -1,14 +1,111 @@
+import { EventEmitter } from 'node:events';
+
 import { describe, expect, it, vi } from 'vitest';
+import type { PoolClient } from 'pg';
 
 import {
   calculateCallbackDueAt,
   CallbackInboxRepository,
 } from './callback-inbox.repository';
 import type { DatabaseTransaction } from './idempotency.repository';
+import type { DatabaseRuntime } from './runtime';
 
 const mockHeaders = {
   mock_signature: 'mock-signature-value',
   mock_timestamp: '1786582800000',
+};
+
+function callbackInbox(status: 'FAILED' | 'PROCESSED' | 'PROCESSING' | 'RECEIVED') {
+  const receivedAt = new Date('2026-08-01T01:00:00.000Z');
+  return {
+    error_message: status === 'FAILED' ? 'CALLBACK_HANDLER_FAILED' : null,
+    event_type: 'payment.succeeded',
+    headers: { ...mockHeaders },
+    id: '01K1JAGG800000000000000000',
+    payload: { event: 'payment.succeeded' },
+    processed_at: status === 'RECEIVED' ? null : new Date('2026-08-01T01:01:00.000Z'),
+    provider: 'MOCK' as const,
+    provider_event_id: 'provider-event-1',
+    provider_serial_no: null,
+    raw_body: Buffer.from('trusted'),
+    received_at: receivedAt,
+    retry_count: status === 'FAILED' ? 8 : 0,
+    signature_nonce: null,
+    signature_timestamp: mockHeaders.mock_timestamp,
+    signature_valid: true,
+    status,
+    verified_at: receivedAt,
+  };
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+function reconciliationHarness(
+  initialStatus: 'FAILED' | 'PROCESSED' | 'PROCESSING' | 'RECEIVED',
+  options: {
+    created?: boolean;
+    lockAcquisition?: Promise<void>;
+    onLockWait?: () => void;
+  } = {},
+) {
+  let state = callbackInbox(initialStatus);
+  const createMany = vi.fn(async () => ({ count: options.created === true ? 1 : 0 }));
+  const findUniqueOrThrow = vi.fn(async () => ({ ...state }));
+  const transaction = {
+    callbackInbox: { createMany, findUniqueOrThrow },
+  } as unknown as DatabaseTransaction;
+  const queries: string[] = [];
+  const client = Object.assign(new EventEmitter(), {
+    query: vi.fn(async (sql: string, values?: unknown[]) => {
+      queries.push(sql);
+      if (sql.includes('pg_advisory_lock(')) {
+        options.onLockWait?.();
+        await options.lockAcquisition;
+        return { rowCount: 1, rows: [{}] };
+      }
+      if (sql.includes('pg_try_advisory_lock(')) return { rowCount: 1, rows: [{ acquired: true }] };
+      if (sql.includes('SELECT * FROM public.callback_inbox')) {
+        return { rowCount: 1, rows: [{ ...state }] };
+      }
+      if (sql.includes('UPDATE public.callback_inbox')) {
+        if (state.status !== values?.[1]) return { rowCount: 0, rows: [] };
+        state = callbackInbox('RECEIVED');
+        return { rowCount: 1, rows: [{ ...state }] };
+      }
+      return { rowCount: null, rows: [] };
+    }),
+    release: vi.fn(),
+  }) as unknown as PoolClient;
+  const coordinationPool = { connect: vi.fn(async () => client) };
+  const pool = { connect: vi.fn(async () => client) };
+  const runtime = {
+    coordinationPool,
+    pool,
+    withPrismaTransaction: vi.fn(async (work: (current: DatabaseTransaction) => Promise<unknown>) => work(transaction)),
+  } as unknown as DatabaseRuntime;
+  return {
+    client,
+    coordinationPool,
+    pool,
+    queries,
+    repository: new CallbackInboxRepository(runtime),
+    setStatus(status: 'FAILED' | 'PROCESSED' | 'PROCESSING' | 'RECEIVED') {
+      state = callbackInbox(status);
+    },
+  };
+}
+
+const reconciliationInput = {
+  eventType: 'payment.succeeded',
+  headers: mockHeaders,
+  provider: 'MOCK' as const,
+  providerEventId: 'provider-event-1',
+  rawBody: Buffer.from('trusted'),
+  signatureValid: true,
 };
 
 describe('callback inbox retry scheduling', () => {
@@ -129,6 +226,97 @@ describe('callback inbox retry scheduling', () => {
         signature_timestamp: mockHeaders.mock_timestamp,
       })],
     }));
+  });
+
+  it.each(['FAILED', 'PROCESSED'] as const)(
+    'requeues an exactly matching %s callback only through the explicit reconciliation path',
+    async (status) => {
+      const current = reconciliationHarness(status);
+
+      const result = await current.repository.receiveForReconciliation(reconciliationInput);
+
+      expect(result).toEqual({ created: false, inbox: callbackInbox('RECEIVED'), requeued: true });
+      expect(current.queries.some((query) => query.includes('FOR UPDATE'))).toBe(true);
+      const update = current.client.query.mock.calls.find(([query]) =>
+        String(query).includes('UPDATE public.callback_inbox'));
+      expect(update?.[1]).toEqual([callbackInbox(status).id, status]);
+      expect(current.client.release).toHaveBeenCalledWith(false);
+      expect(current.pool.connect).toHaveBeenCalledOnce();
+      expect(current.coordinationPool.connect).not.toHaveBeenCalled();
+    },
+  );
+
+  it('processes callbacks under the dedicated coordination pool so a poolMax=1 handler can use Prisma', async () => {
+    const current = reconciliationHarness('RECEIVED');
+    const handler = vi.fn(async () => undefined);
+
+    await expect(current.repository.processOne(callbackInbox('RECEIVED').id, handler, {
+      baseDelayMs: 1_000,
+      maxRetries: 8,
+    })).resolves.toBe('processed');
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(current.coordinationPool.connect).toHaveBeenCalledOnce();
+    expect(current.pool.connect).not.toHaveBeenCalled();
+  });
+
+  it('keeps an existing RECEIVED callback queued without rewriting its retry facts', async () => {
+    const current = reconciliationHarness('RECEIVED');
+
+    await expect(current.repository.receiveForReconciliation(reconciliationInput)).resolves.toEqual({
+      created: false,
+      inbox: callbackInbox('RECEIVED'),
+      requeued: false,
+    });
+    expect(current.queries.some((query) => query.includes('UPDATE public.callback_inbox'))).toBe(false);
+  });
+
+  it('waits for the callback processor lock and re-reads the processed state before requeueing', async () => {
+    const workerReleased = deferred();
+    const lockWaitStarted = deferred();
+    const current = reconciliationHarness('RECEIVED', {
+      lockAcquisition: workerReleased.promise,
+      onLockWait: lockWaitStarted.resolve,
+    });
+
+    const reconciliation = current.repository.receiveForReconciliation(reconciliationInput);
+    await lockWaitStarted.promise;
+    expect(current.queries.some((query) => query.includes('FOR UPDATE'))).toBe(false);
+
+    current.setStatus('PROCESSED');
+    workerReleased.resolve();
+    await expect(reconciliation).resolves.toEqual({
+      created: false,
+      inbox: callbackInbox('RECEIVED'),
+      requeued: true,
+    });
+    expect(current.queries.findIndex((query) => query.includes('pg_advisory_lock(')))
+      .toBeLessThan(current.queries.findIndex((query) => query.includes('FOR UPDATE')));
+  });
+
+  it.each([
+    { field: 'raw body', input: { ...reconciliationInput, rawBody: Buffer.from('different') } },
+    {
+      field: 'signature headers',
+      input: {
+        ...reconciliationInput,
+        headers: { ...mockHeaders, mock_signature: 'different-signature-value' },
+      },
+    },
+  ])('rejects reconciliation when the signed callback $field differs from the stored event', async ({ input }) => {
+    const current = reconciliationHarness('PROCESSED');
+
+    await expect(current.repository.receiveForReconciliation(input)).rejects.toThrow('facts conflict');
+    expect(current.queries.some((query) => query.includes('UPDATE public.callback_inbox'))).toBe(false);
+    expect(current.queries).toContain('ROLLBACK');
+  });
+
+  it('rejects a reconciliation attempt while an authoritative PROCESSING state remains under the lock', async () => {
+    const current = reconciliationHarness('PROCESSING');
+
+    await expect(current.repository.receiveForReconciliation(reconciliationInput))
+      .rejects.toThrow('could not be queued');
+    expect(current.queries.some((query) => query.includes('UPDATE public.callback_inbox'))).toBe(false);
   });
 
   it('normalizes the closed WECHAT signature header DTO into signature facts', async () => {

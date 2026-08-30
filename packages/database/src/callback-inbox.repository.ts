@@ -3,7 +3,7 @@ import { generateUlid } from '@qingxu/platform-core';
 import { Prisma } from '../.generated/prisma/client';
 import type { PaymentProvider } from '../.generated/prisma/enums';
 import type { CallbackInboxModel as CallbackInbox } from '../.generated/prisma/models/CallbackInbox';
-import { withSessionAdvisoryLock } from './advisory-lock';
+import { withBoundedSessionAdvisoryLock, withSessionAdvisoryLock } from './advisory-lock';
 import type { DatabaseTransaction } from './idempotency.repository';
 import type { DatabaseRuntime } from './runtime';
 
@@ -48,6 +48,7 @@ const SAFE_NONCE = /^[A-Za-z0-9._~-]{1,80}$/;
 const SAFE_SERIAL = /^[A-Fa-f0-9]{16,128}$/;
 const SAFE_SIGNATURE = /^[A-Za-z0-9._~:+/=-]{16,768}$/;
 const SAFE_MOCK_SIGNATURE = /^[A-Za-z0-9._~:+/=-]{8,256}$/;
+const RECONCILIATION_LOCK_TIMEOUT_MS = 15_000;
 
 interface NormalizedCallbackHeaders {
   headers: Prisma.InputJsonObject;
@@ -103,9 +104,42 @@ function normalizeCallbackHeaders(input: ReceiveCallbackInput): NormalizedCallba
   };
 }
 
+function callbackHeadersMatch(
+  stored: Prisma.JsonValue,
+  expected: Prisma.InputJsonObject,
+): boolean {
+  if (typeof stored !== 'object' || stored === null || Array.isArray(stored)) return false;
+  const expectedKeys = Object.keys(expected);
+  const storedRecord = stored as Prisma.JsonObject;
+  return Object.keys(storedRecord).length === expectedKeys.length &&
+    expectedKeys.every((key) => storedRecord[key] === expected[key]);
+}
+
+function callbackFactsMatch(
+  stored: CallbackInbox,
+  input: ReceiveCallbackInput,
+  signatureFacts: NormalizedCallbackHeaders,
+): boolean {
+  return stored.provider === input.provider &&
+    stored.provider_event_id === input.providerEventId &&
+    stored.event_type === input.eventType &&
+    stored.signature_valid === true &&
+    stored.signature_timestamp === signatureFacts.signatureTimestamp &&
+    stored.signature_nonce === signatureFacts.signatureNonce &&
+    stored.provider_serial_no === signatureFacts.providerSerialNo &&
+    callbackHeadersMatch(stored.headers, signatureFacts.headers) &&
+    Buffer.from(stored.raw_body).equals(Buffer.from(input.rawBody));
+}
+
 export type ReceiveCallbackResult =
   | { created: true; inbox: CallbackInbox }
   | { created: false; inbox: CallbackInbox };
+
+export interface RequeueCallbackResult {
+  created: boolean;
+  inbox: CallbackInbox;
+  requeued: boolean;
+}
 
 export type CallbackInboxHandler = (inbox: CallbackInbox) => Promise<void>;
 
@@ -217,6 +251,66 @@ export class CallbackInboxRepository {
     return { created: created.count === 1, inbox };
   }
 
+  async receiveForReconciliation(
+    input: ReceiveCallbackInput,
+  ): Promise<RequeueCallbackResult> {
+    if (!this.runtime) throw new Error('Callback reconciliation requires a DatabaseRuntime');
+    const received = await this.runtime.withPrismaTransaction((transaction) => this.receive(transaction, input));
+    const signatureFacts = normalizeCallbackHeaders(input);
+    const locked = await withBoundedSessionAdvisoryLock(
+      this.runtime.pool,
+      'callback-inbox',
+      received.inbox.id,
+      RECONCILIATION_LOCK_TIMEOUT_MS,
+      async (client) => {
+        await client.query('BEGIN');
+        try {
+          const currentResult = await client.query<CallbackInbox>(
+            'SELECT * FROM public.callback_inbox WHERE id = $1 FOR UPDATE',
+            [received.inbox.id],
+          );
+          const current = currentResult.rows[0];
+          if (!current || !callbackFactsMatch(current, input, signatureFacts)) {
+            throw new Error('Callback reconciliation facts conflict with the authoritative Inbox');
+          }
+          if (current.status === 'RECEIVED') {
+            await client.query('COMMIT');
+            return { created: received.created, inbox: current, requeued: false };
+          }
+          if (current.status !== 'FAILED' && current.status !== 'PROCESSED') {
+            throw new Error('Callback reconciliation could not be queued');
+          }
+
+          const requeued = await client.query<CallbackInbox>(
+            `UPDATE public.callback_inbox
+               SET error_message = NULL, processed_at = NULL, retry_count = 0,
+                   status = 'RECEIVED'
+             WHERE id = $1 AND signature_valid = TRUE AND status = $2
+             RETURNING *`,
+            [current.id, current.status],
+          );
+          const inbox = requeued.rows[0];
+          if (requeued.rowCount !== 1 || !inbox || inbox.status !== 'RECEIVED') {
+            throw new Error('Callback reconciliation could not be queued');
+          }
+          await client.query('COMMIT');
+          return { created: received.created, inbox, requeued: true };
+        } catch (error) {
+          try {
+            await client.query('ROLLBACK');
+          } catch {
+            throw new Error('Callback reconciliation transaction could not be rolled back', { cause: error });
+          }
+          throw error;
+        }
+      },
+    );
+    if (!locked.acquired) {
+      throw new Error('Callback reconciliation lock timed out');
+    }
+    return locked.value;
+  }
+
   async findDue(
     transaction: DatabaseTransaction,
     options: FindDueCallbackOptions,
@@ -261,7 +355,7 @@ export class CallbackInboxRepository {
   ): Promise<'busy' | 'processed' | 'retry_scheduled' | 'terminal' | 'stale'> {
     validateProcessingOptions(options);
     if (!this.runtime) throw new Error('Callback processing requires a DatabaseRuntime');
-    const locked = await withSessionAdvisoryLock(this.runtime.pool, 'callback-inbox', id, async (client) => {
+    const locked = await withSessionAdvisoryLock(this.runtime.coordinationPool, 'callback-inbox', id, async (client) => {
       const result = await client.query<CallbackInbox>(
         'SELECT * FROM public.callback_inbox WHERE id = $1',
         [id],

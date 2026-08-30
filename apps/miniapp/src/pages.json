@@ -43,6 +43,13 @@
       }
     },
     {
+      "path": "pages/payment/result",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "支付结果"
+      }
+    },
+    {
       "path": "pages/orders/index",
       "style": {
         "navigationStyle": "custom",

@@ -1955,7 +1955,7 @@ try {
   assert.equal(noRefundConvergence.properties.refund_status.type, 'null');
   assert.equal(noRefundConvergence.properties.payment_resolution.const, 'NORMAL');
   assert.deepEqual(lateRefundConvergence.properties.payment_intent_status.enum,
-    ['CLOSED', 'EXPIRED']);
+    ['CLOSED', 'EXPIRED', 'SUCCEEDED']);
   assert.equal(lateRefundConvergence.properties.refund_status.const, 'SUCCEEDED');
   assert.equal(lateRefundConvergence.properties.payment_resolution.const,
     'LATE_SUCCESS_REFUNDED');

@@ -104,6 +104,18 @@ describe('closed protected action handoff', () => {
     expect(consumeProtectedAction()).toBeNull();
   });
 
+  it('resumes a payment result page without carrying a client result', async () => {
+    const redirectTo = vi.fn();
+    vi.stubGlobal('uni', { redirectTo, reLaunch: vi.fn() });
+    const orderId = '01J00000000000000000000000';
+    setProtectedAction({ type: 'PAYMENT_RESULT', order_id: orderId });
+    await resumeProtectedAction();
+    expect(redirectTo).toHaveBeenCalledWith(expect.objectContaining({
+      url: `/pages/payment/result?order_id=${orderId}`,
+    }));
+    expect(consumeProtectedAction()).toBeNull();
+  });
+
   it('validates and resumes an exact buy-now selection once', async () => {
     const redirectTo = vi.fn();
     vi.stubGlobal('uni', { redirectTo, reLaunch: vi.fn() });

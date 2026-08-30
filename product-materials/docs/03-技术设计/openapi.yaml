@@ -1,8 +1,8 @@
 openapi: "3.1.0"
 info:
   title: "洗化产品私域商城 API"
-  version: "2.4.8-ch022"
-  description: "CH-022 单一线协议，继承 CH-006、CH-008、CH-010、CH-012、CH-014、CH-016、CH-018 与 CH-020，并闭合 B10 development 支付意图、Mock 支付结果收件箱、迟到支付判定和安全对账语义。真实微信支付未配置时不注册回调路由；所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
+  version: "2.4.9-ch024"
+  description: "CH-024 单一线协议，继承 CH-006、CH-008、CH-010、CH-012、CH-014、CH-016、CH-018、CH-020 与 CH-022，并闭合 B11 development 单包裹发货、人工物流、确认收货和佣金可用语义。普通售后、多包裹、第三方物流和自动确认收货继续不开放；所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
   license:
     name: "Proprietary"
     identifier: "LicenseRef-Proprietary"
@@ -1923,6 +1923,7 @@ paths:
       tags:
         - "Store"
       summary: "确认收货，幂等完成订单"
+      description: "仅允许当前 CUSTOMER 对本人已支付、NORMAL、order_status=SHIPPING、包裹状态为 SHIPPED/IN_TRANSIT/DELIVERED 且无活动售后或未解决支付异常的订单确认收货。命令采用 HASH_ONLY 幂等，If-Match 必须对应 order.version；包裹尚未 DELIVERED 时在同一事务封存 DELIVERED，再完成订单、冻结当前 PUBLISHED 业务规则并将已冻结 EXPECTED 佣金最多一次结转为 AVAILABLE。"
       operationId: "postStoreOrdersByOrderIdConfirmReceipt"
       security:
         -
@@ -1937,34 +1938,42 @@ paths:
             pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
+        -
+          "$ref": "#/components/parameters/IfMatch"
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/StoreOrderResponse"
+                "$ref": "#/components/schemas/StoreOrderDetailResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreCustomerError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreCustomerError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreCustomerError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreCustomerError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreCustomerConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreCustomerError"
   /store/orders/{order_id}/logistics:
     get:
       tags:
         - "Store"
       summary: "包裹与人工物流节点"
+      description: "返回本人订单的唯一包裹和按 occurred_at ASC,event_id ASC 排序的不可变人工物流节点；无包裹时 shipment 为 null、events 为空。共享 CUSTOMER+来源 IP 固定窗口限流，Redis 不可用时 fail closed。"
       operationId: "getStoreOrdersByOrderIdLogistics"
       security:
         -
@@ -1980,26 +1989,31 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/LogisticsResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreCustomerError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreCustomerError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreCustomerError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreCustomerError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreCustomerConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreCustomerError"
   /callbacks/wechat-pay:
     post:
       tags:
@@ -6994,6 +7008,11 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -7034,6 +7053,11 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -7094,9 +7118,11 @@ paths:
           headers:
             Cache-Control:
               description: "履约 PII 明文不得缓存"
+              required: true
               schema:
                 const: "no-store, private"
             Pragma:
+              required: true
               schema:
                 const: "no-cache"
           content:
@@ -7124,6 +7150,7 @@ paths:
       tags:
         - "Admin"
       summary: "幂等原子创建并置 SHIPPED，覆盖全部剩余可发数量的单一包裹"
+      description: "仅允许已支付、NORMAL、PENDING_SHIPMENT/READY_TO_SHIP 且无活动售后的订单创建唯一包裹。请求项目必须与服务端计算的全部剩余可发项目及数量精确一致，否则返回 SHIPMENT_ITEMS_MISMATCH；命令采用 HASH_ONLY 幂等，If-Match 必须对应 order.version。"
       operationId: "postAdminOrdersByOrderIdShipments"
       security:
         -
@@ -7138,6 +7165,8 @@ paths:
             pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
+        -
+          "$ref": "#/components/parameters/IfMatch"
       requestBody:
         required: true
         content:
@@ -7147,6 +7176,11 @@ paths:
       responses:
         201:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -7172,6 +7206,7 @@ paths:
       tags:
         - "Admin"
       summary: "幂等追加物流节点或带原因的承运商/运单更正事实"
+      description: "状态节点仅允许 SHIPPED -> IN_TRANSIT -> DELIVERED，不得倒退；TRACKING_CORRECTION 保留不可变更正事实并更新当前承运信息。客户端不提交 event_key，服务端由幂等事实派生；If-Match 必须对应 shipment.version。"
       operationId: "postAdminShipmentsByShipmentIdEvents"
       security:
         -
@@ -7183,9 +7218,11 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
+        -
+          "$ref": "#/components/parameters/IfMatch"
       requestBody:
         required: true
         content:
@@ -7195,6 +7232,11 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -7220,6 +7262,7 @@ paths:
       tags:
         - "Admin"
       summary: "总部兜底以 ADMIN_FORCED 完成；版本、幂等和审计必需，不使用高风险预览"
+      description: "仅允许已支付、NORMAL、order_status=SHIPPING、唯一包裹状态为 SHIPPED/IN_TRANSIT/DELIVERED 且无活动售后或未解决支付异常的订单完成；原因必填。命令采用 HASH_ONLY 幂等，If-Match 必须对应 order.version；包裹尚未 DELIVERED 时在同一事务封存 DELIVERED，再以 ADMIN_FORCED 完成并最多一次结转已冻结 EXPECTED 佣金。"
       operationId: "postAdminOrdersByOrderIdComplete"
       security:
         -
@@ -7245,6 +7288,11 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -10663,7 +10711,7 @@ components:
           schema:
             "$ref": "#/components/schemas/ErrorResponse"
     StateConflict:
-      description: "状态、版本、幂等请求哈希或唯一约束冲突；CH-006 固定冲突码包括 SOFT_DELETED_KEY_RESERVED。"
+      description: "状态、版本、幂等请求哈希或唯一约束冲突；固定冲突码包括 CH-006 的 SOFT_DELETED_KEY_RESERVED，以及 CH-024 的 SHIPMENT_STATE_CONFLICT、ORDER_NOT_RECEIVABLE。"
       content:
         application/json:
           schema:
@@ -10859,7 +10907,7 @@ components:
               request_id:
                 type: "string"
     StoreCustomerError:
-      description: "B8/B9/B10 登录后 Store 接口的通用错误；不得缓存或回显被拒绝的个性化值。"
+      description: "B8/B9/B10/B11 登录后 Store 接口的通用错误；不得缓存或回显被拒绝的个性化值。"
       headers:
         Cache-Control:
           "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
@@ -10892,7 +10940,7 @@ components:
               request_id:
                 type: "string"
     StoreCustomerConflict:
-      description: "B8/B9/B10 登录后 Store 接口的闭合版本、状态、幂等、报价或支付结果冲突响应。"
+      description: "B8/B9/B10/B11 登录后 Store 接口的闭合版本、状态、幂等、报价、支付结果或确认收货冲突响应。"
       headers:
         Cache-Control:
           "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
@@ -10907,7 +10955,7 @@ components:
             properties:
               code:
                 type: "string"
-                enum: ["RESOURCE_VERSION_CONFLICT", "STATE_CONFLICT", "CHECKOUT_QUOTE_EXPIRED", "CHECKOUT_QUOTE_MISMATCH", "CHECKOUT_REQUOTE_REQUIRED", "ORDER_NOT_CANCELLABLE", "ORDER_PAYMENT_EXPIRED", "PAYMENT_NOT_ALLOWED", "PAYMENT_RESULT_CONFLICT"]
+                enum: ["RESOURCE_VERSION_CONFLICT", "STATE_CONFLICT", "CHECKOUT_QUOTE_EXPIRED", "CHECKOUT_QUOTE_MISMATCH", "CHECKOUT_REQUOTE_REQUIRED", "ORDER_NOT_CANCELLABLE", "ORDER_PAYMENT_EXPIRED", "PAYMENT_NOT_ALLOWED", "PAYMENT_RESULT_CONFLICT", "ORDER_NOT_RECEIVABLE"]
               message:
                 type: "string"
               details:
@@ -10926,7 +10974,7 @@ components:
               request_id:
                 type: "string"
     StoreCustomerBusinessError:
-      description: "B8/B9/B10 登录后 Store 接口的闭合业务校验响应。"
+      description: "B8/B9/B10/B11 登录后 Store 接口的闭合业务校验响应。"
       headers:
         Cache-Control:
           "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
@@ -10941,7 +10989,7 @@ components:
             properties:
               code:
                 type: "string"
-                enum: ["CART_ITEM_LIMIT_EXCEEDED", "DEFAULT_ADDRESS_REQUIRED"]
+                enum: ["CART_ITEM_LIMIT_EXCEEDED", "DEFAULT_ADDRESS_REQUIRED", "ACTIVE_AFTERSALE_BLOCKS_SHIPMENT"]
               message:
                 type: "string"
               details:
@@ -10960,7 +11008,7 @@ components:
               request_id:
                 type: "string"
     StoreCustomerRateLimited:
-      description: "B8 的 13 个登录后收藏、购物车和地址 operation、B9 的 5 个报价/订单 operation 与 B10 的 2 个支付 operation 共享 Redis 固定窗口；key 只保存 CUSTOMER 与规范化来源 IP 组合的用途隔离 HMAC，每个组合每 60 秒最多 120 次。超限返回准确 Retry-After；Redis 不可用时 fail closed。"
+      description: "B8 的 13 个登录后收藏、购物车和地址 operation、B9 的 5 个报价/订单 operation、B10 的 2 个支付 operation 与 B11 的 2 个履约 operation 共享 Redis 固定窗口；key 只保存 CUSTOMER 与规范化来源 IP 组合的用途隔离 HMAC，每个组合每 60 秒最多 120 次。超限返回准确 Retry-After；Redis 不可用时 fail closed。"
       headers:
         Cache-Control:
           "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
@@ -11034,7 +11082,7 @@ components:
               request_id:
                 type: "string"
     BusinessError:
-      description: "库存、售后额度、金额分配或业务前置校验失败；固定业务码包括 ACTIVE_PRODUCT_DEPENDENCY、FILE_CONTENT_MISMATCH，CH-010 的 PRODUCT_PRIMARY_IMAGE_REQUIRED、PRODUCT_ACTIVE_SKU_REQUIRED、ACTIVE_SKU_DEPENDENCY、ACTIVE_INVENTORY_RESERVATION，以及 CH-012 的 INVENTORY_QUANTITY_OUT_OF_RANGE；库存确认低于锁定量继续使用 STOCK_INSUFFICIENT（均为 422）。"
+      description: "库存、售后额度、金额分配或业务前置校验失败；固定业务码包括 ACTIVE_PRODUCT_DEPENDENCY、FILE_CONTENT_MISMATCH，CH-010 的 PRODUCT_PRIMARY_IMAGE_REQUIRED、PRODUCT_ACTIVE_SKU_REQUIRED、ACTIVE_SKU_DEPENDENCY、ACTIVE_INVENTORY_RESERVATION，CH-012 的 INVENTORY_QUANTITY_OUT_OF_RANGE，以及 CH-024 的 ACTIVE_AFTERSALE_BLOCKS_SHIPMENT、SHIPMENT_ITEMS_MISMATCH；库存确认低于锁定量继续使用 STOCK_INSUFFICIENT（均为 422）。"
       content:
         application/json:
           schema:
@@ -12369,6 +12417,7 @@ components:
       properties:
         order_item_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         quantity:
           type: "integer"
           minimum: 1
@@ -12396,20 +12445,18 @@ components:
         items:
           type: "array"
           minItems: 1
+          maxItems: 100
           uniqueItems: true
+          x-unique-by: "order_item_id"
+          description: "必须与服务端计算的全部剩余可发订单项及数量精确一致，order_item_id 不得重复。"
           items:
             "$ref": "#/components/schemas/ShipmentLineInput"
     LogisticsEventBase:
       type: "object"
       required:
-        - "event_key"
         - "description"
         - "occurred_at"
       properties:
-        event_key:
-          type: "string"
-          minLength: 1
-          maxLength: 80
         description:
           type: "string"
           minLength: 1
@@ -12436,8 +12483,9 @@ components:
               const: "STATUS"
             status_code:
               type: "string"
-              minLength: 1
-              maxLength: 40
+              enum:
+                - "IN_TRANSIT"
+                - "DELIVERED"
       unevaluatedProperties: false
     LogisticsCorrectionEventInput:
       allOf:
@@ -12468,7 +12516,7 @@ components:
               maxLength: 120
             reason:
               type: "string"
-              minLength: 1
+              minLength: 2
               maxLength: 500
       unevaluatedProperties: false
     LogisticsEventRequest:
@@ -16964,6 +17012,7 @@ components:
       properties:
         order_item_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         quantity:
           type: "integer"
           minimum: 1
@@ -16979,6 +17028,7 @@ components:
       properties:
         event_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         event_key:
           type: "string"
         event_type:
@@ -16990,6 +17040,11 @@ components:
           type:
             - "string"
             - "null"
+          enum:
+            - "SHIPPED"
+            - "IN_TRANSIT"
+            - "DELIVERED"
+            - null
         carrier_code:
           type:
             - "string"
@@ -17031,8 +17086,10 @@ components:
       properties:
         shipment_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         order_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         status:
           type: "string"
           enum:
@@ -17198,8 +17255,8 @@ components:
           uniqueItems: true
           items:
             type: "string"
-            enum: ["PAY", "CANCEL"]
-          description: "B10 对未过期、待付款且允许创建或复用支付意图的订单返回 PAY；无支付意图或仅有失败终态 intent 且可主动取消时返回 CANCEL。两个动作均由服务端当前投影决定；关闭或支付结果未决时返回空数组。"
+            enum: ["PAY", "CANCEL", "VIEW_LOGISTICS", "CONFIRM_RECEIPT"]
+          description: "B10 对未过期、待付款且允许创建或复用支付意图的订单返回 PAY；无支付意图或仅有失败终态 intent 且可主动取消时返回 CANCEL。B11 对已有包裹返回 VIEW_LOGISTICS，对已支付、NORMAL、order_status=SHIPPING、包裹状态为 SHIPPED/IN_TRANSIT/DELIVERED 且不存在活动售后或未解决支付异常的订单返回 CONFIRM_RECEIPT。所有动作均由服务端当前投影决定。"
         aftersale_summary:
           "$ref": "#/components/schemas/OrderAftersaleListSummary"
         created_at:
@@ -20688,8 +20745,10 @@ components:
       properties:
         order_item_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         sku_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         product_name:
           type: "string"
         sku_name:
@@ -20700,19 +20759,18 @@ components:
     OrderPackageDetailView:
       type: "object"
       additionalProperties: false
-      required: ["shipment_id", "shipment_no", "carrier_name", "tracking_no", "status", "items", "events", "shipped_at", "delivered_at"]
+      required: ["shipment_id", "carrier_name", "tracking_no", "status", "items", "events", "shipped_at", "delivered_at"]
       properties:
         shipment_id:
           type: "string"
-        shipment_no:
-          type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         carrier_name:
           type: "string"
         tracking_no:
           type: "string"
         status:
           type: "string"
-          enum: ["CREATED", "SHIPPED", "IN_TRANSIT", "DELIVERED", "CANCELLED"]
+          enum: ["SHIPPED", "IN_TRANSIT", "DELIVERED"]
         items:
           type: "array"
           items:
@@ -20842,16 +20900,16 @@ components:
               uniqueItems: true
               items:
                 type: "string"
-                enum: ["PAY", "CANCEL"]
-              description: "B10 对未过期、待付款且允许创建或复用支付意图的订单返回 PAY；无支付意图或仅有失败终态 intent 且可主动取消时返回 CANCEL。两个动作均由服务端当前投影决定；关闭或支付结果未决时返回空数组。"
+                enum: ["PAY", "CANCEL", "VIEW_LOGISTICS", "CONFIRM_RECEIPT"]
+              description: "B10 对未过期、待付款且允许创建或复用支付意图的订单返回 PAY；无支付意图或仅有失败终态 intent 且可主动取消时返回 CANCEL。B11 对已有包裹返回 VIEW_LOGISTICS，对已支付、NORMAL、order_status=SHIPPING、包裹状态为 SHIPPED/IN_TRANSIT/DELIVERED 且不存在活动售后或未解决支付异常的订单返回 CONFIRM_RECEIPT。所有动作均由服务端当前投影决定。"
             timeline:
               type: "array"
               items:
                 "$ref": "#/components/schemas/OrderStateTimelineEventView"
             packages:
               type: "array"
-              maxItems: 0
-              description: "B9 未开放物流，固定返回空数组。"
+              maxItems: 1
+              description: "B11 仅支持单包裹；未发货时为空数组，发货后按唯一包裹返回人工物流节点。"
               items:
                 "$ref": "#/components/schemas/OrderPackageDetailView"
             aftersales:

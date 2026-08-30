@@ -2,5 +2,5 @@ extends:
   - recommended
 
 apis:
-  mall@v2.4.8:
+  mall@v2.4.9:
     root: ./product-materials/docs/03-技术设计/openapi.yaml

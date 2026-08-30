@@ -1,11 +1,11 @@
 # 技术设计交付索引
 
-> 当前产品/API 基线仍为 MVP/PRD v2.4.8、线协议 CH-022；数据库修复 CH-023（2026-08-30）不改变在线契约。B10.4 准确 SHA 的三项远端证据保持有效；B10.6 本地实现与总验收已完成，数据库与纵向独立复审 `P0=0/P1=0/P2=0`。最终实现尚未提交且同 SHA 普通 CI/Supabase rollback-only 双绿未取得，B10 不得 `GO`，CH-021 继续有效；仅允许 Mock Provider 和脱敏 development，staging、production 与真实支付均为 `NO-GO`。
+> 当前产品/API 基线为 MVP/PRD v2.4.9、在线协议 CH-024；数据库修复 CH-023（2026-08-30）继续有效。B0-B10 development 已完成并维持 `GO`；B11.0 本地门禁已全部通过并暂停，`P0=0/P1=0`，B11 总体不得 `GO`。CH-025 尚未批准，B11.1 repository、API 与前端业务代码仍为 `NO-GO`。仅允许 Mock Provider、人工物流和脱敏 development，staging、production、真实支付与第三方物流均为 `NO-GO`。
 
 | 文件 | 用途 |
 |---|---|
 | `技术架构说明.md` | 技术栈、三端边界、认证/RBAC、事务锁序、Provider、部署与扩展策略 |
-| `API接口文档.md` | CH-022 本地实测 173 paths、198 operations、198 unique operationId、326 schemas、705 schema refs、2,678 local refs、0 dangling refs |
+| `API接口文档.md` | CH-024 专属检查、生成与 Redocly lint 通过；实测 173 paths、198 operations、198 unique operationId、326 schemas、705 schema refs、2,695 local refs、0 dangling refs |
 | `openapi.yaml` | OpenAPI 3.1 单一可解析契约；文本目录必须完全覆盖且 operationId 唯一 |
 | `数据库设计.md` | PostgreSQL/Supabase 表域、ERD、状态机、事务、索引、加密、RLS 与验收门禁 |
 | `schema.prisma` | Prisma 7.9.1 逻辑模型：76 models、59 enums、270 个 model-typed relation fields，全部位于 `public` |
@@ -21,8 +21,9 @@
 | `../05-开发管理/B8-登录后购物基础.md` | B8.0 CH-018 契约、CH-017 门禁、B8.1-B8.5 串行批次与退出边界 |
 | `../05-开发管理/B9-订单报价与库存预占.md` | B9.0 CH-020 契约/迁移、CH-019 门禁、B9.1-B9.5 串行批次与退出边界 |
 | `../05-开发管理/B10-支付对账与迟到支付退款.md` | B10.0 CH-022 契约/迁移、CH-021 门禁、CH-023 0004 解阻、B10.1-B10.6 串行批次与退出边界 |
+| `../05-开发管理/B11-订单履约与物流.md` | B11.0 CH-024 单包裹人工履约契约、CH-025 前置门禁及后续串行批次与退出边界 |
 
-上游真相顺序为：已批准需求变更记录、PRD v2.4.8、MVP v2.4.8、原型设计方案。发生冲突时先更新上游基线和本目录契约，不由开发人员临时选择口径。
+上游真相顺序为：已批准需求变更记录、PRD v2.4.9、MVP v2.4.9、原型设计方案。发生冲突时先更新上游基线和本目录契约，不由开发人员临时选择口径。
 
 ## CH-006 历史验证状态
 
@@ -92,7 +93,16 @@
 - 两份 Prisma schema 保持 76 models / 59 enums，既有 0001/0002 逐字节不变；0003 只增加 payment intent 成功事实与订单 LATE_PAYMENT 退款两个条件唯一索引。
 - 本地契约生成/校验、完整迁移回放、历史重复预检、权限、冻结指纹和 migration diff 门禁已通过；B10.0 准确 SHA 的普通 CI、Supabase development migration 和 rollback-only smoke 也已依次成功。
 - B10.0 文档/契约/迁移/静态原型与三项远端门禁均已完成；B10.1 Provider、支付意图与 Mock Inbox 本地实现/验收及 `P0=0/P1=0` 退出复审已完成。既有 `CREATING` 必须先 query、仅 `NOT_FOUND` 才 create；`OPEN` 原子推进订单为 `PROCESSING` 并递增版本，明确终态恢复 `UNPAID`，陈旧 `If-Match` 新命令返回 409。
-- B10.6 本地实现与验收已完成，数据库与纵向独立复审为 `P0=0/P1=0/P2=0`；CH-023 保持 SECURITY INVOKER 和 runtime 最小权限。最终同 SHA 远端双绿待取得；B10 不得 `GO`，CH-021 继续有效且不得提前记为失效。
+- B10.6 实现与验收已完成，数据库与纵向独立复审为 `P0=0/P1=0/P2=0`；CH-023 保持 SECURITY INVOKER 和 runtime 最小权限，B10.5/B10.6 未新增迁移。最终 SHA `f5e59169b53a97704711c3aae3049e5b5d16a930` 的[普通 CI Run 33305811318](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33305811318)与[Supabase development rollback-only smoke Run 33306877575](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33306877575)同 SHA 且均成功，B10 development `GO`，CH-021 已自动失效。
+
+## CH-024 契约准入状态
+
+- 产品/API 基线升级为 `v2.4.9 / 2.4.9-ch024`。沿用既有 endpoint；CH-024 专属检查、生成与 Redocly lint 已通过，实测为 173 paths / 198 operations / 198 unique operationId / 326 schemas / 705 schema refs / 2,695 local refs / 0 dangling refs。
+- Store/Admin 既有履约入口统一冻结为唯一单包裹：`PENDING_SHIPMENT/READY_TO_SHIP -> SHIPPING/SHIPPED -> IN_TRANSIT -> DELIVERED -> COMPLETED`，完成原因仅允许 `CUSTOMER_CONFIRMED` 或 `ADMIN_FORCED`。所有状态写操作要求 `Idempotency-Key`、`If-Match`、ULID、`HASH_ONLY` 与 no-store/private。
+- 发货必须精确覆盖全部剩余可发订单项；活动售后 fail closed 阻断整单。物流状态只允许人工单向推进，承运商/运单更正只追加事实。完成事务冻结当前 PUBLISHED BusinessRuleVersion 和 `aftersale_expires_at`，并把 EXPECTED 佣金精确一次转为 AVAILABLE。
+- 新增闭合错误码 `ACTIVE_AFTERSALE_BLOCKS_SHIPMENT`、`SHIPMENT_ITEMS_MISMATCH`、`SHIPMENT_STATE_CONFLICT`、`ORDER_NOT_RECEIVABLE`。多包裹、第三方物流、自动确认收货和普通售后不在 CH-024。
+- CH-024 数据库变更数固定为 0：两份 Prisma schema 与 `0001` 至 `0004` 必须逐字节不变，完整迁移链、冻结哈希、权限、Prisma validate 和 `migration diff=0` 是 B11.0 强制门禁。CH-025 尚未批准，B11.1 不得开始。
+- B11.0 本地契约、生成、冻结数据库、Prisma、类型与静态原型门禁已全部通过并暂停；该结论不等于 B11 总体 `GO`。
 
 ## B3.1 当前验证状态
 
@@ -115,7 +125,7 @@
 
 B0 已在工程根建立 `prisma.config.ts`、`prisma/` 和五应用脚手架；根目录中的 schema 与首迁移必须和本目录冻结产物逐字节一致。CLI/migration 通过 `DIRECT_URL` 连接，后续 runtime 通过 `@prisma/adapter-pg` 读取 `DATABASE_URL`。三端只调用 NestJS HTTPS API，禁止使用 Supabase client、Data API 或 `service_role` 密钥访问业务表。
 
-## B8、B9 与 B10 准入
+## B8 至 B11 准入
 
 B3-B6 历史交付见各自开发记录；B7 的 CH-015/CH-016、契约和最终证据见 `../05-开发管理/B7-消费者身份会话与隐私.md`。B7.0-B7.5 已完成，最终实现 SHA `3f844bfb9866854ceedb975ad0dc4fd7cacfb04a` 同 SHA 双绿，B7 development `GO`，CH-015 已自动失效。
 
@@ -123,7 +133,9 @@ B8 的 CH-017/CH-018、冻结契约、串行批次与最终证据见 `../05-开�
 
 B9 的 CH-019/CH-020、契约/迁移边界及最终证据见 `../05-开发管理/B9-订单报价与库存预占.md`。B9.0-B9.5 已完成，最终复审保持 `P0=0/P1=0/P2=1`；最终 SHA `19f9ad57190b28d11922db805b39af95b2f7ba3b` 的普通 CI Run `33230769777` 与 Supabase development rollback-only smoke Run `33233087710` 同 SHA 且均为 `completed/success`，B9 development `GO`，CH-019 已自动失效。唯一 P2 TR-020 不阻断 development；staging 前外部独立复核不得豁免，staging、production 与真实支付仍为 `NO-GO`。
 
-B10 的 CH-021/CH-022/CH-023、契约/迁移边界与批次见 `../05-开发管理/B10-支付对账与迟到支付退款.md`。B10.6 本地总验收已完成；最终实现尚未提交，同一最终 SHA 普通 CI 与 Supabase rollback-only 双绿待取得。B10 不得 `GO`，CH-021 继续有效。
+B10 的 CH-021/CH-022/CH-023、契约/迁移边界与批次见 `../05-开发管理/B10-支付对账与迟到支付退款.md`。B10.0-B10.6 已完成；最终 SHA `f5e59169b53a97704711c3aae3049e5b5d16a930` 的[普通 CI Run 33305811318](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33305811318)与[Supabase development rollback-only smoke Run 33306877575](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33306877575)同 SHA 且均成功，B10 development `GO`，CH-021 已自动失效。CH-023/0004 保持不变，B10.5/B10.6 未新增迁移；staging、production 与真实支付仍为 `NO-GO`。
+
+B11 的已批准 CH-024、冻结履约状态机、零迁移边界及批次见 `../05-开发管理/B11-订单履约与物流.md`。B11.0 本地门禁已全部通过并暂停；CH-025 是 B11.1 的硬前置，未批准前不得实现 repository、API、Worker 或前端履约业务代码，B11 总体不得 `GO`。
 
 ## 剩余上线门禁
 

@@ -19,7 +19,11 @@ describe('application errors', () => {
 
     expect(error.httpStatus).toBe(400);
     expect(getApplicationErrorHttpStatus('RESOURCE_VERSION_CONFLICT')).toBe(409);
+    expect(getApplicationErrorHttpStatus('SHIPMENT_STATE_CONFLICT')).toBe(409);
+    expect(getApplicationErrorHttpStatus('ORDER_NOT_RECEIVABLE')).toBe(409);
     expect(getApplicationErrorHttpStatus('SOFT_DELETED_KEY_RESERVED')).toBe(409);
+    expect(getApplicationErrorHttpStatus('ACTIVE_AFTERSALE_BLOCKS_SHIPMENT')).toBe(422);
+    expect(getApplicationErrorHttpStatus('SHIPMENT_ITEMS_MISMATCH')).toBe(422);
     expect(getApplicationErrorHttpStatus('ACTIVE_PRODUCT_DEPENDENCY')).toBe(422);
     expect(getApplicationErrorHttpStatus('PRODUCT_PRIMARY_IMAGE_REQUIRED')).toBe(422);
     expect(getApplicationErrorHttpStatus('PRODUCT_ACTIVE_SKU_REQUIRED')).toBe(422);
@@ -42,7 +46,11 @@ describe('application errors', () => {
   });
 
   it.each([
+    ['SHIPMENT_STATE_CONFLICT', 'The shipment state conflicts with this request'],
+    ['ORDER_NOT_RECEIVABLE', 'The order cannot be confirmed as received'],
     ['SOFT_DELETED_KEY_RESERVED', 'The archived business key is reserved'],
+    ['ACTIVE_AFTERSALE_BLOCKS_SHIPMENT', 'Active aftersale activity blocks shipment'],
+    ['SHIPMENT_ITEMS_MISMATCH', 'The shipment items do not match the current fulfillment facts'],
     ['ACTIVE_PRODUCT_DEPENDENCY', 'Active products must be deactivated or moved first'],
     ['PRODUCT_PRIMARY_IMAGE_REQUIRED', 'A product requires at least one ready public image'],
     ['PRODUCT_ACTIVE_SKU_REQUIRED', 'A product requires at least one active SKU'],

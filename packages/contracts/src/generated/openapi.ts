@@ -665,7 +665,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 确认收货，幂等完成订单 */
+        /**
+         * 确认收货，幂等完成订单
+         * @description 仅允许当前 CUSTOMER 对本人已支付、NORMAL、order_status=SHIPPING、包裹状态为 SHIPPED/IN_TRANSIT/DELIVERED 且无活动售后或未解决支付异常的订单确认收货。命令采用 HASH_ONLY 幂等，If-Match 必须对应 order.version；包裹尚未 DELIVERED 时在同一事务封存 DELIVERED，再完成订单、冻结当前 PUBLISHED 业务规则并将已冻结 EXPECTED 佣金最多一次结转为 AVAILABLE。
+         */
         post: operations["postStoreOrdersByOrderIdConfirmReceipt"];
         delete?: never;
         options?: never;
@@ -680,7 +683,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 包裹与人工物流节点 */
+        /**
+         * 包裹与人工物流节点
+         * @description 返回本人订单的唯一包裹和按 occurred_at ASC,event_id ASC 排序的不可变人工物流节点；无包裹时 shipment 为 null、events 为空。共享 CUSTOMER+来源 IP 固定窗口限流，Redis 不可用时 fail closed。
+         */
         get: operations["getStoreOrdersByOrderIdLogistics"];
         put?: never;
         post?: never;
@@ -2243,7 +2249,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 幂等原子创建并置 SHIPPED，覆盖全部剩余可发数量的单一包裹 */
+        /**
+         * 幂等原子创建并置 SHIPPED，覆盖全部剩余可发数量的单一包裹
+         * @description 仅允许已支付、NORMAL、PENDING_SHIPMENT/READY_TO_SHIP 且无活动售后的订单创建唯一包裹。请求项目必须与服务端计算的全部剩余可发项目及数量精确一致，否则返回 SHIPMENT_ITEMS_MISMATCH；命令采用 HASH_ONLY 幂等，If-Match 必须对应 order.version。
+         */
         post: operations["postAdminOrdersByOrderIdShipments"];
         delete?: never;
         options?: never;
@@ -2260,7 +2269,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 幂等追加物流节点或带原因的承运商/运单更正事实 */
+        /**
+         * 幂等追加物流节点或带原因的承运商/运单更正事实
+         * @description 状态节点仅允许 SHIPPED -> IN_TRANSIT -> DELIVERED，不得倒退；TRACKING_CORRECTION 保留不可变更正事实并更新当前承运信息。客户端不提交 event_key，服务端由幂等事实派生；If-Match 必须对应 shipment.version。
+         */
         post: operations["postAdminShipmentsByShipmentIdEvents"];
         delete?: never;
         options?: never;
@@ -2277,7 +2289,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 总部兜底以 ADMIN_FORCED 完成；版本、幂等和审计必需，不使用高风险预览 */
+        /**
+         * 总部兜底以 ADMIN_FORCED 完成；版本、幂等和审计必需，不使用高风险预览
+         * @description 仅允许已支付、NORMAL、order_status=SHIPPING、唯一包裹状态为 SHIPPED/IN_TRANSIT/DELIVERED 且无活动售后或未解决支付异常的订单完成；原因必填。命令采用 HASH_ONLY 幂等，If-Match 必须对应 order.version；包裹尚未 DELIVERED 时在同一事务封存 DELIVERED，再以 ADMIN_FORCED 完成并最多一次结转已冻结 EXPECTED 佣金。
+         */
         post: operations["postAdminOrdersByOrderIdComplete"];
         delete?: never;
         options?: never;
@@ -3706,10 +3721,10 @@ export interface components {
             carrier_code: string;
             carrier_name: string;
             tracking_no: string;
+            /** @description 必须与服务端计算的全部剩余可发订单项及数量精确一致，order_item_id 不得重复。 */
             items: components["schemas"]["ShipmentLineInput"][];
         };
         LogisticsEventBase: {
-            event_key: string;
             description: string;
             location?: string | null;
             /** Format: date-time */
@@ -3718,7 +3733,8 @@ export interface components {
         LogisticsStatusEventInput: components["schemas"]["LogisticsEventBase"] & {
             /** @constant */
             event_type: "STATUS";
-            status_code: string;
+            /** @enum {string} */
+            status_code: "IN_TRANSIT" | "DELIVERED";
         };
         LogisticsCorrectionEventInput: components["schemas"]["LogisticsEventBase"] & {
             /** @constant */
@@ -5319,7 +5335,8 @@ export interface components {
             event_key: string;
             /** @enum {string} */
             event_type: "STATUS" | "TRACKING_CORRECTION";
-            status_code?: string | null;
+            /** @enum {string|null} */
+            status_code?: "SHIPPED" | "IN_TRANSIT" | "DELIVERED" | null;
             carrier_code?: string | null;
             carrier_name?: string | null;
             tracking_no?: string | null;
@@ -5405,8 +5422,8 @@ export interface components {
             items: components["schemas"]["StoreOrderCompactItem"][];
             /** Format: date-time */
             pay_expires_at: string | null;
-            /** @description B10 对未过期、待付款且允许创建或复用支付意图的订单返回 PAY；无支付意图或仅有失败终态 intent 且可主动取消时返回 CANCEL。两个动作均由服务端当前投影决定；关闭或支付结果未决时返回空数组。 */
-            available_actions: ("PAY" | "CANCEL")[];
+            /** @description B10 对未过期、待付款且允许创建或复用支付意图的订单返回 PAY；无支付意图或仅有失败终态 intent 且可主动取消时返回 CANCEL。B11 对已有包裹返回 VIEW_LOGISTICS，对已支付、NORMAL、order_status=SHIPPING、包裹状态为 SHIPPED/IN_TRANSIT/DELIVERED 且不存在活动售后或未解决支付异常的订单返回 CONFIRM_RECEIPT。所有动作均由服务端当前投影决定。 */
+            available_actions: ("PAY" | "CANCEL" | "VIEW_LOGISTICS" | "CONFIRM_RECEIPT")[];
             aftersale_summary: components["schemas"]["OrderAftersaleListSummary"];
             /** Format: date-time */
             created_at: string;
@@ -6838,11 +6855,10 @@ export interface components {
         };
         OrderPackageDetailView: {
             shipment_id: string;
-            shipment_no: string;
             carrier_name: string;
             tracking_no: string;
             /** @enum {string} */
-            status: "CREATED" | "SHIPPED" | "IN_TRANSIT" | "DELIVERED" | "CANCELLED";
+            status: "SHIPPED" | "IN_TRANSIT" | "DELIVERED";
             items: components["schemas"]["OrderPackageItemView"][];
             events: components["schemas"]["LogisticsEventView"][];
             /** Format: date-time */
@@ -6908,10 +6924,10 @@ export interface components {
                 amounts: components["schemas"]["OrderAmountsDetailView"];
                 items: components["schemas"]["OrderItemView"][];
                 shipping_address: components["schemas"]["StoreFrozenAddressView"];
-                /** @description B10 对未过期、待付款且允许创建或复用支付意图的订单返回 PAY；无支付意图或仅有失败终态 intent 且可主动取消时返回 CANCEL。两个动作均由服务端当前投影决定；关闭或支付结果未决时返回空数组。 */
-                available_actions: ("PAY" | "CANCEL")[];
+                /** @description B10 对未过期、待付款且允许创建或复用支付意图的订单返回 PAY；无支付意图或仅有失败终态 intent 且可主动取消时返回 CANCEL。B11 对已有包裹返回 VIEW_LOGISTICS，对已支付、NORMAL、order_status=SHIPPING、包裹状态为 SHIPPED/IN_TRANSIT/DELIVERED 且不存在活动售后或未解决支付异常的订单返回 CONFIRM_RECEIPT。所有动作均由服务端当前投影决定。 */
+                available_actions: ("PAY" | "CANCEL" | "VIEW_LOGISTICS" | "CONFIRM_RECEIPT")[];
                 timeline: components["schemas"]["OrderStateTimelineEventView"][];
-                /** @description B9 未开放物流，固定返回空数组。 */
+                /** @description B11 仅支持单包裹；未发货时为空数组，发货后按唯一包裹返回人工物流节点。 */
                 packages: components["schemas"]["OrderPackageDetailView"][];
                 /** @description B9 未开放售后，固定返回空数组。 */
                 aftersales: components["schemas"]["OrderAftersaleSummaryView"][];
@@ -7405,7 +7421,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
-        /** @description 状态、版本、幂等请求哈希或唯一约束冲突；CH-006 固定冲突码包括 SOFT_DELETED_KEY_RESERVED。 */
+        /** @description 状态、版本、幂等请求哈希或唯一约束冲突；固定冲突码包括 CH-006 的 SOFT_DELETED_KEY_RESERVED，以及 CH-024 的 SHIPMENT_STATE_CONFLICT、ORDER_NOT_RECEIVABLE。 */
         StateConflict: {
             headers: {
                 [name: string]: unknown;
@@ -7520,7 +7536,7 @@ export interface components {
                 };
             };
         };
-        /** @description B8/B9/B10 登录后 Store 接口的通用错误；不得缓存或回显被拒绝的个性化值。 */
+        /** @description B8/B9/B10/B11 登录后 Store 接口的通用错误；不得缓存或回显被拒绝的个性化值。 */
         StoreCustomerError: {
             headers: {
                 "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
@@ -7540,7 +7556,7 @@ export interface components {
                 };
             };
         };
-        /** @description B8/B9/B10 登录后 Store 接口的闭合版本、状态、幂等、报价或支付结果冲突响应。 */
+        /** @description B8/B9/B10/B11 登录后 Store 接口的闭合版本、状态、幂等、报价、支付结果或确认收货冲突响应。 */
         StoreCustomerConflict: {
             headers: {
                 "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
@@ -7550,7 +7566,7 @@ export interface components {
             content: {
                 "application/json": {
                     /** @enum {string} */
-                    code: "RESOURCE_VERSION_CONFLICT" | "STATE_CONFLICT" | "CHECKOUT_QUOTE_EXPIRED" | "CHECKOUT_QUOTE_MISMATCH" | "CHECKOUT_REQUOTE_REQUIRED" | "ORDER_NOT_CANCELLABLE" | "ORDER_PAYMENT_EXPIRED" | "PAYMENT_NOT_ALLOWED" | "PAYMENT_RESULT_CONFLICT";
+                    code: "RESOURCE_VERSION_CONFLICT" | "STATE_CONFLICT" | "CHECKOUT_QUOTE_EXPIRED" | "CHECKOUT_QUOTE_MISMATCH" | "CHECKOUT_REQUOTE_REQUIRED" | "ORDER_NOT_CANCELLABLE" | "ORDER_PAYMENT_EXPIRED" | "PAYMENT_NOT_ALLOWED" | "PAYMENT_RESULT_CONFLICT" | "ORDER_NOT_RECEIVABLE";
                     message: string;
                     details?: {
                         field: string | null;
@@ -7561,7 +7577,7 @@ export interface components {
                 };
             };
         };
-        /** @description B8/B9/B10 登录后 Store 接口的闭合业务校验响应。 */
+        /** @description B8/B9/B10/B11 登录后 Store 接口的闭合业务校验响应。 */
         StoreCustomerBusinessError: {
             headers: {
                 "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
@@ -7571,7 +7587,7 @@ export interface components {
             content: {
                 "application/json": {
                     /** @enum {string} */
-                    code: "CART_ITEM_LIMIT_EXCEEDED" | "DEFAULT_ADDRESS_REQUIRED";
+                    code: "CART_ITEM_LIMIT_EXCEEDED" | "DEFAULT_ADDRESS_REQUIRED" | "ACTIVE_AFTERSALE_BLOCKS_SHIPMENT";
                     message: string;
                     details?: {
                         field: string | null;
@@ -7582,7 +7598,7 @@ export interface components {
                 };
             };
         };
-        /** @description B8 的 13 个登录后收藏、购物车和地址 operation、B9 的 5 个报价/订单 operation 与 B10 的 2 个支付 operation 共享 Redis 固定窗口；key 只保存 CUSTOMER 与规范化来源 IP 组合的用途隔离 HMAC，每个组合每 60 秒最多 120 次。超限返回准确 Retry-After；Redis 不可用时 fail closed。 */
+        /** @description B8 的 13 个登录后收藏、购物车和地址 operation、B9 的 5 个报价/订单 operation、B10 的 2 个支付 operation 与 B11 的 2 个履约 operation 共享 Redis 固定窗口；key 只保存 CUSTOMER 与规范化来源 IP 组合的用途隔离 HMAC，每个组合每 60 秒最多 120 次。超限返回准确 Retry-After；Redis 不可用时 fail closed。 */
         StoreCustomerRateLimited: {
             headers: {
                 "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
@@ -7626,7 +7642,7 @@ export interface components {
                 };
             };
         };
-        /** @description 库存、售后额度、金额分配或业务前置校验失败；固定业务码包括 ACTIVE_PRODUCT_DEPENDENCY、FILE_CONTENT_MISMATCH，CH-010 的 PRODUCT_PRIMARY_IMAGE_REQUIRED、PRODUCT_ACTIVE_SKU_REQUIRED、ACTIVE_SKU_DEPENDENCY、ACTIVE_INVENTORY_RESERVATION，以及 CH-012 的 INVENTORY_QUANTITY_OUT_OF_RANGE；库存确认低于锁定量继续使用 STOCK_INSUFFICIENT（均为 422）。 */
+        /** @description 库存、售后额度、金额分配或业务前置校验失败；固定业务码包括 ACTIVE_PRODUCT_DEPENDENCY、FILE_CONTENT_MISMATCH，CH-010 的 PRODUCT_PRIMARY_IMAGE_REQUIRED、PRODUCT_ACTIVE_SKU_REQUIRED、ACTIVE_SKU_DEPENDENCY、ACTIVE_INVENTORY_RESERVATION，CH-012 的 INVENTORY_QUANTITY_OUT_OF_RANGE，以及 CH-024 的 ACTIVE_AFTERSALE_BLOCKS_SHIPMENT、SHIPMENT_ITEMS_MISMATCH；库存确认低于锁定量继续使用 STOCK_INSUFFICIENT（均为 422）。 */
         BusinessError: {
             headers: {
                 [name: string]: unknown;
@@ -9068,6 +9084,7 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
                 order_id: string;
@@ -9079,20 +9096,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["StoreOrderResponse"];
+                    "application/json": components["schemas"]["StoreOrderDetailResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     getStoreOrdersByOrderIdLogistics: {
@@ -9109,20 +9128,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["LogisticsResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     postCallbacksWechatPay: {
@@ -12475,6 +12496,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -12505,6 +12528,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -12541,8 +12566,8 @@ export interface operations {
             200: {
                 headers: {
                     /** @description 履约 PII 明文不得缓存 */
-                    "Cache-Control"?: "no-store, private";
-                    Pragma?: "no-cache";
+                    "Cache-Control": "no-store, private";
+                    Pragma: "no-cache";
                     [name: string]: unknown;
                 };
                 content: {
@@ -12564,6 +12589,7 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
                 order_id: string;
@@ -12579,6 +12605,8 @@ export interface operations {
             /** @description 成功 */
             201: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -12600,6 +12628,7 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
                 shipment_id: string;
@@ -12615,6 +12644,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -12652,6 +12683,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {

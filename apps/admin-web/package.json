@@ -7,7 +7,7 @@
     "build": "vue-tsc --noEmit && vite build",
     "dev": "vite --host 0.0.0.0",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "vitest run src/services/admin-payments.spec.ts",
+    "test": "vitest run src/services/admin-api.spec.ts src/services/admin-payments.spec.ts src/services/admin-orders.spec.ts",
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {

@@ -10,6 +10,7 @@ export type ProtectedAction =
   | { readonly type: 'FAVORITE'; readonly product_id: string }
   | { readonly type: 'FAVORITES' }
   | { readonly type: 'ORDER_DETAIL'; readonly order_id: string }
+  | { readonly type: 'ORDER_LOGISTICS'; readonly order_id: string }
   | { readonly type: 'ORDERS' }
   | { readonly type: 'PAYMENT_RESULT'; readonly order_id: string }
   | { readonly type: 'PROFILE' }
@@ -40,7 +41,8 @@ export function setProtectedAction(action: ProtectedAction): void {
     !Number.isInteger(action.quantity) || action.quantity < 1 || action.quantity > 99)) {
     throw new Error('Protected buy-now action is invalid');
   }
-  if ((action.type === 'ORDER_DETAIL' || action.type === 'PAYMENT_RESULT') &&
+  if ((action.type === 'ORDER_DETAIL' || action.type === 'ORDER_LOGISTICS' ||
+    action.type === 'PAYMENT_RESULT') &&
     !isUlid(action.order_id)) {
     throw new Error('Protected action order ID is invalid');
   }
@@ -168,6 +170,10 @@ export async function resumeProtectedAction(): Promise<void> {
   }
   if (action.type === 'ORDER_DETAIL') {
     replaceCurrentPage(`/pages/orders/detail?order_id=${encodeURIComponent(action.order_id)}`);
+    return;
+  }
+  if (action.type === 'ORDER_LOGISTICS') {
+    replaceCurrentPage(`/pages/orders/logistics?order_id=${encodeURIComponent(action.order_id)}`);
     return;
   }
   if (action.type === 'PAYMENT_RESULT') {

@@ -11,15 +11,18 @@ import QxStoreShell from '../../components/storefront/QxStoreShell.vue';
 import type { StoreOrderListItem, StoreOrderListQuery } from '../../types/store-orders';
 import { clearCustomerSession } from '../../utils/customer-session';
 import { replaceWithLoginForAction } from '../../utils/protected-action';
-import { openOrder } from '../../utils/store-navigation';
+import { openOrder, openOrderLogistics } from '../../utils/store-navigation';
 
-type OrderTab = 'ALL' | 'PENDING_PAYMENT' | 'CLOSED';
+type OrderTab = 'ALL' | 'PENDING_PAYMENT' | 'PENDING_SHIPMENT' | 'SHIPPING' | 'COMPLETED' | 'REFUND_AFTERSALE';
 type PageState = 'loading' | 'ready' | 'empty' | 'auth-required' | 'error' | 'rate-limited';
 
 const tabs: ReadonlyArray<{ key: OrderTab; label: string }> = [
   { key: 'ALL', label: '全部' },
   { key: 'PENDING_PAYMENT', label: '待付款' },
-  { key: 'CLOSED', label: '已关闭' },
+  { key: 'PENDING_SHIPMENT', label: '待发货' },
+  { key: 'SHIPPING', label: '运输中' },
+  { key: 'COMPLETED', label: '已完成' },
+  { key: 'REFUND_AFTERSALE', label: '退款进度' },
 ];
 
 const activeTab = ref<OrderTab>('ALL');
@@ -39,11 +42,7 @@ let authenticationRequired = false;
 const hasMore = computed(() => orders.value.length < total.value);
 
 function queryFor(tab: OrderTab, nextPage: number): StoreOrderListQuery {
-  if (tab === 'PENDING_PAYMENT') {
-    return { display_group: 'PENDING_PAYMENT', page: nextPage, page_size: 20 };
-  }
-  if (tab === 'CLOSED') return { order_status: 'CLOSED', page: nextPage, page_size: 20 };
-  return { display_group: 'ALL', page: nextPage, page_size: 20 };
+  return { display_group: tab, page: nextPage, page_size: 20 };
 }
 
 function requireLogin() {
@@ -161,12 +160,14 @@ onUnload(() => {
 
       <QxCatalogState
         v-if="state === 'loading'"
+        data-testid="orders-state-loading"
         kind="loading"
         title="正在读取订单"
         :description="slowRequest ? '网络响应较慢，仍在读取本人订单。' : '正在读取最新订单状态。'"
       />
       <QxCatalogState
         v-else-if="state === 'auth-required'"
+        data-testid="orders-state-auth-required"
         kind="empty"
         title="登录后查看订单"
         description="订单只对当前账户本人开放。"
@@ -175,12 +176,14 @@ onUnload(() => {
       />
       <QxCatalogState
         v-else-if="state === 'empty'"
+        data-testid="orders-state-empty"
         kind="empty"
         title="暂无相关订单"
         description="当前筛选下还没有订单记录。"
       />
       <QxCatalogState
         v-else-if="state === 'error' || state === 'rate-limited'"
+        :data-testid="state === 'rate-limited' ? 'orders-state-rate-limited' : 'orders-state-error'"
         :kind="state === 'rate-limited' ? 'rate-limited' : 'error'"
         :retry-after-seconds="retryAfterSeconds"
         title="订单列表加载失败"
@@ -204,9 +207,11 @@ onUnload(() => {
           v-for="order in orders"
           :key="order.order_id"
           class="order-card"
+          :data-testid="`order-card-${order.order_id}`"
         >
           <button
             class="order-card__heading"
+            :data-testid="`order-open-${order.order_id}`"
             :aria-label="`查看订单 ${order.order_no}`"
             @click="openOrder(order.order_id)"
           >
@@ -251,22 +256,31 @@ onUnload(() => {
           </button>
           <view class="order-card__footer">
             <text
-              v-if="order.available_actions.includes('PAY')"
+              v-if="order.available_actions.includes('CONFIRM_RECEIPT')"
               class="order-card__available"
             >
-              可支付
+              可确认收货
             </text>
             <text
-              v-else-if="order.available_actions.includes('CANCEL')"
+              v-else-if="order.available_actions.includes('VIEW_LOGISTICS')"
               class="order-card__available"
             >
-              可取消
+              物流可查看
+            </text>
+            <text
+              v-else-if="order.available_actions.includes('PAY') || order.available_actions.includes('CANCEL')"
+              class="order-card__available"
+            >
+              {{ order.available_actions.includes('PAY') ? '可支付' : '可取消' }}
             </text>
             <text class="order-card__amount">
               应付 ¥{{ order.payable_amount }}
             </text>
-            <button @click="openOrder(order.order_id)">
-              查看详情
+            <button
+              :data-testid="order.available_actions.includes('VIEW_LOGISTICS') ? `order-logistics-${order.order_id}` : `order-detail-${order.order_id}`"
+              @click="order.available_actions.includes('VIEW_LOGISTICS') ? openOrderLogistics(order.order_id) : openOrder(order.order_id)"
+            >
+              {{ order.available_actions.includes('VIEW_LOGISTICS') ? '查看物流' : '查看详情' }}
             </button>
           </view>
         </article>

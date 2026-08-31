@@ -620,6 +620,7 @@ export class StoreOrdersService {
         shipped_at: fulfillment.shipment.shippedAt.toISOString(),
         status: fulfillment.shipment.status,
         tracking_no: fulfillment.shipment.trackingNo,
+        version: fulfillment.shipment.version,
       }],
       payment_attempts: paymentAttempts,
       refund_attempts: refundAttempts,

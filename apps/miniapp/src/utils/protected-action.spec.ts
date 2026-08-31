@@ -116,6 +116,21 @@ describe('closed protected action handoff', () => {
     expect(consumeProtectedAction()).toBeNull();
   });
 
+  it('validates and resumes the exact order logistics page', async () => {
+    const redirectTo = vi.fn();
+    vi.stubGlobal('uni', { redirectTo, reLaunch: vi.fn() });
+    const orderId = '01J00000000000000000000000';
+    setProtectedAction({ type: 'ORDER_LOGISTICS', order_id: orderId });
+    await resumeProtectedAction();
+    expect(redirectTo).toHaveBeenCalledWith(expect.objectContaining({
+      url: `/pages/orders/logistics?order_id=${orderId}`,
+    }));
+    expect(() => setProtectedAction({
+      type: 'ORDER_LOGISTICS', order_id: 'not-an-order',
+    })).toThrow('Protected action order ID is invalid');
+    expect(consumeProtectedAction()).toBeNull();
+  });
+
   it('validates and resumes an exact buy-now selection once', async () => {
     const redirectTo = vi.fn();
     vi.stubGlobal('uni', { redirectTo, reLaunch: vi.fn() });

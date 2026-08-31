@@ -1854,6 +1854,14 @@ try {
   assertInlineStoreNoStore(document.paths
     ['/admin/orders/{order_id}/fulfillment-address'].get.responses['200'],
   'GET /admin/orders/{order_id}/fulfillment-address');
+  const fulfillmentAddressReason = document.paths
+    ['/admin/orders/{order_id}/fulfillment-address'].get.parameters
+    .find((parameter) => parameter.name === 'X-Access-Reason');
+  assert.equal(fulfillmentAddressReason.schema.minLength, 5);
+  assert.equal(fulfillmentAddressReason.schema.maxLength, 200);
+  assert.match(fulfillmentAddressReason.description,
+    /UTF-8''.+percent-encoded UTF-8/s,
+    'non-ASCII fulfillment reasons must keep the browser-safe UTF-8 wire format');
   assert.deepEqual(parameterReferences(createShipmentOperation), [
     '#/components/parameters/IdempotencyKey', '#/components/parameters/IfMatch',
   ]);
@@ -1939,6 +1947,9 @@ try {
   assert.equal(packageView.properties.shipment_id.pattern, ULID_PATTERN);
   assert.deepEqual(packageView.properties.status.enum,
     ['SHIPPED', 'IN_TRANSIT', 'DELIVERED']);
+  assert.ok(packageView.required.includes('version'),
+    'B11 package detail must expose shipment version for Admin If-Match after reload');
+  assert.equal(packageView.properties.version.minimum, 1);
   assert.match(generatedContract, /VIEW_LOGISTICS/);
   assert.match(generatedContract, /CONFIRM_RECEIPT/);
 

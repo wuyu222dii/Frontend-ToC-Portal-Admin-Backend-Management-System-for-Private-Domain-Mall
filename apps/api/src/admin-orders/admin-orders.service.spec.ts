@@ -374,16 +374,65 @@ describe('AdminOrdersService', () => {
     expect(ordinaryProjection).not.toContain('detailCiphertext');
   });
 
-  it('completes through the shared transaction service and then reads the current Admin projection', async () => {
+  it('completes through the shared transaction service and returns the exact Admin command projection', async () => {
     const { mocks, service } = harness();
+    const completed = detail();
+    mocks.fulfillment.getAdminOrderDetail.mockResolvedValue(detail({
+      order: {
+        ...completed.order,
+        completedAt: UPDATED_AT,
+        completionReason: 'ADMIN_FORCED',
+        fulfillmentStatus: 'DELIVERED',
+        orderStatus: 'COMPLETED',
+        version: 4,
+      },
+      shipment: completed.shipment === null ? null : {
+        ...completed.shipment,
+        deliveredAt: UPDATED_AT,
+        status: 'DELIVERED',
+        version: 3,
+      },
+    }));
 
-    await expect(service.completeOrder(
+    const result = await service.completeOrder(
       requestContext(),
       ORDER_ID,
       { completionReason: 'ADMIN_FORCED', reason: 'Delivery verified by administrator' },
       3,
       CREATE_SHIPMENT_IDEMPOTENCY_KEY,
-    )).resolves.toMatchObject({ order_id: ORDER_ID, version: 3 });
+    );
+
+    expect(Object.keys(result).sort()).toEqual([
+      'address_snapshot',
+      'aftersale_ids',
+      'amounts',
+      'close_reason',
+      'completion_reason',
+      'customer_id',
+      'display_status',
+      'fulfillment_status',
+      'items',
+      'order_id',
+      'order_no',
+      'order_status',
+      'payment_attempts',
+      'payment_resolution',
+      'payment_status',
+      'refund_processing_status',
+      'refund_progress_status',
+      'version',
+    ]);
+    expect(result).toMatchObject({
+      completion_reason: 'ADMIN_FORCED',
+      display_status: '已完成',
+      fulfillment_status: 'DELIVERED',
+      order_id: ORDER_ID,
+      order_status: 'COMPLETED',
+      version: 4,
+    });
+    expect(result).not.toHaveProperty('available_actions');
+    expect(result).not.toHaveProperty('packages');
+    expect(result).not.toHaveProperty('shipping_address_masked');
 
     expect(mocks.completion.completeAdmin).toHaveBeenCalledWith({
       actorAccountId: ACCOUNT_ID,

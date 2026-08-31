@@ -165,6 +165,17 @@ describe('B11.1 Admin order DTO', () => {
       purpose: 'ORDER_FULFILLMENT',
       reason: '发货核对地址',
     });
+    expect(parseAdminFulfillmentAddressAccessHeaders(
+      'ORDER_FULFILLMENT',
+      `UTF-8''${encodeURIComponent('  发货核对地址  ')}`,
+    )).toEqual({
+      purpose: 'ORDER_FULFILLMENT',
+      reason: '发货核对地址',
+    });
+    expect(parseAdminFulfillmentAddressAccessHeaders('ORDER_FULFILLMENT', 'Verify 100% parcel')).toEqual({
+      purpose: 'ORDER_FULFILLMENT',
+      reason: 'Verify 100% parcel',
+    });
   });
 
   it.each([
@@ -176,6 +187,8 @@ describe('B11.1 Admin order DTO', () => {
     ['long reason', 'ORDER_FULFILLMENT', 'r'.repeat(201)],
     ['C0 control character', 'ORDER_FULFILLMENT', 'Ship\norder'],
     ['C1 control character', 'ORDER_FULFILLMENT', `Ship${String.fromCodePoint(0x85)}order`],
+    ['encoded control character', 'ORDER_FULFILLMENT', "UTF-8''Ship%0Aorder"],
+    ['malformed UTF-8 encoding', 'ORDER_FULFILLMENT', "UTF-8''%E0%A4%A"],
     ['duplicate reason', 'ORDER_FULFILLMENT', ['Prepare shipment']],
   ])('rejects %s', (_label, purpose, reason) => {
     expect(() => parseAdminFulfillmentAddressAccessHeaders(purpose, reason))

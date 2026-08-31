@@ -7,6 +7,10 @@ import type {
   StoreOrderDetail,
   StoreOrderList,
   StoreOrderListItem,
+  StoreOrderPackage,
+  StoreLogistics,
+  StoreLogisticsEvent,
+  StoreShipment,
 } from '../types/store-orders';
 import type { StoreAddressSummary } from '../types/store-shopping';
 import { StoreEnvelopeFormatError } from './store-client';
@@ -26,7 +30,9 @@ const fulfillmentStatuses = new Set(['NOT_STARTED', 'READY_TO_SHIP', 'SHIPPED', 
 const closeReasons = new Set(['USER_CANCELLED', 'PAYMENT_TIMEOUT', 'FULL_REFUND_BEFORE_SHIPMENT']);
 const completionReasons = new Set(['CUSTOMER_CONFIRMED', 'ADMIN_FORCED', 'FULL_REFUND_AFTER_SHIPMENT']);
 const paymentResolutions = new Set(['NORMAL', 'LATE_SUCCESS_REFUND_PENDING', 'LATE_SUCCESS_REFUNDED', 'MANUAL_REQUIRED']);
-const orderActions = new Set(['PAY', 'CANCEL']);
+const orderActions = new Set(['PAY', 'CANCEL', 'VIEW_LOGISTICS', 'CONFIRM_RECEIPT']);
+const shipmentStatuses = new Set(['SHIPPED', 'IN_TRANSIT', 'DELIVERED']);
+const logisticsEventTypes = new Set(['STATUS', 'TRACKING_CORRECTION']);
 const commandDisplayStatuses = new Set([
   '待付款', '待发货', '运输中', '已完成', '退款处理中', '部分退款', '退款完成',
   '退款异常待处理', '已关闭', '支付处理中', '支付确认中', '关单确认中', '支付异常处理中',
@@ -44,6 +50,19 @@ function record(value: unknown, keys: readonly string[]): RecordValue {
   const current = value as RecordValue;
   const actual = Object.keys(current);
   if (actual.length !== keys.length || !keys.every((key) => Object.hasOwn(current, key))) invalid();
+  return current;
+}
+
+function recordWithOptional(
+  value: unknown,
+  requiredKeys: readonly string[],
+  optionalKeys: readonly string[],
+): RecordValue {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) invalid();
+  const current = value as RecordValue;
+  const allowedKeys = new Set([...requiredKeys, ...optionalKeys]);
+  if (!requiredKeys.every((key) => Object.hasOwn(current, key)) ||
+    Object.keys(current).some((key) => !allowedKeys.has(key))) invalid();
   return current;
 }
 
@@ -74,9 +93,33 @@ function booleanValue(value: unknown): boolean {
   return value;
 }
 
+const rfc3339Pattern = /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:[Zz]|[+-](\d{2}):(\d{2}))$/;
+
+function rfc3339Timestamp(value: string): number {
+  const match = rfc3339Pattern.exec(value);
+  if (match === null) invalid();
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText,
+    offsetHourText, offsetMinuteText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  const offsetHour = offsetHourText === undefined ? 0 : Number(offsetHourText);
+  const offsetMinute = offsetMinuteText === undefined ? 0 : Number(offsetMinuteText);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const monthDays = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (month < 1 || month > 12 || day < 1 || day > (monthDays[month - 1] ?? 0) ||
+    hour > 23 || minute > 59 || second > 59 || offsetHour > 23 || offsetMinute > 59) invalid();
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) invalid();
+  return timestamp;
+}
+
 function dateTime(value: unknown): string {
   const current = text(value);
-  if (!Number.isFinite(Date.parse(current))) invalid();
+  rfc3339Timestamp(current);
   return current;
 }
 
@@ -366,6 +409,129 @@ function refundAttempt(value: unknown): StoreOrderDetail['refund_attempts'][numb
   } as StoreOrderDetail['refund_attempts'][number];
 }
 
+function optionalNullableText(current: RecordValue, key: string): string | null | undefined {
+  if (!Object.hasOwn(current, key)) return undefined;
+  return nullable(current[key], text);
+}
+
+function logisticsEvent(value: unknown): StoreLogisticsEvent {
+  const current = recordWithOptional(value, [
+    'event_id', 'event_key', 'event_type', 'description', 'occurred_at',
+  ], [
+    'status_code', 'carrier_code', 'carrier_name', 'tracking_no', 'reason', 'location',
+  ]);
+  const result: StoreLogisticsEvent = {
+    event_id: ulid(current.event_id),
+    event_key: text(current.event_key),
+    event_type: enumValue(current.event_type, logisticsEventTypes),
+    description: text(current.description),
+    occurred_at: dateTime(current.occurred_at),
+  };
+  if (Object.hasOwn(current, 'status_code')) {
+    result.status_code = nullable(current.status_code, (entry) => enumValue(entry, shipmentStatuses));
+  }
+  for (const key of ['carrier_code', 'carrier_name', 'tracking_no', 'reason', 'location'] as const) {
+    const decoded = optionalNullableText(current, key);
+    if (decoded !== undefined) result[key] = decoded;
+  }
+  return result;
+}
+
+function assertStableEvents(events: readonly StoreLogisticsEvent[]): void {
+  const ids = new Set<string>();
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index];
+    if (event === undefined || ids.has(event.event_id)) invalid();
+    ids.add(event.event_id);
+    const previous = events[index - 1];
+    if (previous !== undefined) {
+      const previousTimestamp = rfc3339Timestamp(previous.occurred_at);
+      const eventTimestamp = rfc3339Timestamp(event.occurred_at);
+      if (previousTimestamp > eventTimestamp ||
+        (previousTimestamp === eventTimestamp && previous.event_id > event.event_id)) invalid();
+    }
+  }
+}
+
+function shipmentItem(value: unknown): StoreShipment['items'][number] {
+  const current = record(value, ['order_item_id', 'quantity']);
+  return {
+    order_item_id: ulid(current.order_item_id),
+    quantity: integer(current.quantity, 1),
+  };
+}
+
+function shipment(value: unknown): StoreShipment {
+  const current = recordWithOptional(value, [
+    'shipment_id', 'order_id', 'status', 'carrier_code', 'carrier_name', 'tracking_no',
+    'shipped_at', 'items', 'version',
+  ], ['delivered_at']);
+  if (!Array.isArray(current.items) || current.items.length < 1) invalid();
+  const items = current.items.map(shipmentItem);
+  if (new Set(items.map((item) => item.order_item_id)).size !== items.length) invalid();
+  const result: StoreShipment = {
+    shipment_id: ulid(current.shipment_id),
+    order_id: ulid(current.order_id),
+    status: enumValue(current.status, shipmentStatuses),
+    carrier_code: text(current.carrier_code),
+    carrier_name: text(current.carrier_name),
+    tracking_no: text(current.tracking_no),
+    shipped_at: dateTime(current.shipped_at),
+    items,
+    version: integer(current.version, 1),
+  };
+  if (Object.hasOwn(current, 'delivered_at')) {
+    result.delivered_at = nullable(current.delivered_at, dateTime);
+  }
+  return result;
+}
+
+function packageItem(value: unknown): StoreOrderPackage['items'][number] {
+  const current = record(value, [
+    'order_item_id', 'sku_id', 'product_name', 'sku_name', 'quantity',
+  ]);
+  return {
+    order_item_id: ulid(current.order_item_id),
+    sku_id: ulid(current.sku_id),
+    product_name: text(current.product_name, 1, 200),
+    sku_name: text(current.sku_name, 1, 200),
+    quantity: integer(current.quantity, 1),
+  };
+}
+
+function orderPackage(value: unknown): StoreOrderPackage {
+  const current = record(value, [
+    'shipment_id', 'carrier_name', 'tracking_no', 'status', 'items', 'events',
+    'shipped_at', 'delivered_at', 'version',
+  ]);
+  if (!Array.isArray(current.items) || !Array.isArray(current.events)) invalid();
+  const items = current.items.map(packageItem);
+  const events = current.events.map(logisticsEvent);
+  if (new Set(items.map((item) => item.order_item_id)).size !== items.length) invalid();
+  assertStableEvents(events);
+  return {
+    shipment_id: ulid(current.shipment_id),
+    carrier_name: text(current.carrier_name),
+    tracking_no: text(current.tracking_no),
+    status: enumValue(current.status, shipmentStatuses),
+    items,
+    events,
+    shipped_at: nullable(current.shipped_at, dateTime),
+    delivered_at: nullable(current.delivered_at, dateTime),
+    version: integer(current.version, 1),
+  };
+}
+
+export function decodeStoreLogistics(value: unknown): StoreLogistics {
+  const current = record(value, ['shipment', 'events']);
+  if (!Array.isArray(current.events)) invalid();
+  const decodedShipment = nullable(current.shipment, shipment);
+  const events = current.events.map(logisticsEvent);
+  assertStableEvents(events);
+  if (decodedShipment === null && events.length !== 0) invalid();
+  return { shipment: decodedShipment, events };
+}
+
 export function decodeStoreOrderDetail(value: unknown): StoreOrderDetail {
   const current = record(value, [
     'order_id', 'order_no', 'order_status', 'payment_status', 'refund_progress_status',
@@ -379,7 +545,7 @@ export function decodeStoreOrderDetail(value: unknown): StoreOrderDetail {
     current.available_actions.some((entry) => typeof entry !== 'string' || !orderActions.has(entry)) ||
     new Set(current.available_actions).size !== current.available_actions.length ||
     !Array.isArray(current.timeline) || !Array.isArray(current.errors) ||
-    !Array.isArray(current.packages) || current.packages.length !== 0 ||
+    !Array.isArray(current.packages) || current.packages.length > 1 ||
     !Array.isArray(current.aftersales) || current.aftersales.length !== 0 ||
     !Array.isArray(current.payment_attempts) || !Array.isArray(current.refund_attempts)) invalid();
   const base = decodeStoreOrderProjection(Object.fromEntries(Object.entries(current).filter(([key]) => [
@@ -407,7 +573,7 @@ export function decodeStoreOrderDetail(value: unknown): StoreOrderDetail {
         to_status: text(event.to_status), occurred_at: dateTime(event.occurred_at),
       } as StoreOrderDetail['timeline'][number];
     }),
-    packages: [], aftersales: [],
+    packages: current.packages.map(orderPackage), aftersales: [],
     payment_attempts: current.payment_attempts.map(paymentAttempt),
     refund_attempts: current.refund_attempts.map(refundAttempt),
     errors: current.errors.map(safeDomainError),

@@ -406,7 +406,15 @@ export function parseAdminFulfillmentAddressAccessHeaders(
 ): AdminFulfillmentAddressAccessHeaders {
   if (purposeValue !== 'ORDER_FULFILLMENT') return invalid('X-Access-Purpose is invalid');
   if (typeof reasonValue !== 'string') return invalid('X-Access-Reason is invalid');
-  const reason = reasonValue.trim();
+  let decodedReason = reasonValue;
+  if (reasonValue.startsWith("UTF-8''")) {
+    try {
+      decodedReason = decodeURIComponent(reasonValue.slice("UTF-8''".length));
+    } catch {
+      return invalid('X-Access-Reason is invalid');
+    }
+  }
+  const reason = decodedReason.trim();
   const length = Array.from(reason).length;
   if (length < 5 || length > 200 || /\p{Cc}/u.test(reason)) {
     return invalid('X-Access-Reason is invalid');

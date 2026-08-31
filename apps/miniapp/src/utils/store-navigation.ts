@@ -66,6 +66,10 @@ export function openOrder(orderId: string): void {
   void uni.navigateTo({ url: pageUrl('/pages/orders/detail', { order_id: orderId }) });
 }
 
+export function openOrderLogistics(orderId: string): void {
+  void uni.navigateTo({ url: pageUrl('/pages/orders/logistics', { order_id: orderId }) });
+}
+
 export function openPaymentResult(orderId: string): void {
   void uni.navigateTo({ url: pageUrl('/pages/payment/result', { order_id: orderId }) });
 }
@@ -101,6 +105,7 @@ export function showLoginPrompt(action: ProtectedAction = { type: 'PROFILE' }): 
     });
     if (action.type === 'ORDERS') return openOrders();
     if (action.type === 'ORDER_DETAIL') return openOrder(action.order_id);
+    if (action.type === 'ORDER_LOGISTICS') return openOrderLogistics(action.order_id);
     if (action.type === 'PAYMENT_RESULT') return openPaymentResult(action.order_id);
     if (action.type === 'SERVICE_AGENT') {
       void uni.navigateTo({ url: '/pages/profile/agent' });

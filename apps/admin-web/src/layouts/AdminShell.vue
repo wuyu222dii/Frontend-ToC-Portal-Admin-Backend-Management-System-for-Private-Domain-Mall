@@ -8,6 +8,7 @@ import {
   PriceTag,
   Refresh,
   SwitchButton,
+  Tickets,
   User,
 } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
@@ -88,6 +89,14 @@ async function endCurrentSession(): Promise<void> {
         >
           <el-icon><PictureFilled /></el-icon>
           <span>Banner</span>
+        </RouterLink>
+        <RouterLink
+          to="/orders"
+          :class="{ active: ['orders', 'order-detail'].includes(String(route.name)) }"
+          title="订单中心"
+        >
+          <el-icon><Tickets /></el-icon>
+          <span>订单中心</span>
         </RouterLink>
         <RouterLink
           to="/orders/reconciliation"

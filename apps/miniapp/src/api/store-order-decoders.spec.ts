@@ -6,6 +6,7 @@ import {
   decodeStoreOrder,
   decodeStoreOrderDetail,
   decodeStoreOrderList,
+  decodeStoreLogistics,
 } from './store-order-decoders';
 
 const PRODUCT_ID = '01J00000000000000000000000';
@@ -17,6 +18,9 @@ const ORDER_ITEM_ID = '01J50000000000000000000000';
 const AFTERSALE_ID = '01J60000000000000000000000';
 const PAYMENT_ATTEMPT_ID = '01J70000000000000000000000';
 const REFUND_ID = '01J80000000000000000000000';
+const SHIPMENT_ID = '01J90000000000000000000000';
+const FIRST_EVENT_ID = '01JA0000000000000000000000';
+const SECOND_EVENT_ID = '01JB0000000000000000000000';
 const HASH = 'a'.repeat(64);
 const PHONE = ['100', '0000', '0000'].join('');
 
@@ -193,6 +197,71 @@ function orderDetail() {
   };
 }
 
+function firstLogisticsEvent() {
+  return {
+    event_id: FIRST_EVENT_ID,
+    event_key: 'shipment-created',
+    event_type: 'STATUS',
+    status_code: 'SHIPPED',
+    carrier_code: 'MANUAL',
+    carrier_name: '总部人工物流',
+    tracking_no: 'DEV-TRACK-001',
+    description: '包裹已发出',
+    reason: null,
+    location: '杭州市',
+    occurred_at: '2026-08-29T02:00:00.000Z',
+  };
+}
+
+function secondLogisticsEvent() {
+  return {
+    ...firstLogisticsEvent(),
+    event_id: SECOND_EVENT_ID,
+    event_key: 'shipment-in-transit',
+    status_code: 'IN_TRANSIT',
+    description: '运输中',
+    occurred_at: '2026-08-29T03:00:00.000Z',
+  };
+}
+
+function logisticsView() {
+  return {
+    shipment: {
+      shipment_id: SHIPMENT_ID,
+      order_id: ORDER_ID,
+      status: 'IN_TRANSIT',
+      carrier_code: 'MANUAL',
+      carrier_name: '总部人工物流',
+      tracking_no: 'DEV-TRACK-001',
+      shipped_at: '2026-08-29T02:00:00.000Z',
+      delivered_at: null,
+      items: [{ order_item_id: ORDER_ITEM_ID, quantity: 2 }],
+      version: 2,
+    },
+    events: [firstLogisticsEvent(), secondLogisticsEvent()],
+  };
+}
+
+function orderPackage() {
+  return {
+    shipment_id: SHIPMENT_ID,
+    carrier_name: '总部人工物流',
+    tracking_no: 'DEV-TRACK-001',
+    status: 'IN_TRANSIT',
+    items: [{
+      order_item_id: ORDER_ITEM_ID,
+      sku_id: SKU_ID,
+      product_name: '青序洗护套装',
+      sku_name: '标准装',
+      quantity: 2,
+    }],
+    events: [firstLogisticsEvent(), secondLogisticsEvent()],
+    shipped_at: '2026-08-29T02:00:00.000Z',
+    delivered_at: null,
+    version: 2,
+  };
+}
+
 describe('B9 checkout quote decoder', () => {
   it('accepts exact ready and blocked capabilities', () => {
     expect(decodeCheckoutQuote(readyQuote())).toEqual(readyQuote());
@@ -259,11 +328,14 @@ describe('B9 order response decoders', () => {
     expect(() => decodeStoreOrder(value)).toThrow(StoreEnvelopeFormatError);
   });
 
-  it('accepts PAY but rejects unknown actions and unopened detail surfaces', () => {
+  it('accepts only the frozen Store actions and rejects unknown actions', () => {
     expect(decodeStoreOrderList({
-      items: [{ ...listItem(), available_actions: ['PAY'] }],
+      items: [{
+        ...listItem(),
+        available_actions: ['PAY', 'VIEW_LOGISTICS', 'CONFIRM_RECEIPT'],
+      }],
       pagination: { page: 1, page_size: 20, total: 1 },
-    }).items[0]?.available_actions).toEqual(['PAY']);
+    }).items[0]?.available_actions).toEqual(['PAY', 'VIEW_LOGISTICS', 'CONFIRM_RECEIPT']);
     expect(() => decodeStoreOrderList({
       items: [{ ...listItem(), available_actions: ['SHIP'] }],
       pagination: { page: 1, page_size: 20, total: 1 },
@@ -316,5 +388,110 @@ describe('B9 order response decoders', () => {
   it('keeps detail display copy server-driven while command responses stay closed', () => {
     const detail = { ...orderDetail(), display_status: '待付款·请尽快处理' };
     expect(decodeStoreOrderDetail(detail).display_status).toBe(detail.display_status);
+  });
+});
+
+describe('B11 Store logistics response decoders', () => {
+  it('accepts one exact package and the stable dedicated logistics projection', () => {
+    const detail = {
+      ...orderDetail(),
+      order_status: 'SHIPPING',
+      payment_status: 'PAID',
+      fulfillment_status: 'IN_TRANSIT',
+      display_status: '运输中',
+      available_actions: ['VIEW_LOGISTICS', 'CONFIRM_RECEIPT'],
+      packages: [orderPackage()],
+    };
+
+    expect(decodeStoreOrderDetail(detail)).toEqual(detail);
+    expect(decodeStoreLogistics(logisticsView())).toEqual(logisticsView());
+    expect(decodeStoreLogistics({ shipment: null, events: [] })).toEqual({
+      shipment: null,
+      events: [],
+    });
+  });
+
+  it('accepts contract-optional logistics fields when they are absent', () => {
+    const view = logisticsView();
+    const shipmentWithoutDeliveredAt = Object.fromEntries(
+      Object.entries(view.shipment).filter(([key]) => key !== 'delivered_at'),
+    );
+    const eventWithoutOptionalFields = {
+      event_id: FIRST_EVENT_ID,
+      event_key: 'shipment-created',
+      event_type: 'STATUS',
+      description: '包裹已发出',
+      occurred_at: '2026-08-29T02:00:00.000Z',
+    };
+    expect(decodeStoreLogistics({
+      shipment: shipmentWithoutDeliveredAt,
+      events: [eventWithoutOptionalFields],
+    })).toEqual({
+      shipment: shipmentWithoutDeliveredAt,
+      events: [eventWithoutOptionalFields],
+    });
+  });
+
+  it('requires RFC3339 timestamps and orders events by instant then event id', () => {
+    const sameInstantFirst = {
+      ...firstLogisticsEvent(),
+      occurred_at: '2026-08-29T03:00:00+02:00',
+    };
+    const sameInstantSecond = {
+      ...secondLogisticsEvent(),
+      occurred_at: '2026-08-29T01:00:00Z',
+    };
+    expect(decodeStoreLogistics({
+      ...logisticsView(),
+      events: [sameInstantFirst, sameInstantSecond],
+    }).events).toEqual([sameInstantFirst, sameInstantSecond]);
+    expect(() => decodeStoreLogistics({
+      ...logisticsView(),
+      events: [sameInstantSecond, sameInstantFirst],
+    })).toThrow(StoreEnvelopeFormatError);
+
+    for (const occurredAt of [
+      '2026-08-29 02:00:00Z',
+      '2026-08-29T02:00:00',
+      '2026-02-30T02:00:00Z',
+    ]) {
+      expect(() => decodeStoreLogistics({
+        ...logisticsView(),
+        events: [{ ...firstLogisticsEvent(), occurred_at: occurredAt }],
+      })).toThrow(StoreEnvelopeFormatError);
+    }
+  });
+
+  it.each([
+    { ...logisticsView(), extra: true },
+    { ...logisticsView(), shipment: { ...logisticsView().shipment, status: 'UNKNOWN' } },
+    { ...logisticsView(), shipment: { ...logisticsView().shipment, items: [] } },
+    {
+      ...logisticsView(),
+      shipment: {
+        ...logisticsView().shipment,
+        items: [logisticsView().shipment.items[0], logisticsView().shipment.items[0]],
+      },
+    },
+    { ...logisticsView(), events: [secondLogisticsEvent(), firstLogisticsEvent()] },
+    { ...logisticsView(), events: [{ ...firstLogisticsEvent(), provider_payload: 'unsafe' }] },
+    { shipment: null, events: [firstLogisticsEvent()] },
+  ])('rejects malformed, unstable, or contradictory logistics projections', (value) => {
+    expect(() => decodeStoreLogistics(value)).toThrow(StoreEnvelopeFormatError);
+  });
+
+  it.each([
+    { ...orderDetail(), packages: [orderPackage(), orderPackage()] },
+    { ...orderDetail(), packages: [{ ...orderPackage(), status: 'UNKNOWN' }] },
+    {
+      ...orderDetail(),
+      packages: [{ ...orderPackage(), events: [secondLogisticsEvent(), firstLogisticsEvent()] }],
+    },
+    {
+      ...orderDetail(),
+      packages: [{ ...orderPackage(), items: [{ ...orderPackage().items[0], extra: true }] }],
+    },
+  ])('rejects multiple or malformed package details', (value) => {
+    expect(() => decodeStoreOrderDetail(value)).toThrow(StoreEnvelopeFormatError);
   });
 });

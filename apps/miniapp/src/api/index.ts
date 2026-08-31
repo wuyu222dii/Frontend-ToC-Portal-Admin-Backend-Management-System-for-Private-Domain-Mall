@@ -16,6 +16,10 @@ export type {
   StoreOrderList,
   StoreOrderListItem,
   StoreOrderListQuery,
+  StoreOrderPackage,
+  StoreLogistics,
+  StoreLogisticsEvent,
+  StoreShipment,
 } from '../types/store-orders';
 export type {
   MockPaymentResultInput,

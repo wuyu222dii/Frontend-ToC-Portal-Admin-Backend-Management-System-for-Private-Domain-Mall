@@ -64,6 +64,13 @@
       }
     },
     {
+      "path": "pages/orders/logistics",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "物流详情"
+      }
+    },
+    {
       "path": "pages/favorites/index",
       "style": {
         "navigationStyle": "custom",

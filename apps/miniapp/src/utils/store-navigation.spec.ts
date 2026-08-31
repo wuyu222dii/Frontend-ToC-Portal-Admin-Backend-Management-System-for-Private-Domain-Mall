@@ -6,6 +6,7 @@ import {
   goBackOrHome,
   handleBottomNavigation,
   isSafeHttpsUrl,
+  openOrderLogistics,
   openPaymentResult,
   showLoginPrompt,
 } from './store-navigation';
@@ -99,6 +100,15 @@ describe('store navigation URL safety', () => {
     openPaymentResult('01J00000000000000000000000');
     expect(navigateTo).toHaveBeenCalledWith({
       url: '/pages/payment/result?order_id=01J00000000000000000000000',
+    });
+  });
+
+  it('opens the established MP-12 logistics page with only the encoded order ID', () => {
+    const navigateTo = vi.fn();
+    vi.stubGlobal('uni', { navigateTo });
+    openOrderLogistics('01J00000000000000000000000');
+    expect(navigateTo).toHaveBeenCalledWith({
+      url: '/pages/orders/logistics?order_id=01J00000000000000000000000',
     });
   });
 });

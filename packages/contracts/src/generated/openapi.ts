@@ -6865,6 +6865,7 @@ export interface components {
             shipped_at: string | null;
             /** Format: date-time */
             delivered_at: string | null;
+            version: number;
         };
         OrderAftersaleSummaryView: {
             aftersale_id: string;
@@ -12552,7 +12553,7 @@ export interface operations {
             header: {
                 /** @description 用途绑定；不得复用于客户运营、报表或导出。 */
                 "X-Access-Purpose": "ORDER_FULFILLMENT";
-                /** @description 本次履约处理原因，脱敏写入审计。 */
+                /** @description 本次履约处理原因，脱敏写入审计。浏览器发送非 ASCII 原因时使用 RFC 8187 风格 UTF-8'' 加 percent-encoded UTF-8；服务端严格解码后再执行 5-200 字符与控制字符校验。普通 ASCII 原因保持原样兼容。 */
                 "X-Access-Reason": string;
             };
             path: {

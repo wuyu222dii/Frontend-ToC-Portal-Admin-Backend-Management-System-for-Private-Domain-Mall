@@ -7111,7 +7111,7 @@ paths:
             type: "string"
             minLength: 5
             maxLength: 200
-          description: "本次履约处理原因，脱敏写入审计。"
+          description: "本次履约处理原因，脱敏写入审计。浏览器发送非 ASCII 原因时使用 RFC 8187 风格 UTF-8'' 加 percent-encoded UTF-8；服务端严格解码后再执行 5-200 字符与控制字符校验。普通 ASCII 原因保持原样兼容。"
       responses:
         200:
           description: "成功；仅返回创建订单时冻结的收件快照"
@@ -20759,7 +20759,7 @@ components:
     OrderPackageDetailView:
       type: "object"
       additionalProperties: false
-      required: ["shipment_id", "carrier_name", "tracking_no", "status", "items", "events", "shipped_at", "delivered_at"]
+      required: ["shipment_id", "carrier_name", "tracking_no", "status", "items", "events", "shipped_at", "delivered_at", "version"]
       properties:
         shipment_id:
           type: "string"
@@ -20785,6 +20785,9 @@ components:
         delivered_at:
           type: ["string", "null"]
           format: "date-time"
+        version:
+          type: "integer"
+          minimum: 1
     OrderAftersaleSummaryView:
       type: "object"
       additionalProperties: false

@@ -9,6 +9,7 @@ const props = withDefaults(
     title?: string;
     description?: string;
     actionLabel?: string;
+    actionTestid?: string;
     retryAfterSeconds?: number;
     compact?: boolean;
   }>(),
@@ -16,6 +17,7 @@ const props = withDefaults(
     title: '',
     description: '',
     actionLabel: '',
+    actionTestid: '',
     retryAfterSeconds: 0,
     compact: false,
   },
@@ -139,6 +141,7 @@ const showAction = computed(
       <button
         v-if="showAction"
         class="qx-catalog-state__action"
+        :data-testid="actionTestid || undefined"
         :disabled="actionDisabled"
         hover-class="qx-catalog-state__action--pressed"
         @click="emit('action')"

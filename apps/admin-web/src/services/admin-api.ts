@@ -9,8 +9,10 @@ export interface AdminApiRequestOptions {
   method?: AdminApiMethod;
   body?: unknown;
   auth?: 'access' | 'preauth';
+  expectedStatus?: number | readonly number[];
   idempotencyKey?: string;
   ifMatch?: string;
+  headers?: Readonly<Record<string, string>>;
   signal?: AbortSignal | undefined;
 }
 
@@ -50,6 +52,7 @@ export async function adminApiRequest<T>(
   options: AdminApiRequestOptions = {},
 ): Promise<T> {
   const headers = new Headers({ Accept: 'application/json' });
+  for (const [name, value] of Object.entries(options.headers ?? {})) headers.set(name, value);
   if (options.body !== undefined) headers.set('Content-Type', 'application/json');
   if (options.auth !== undefined) {
     const token = bearer(options.auth);
@@ -89,6 +92,12 @@ export async function adminApiRequest<T>(
     if (error?.request_id) errorOptions.requestId = error.request_id;
     if (Number.isFinite(retryAfter) && retryAfter > 0) errorOptions.retryAfterSeconds = retryAfter;
     throw new AdminApiError(error?.message || '请求未完成，请稍后重试', errorOptions);
+  }
+  const expectedStatuses = options.expectedStatus === undefined
+    ? null
+    : Array.isArray(options.expectedStatus) ? options.expectedStatus : [options.expectedStatus];
+  if (expectedStatuses !== null && !expectedStatuses.includes(response.status)) {
+    throw new AdminApiError('服务响应状态不正确', { status: 502, code: 'INVALID_RESPONSE' });
   }
   if (payload === null) throw new AdminApiError('服务响应格式不正确', { status: 502, code: 'INVALID_RESPONSE' });
   return payload as T;

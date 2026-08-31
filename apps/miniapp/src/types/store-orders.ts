@@ -11,6 +11,10 @@ export type StoreOrderCompactItem = components['schemas']['StoreOrderCompactItem
 export type StoreOrderListItem = components['schemas']['StoreOrderListItem'];
 export type StoreOrderList = components['schemas']['StoreOrderListResponse']['data'];
 export type StoreOrderDetail = components['schemas']['StoreOrderDetailResponse']['data'];
+export type StoreOrderPackage = components['schemas']['OrderPackageDetailView'];
+export type StoreLogisticsEvent = components['schemas']['LogisticsEventView'];
+export type StoreShipment = components['schemas']['ShipmentView'];
+export type StoreLogistics = components['schemas']['LogisticsResponse']['data'];
 
 export interface StoreOrderListQuery {
   readonly page?: number;

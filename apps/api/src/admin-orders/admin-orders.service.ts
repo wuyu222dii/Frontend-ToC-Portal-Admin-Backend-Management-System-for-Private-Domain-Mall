@@ -135,7 +135,7 @@ export class AdminOrdersService {
       reason: input.reason,
       requestId: request.requestId,
     });
-    return this.getOrder(orderId);
+    return this.commandView(await this.repository().getAdminOrderDetail({ orderId }));
   }
 
   createShipment(
@@ -279,13 +279,14 @@ export class AdminOrdersService {
     purposeValue: unknown,
     reasonValue: unknown,
   ) {
-    const reasonDigest = this.accessReasonDigest(reasonValue);
+    let reasonDigest = this.accessReasonDigest(reasonValue);
     try {
       if (request.principal.role !== 'SUPER_ADMIN' ||
         !hasPermission(request.principal, ADDRESS_ACCESS_PERMISSION)) {
         throw new ApplicationError('PERMISSION_DENIED', 'Fulfillment address permission is required');
       }
       const access = parseAdminFulfillmentAddressAccessHeaders(purposeValue, reasonValue);
+      reasonDigest = this.accessReasonDigest(access.reason);
       const { database } = this.runtime();
       return await database.prisma.$transaction(async (transaction) => {
         const material = await this.repository().getAdminFulfillmentAddressMaterialInTransaction(
@@ -391,6 +392,7 @@ export class AdminOrdersService {
       shipped_at: detail.shipment.shippedAt.toISOString(),
       status: detail.shipment.status,
       tracking_no: detail.shipment.trackingNo,
+      version: detail.shipment.version,
     }];
     return {
       aftersales: detail.aftersales.map((aftersale) => {
@@ -475,6 +477,39 @@ export class AdminOrdersService {
       },
       timeline,
       version: order.version,
+    };
+  }
+
+  private commandView(detail: AdminFulfillmentOrderDetail) {
+    const view = this.detailView(detail);
+    return {
+      address_snapshot: {
+        detail_masked: view.shipping_address_masked.detail_masked,
+        phone_masked: view.shipping_address_masked.phone_masked,
+        recipient_name_masked: view.shipping_address_masked.recipient_name_masked,
+        region_summary: view.shipping_address_masked.region_summary,
+      },
+      aftersale_ids: view.aftersales.map(({ aftersale_id }) => aftersale_id),
+      amounts: view.amounts,
+      close_reason: view.close_reason,
+      completion_reason: view.completion_reason,
+      customer_id: view.customer.customer_id,
+      display_status: view.display_status,
+      fulfillment_status: view.fulfillment_status,
+      items: view.items,
+      order_id: view.order_id,
+      order_no: view.order_no,
+      order_status: view.order_status,
+      payment_attempts: view.payment_attempts.map(({ created_at, payment_attempt_id, status }) => ({
+        created_at,
+        payment_attempt_id,
+        status,
+      })),
+      payment_resolution: view.payment_resolution,
+      payment_status: view.payment_status,
+      refund_processing_status: view.refund_processing_status,
+      refund_progress_status: view.refund_progress_status,
+      version: view.version,
     };
   }
 

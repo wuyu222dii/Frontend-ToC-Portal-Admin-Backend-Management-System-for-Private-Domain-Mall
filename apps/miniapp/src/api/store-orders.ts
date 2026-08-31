@@ -6,13 +6,16 @@ import type {
   StoreOrderDetail,
   StoreOrderList,
   StoreOrderListQuery,
+  StoreLogistics,
 } from '../types/store-orders';
 import { authenticatedRequest, createIdempotencyKey } from './store-identity';
+import { StoreEnvelopeFormatError } from './store-client';
 import {
   decodeCheckoutQuote,
   decodeStoreOrder,
   decodeStoreOrderDetail,
   decodeStoreOrderList,
+  decodeStoreLogistics,
 } from './store-order-decoders';
 
 function ulidPath(value: string, field: string): string {
@@ -64,6 +67,19 @@ export function getStoreOrder(orderId: string): Promise<StoreOrderDetail> {
   });
 }
 
+export function getStoreOrderLogistics(orderId: string): Promise<StoreLogistics> {
+  const pathOrderId = ulidPath(orderId, 'order_id');
+  return authenticatedRequest(`/store/orders/${pathOrderId}/logistics`, {
+    decode: (value) => {
+      const result = decodeStoreLogistics(value);
+      if (result.shipment !== null && result.shipment.order_id !== orderId) {
+        throw new StoreEnvelopeFormatError();
+      }
+      return result;
+    },
+  });
+}
+
 export function cancelStoreOrder(
   orderId: string,
   version: number,
@@ -72,6 +88,23 @@ export function cancelStoreOrder(
   return authenticatedRequest(`/store/orders/${ulidPath(orderId, 'order_id')}/cancel`, {
     decode: decodeStoreOrder,
     expectedStatus: [200, 202],
+    headers: { 'Idempotency-Key': idempotencyKey, 'If-Match': versionHeader(version) },
+    method: 'POST',
+  });
+}
+
+export function confirmStoreOrderReceipt(
+  orderId: string,
+  version: number,
+  idempotencyKey = createIdempotencyKey(),
+): Promise<StoreOrderDetail> {
+  const pathOrderId = ulidPath(orderId, 'order_id');
+  return authenticatedRequest(`/store/orders/${pathOrderId}/confirm-receipt`, {
+    decode: (value) => {
+      const result = decodeStoreOrderDetail(value);
+      if (result.order_id !== orderId) throw new StoreEnvelopeFormatError();
+      return result;
+    },
     headers: { 'Idempotency-Key': idempotencyKey, 'If-Match': versionHeader(version) },
     method: 'POST',
   });

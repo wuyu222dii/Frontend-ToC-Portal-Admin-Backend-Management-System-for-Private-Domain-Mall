@@ -316,7 +316,7 @@ test('browser creates, queries and closes B9 reservations through real API, data
     await expect(page.getByText('已关闭', { exact: true }).first()).toBeVisible();
 
     await navigate(page, '/pages/orders/index');
-    await page.getByRole('tab', { name: '已关闭' }).click();
+    await expect(page.getByRole('tab', { name: '全部' })).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByText(productName, { exact: true })).toHaveCount(2);
     await expect(page.getByText('用户已取消', { exact: true })).toBeVisible();
     await expect(page.getByText('付款超时关闭', { exact: true })).toBeVisible();

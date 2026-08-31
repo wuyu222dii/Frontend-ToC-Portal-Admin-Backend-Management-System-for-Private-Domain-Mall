@@ -10,6 +10,8 @@ const ADDRESS_ID = '01J60000000000000000000000';
 const SECOND_SKU_ID = '01J70000000000000000000000';
 const QUOTE_ID = '01J80000000000000000000000';
 const ORDER_ID = '01J90000000000000000000000';
+const CLOSED_LIST_ORDER_ID = '01J90000000000000000000001';
+const CLOSED_LIST_ORDER_ITEM_ID = '01J90000000000000000000002';
 const ORDER_ITEM_ID = '01JA0000000000000000000000';
 const SECOND_ADDRESS_ID = '01JD0000000000000000000000';
 const ACCESS_TOKEN = `access_${'a'.repeat(48)}`;
@@ -255,8 +257,8 @@ class MockB9Backend {
   private listOrder(closed: boolean) {
     const order = this.commandOrder(closed);
     return {
-      order_id: order.order_id,
-      order_no: order.order_no,
+      order_id: closed ? CLOSED_LIST_ORDER_ID : order.order_id,
+      order_no: closed ? `QX${CLOSED_LIST_ORDER_ID}` : order.order_no,
       order_status: order.order_status,
       payment_status: order.payment_status,
       refund_progress_status: order.refund_progress_status,
@@ -268,7 +270,7 @@ class MockB9Backend {
       display_status: order.display_status,
       payable_amount: order.amounts.payable,
       items: [{
-        order_item_id: ORDER_ITEM_ID,
+        order_item_id: closed ? CLOSED_LIST_ORDER_ITEM_ID : ORDER_ITEM_ID,
         product_id: PRODUCT_ID,
         sku_id: SKU_ID,
         product_name: 'B9 洗护套装',
@@ -442,10 +444,13 @@ class MockB9Backend {
       return;
     }
     if (url.pathname === '/api/v1/store/orders' && method === 'GET') {
-      const closed = url.searchParams.get('order_status') === 'CLOSED';
+      const displayGroup = url.searchParams.get('display_group') ?? 'ALL';
+      const items = displayGroup === 'ALL'
+        ? [this.listOrder(false), this.listOrder(true)]
+        : displayGroup === 'PENDING_PAYMENT' ? [this.listOrder(false)] : [];
       await fulfill(route, 200, success({
-        items: [this.listOrder(closed)],
-        pagination: { page: 1, page_size: 20, total: 1 },
+        items,
+        pagination: { page: 1, page_size: 20, total: items.length },
       }));
       return;
     }
@@ -552,12 +557,12 @@ test('B9.4 checkout, order detail and order tabs fit every acceptance viewport',
   await page.screenshot({ fullPage: true, path: testInfo.outputPath('order-detail.png') });
 
   await navigate(page, '/pages/orders/index');
-  await expect(page.getByText('B9 洗护套装', { exact: true })).toBeVisible();
+  await expect(page.getByText('B9 洗护套装', { exact: true })).toHaveCount(2);
   await expectNoHorizontalOverflow(page);
-  await page.getByRole('tab', { name: '已关闭' }).click();
+  await expect(page.getByRole('tab', { name: '全部' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByText('用户已取消', { exact: true })).toBeVisible();
   await expectNoHorizontalOverflow(page);
-  await page.screenshot({ fullPage: true, path: testInfo.outputPath('orders-closed.png') });
+  await page.screenshot({ fullPage: true, path: testInfo.outputPath('orders-all.png') });
 
   const forbiddenButtons = page.locator('uni-button').filter({ hasText: /支付|物流|售后|确认收货/ });
   await expect(forbiddenButtons).toHaveCount(0);
@@ -805,17 +810,20 @@ test('B9.4 issues exact list filters and safely retries cancel after 409 and res
   await login(page);
 
   await navigate(page, '/pages/orders/index');
-  await expect(page.getByText('B9 洗护套装', { exact: true })).toBeVisible();
+  const productNames = page.getByText('B9 洗护套装', { exact: true });
+  await expect(productNames).toHaveCount(2);
   await page.getByRole('tab', { name: '待付款' }).click();
+  await expect(productNames).toHaveCount(1);
   await expect(page.getByText('可取消', { exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: '已关闭' }).click();
+  await page.getByRole('tab', { name: '全部' }).click();
+  await expect(productNames).toHaveCount(2);
   await expect(page.getByText('用户已取消', { exact: true })).toBeVisible();
   const listCalls = backend.calls.filter(({ method, path }) =>
     method === 'GET' && path === '/api/v1/store/orders');
   expect(listCalls.map(({ query }) => query)).toEqual([
     { display_group: 'ALL', page: '1', page_size: '20' },
     { display_group: 'PENDING_PAYMENT', page: '1', page_size: '20' },
-    { order_status: 'CLOSED', page: '1', page_size: '20' },
+    { display_group: 'ALL', page: '1', page_size: '20' },
   ]);
 
   await navigate(page, `/pages/orders/detail?order_id=${ORDER_ID}`);

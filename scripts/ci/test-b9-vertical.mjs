@@ -100,6 +100,30 @@ function assertNoCapabilityFingerprint(text, fingerprints, key, location) {
   }
 }
 
+function diagnosticProtectedValues(fixture, capabilityKey, capabilityFingerprints) {
+  const secretName = /(?:ACCESS_KEY|DATABASE_URL|DIRECT_URL|ENCRYPTION|HASH_KEY|PASSWORD|REDIS_URL|SECRET|SIGNING|TOKEN)/u;
+  return [...new Set([
+    capabilityKey.toString('base64'),
+    fixture.loginCode,
+    fixture.wechatOpenId,
+    '纵向用户',
+    ['137', '0000', '0009'].join(''),
+    '文一路 99 号 B9 纵向测试',
+    ...capabilityFingerprints.map(({ digest }) => digest),
+    ...Object.entries(process.env)
+      .filter(([name, value]) => secretName.test(name) && typeof value === 'string' && value.length >= 6)
+      .map(([, value]) => value),
+  ])];
+}
+
+function minimalSanitizedDiagnostic(text, protectedValues) {
+  let sanitized = text;
+  for (const value of protectedValues) sanitized = sanitized.replaceAll(value, '[REDACTED]');
+  const lines = sanitized.split(/\r?\n/u).map((line) => line.trimEnd()).filter(Boolean);
+  return lines.slice(-60).join('\n').slice(-8_000) ||
+    'No non-sensitive Playwright diagnostic was available.';
+}
+
 function formatError(error) {
   if (error instanceof AggregateError) {
     return [error.message, ...error.errors.map((item) => formatError(item))].join('\n');
@@ -885,7 +909,11 @@ async function main() {
       );
       if (playwright.failed) {
         throw new Error(
-          'B9 browser-to-Worker Playwright test failed; captured output was suppressed to protect checkout capabilities',
+          `B9 browser-to-Worker Playwright test failed after checkout-capability scanning:\n${
+            minimalSanitizedDiagnostic(
+              playwright.output,
+              diagnosticProtectedValues(fixture, capabilityKey, capabilityFingerprints),
+            )}`,
         );
       }
       await assertFixtureResults(

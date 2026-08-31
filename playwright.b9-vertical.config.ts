@@ -24,6 +24,7 @@ export default defineConfig({
     { name: 'chromium-b9-vertical', use: { viewport: { width: 390, height: 844 } } },
   ],
   use: {
+    actionTimeout: 20_000,
     baseURL: webOrigin,
     browserName: 'chromium',
     headless: true,

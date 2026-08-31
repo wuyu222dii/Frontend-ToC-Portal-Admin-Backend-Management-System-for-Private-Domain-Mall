@@ -649,8 +649,10 @@ test('browser settles a Mock payment through real Nest, PostgreSQL, Redis, MinIO
 
     await navigate(page, '/pages/orders/index');
     await expect(page.getByText(productName, { exact: true })).toHaveCount(2);
-    await expect(page.getByText('待发货', { exact: true })).toBeVisible();
-    await expect(page.getByText('付款超时关闭', { exact: true })).toBeVisible();
+    await expect(page.getByTestId(`order-card-${first.orderId}`)
+      .getByText('待发货', { exact: true })).toBeVisible();
+    await expect(page.getByTestId(`order-card-${expiredOrderId}`)
+      .getByText('付款超时关闭', { exact: true })).toBeVisible();
     await expectNoHorizontalOverflow(page);
 
     const providerProtectedValues = await readProviderProtectedValues([first.orderId, expiredOrderId]);

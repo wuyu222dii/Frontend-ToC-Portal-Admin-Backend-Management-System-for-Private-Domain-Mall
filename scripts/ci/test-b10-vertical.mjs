@@ -23,6 +23,13 @@ const PNG_SHA256 = createHash('sha256').update(PNG_BYTES).digest('hex');
 const CAPABILITY_FINGERPRINT_DOMAIN = 'qingxu:b10-vertical-capability:v1\0';
 let s3Client;
 
+class SafeDiagnosticError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'SafeDiagnosticError';
+  }
+}
+
 function refuse(message) {
   throw new Error(`B10 vertical test refused: ${message}`);
 }
@@ -84,6 +91,17 @@ function secretRepresentations(base64Value) {
     JSON.stringify(decimalBytes),
     decimalBytes.join(','),
   ])];
+}
+
+function environmentProtectedValues() {
+  const secretName = /(?:ACCESS_KEY|AUTHORIZATION|CREDENTIAL|DATABASE_URL|DIRECT_URL|ENCRYPTION|HASH_KEY|PASSWORD|PRIVATE_KEY|REDIS_URL|SECRET|SIGNING|TOKEN)/u;
+  const values = [];
+  for (const [name, value] of Object.entries(process.env)) {
+    if (!secretName.test(name) || typeof value !== 'string' || value.length < 6) continue;
+    values.push(value);
+    if (name.endsWith('_BASE64')) values.push(...secretRepresentations(value));
+  }
+  return values;
 }
 
 async function readCapabilityFingerprints(path) {
@@ -858,6 +876,7 @@ async function readDiagnosticProtectedValues(createDatabaseRuntime, fixture) {
     '文一路 99 号 B10 纵向测试',
     ['137', '0000', '0009'].join(''),
     ...secretRepresentations(required('PAYMENT_MOCK_SIGNING_KEY_BASE64')),
+    ...environmentProtectedValues(),
   ]);
   const add = (value) => {
     if (typeof value === 'string' && value.length > 0) values.add(value);
@@ -905,6 +924,7 @@ async function readDiagnosticProtectedValues(createDatabaseRuntime, fixture) {
         for (const attempt of intent.attempts) {
           add(attempt.provider_transaction_id);
           add(attempt.provider_payload);
+          addSensitiveLeaves(attempt.provider_payload);
         }
       }
       for (const refund of order.refunds) {
@@ -912,6 +932,7 @@ async function readDiagnosticProtectedValues(createDatabaseRuntime, fixture) {
         for (const attempt of refund.attempts) {
           add(attempt.provider_request_id);
           add(attempt.provider_payload);
+          addSensitiveLeaves(attempt.provider_payload);
         }
       }
     }
@@ -1314,7 +1335,7 @@ async function main() {
         'captured API, Worker or browser test output',
       );
       if (playwright.failed) {
-        throw new Error(
+        throw new SafeDiagnosticError(
           `B10 browser-to-Worker Playwright test failed after protected-value scanning:\n${
             minimalSanitizedDiagnostic(playwright.output, diagnosticProtectedValues)}`,
         );
@@ -1367,10 +1388,11 @@ async function main() {
   );
 }
 
-main().catch(() => {
-  process.stderr.write(
-    'B10 vertical smoke failed; detailed diagnostics were withheld to protect credentials and fixture identifiers.\n',
-  );
+main().catch((error) => {
+  const message = error instanceof SafeDiagnosticError
+    ? error.message
+    : 'B10 vertical smoke failed; detailed diagnostics were withheld to protect credentials and fixture identifiers.';
+  process.stderr.write(`${message}\n`);
   process.exitCode = 1;
 }).finally(() => {
   s3Client?.destroy();

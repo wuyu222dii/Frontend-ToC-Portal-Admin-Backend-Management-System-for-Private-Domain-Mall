@@ -31,6 +31,13 @@ const ACTIVE_AFTERSALE_STATUSES = new Set<AftersaleStatus>([
   'REFUNDING_AFTER_RETURN',
   'REFUND_FAILED',
 ]);
+const AFTERSALE_STATUSES = new Set<AftersaleStatus>([
+  ...ACTIVE_AFTERSALE_STATUSES,
+  'CANCELLED',
+  'COMPLETED',
+  'REJECTED',
+  'REJECTED_AFTER_RETURN',
+]);
 
 export type FulfillmentOrderListSort = 'AMOUNT_DESC' | 'CREATED_DESC' | 'PAID_DESC';
 
@@ -56,6 +63,11 @@ export interface FulfillmentOrderReadInput {
   orderId: string;
 }
 
+export interface FulfillmentShipmentReadInput {
+  orderId?: string;
+  shipmentId: string;
+}
+
 export interface OwnedFulfillmentReadInput extends FulfillmentOrderReadInput {
   customerId: string;
 }
@@ -63,6 +75,51 @@ export interface OwnedFulfillmentReadInput extends FulfillmentOrderReadInput {
 export interface OwnedFulfillmentListInput {
   customerId: string;
   orderIds: readonly string[];
+}
+
+export interface FulfillmentShipmentLineInput {
+  orderItemId: string;
+  quantity: number;
+  shipmentItemId: string;
+}
+
+export interface CreateFulfillmentShipmentInput {
+  actorAccountId: string;
+  carrierCode: string;
+  carrierName: string;
+  expectedOrderVersion: number;
+  items: readonly FulfillmentShipmentLineInput[];
+  orderId: string;
+  shipmentId: string;
+  trackingNo: string;
+}
+
+export interface FulfillmentStatusEventInput {
+  description: string;
+  eventType: 'STATUS';
+  location: string | null;
+  occurredAt: Date;
+  statusCode: 'DELIVERED' | 'IN_TRANSIT';
+}
+
+export interface FulfillmentTrackingCorrectionEventInput {
+  carrierCode: string;
+  carrierName: string;
+  description: string;
+  eventType: 'TRACKING_CORRECTION';
+  location: string | null;
+  occurredAt: Date;
+  reason: string;
+  trackingNo: string;
+}
+
+export interface AppendFulfillmentLogisticsEventInput {
+  actorAccountId: string;
+  event: FulfillmentStatusEventInput | FulfillmentTrackingCorrectionEventInput;
+  eventId: string;
+  eventKey: string;
+  expectedShipmentVersion: number;
+  shipmentId: string;
 }
 
 export interface FulfillmentOrderAmounts {
@@ -188,6 +245,18 @@ export interface FulfillmentShipmentProjection {
   trackingNo: string;
   updatedAt: Date;
   version: number;
+}
+
+export interface CreateFulfillmentShipmentResult {
+  kind: 'created' | 'winner';
+  orderVersion: number;
+  shipment: FulfillmentShipmentProjection;
+}
+
+export interface AppendFulfillmentLogisticsEventResult {
+  event: FulfillmentLogisticsEventProjection;
+  kind: 'applied' | 'winner';
+  shipment: FulfillmentShipmentProjection;
 }
 
 export interface AdminFulfillmentCustomerProjection {
@@ -487,11 +556,52 @@ const OWNED_FULFILLMENT_SELECT = {
   version: true,
 } satisfies Prisma.SalesOrderSelect;
 
+const SHIPMENT_COMMAND_ORDER_SELECT = {
+  fulfillment_status: true,
+  id: true,
+  order_status: true,
+  payment_resolution: true,
+  payment_status: true,
+  version: true,
+} satisfies Prisma.SalesOrderSelect;
+
+const LOGISTICS_COMMAND_ORDER_SELECT = {
+  fulfillment_status: true,
+  id: true,
+  order_status: true,
+  payment_resolution: true,
+  payment_status: true,
+  version: true,
+} satisfies Prisma.SalesOrderSelect;
+
 type AdminListRecord = Prisma.SalesOrderGetPayload<{ include: typeof ADMIN_LIST_INCLUDE }>;
 type AdminDetailRecord = Prisma.SalesOrderGetPayload<{ include: typeof ADMIN_DETAIL_INCLUDE }>;
 type FulfillmentItemRecord = Prisma.OrderItemGetPayload<{ select: typeof ORDER_ITEM_SELECT }>;
 type ShipmentRecord = Prisma.ShipmentGetPayload<{ include: typeof SHIPMENT_INCLUDE }>;
 type OwnedFulfillmentRecord = Prisma.SalesOrderGetPayload<{ select: typeof OWNED_FULFILLMENT_SELECT }>;
+type ShipmentCommandOrderRecord = Prisma.SalesOrderGetPayload<{ select: typeof SHIPMENT_COMMAND_ORDER_SELECT }>;
+type LogisticsCommandOrderRecord = Prisma.SalesOrderGetPayload<{ select: typeof LOGISTICS_COMMAND_ORDER_SELECT }>;
+
+interface LockedOrderItemRow {
+  id: string;
+  pre_shipment_refunded_qty: number;
+  quantity: number;
+  shipped_qty: number;
+  version: number;
+}
+
+interface LockedAftersaleRow {
+  id: string;
+  status: string;
+}
+
+interface LockedAdminActorRow {
+  deleted_at: Date | null;
+  has_password: boolean;
+  id: string;
+  role: string;
+  status: string;
+}
 
 function internal(message: string): ApplicationError {
   return new ApplicationError('INTERNAL_ERROR', message);
@@ -499,6 +609,37 @@ function internal(message: string): ApplicationError {
 
 function notFound(): ApplicationError {
   return new ApplicationError('RESOURCE_NOT_FOUND', 'Order not found');
+}
+
+function shipmentNotFound(): ApplicationError {
+  return new ApplicationError('RESOURCE_NOT_FOUND', 'Shipment not found');
+}
+
+function shipmentStateConflict(message = 'Shipment state conflicts with this request'): ApplicationError {
+  return new ApplicationError('SHIPMENT_STATE_CONFLICT', message);
+}
+
+function orderVersionConflict(): ApplicationError {
+  return new ApplicationError('RESOURCE_VERSION_CONFLICT', 'Order version changed');
+}
+
+function shipmentVersionConflict(): ApplicationError {
+  return new ApplicationError('RESOURCE_VERSION_CONFLICT', 'Shipment version changed');
+}
+
+function shipmentItemsMismatch(): ApplicationError {
+  return new ApplicationError(
+    'SHIPMENT_ITEMS_MISMATCH',
+    'Shipment items do not match the complete remaining fulfillment set',
+  );
+}
+
+function activeAftersaleBlocksShipment(): ApplicationError {
+  return new ApplicationError('ACTIVE_AFTERSALE_BLOCKS_SHIPMENT', 'Active aftersale activity blocks shipment');
+}
+
+function authenticationRequired(): ApplicationError {
+  return new ApplicationError('AUTH_REQUIRED', 'Active administrator account is required');
 }
 
 function plainObject(value: unknown): value is Record<string, unknown> {
@@ -522,6 +663,29 @@ function requireExactKeys(
 
 function requireUlid(value: unknown, label: string): asserts value is string {
   if (typeof value !== 'string' || !isValidUlid(value)) throw new TypeError(`${label} must be a ULID`);
+}
+
+function requirePositiveVersion(value: unknown, label: string): asserts value is number {
+  if (!Number.isSafeInteger(value) || Number(value) < 1 || Number(value) >= MAX_POSTGRES_INTEGER) {
+    throw new TypeError(`${label} must be a positive supported version`);
+  }
+}
+
+function requireRequestText(value: unknown, minimum: number, maximum: number, label: string): asserts value is string {
+  if (typeof value !== 'string' || value.trim() !== value) {
+    throw new TypeError(`${label} must be trimmed text`);
+  }
+  const characters = Array.from(value);
+  if (characters.length < minimum || characters.length > maximum || characters.some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint === undefined || codePoint <= 0x1f || codePoint === 0x7f;
+  })) {
+    throw new TypeError(`${label} has an invalid length or control character`);
+  }
+}
+
+function requireDate(value: unknown, label: string): asserts value is Date {
+  if (!(value instanceof Date) || !Number.isFinite(value.getTime())) throw new TypeError(`${label} must be a valid Date`);
 }
 
 function safeUlid(value: unknown, label: string): string {
@@ -615,6 +779,12 @@ function validateReadInput(input: FulfillmentOrderReadInput): void {
   requireUlid(input.orderId, 'Fulfillment order ID');
 }
 
+function validateShipmentReadInput(input: FulfillmentShipmentReadInput): void {
+  requireExactKeys(input, ['orderId', 'shipmentId'], ['shipmentId'], 'Fulfillment shipment read input');
+  requireUlid(input.shipmentId, 'Fulfillment shipment ID');
+  if (input.orderId !== undefined) requireUlid(input.orderId, 'Fulfillment shipment order ID');
+}
+
 function validateOwnedReadInput(input: OwnedFulfillmentReadInput): void {
   requireExactKeys(input, ['customerId', 'orderId'], ['customerId', 'orderId'], 'Owned fulfillment read input');
   requireUlid(input.customerId, 'Owned fulfillment Customer ID');
@@ -638,6 +808,100 @@ function validateOwnedListInput(input: OwnedFulfillmentListInput): void {
     if (unique.has(orderId)) throw new TypeError('Owned fulfillment list order IDs must be unique');
     unique.add(orderId);
   }
+}
+
+function validateCreateShipmentInput(input: CreateFulfillmentShipmentInput): void {
+  requireExactKeys(
+    input,
+    [
+      'actorAccountId', 'carrierCode', 'carrierName', 'expectedOrderVersion', 'items', 'orderId',
+      'shipmentId', 'trackingNo',
+    ],
+    [
+      'actorAccountId', 'carrierCode', 'carrierName', 'expectedOrderVersion', 'items', 'orderId',
+      'shipmentId', 'trackingNo',
+    ],
+    'Create fulfillment shipment input',
+  );
+  requireUlid(input.actorAccountId, 'Shipment actor Account ID');
+  requireUlid(input.orderId, 'Shipment order ID');
+  requireUlid(input.shipmentId, 'Shipment ID');
+  requirePositiveVersion(input.expectedOrderVersion, 'Expected order version');
+  requireRequestText(input.carrierCode, 1, 40, 'Shipment carrier code');
+  requireRequestText(input.carrierName, 1, 80, 'Shipment carrier name');
+  requireRequestText(input.trackingNo, 1, 120, 'Shipment tracking number');
+  if (!Array.isArray(input.items) || input.items.length < 1 || input.items.length > 100) {
+    throw new TypeError('Shipment items must contain 1 to 100 entries');
+  }
+  const shipmentItemIds = new Set<string>();
+  for (const item of input.items) {
+    requireExactKeys(
+      item,
+      ['orderItemId', 'quantity', 'shipmentItemId'],
+      ['orderItemId', 'quantity', 'shipmentItemId'],
+      'Shipment item input',
+    );
+    requireUlid(item.orderItemId, 'Shipment order item ID');
+    requireUlid(item.shipmentItemId, 'Shipment item ID');
+    const quantity = item.quantity;
+    if (typeof quantity !== 'number' || !Number.isSafeInteger(quantity) ||
+      quantity < 1 || quantity > MAX_POSTGRES_INTEGER) {
+      throw new TypeError('Shipment item quantity must be a positive supported integer');
+    }
+    if (shipmentItemIds.has(item.shipmentItemId)) throw new TypeError('Shipment item IDs must be unique');
+    shipmentItemIds.add(item.shipmentItemId);
+  }
+}
+
+function validateLogisticsEventInput(input: AppendFulfillmentLogisticsEventInput): void {
+  requireExactKeys(
+    input,
+    ['actorAccountId', 'event', 'eventId', 'eventKey', 'expectedShipmentVersion', 'shipmentId'],
+    ['actorAccountId', 'event', 'eventId', 'eventKey', 'expectedShipmentVersion', 'shipmentId'],
+    'Append fulfillment logistics event input',
+  );
+  requireUlid(input.actorAccountId, 'Logistics actor Account ID');
+  requireUlid(input.eventId, 'Logistics event ID');
+  requireUlid(input.shipmentId, 'Logistics shipment ID');
+  requirePositiveVersion(input.expectedShipmentVersion, 'Expected shipment version');
+  requireRequestText(input.eventKey, 1, 80, 'Logistics event key');
+  if (!plainObject(input.event) ||
+    (input.event.eventType !== 'STATUS' && input.event.eventType !== 'TRACKING_CORRECTION')) {
+    throw new TypeError('Logistics event must use a closed event type');
+  }
+  if (input.event.eventType === 'STATUS') {
+    requireExactKeys(
+      input.event,
+      ['description', 'eventType', 'location', 'occurredAt', 'statusCode'],
+      ['description', 'eventType', 'location', 'occurredAt', 'statusCode'],
+      'Logistics status event',
+    );
+    if (input.event.statusCode !== 'IN_TRANSIT' && input.event.statusCode !== 'DELIVERED') {
+      throw new TypeError('Logistics status event target is invalid');
+    }
+  } else {
+    requireExactKeys(
+      input.event,
+      [
+        'carrierCode', 'carrierName', 'description', 'eventType', 'location', 'occurredAt', 'reason',
+        'trackingNo',
+      ],
+      [
+        'carrierCode', 'carrierName', 'description', 'eventType', 'location', 'occurredAt', 'reason',
+        'trackingNo',
+      ],
+      'Logistics tracking correction event',
+    );
+    requireRequestText(input.event.carrierCode, 1, 40, 'Corrected carrier code');
+    requireRequestText(input.event.carrierName, 1, 80, 'Corrected carrier name');
+    requireRequestText(input.event.trackingNo, 1, 120, 'Corrected tracking number');
+    requireRequestText(input.event.reason, 2, 500, 'Tracking correction reason');
+  }
+  requireRequestText(input.event.description, 1, 300, 'Logistics event description');
+  if (input.event.location !== null) {
+    requireRequestText(input.event.location, 1, 160, 'Logistics event location');
+  }
+  requireDate(input.event.occurredAt, 'Logistics event occurrence time');
 }
 
 const ORDER_STATUSES = new Set<OrderStatus>([
@@ -937,7 +1201,9 @@ function actionEligibility(record: AdminDetailRecord): FulfillmentActionEligibil
     (shipment.status === 'SHIPPED' || shipment.status === 'IN_TRANSIT' || shipment.status === 'DELIVERED');
   return {
     activeAftersaleCount,
-    canAddLogisticsEvent: record.order_status === 'SHIPPING' && shipment !== null,
+    canAddLogisticsEvent: record.payment_status === 'PAID' && !hasUnresolvedPayment &&
+      record.order_status === 'SHIPPING' && shipment !== null &&
+      record.fulfillment_status === shipment.status,
     canComplete,
     canReadFulfillmentAddress: readEligible(record),
     canShip: record.order_status === 'PENDING_SHIPMENT' && record.payment_status === 'PAID' &&
@@ -1074,15 +1340,404 @@ function ownedFulfillmentProjection(record: OwnedFulfillmentRecord): OwnedFulfil
   };
 }
 
+function validateShipmentCommandOrder(record: ShipmentCommandOrderRecord): number {
+  safeUlid(record.id, 'Stored shipment command order ID');
+  const version = safeCount(record.version, 'Stored shipment command order version', 1);
+  if (record.payment_status !== 'PAID' || record.payment_resolution !== 'NORMAL' ||
+    record.order_status !== 'PENDING_SHIPMENT' || record.fulfillment_status !== 'READY_TO_SHIP') {
+    throw shipmentStateConflict('Order is not in the exact state required for shipment');
+  }
+  return version;
+}
+
+function validateLogisticsCommandOrder(record: LogisticsCommandOrderRecord, shipment: ShipmentRecord): number {
+  safeUlid(record.id, 'Stored logistics command order ID');
+  const version = safeCount(record.version, 'Stored logistics command order version', 1);
+  if (record.payment_status !== 'PAID' || record.payment_resolution !== 'NORMAL' ||
+    record.order_status !== 'SHIPPING' || record.fulfillment_status !== shipment.status) {
+    throw shipmentStateConflict('Order and shipment are not in a consistent shipping state');
+  }
+  return version;
+}
+
+function exactShipmentItems(
+  shipment: FulfillmentShipmentProjection,
+  items: readonly FulfillmentShipmentLineInput[],
+): boolean {
+  if (shipment.items.length !== items.length) return false;
+  const expected = [...items].sort((left, right) => left.orderItemId.localeCompare(right.orderItemId));
+  return shipment.items.every((item, index) => {
+    const candidate = expected[index];
+    return candidate !== undefined && item.orderItemId === candidate.orderItemId &&
+      item.quantity === candidate.quantity && item.shipmentItemId === candidate.shipmentItemId;
+  });
+}
+
+function isCreateShipmentWinner(
+  shipment: FulfillmentShipmentProjection,
+  input: CreateFulfillmentShipmentInput,
+  orderVersion: number,
+): boolean {
+  return shipment.shipmentId === input.shipmentId && shipment.orderId === input.orderId &&
+    shipment.status === 'SHIPPED' && shipment.version === 1 && shipment.deliveredAt === null &&
+    shipment.events.length === 0 && shipment.carrierCode === input.carrierCode &&
+    shipment.carrierName === input.carrierName && shipment.trackingNo === input.trackingNo &&
+    orderVersion === input.expectedOrderVersion + 1 && exactShipmentItems(shipment, input.items);
+}
+
+function logisticsEventMatchesInput(
+  event: FulfillmentLogisticsEventProjection,
+  input: AppendFulfillmentLogisticsEventInput,
+): boolean {
+  if (event.eventId !== input.eventId || event.eventKey !== input.eventKey ||
+    event.actorAccountId !== input.actorAccountId || event.source !== 'MANUAL' ||
+    event.description !== input.event.description || event.location !== input.event.location ||
+    event.occurredAt.getTime() !== input.event.occurredAt.getTime()) return false;
+  if (input.event.eventType === 'STATUS') {
+    return event.eventType === 'STATUS' && event.statusCode === input.event.statusCode &&
+      event.carrierCode === null && event.carrierName === null && event.trackingNo === null && event.reason === null;
+  }
+  return event.eventType === 'TRACKING_CORRECTION' && event.statusCode === null &&
+    event.carrierCode === input.event.carrierCode && event.carrierName === input.event.carrierName &&
+    event.trackingNo === input.event.trackingNo && event.reason === input.event.reason;
+}
+
+function assertStatusTransition(current: ShipmentStatus, next: 'DELIVERED' | 'IN_TRANSIT'): void {
+  const valid = (current === 'SHIPPED' && next === 'IN_TRANSIT') ||
+    (current === 'IN_TRANSIT' && next === 'DELIVERED');
+  if (!valid) throw shipmentStateConflict('Logistics status must advance exactly one state');
+}
+
 export class FulfillmentRepository {
   private readonly aliasHmacKey: Uint8Array | null;
 
-  constructor(private readonly prisma: PrismaClient, aliasHmacKey?: Uint8Array) {
+  constructor(
+    private readonly prisma: PrismaClient,
+    aliasHmacKey?: Uint8Array,
+    private readonly now: () => Date = () => new Date(),
+  ) {
     if (aliasHmacKey !== undefined &&
       (!(aliasHmacKey instanceof Uint8Array) || aliasHmacKey.byteLength < 32)) {
       throw new TypeError('Fulfillment customer alias HMAC key must contain at least 32 bytes');
     }
     this.aliasHmacKey = aliasHmacKey === undefined ? null : Buffer.from(aliasHmacKey);
+    this.currentTime();
+  }
+
+  private currentTime(): Date {
+    const current = this.now();
+    if (!(current instanceof Date) || !Number.isFinite(current.getTime())) {
+      throw new TypeError('Fulfillment clock must return a valid Date');
+    }
+    return new Date(current);
+  }
+
+  private async lockActor(transaction: DatabaseTransaction, actorAccountId: string): Promise<void> {
+    const rows = await transaction.$queryRaw<LockedAdminActorRow[]>(Prisma.sql`
+      SELECT id, role, status, deleted_at, password_hash IS NOT NULL AS has_password
+      FROM public.account
+      WHERE id = ${actorAccountId}
+      FOR UPDATE
+    `);
+    const actor = rows[0];
+    if (rows.length !== 1 || actor?.id !== actorAccountId || actor.role !== 'SUPER_ADMIN' ||
+      actor.status !== 'ACTIVE' || actor.deleted_at !== null || actor.has_password !== true) {
+      throw authenticationRequired();
+    }
+  }
+
+  private async readShipmentInTransaction(
+    transaction: DatabaseTransaction,
+    shipmentId: string,
+  ): Promise<ShipmentRecord> {
+    const shipment = await transaction.shipment.findUnique({
+      include: SHIPMENT_INCLUDE,
+      where: { id: shipmentId },
+    });
+    if (shipment === null) throw shipmentNotFound();
+    return shipment;
+  }
+
+  async createShipmentInTransaction(
+    transaction: DatabaseTransaction,
+    input: CreateFulfillmentShipmentInput,
+  ): Promise<CreateFulfillmentShipmentResult> {
+    validateCreateShipmentInput(input);
+    await this.lockActor(transaction, input.actorAccountId);
+    const lockedOrder = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id
+      FROM public.sales_order
+      WHERE id = ${input.orderId}
+      FOR UPDATE
+    `);
+    if (lockedOrder.length !== 1 || lockedOrder[0]?.id !== input.orderId) throw notFound();
+    const order = await transaction.salesOrder.findUnique({
+      select: SHIPMENT_COMMAND_ORDER_SELECT,
+      where: { id: input.orderId },
+    });
+    if (order === null) throw internal('Locked shipment order disappeared');
+    const lockedItems = await transaction.$queryRaw<LockedOrderItemRow[]>(Prisma.sql`
+      SELECT id, quantity, pre_shipment_refunded_qty, shipped_qty, version
+      FROM public.order_item
+      WHERE order_id = ${input.orderId}
+      ORDER BY id ASC
+      FOR UPDATE
+    `);
+    const lockedAftersales = await transaction.$queryRaw<LockedAftersaleRow[]>(Prisma.sql`
+      SELECT id, status::text AS status
+      FROM public.aftersale
+      WHERE order_id = ${input.orderId}
+      ORDER BY id ASC
+      FOR UPDATE
+    `);
+    const lockedShipment = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id
+      FROM public.shipment
+      WHERE order_id = ${input.orderId}
+      FOR UPDATE
+    `);
+    const currentOrderVersion = safeCount(order.version, 'Stored shipment command order version', 1);
+    if (lockedShipment.length > 0) {
+      if (lockedShipment.length !== 1 || !isValidUlid(lockedShipment[0]!.id)) {
+        throw internal('Stored unique shipment lock result is invalid');
+      }
+      const winner = shipmentProjection(await this.readShipmentInTransaction(transaction, lockedShipment[0]!.id));
+      if (!isCreateShipmentWinner(winner, input, currentOrderVersion)) throw shipmentStateConflict();
+      return { kind: 'winner', orderVersion: currentOrderVersion, shipment: winner };
+    }
+    const validatedOrderVersion = validateShipmentCommandOrder(order);
+    if (validatedOrderVersion !== input.expectedOrderVersion) throw orderVersionConflict();
+    if (lockedAftersales.some((record) => {
+      safeUlid(record.id, 'Stored locked aftersale ID');
+      if (!AFTERSALE_STATUSES.has(record.status as AftersaleStatus)) {
+        throw internal('Stored locked aftersale status is invalid');
+      }
+      return ACTIVE_AFTERSALE_STATUSES.has(record.status as AftersaleStatus);
+    })) throw activeAftersaleBlocksShipment();
+
+    const remaining = lockedItems.map((record) => {
+      const orderItemId = safeUlid(record.id, 'Stored locked order item ID');
+      const quantity = safeCount(record.quantity, 'Stored locked order item quantity', 1);
+      const refunded = safeCount(
+        record.pre_shipment_refunded_qty,
+        'Stored locked pre-shipment refunded quantity',
+      );
+      const shipped = safeCount(record.shipped_qty, 'Stored locked shipped quantity');
+      safeCount(record.version, 'Stored locked order item version', 1);
+      if (refunded + shipped > quantity) throw internal('Stored order item fulfillment counters are invalid');
+      return { orderItemId, quantity: quantity - refunded - shipped, record };
+    }).filter(({ quantity }) => quantity > 0);
+    const requested = new Map<string, FulfillmentShipmentLineInput>();
+    for (const item of input.items) {
+      if (requested.has(item.orderItemId)) throw shipmentItemsMismatch();
+      requested.set(item.orderItemId, item);
+    }
+    if (remaining.length !== requested.size || remaining.some(({ orderItemId, quantity }) =>
+      requested.get(orderItemId)?.quantity !== quantity)) throw shipmentItemsMismatch();
+
+    const currentTime = this.currentTime();
+    for (const item of remaining) {
+      const changed = await transaction.orderItem.updateMany({
+        data: { shipped_qty: { increment: item.quantity }, version: { increment: 1 } },
+        where: {
+          id: item.orderItemId,
+          order_id: input.orderId,
+          pre_shipment_refunded_qty: item.record.pre_shipment_refunded_qty,
+          quantity: item.record.quantity,
+          shipped_qty: item.record.shipped_qty,
+          version: item.record.version,
+        },
+      });
+      if (changed.count !== 1) throw shipmentStateConflict('Order item fulfillment facts changed');
+    }
+    const orderChanged = await transaction.salesOrder.updateMany({
+      data: {
+        fulfillment_status: 'SHIPPED',
+        order_status: 'SHIPPING',
+        updated_at: currentTime,
+        version: { increment: 1 },
+      },
+      where: {
+        fulfillment_status: 'READY_TO_SHIP',
+        id: input.orderId,
+        order_status: 'PENDING_SHIPMENT',
+        payment_resolution: 'NORMAL',
+        payment_status: 'PAID',
+        version: input.expectedOrderVersion,
+      },
+    });
+    if (orderChanged.count !== 1) throw shipmentStateConflict('Order state changed while creating shipment');
+    const created = await transaction.shipment.create({
+      data: {
+        carrier_code: input.carrierCode,
+        carrier_name: input.carrierName,
+        created_at: currentTime,
+        delivered_at: null,
+        id: input.shipmentId,
+        items: {
+          create: [...input.items]
+            .sort((left, right) => left.orderItemId.localeCompare(right.orderItemId))
+            .map((item) => ({
+              created_at: currentTime,
+              id: item.shipmentItemId,
+              order_item_id: item.orderItemId,
+              quantity: item.quantity,
+            })),
+        },
+        order_id: input.orderId,
+        shipped_at: currentTime,
+        status: 'SHIPPED',
+        tracking_no: input.trackingNo,
+        updated_at: currentTime,
+        version: 1,
+      },
+      include: SHIPMENT_INCLUDE,
+    });
+    const projection = shipmentProjection(created);
+    return { kind: 'created', orderVersion: input.expectedOrderVersion + 1, shipment: projection };
+  }
+
+  async getAdminShipmentInTransaction(
+    transaction: DatabaseTransaction,
+    input: FulfillmentShipmentReadInput,
+  ): Promise<FulfillmentShipmentProjection> {
+    validateShipmentReadInput(input);
+    const shipment = await this.readShipmentInTransaction(transaction, input.shipmentId);
+    if (input.orderId !== undefined && shipment.order_id !== input.orderId) throw shipmentNotFound();
+    return shipmentProjection(shipment);
+  }
+
+  getAdminShipment(input: FulfillmentShipmentReadInput): Promise<FulfillmentShipmentProjection> {
+    return this.prisma.$transaction(
+      (transaction) => this.getAdminShipmentInTransaction(transaction, input),
+      { isolationLevel: 'RepeatableRead' },
+    );
+  }
+
+  async appendLogisticsEventInTransaction(
+    transaction: DatabaseTransaction,
+    input: AppendFulfillmentLogisticsEventInput,
+  ): Promise<AppendFulfillmentLogisticsEventResult> {
+    validateLogisticsEventInput(input);
+    await this.lockActor(transaction, input.actorAccountId);
+    const candidate = await transaction.shipment.findUnique({
+      select: { order_id: true },
+      where: { id: input.shipmentId },
+    });
+    if (candidate === null) throw shipmentNotFound();
+    const orderId = safeUlid(candidate.order_id, 'Stored logistics order ID');
+    const lockedOrder = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id
+      FROM public.sales_order
+      WHERE id = ${orderId}
+      FOR UPDATE
+    `);
+    if (lockedOrder.length !== 1 || lockedOrder[0]?.id !== orderId) {
+      throw internal('Shipment order disappeared while locking logistics command');
+    }
+    const lockedShipment = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id
+      FROM public.shipment
+      WHERE id = ${input.shipmentId} AND order_id = ${orderId}
+      FOR UPDATE
+    `);
+    if (lockedShipment.length !== 1 || lockedShipment[0]?.id !== input.shipmentId) throw shipmentNotFound();
+    // The append-only event table intentionally denies UPDATE to mall_runtime.
+    // The locked shipment row serializes commands; this ordered read observes the
+    // event set without requesting an impermissible row lock.
+    await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id
+      FROM public.logistics_event
+      WHERE shipment_id = ${input.shipmentId}
+      ORDER BY occurred_at ASC, id ASC
+    `);
+    const currentRecord = await this.readShipmentInTransaction(transaction, input.shipmentId);
+    const current = shipmentProjection(currentRecord);
+    const existingEvent = current.events.find(({ eventKey }) => eventKey === input.eventKey);
+    if (existingEvent !== undefined) {
+      if (!logisticsEventMatchesInput(existingEvent, input)) throw shipmentStateConflict();
+      return { event: existingEvent, kind: 'winner', shipment: current };
+    }
+    if (current.version !== input.expectedShipmentVersion) throw shipmentVersionConflict();
+    const order = await transaction.salesOrder.findUnique({
+      select: LOGISTICS_COMMAND_ORDER_SELECT,
+      where: { id: orderId },
+    });
+    if (order === null) throw internal('Locked logistics order disappeared');
+    const orderVersion = validateLogisticsCommandOrder(order, currentRecord);
+    if (input.event.eventType === 'STATUS' && input.event.statusCode === 'DELIVERED' &&
+      input.event.occurredAt.getTime() < current.shippedAt.getTime()) {
+      throw shipmentStateConflict('Delivered time cannot precede shipment');
+    }
+    if (current.events.some(({ eventId }) => eventId === input.eventId)) throw shipmentStateConflict();
+
+    const currentTime = this.currentTime();
+    if (input.event.eventType === 'STATUS') {
+      assertStatusTransition(current.status, input.event.statusCode);
+      const shipmentChanged = await transaction.shipment.updateMany({
+        data: {
+          ...(input.event.statusCode === 'DELIVERED' ? { delivered_at: input.event.occurredAt } : {}),
+          status: input.event.statusCode,
+          updated_at: currentTime,
+          version: { increment: 1 },
+        },
+        where: { id: input.shipmentId, status: current.status, version: current.version },
+      });
+      if (shipmentChanged.count !== 1) throw shipmentVersionConflict();
+      const orderChanged = await transaction.salesOrder.updateMany({
+        data: {
+          fulfillment_status: input.event.statusCode,
+          updated_at: currentTime,
+          version: { increment: 1 },
+        },
+        where: {
+          fulfillment_status: current.status,
+          id: orderId,
+          order_status: 'SHIPPING',
+          payment_resolution: 'NORMAL',
+          payment_status: 'PAID',
+          version: orderVersion,
+        },
+      });
+      if (orderChanged.count !== 1) throw shipmentStateConflict('Order state changed during logistics update');
+    } else {
+      const shipmentChanged = await transaction.shipment.updateMany({
+        data: {
+          carrier_code: input.event.carrierCode,
+          carrier_name: input.event.carrierName,
+          tracking_no: input.event.trackingNo,
+          updated_at: currentTime,
+          version: { increment: 1 },
+        },
+        where: { id: input.shipmentId, status: current.status, version: current.version },
+      });
+      if (shipmentChanged.count !== 1) throw shipmentVersionConflict();
+    }
+    await transaction.logisticsEvent.create({
+      data: {
+        actor_account_id: input.actorAccountId,
+        carrier_code: input.event.eventType === 'TRACKING_CORRECTION' ? input.event.carrierCode : null,
+        carrier_name: input.event.eventType === 'TRACKING_CORRECTION' ? input.event.carrierName : null,
+        created_at: currentTime,
+        description: input.event.description,
+        event_key: input.eventKey,
+        event_type: input.event.eventType,
+        id: input.eventId,
+        location: input.event.location,
+        occurred_at: input.event.occurredAt,
+        reason: input.event.eventType === 'TRACKING_CORRECTION' ? input.event.reason : null,
+        shipment_id: input.shipmentId,
+        source: 'MANUAL',
+        status_code: input.event.eventType === 'STATUS' ? input.event.statusCode : null,
+        tracking_no: input.event.eventType === 'TRACKING_CORRECTION' ? input.event.trackingNo : null,
+      },
+    });
+    const refreshed = shipmentProjection(await this.readShipmentInTransaction(transaction, input.shipmentId));
+    const appended = refreshed.events.find(({ eventId }) => eventId === input.eventId);
+    if (appended === undefined || !logisticsEventMatchesInput(appended, input)) {
+      throw internal('Committed logistics event could not be re-read exactly');
+    }
+    return { event: appended, kind: 'applied', shipment: refreshed };
   }
 
   async listAdminOrdersInTransaction(

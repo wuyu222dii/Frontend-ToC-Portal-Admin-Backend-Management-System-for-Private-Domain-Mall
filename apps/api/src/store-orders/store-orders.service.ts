@@ -131,6 +131,14 @@ export class StoreOrdersService {
     return this.detailView(resource.detail, resource.fulfillment);
   }
 
+  async getLogistics(session: CurrentStoreSession, orderId: string) {
+    const fulfillment = await this.fulfillmentRepository().getOwnedFulfillmentProjection({
+      customerId: session.customerId,
+      orderId,
+    });
+    return this.logisticsView(fulfillment);
+  }
+
   createOrder(
     session: CurrentStoreSession,
     input: StoreOrderSubmitRequest,
@@ -602,6 +610,41 @@ export class StoreOrdersService {
       },
       timeline,
       version: resource.order.version,
+    };
+  }
+
+  private logisticsView(fulfillment: OwnedFulfillmentProjection) {
+    const shipment = fulfillment.shipment;
+    if (shipment === null) return { events: [], shipment: null };
+    return {
+      events: shipment.events.map((event) => ({
+        carrier_code: event.carrierCode,
+        carrier_name: event.carrierName,
+        description: event.description,
+        event_id: event.eventId,
+        event_key: event.eventKey,
+        event_type: event.eventType,
+        location: event.location,
+        occurred_at: event.occurredAt.toISOString(),
+        reason: event.reason,
+        status_code: event.statusCode,
+        tracking_no: event.trackingNo,
+      })),
+      shipment: {
+        carrier_code: shipment.carrierCode,
+        carrier_name: shipment.carrierName,
+        delivered_at: shipment.deliveredAt?.toISOString() ?? null,
+        items: shipment.items.map((item) => ({
+          order_item_id: item.orderItemId,
+          quantity: item.quantity,
+        })),
+        order_id: shipment.orderId,
+        shipment_id: shipment.shipmentId,
+        shipped_at: shipment.shippedAt.toISOString(),
+        status: shipment.status,
+        tracking_no: shipment.trackingNo,
+        version: shipment.version,
+      },
     };
   }
 

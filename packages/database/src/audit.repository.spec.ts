@@ -27,7 +27,15 @@ const ipHashKey = Buffer.alloc(32, 41);
 const sensitivePhone = ['138', '0013', '8000'].join('');
 
 describe('AuditRepository', () => {
-  it.each(['PENDING_PAYMENT', 'PENDING_SHIPMENT'])(
+  it.each([
+    'PENDING_PAYMENT',
+    'PENDING_SHIPMENT',
+    'READY_TO_SHIP',
+    'SHIPPING',
+    'SHIPPED',
+    'IN_TRANSIT',
+    'DELIVERED',
+  ])(
     'accepts the closed Store order %s status',
     async (status) => {
     const transaction = transactionStub();

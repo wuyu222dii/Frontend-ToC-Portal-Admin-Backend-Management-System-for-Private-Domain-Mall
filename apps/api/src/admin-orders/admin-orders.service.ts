@@ -4,14 +4,22 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import type { PlatformRuntimeConfig } from '@qingxu/config';
 import {
   AuditRepository,
+  type AppendFulfillmentLogisticsEventInput,
   type AdminFulfillmentOrderDetail,
   type AdminFulfillmentOrderListItem,
+  type CreateFulfillmentShipmentInput,
   type DatabaseRuntime,
   type DatabaseTransaction,
+  type FulfillmentShipmentProjection,
   FulfillmentRepository,
+  IdempotencyRepository,
+  type IdempotencyClaim,
+  OutboxRepository,
+  runSerializableTransaction,
 } from '@qingxu/database';
 import {
   ApplicationError,
+  generateUlid,
   hasPermission,
   isApplicationError,
   projectOrderDisplayStatus,
@@ -26,12 +34,20 @@ import { API_RUNTIME_CONFIG } from '../platform/config/api-runtime-config';
 import { API_DATABASE_RUNTIME } from '../platform/database/api-database-runtime';
 import {
   parseAdminFulfillmentAddressAccessHeaders,
+  type AdminCreateShipmentInput,
+  type AdminLogisticsEventInput,
   type AdminOrderListQuery,
 } from './admin-orders.dto';
 
 const ADDRESS_ACCESS_PERMISSION = 'ORDER_FULFILLMENT_PII_READ';
 const ADDRESS_ACCESS_TTL_MS = 5 * 60 * 1_000;
 const ADDRESS_REASON_HMAC_DOMAIN = 'qingxu:fulfillment-address-access-reason:v1\0';
+const LOGISTICS_EVENT_KEY_HMAC_DOMAIN = 'qingxu:fulfillment-logistics-event:v1\0';
+const LOGISTICS_REASON_HMAC_DOMAIN = 'qingxu:fulfillment-logistics-reason:v1\0';
+const ROUTES = {
+  logisticsEvent: '/admin/shipments/{shipment_id}/events',
+  shipment: '/admin/orders/{order_id}/shipments',
+} as const;
 
 function internal(message: string, cause?: unknown): ApplicationError {
   return new ApplicationError(
@@ -54,6 +70,8 @@ function detailDisplayStatus(detail: AdminFulfillmentOrderDetail): string {
 export class AdminOrdersService {
   private readonly audit!: AuditRepository;
   private readonly fulfillment!: FulfillmentRepository;
+  private readonly idempotency!: IdempotencyRepository;
+  private readonly outbox!: OutboxRepository;
 
   constructor(
     @Optional() @Inject(API_RUNTIME_CONFIG) private readonly config?: PlatformRuntimeConfig,
@@ -62,6 +80,8 @@ export class AdminOrdersService {
     if (config && database) {
       this.audit = new AuditRepository(config.encryption.ipHashKey);
       this.fulfillment = new FulfillmentRepository(database.prisma, config.encryption.ipHashKey);
+      this.idempotency = new IdempotencyRepository(config.encryption.idempotencyHashKeys);
+      this.outbox = new OutboxRepository(database);
     }
   }
 
@@ -92,6 +112,141 @@ export class AdminOrdersService {
 
   async getOrder(orderId: string) {
     return this.detailView(await this.repository().getAdminOrderDetail({ orderId }));
+  }
+
+  createShipment(
+    request: AdminCatalogRequestContext,
+    orderId: string,
+    input: AdminCreateShipmentInput,
+    expectedVersion: number,
+    idempotencyKey: string,
+  ) {
+    const shipmentId = generateUlid();
+    const command: CreateFulfillmentShipmentInput = {
+      actorAccountId: request.principal.accountId,
+      carrierCode: input.carrierCode,
+      carrierName: input.carrierName,
+      expectedOrderVersion: expectedVersion,
+      items: input.items.map((item) => ({
+        ...item,
+        shipmentItemId: generateUlid(),
+      })),
+      orderId,
+      shipmentId,
+      trackingNo: input.trackingNo,
+    };
+    const claim = this.claim(request, idempotencyKey, ROUTES.shipment, {
+      carrier_code: input.carrierCode,
+      carrier_name: input.carrierName,
+      expected_version: expectedVersion,
+      items: input.items.map(({ orderItemId, quantity }) => ({
+        order_item_id: orderItemId,
+        quantity,
+      })),
+      tracking_no: input.trackingNo,
+    }, { order_id: orderId });
+    return runSerializableTransaction(this.runtime().database.prisma, async (transaction) => {
+      const claimed = await this.idempotencyRepository().claim(transaction, claim);
+      if (claimed.kind === 'replay') {
+        const resourceId = claimed.record.resource_id;
+        if (resourceId === null) throw internal('Shipment replay resource is missing');
+        const shipment = await this.repository().getAdminShipmentInTransaction(transaction, {
+          orderId,
+          shipmentId: resourceId,
+        });
+        this.idempotencyRepository().assertHashOnlyReplay(claimed.record, {
+          resourceId,
+          responseForHash: this.shipmentIdempotencyResponse(orderId, resourceId),
+          responseStatus: 201,
+          storage: 'HASH_ONLY',
+        });
+        return this.shipmentView(shipment);
+      }
+
+      const result = await this.repository().createShipmentInTransaction(transaction, command);
+      if (result.kind === 'created') {
+        await this.appendShipmentAudit(
+          transaction,
+          request,
+          idempotencyKey,
+          result.shipment.shipmentId,
+          'CREATE',
+          undefined,
+          { status: result.shipment.status, version: result.shipment.version },
+        );
+        await this.appendShipmentOutbox(transaction, result.shipment, 'shipment.created');
+      }
+      await this.idempotencyRepository().complete(transaction, claim, {
+        resourceId: result.shipment.shipmentId,
+        responseForHash: this.shipmentIdempotencyResponse(orderId, result.shipment.shipmentId),
+        responseStatus: 201,
+        storage: 'HASH_ONLY',
+      });
+      return this.shipmentView(result.shipment);
+    });
+  }
+
+  appendLogisticsEvent(
+    request: AdminCatalogRequestContext,
+    shipmentId: string,
+    input: AdminLogisticsEventInput,
+    expectedVersion: number,
+    idempotencyKey: string,
+  ) {
+    const eventKey = this.logisticsEventKey(request.principal.accountId, shipmentId, idempotencyKey);
+    const claim = this.claim(request, idempotencyKey, ROUTES.logisticsEvent, {
+      ...this.logisticsEventRequest(input),
+      expected_version: expectedVersion,
+    }, { shipment_id: shipmentId });
+    const command: AppendFulfillmentLogisticsEventInput = {
+      actorAccountId: request.principal.accountId,
+      event: this.logisticsEventCommand(input),
+      eventId: generateUlid(),
+      eventKey,
+      expectedShipmentVersion: expectedVersion,
+      shipmentId,
+    };
+    return runSerializableTransaction(this.runtime().database.prisma, async (transaction) => {
+      const claimed = await this.idempotencyRepository().claim(transaction, claim);
+      if (claimed.kind === 'replay') {
+        if (claimed.record.resource_id !== shipmentId) {
+          throw internal('Logistics event replay resource is invalid');
+        }
+        const shipment = await this.repository().getAdminShipmentInTransaction(transaction, { shipmentId });
+        this.idempotencyRepository().assertHashOnlyReplay(claimed.record, {
+          resourceId: shipmentId,
+          responseForHash: this.logisticsIdempotencyResponse(shipmentId),
+          responseStatus: 200,
+          storage: 'HASH_ONLY',
+        });
+        return this.logisticsView(shipment);
+      }
+
+      const result = await this.repository().appendLogisticsEventInTransaction(transaction, command);
+      if (result.kind === 'applied') {
+        await this.appendShipmentAudit(
+          transaction,
+          request,
+          idempotencyKey,
+          result.shipment.shipmentId,
+          'UPDATE',
+          { status: input.eventType === 'STATUS' ? this.previousShipmentStatus(input.statusCode) : result.shipment.status,
+            version: expectedVersion },
+          { status: result.shipment.status, version: result.shipment.version },
+          input.eventType === 'TRACKING_CORRECTION'
+            ? this.logisticsReasonDigest(input.reason)
+            : undefined,
+        );
+        await this.appendShipmentOutbox(transaction, result.shipment, 'shipment.updated');
+      }
+      await this.idempotencyRepository().complete(transaction, claim, {
+        resourceId: shipmentId,
+        responseForHash: this.logisticsIdempotencyResponse(shipmentId),
+        responseStatus: 200,
+        storage: 'HASH_ONLY',
+      });
+      return this.logisticsView(result.shipment);
+    });
   }
 
   async getFulfillmentAddress(
@@ -410,6 +565,173 @@ export class AdminOrdersService {
       left.event_id.localeCompare(right.event_id));
   }
 
+  private shipmentView(shipment: FulfillmentShipmentProjection) {
+    return {
+      carrier_code: shipment.carrierCode,
+      carrier_name: shipment.carrierName,
+      delivered_at: shipment.deliveredAt?.toISOString() ?? null,
+      items: shipment.items.map((item) => ({
+        order_item_id: item.orderItemId,
+        quantity: item.quantity,
+      })),
+      order_id: shipment.orderId,
+      shipment_id: shipment.shipmentId,
+      shipped_at: shipment.shippedAt.toISOString(),
+      status: shipment.status,
+      tracking_no: shipment.trackingNo,
+      version: shipment.version,
+    };
+  }
+
+  private logisticsView(shipment: FulfillmentShipmentProjection) {
+    return {
+      events: shipment.events.map((event) => ({
+        carrier_code: event.carrierCode,
+        carrier_name: event.carrierName,
+        description: event.description,
+        event_id: event.eventId,
+        event_key: event.eventKey,
+        event_type: event.eventType,
+        location: event.location,
+        occurred_at: event.occurredAt.toISOString(),
+        reason: event.reason,
+        status_code: event.statusCode,
+        tracking_no: event.trackingNo,
+      })),
+      shipment: this.shipmentView(shipment),
+    };
+  }
+
+  private claim(
+    request: AdminCatalogRequestContext,
+    idempotencyKey: string,
+    route: string,
+    body: unknown,
+    pathParameters: Record<string, string>,
+  ): IdempotencyClaim {
+    return {
+      actorId: request.principal.accountId,
+      idempotencyKey,
+      request: { body, method: 'POST', pathParameters, route },
+    };
+  }
+
+  private logisticsEventRequest(input: AdminLogisticsEventInput) {
+    const base = {
+      description: input.description,
+      event_type: input.eventType,
+      location: input.location,
+      occurred_at: input.occurredAt,
+    };
+    return input.eventType === 'STATUS'
+      ? { ...base, status_code: input.statusCode }
+      : {
+          ...base,
+          carrier_code: input.carrierCode,
+          carrier_name: input.carrierName,
+          reason: input.reason,
+          tracking_no: input.trackingNo,
+        };
+  }
+
+  private logisticsEventCommand(
+    input: AdminLogisticsEventInput,
+  ): AppendFulfillmentLogisticsEventInput['event'] {
+    const base = {
+      description: input.description,
+      location: input.location,
+      occurredAt: new Date(input.occurredAt),
+    };
+    return input.eventType === 'STATUS'
+      ? { ...base, eventType: 'STATUS', statusCode: input.statusCode }
+      : {
+          ...base,
+          carrierCode: input.carrierCode,
+          carrierName: input.carrierName,
+          eventType: 'TRACKING_CORRECTION',
+          reason: input.reason,
+          trackingNo: input.trackingNo,
+        };
+  }
+
+  private logisticsEventKey(accountId: string, shipmentId: string, idempotencyKey: string): string {
+    const key = this.runtime().config.encryption.idempotencyHashKeys.current.key;
+    return `evt_${createHmac('sha256', Buffer.from(key))
+      .update(LOGISTICS_EVENT_KEY_HMAC_DOMAIN, 'utf8')
+      .update(JSON.stringify([accountId, shipmentId, idempotencyKey]), 'utf8')
+      .digest('hex')}`;
+  }
+
+  private logisticsReasonDigest(reason: string): string {
+    return `TRACKING_CORRECTION:${createHmac(
+      'sha256',
+      Buffer.from(this.runtime().config.encryption.ipHashKey),
+    )
+      .update(LOGISTICS_REASON_HMAC_DOMAIN, 'utf8')
+      .update(reason, 'utf8')
+      .digest('hex')}`;
+  }
+
+  private previousShipmentStatus(status: 'DELIVERED' | 'IN_TRANSIT'): 'IN_TRANSIT' | 'SHIPPED' {
+    return status === 'DELIVERED' ? 'IN_TRANSIT' : 'SHIPPED';
+  }
+
+  private shipmentIdempotencyResponse(orderId: string, shipmentId: string) {
+    return { shipment_created: { order_id: orderId, shipment_id: shipmentId } };
+  }
+
+  private logisticsIdempotencyResponse(shipmentId: string) {
+    return { logistics_event_appended: { shipment_id: shipmentId } };
+  }
+
+  private appendShipmentAudit(
+    transaction: DatabaseTransaction,
+    request: AdminCatalogRequestContext,
+    idempotencyKey: string,
+    shipmentId: string,
+    action: 'CREATE' | 'UPDATE',
+    before: { status: string; version: number } | undefined,
+    after: { status: string; version: number },
+    reason?: string,
+  ) {
+    const ipAddress = catalogRequestIp(request);
+    return this.auditRepository().append(transaction, {
+      action,
+      actorAccountId: request.principal.accountId,
+      actorRole: request.principal.role,
+      after,
+      ...(before === undefined ? {} : { before }),
+      idempotencyKey,
+      ...(ipAddress === undefined ? {} : { ipAddress }),
+      module: 'fulfillment',
+      objectId: shipmentId,
+      objectType: 'shipment',
+      ...(reason === undefined ? {} : { reason }),
+      requestId: request.requestId,
+      result: 'SUCCESS',
+      resultCode: 'OK',
+      summaryPolicy: 'STATUS_VERSION',
+    });
+  }
+
+  private appendShipmentOutbox(
+    transaction: DatabaseTransaction,
+    shipment: FulfillmentShipmentProjection,
+    eventType: 'shipment.created' | 'shipment.updated',
+  ) {
+    return this.outboxRepository().append(transaction, {
+      aggregateId: shipment.shipmentId,
+      aggregateType: 'shipment',
+      eventType,
+      payload: {
+        event_version: 1,
+        resource_id: shipment.shipmentId,
+        resource_type: 'shipment',
+        resource_version: shipment.version,
+      },
+    });
+  }
+
   private safeAttemptError(code: string | null, occurredAt: Date) {
     if (code === null) return null;
     const retryable = code === 'PROVIDER_UNAVAILABLE' || code === 'PROVIDER_UNKNOWN' ||
@@ -489,5 +811,15 @@ export class AdminOrdersService {
   private auditRepository(): AuditRepository {
     if (!this.audit) throw internal('Fulfillment audit repository is unavailable');
     return this.audit;
+  }
+
+  private idempotencyRepository(): IdempotencyRepository {
+    if (!this.idempotency) throw internal('Fulfillment idempotency repository is unavailable');
+    return this.idempotency;
+  }
+
+  private outboxRepository(): OutboxRepository {
+    if (!this.outbox) throw internal('Fulfillment outbox repository is unavailable');
+    return this.outbox;
   }
 }

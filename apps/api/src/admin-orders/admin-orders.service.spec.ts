@@ -1,9 +1,12 @@
+import { createHmac } from 'node:crypto';
+
 import type { PlatformRuntimeConfig } from '@qingxu/config';
 import type {
   AdminFulfillmentAddressMaterial,
   AdminFulfillmentOrderDetail,
   AdminFulfillmentOrderListItem,
   DatabaseRuntime,
+  FulfillmentShipmentProjection,
 } from '@qingxu/database';
 import {
   ApplicationError,
@@ -27,6 +30,8 @@ const SHIPMENT_ID = '01J0000000000000000000000A';
 const SHIPMENT_ITEM_ID = '01J0000000000000000000000B';
 const EVENT_ID = '01J0000000000000000000000C';
 const REQUEST_ID = 'req_00000000000000000000000000000001';
+const CREATE_SHIPMENT_IDEMPOTENCY_KEY = '00000000-0000-4000-8000-000000000001';
+const APPEND_EVENT_IDEMPOTENCY_KEY = '00000000-0000-4000-8000-000000000002';
 const CREATED_AT = new Date('2026-08-30T01:00:00.000Z');
 const UPDATED_AT = new Date('2026-08-30T02:00:00.000Z');
 const PHONE = ['139', '0000', '6821'].join('');
@@ -258,13 +263,30 @@ function addressMaterial(
   };
 }
 
+function shipment(
+  overrides: Partial<FulfillmentShipmentProjection> = {},
+): FulfillmentShipmentProjection {
+  const projection = detail().shipment;
+  if (projection === null) throw new Error('Shipment fixture is unavailable');
+  return { ...projection, ...overrides };
+}
+
 interface ServiceInternals {
   audit: { append: ReturnType<typeof vi.fn> };
   fulfillment: {
+    appendLogisticsEventInTransaction: ReturnType<typeof vi.fn>;
+    createShipmentInTransaction: ReturnType<typeof vi.fn>;
     getAdminFulfillmentAddressMaterialInTransaction: ReturnType<typeof vi.fn>;
     getAdminOrderDetail: ReturnType<typeof vi.fn>;
+    getAdminShipmentInTransaction: ReturnType<typeof vi.fn>;
     listAdminOrders: ReturnType<typeof vi.fn>;
   };
+  idempotency: {
+    assertHashOnlyReplay: ReturnType<typeof vi.fn>;
+    claim: ReturnType<typeof vi.fn>;
+    complete: ReturnType<typeof vi.fn>;
+  };
+  outbox: { append: ReturnType<typeof vi.fn> };
 }
 
 function harness() {
@@ -277,10 +299,19 @@ function harness() {
   const mocks: ServiceInternals = {
     audit: { append: vi.fn().mockResolvedValue({}) },
     fulfillment: {
+      appendLogisticsEventInTransaction: vi.fn(),
+      createShipmentInTransaction: vi.fn(),
       getAdminFulfillmentAddressMaterialInTransaction: vi.fn().mockResolvedValue(addressMaterial()),
       getAdminOrderDetail: vi.fn().mockResolvedValue(detail()),
+      getAdminShipmentInTransaction: vi.fn().mockResolvedValue(shipment()),
       listAdminOrders: vi.fn().mockResolvedValue({ items: [listItem()], total: 1 }),
     },
+    idempotency: {
+      assertHashOnlyReplay: vi.fn(),
+      claim: vi.fn().mockResolvedValue({ kind: 'execute' }),
+      complete: vi.fn().mockResolvedValue({}),
+    },
+    outbox: { append: vi.fn().mockResolvedValue({}) },
   };
   Object.assign(service as unknown as ServiceInternals, mocks);
   return { mocks, prisma, service, transaction };
@@ -354,6 +385,308 @@ describe('AdminOrdersService', () => {
 
     await expect(service.listOrders({ page: 1, pageSize: 20, sort: 'CREATED_DESC' }))
       .resolves.toMatchObject({ items: [{ display_status: '支付异常处理中' }] });
+  });
+
+  it('creates a shipment with HASH_ONLY completion, minimal audit and RESOURCE_EVENT_V1 outbox', async () => {
+    const { mocks, service, transaction } = harness();
+    const created = shipment({ events: [], status: 'SHIPPED', version: 1 });
+    mocks.fulfillment.createShipmentInTransaction.mockResolvedValue({
+      kind: 'created',
+      orderVersion: 4,
+      shipment: created,
+    });
+    const input = {
+      carrierCode: 'MOCK',
+      carrierName: 'Development carrier',
+      items: [{ orderItemId: ORDER_ITEM_ID, quantity: 2 }],
+      trackingNo: 'DEV-TRACK-001',
+    };
+
+    await expect(service.createShipment(
+      requestContext(), ORDER_ID, input, 3, CREATE_SHIPMENT_IDEMPOTENCY_KEY,
+    )).resolves.toEqual({
+      carrier_code: 'MOCK',
+      carrier_name: 'Development carrier',
+      delivered_at: null,
+      items: [{ order_item_id: ORDER_ITEM_ID, quantity: 2 }],
+      order_id: ORDER_ID,
+      shipment_id: SHIPMENT_ID,
+      shipped_at: UPDATED_AT.toISOString(),
+      status: 'SHIPPED',
+      tracking_no: 'DEV-TRACK-001',
+      version: 1,
+    });
+
+    expect(mocks.idempotency.claim).toHaveBeenCalledWith(transaction, {
+      actorId: ACCOUNT_ID,
+      idempotencyKey: CREATE_SHIPMENT_IDEMPOTENCY_KEY,
+      request: {
+        body: {
+          carrier_code: 'MOCK',
+          carrier_name: 'Development carrier',
+          expected_version: 3,
+          items: [{ order_item_id: ORDER_ITEM_ID, quantity: 2 }],
+          tracking_no: 'DEV-TRACK-001',
+        },
+        method: 'POST',
+        pathParameters: { order_id: ORDER_ID },
+        route: '/admin/orders/{order_id}/shipments',
+      },
+    });
+    expect(mocks.fulfillment.createShipmentInTransaction).toHaveBeenCalledWith(
+      transaction,
+      expect.objectContaining({
+        actorAccountId: ACCOUNT_ID,
+        carrierCode: 'MOCK',
+        carrierName: 'Development carrier',
+        expectedOrderVersion: 3,
+        orderId: ORDER_ID,
+        shipmentId: expect.stringMatching(/^[0-9A-HJKMNP-TV-Z]{26}$/),
+        trackingNo: 'DEV-TRACK-001',
+      }),
+    );
+    const command = mocks.fulfillment.createShipmentInTransaction.mock.calls[0]?.[1] as {
+      items: Array<{ orderItemId: string; quantity: number; shipmentItemId: string }>;
+    };
+    expect(command.items).toEqual([{
+      orderItemId: ORDER_ITEM_ID,
+      quantity: 2,
+      shipmentItemId: expect.stringMatching(/^[0-9A-HJKMNP-TV-Z]{26}$/),
+    }]);
+    expect(mocks.audit.append).toHaveBeenCalledWith(transaction, expect.objectContaining({
+      action: 'CREATE',
+      actorAccountId: ACCOUNT_ID,
+      after: { status: 'SHIPPED', version: 1 },
+      idempotencyKey: CREATE_SHIPMENT_IDEMPOTENCY_KEY,
+      module: 'fulfillment',
+      objectId: SHIPMENT_ID,
+      objectType: 'shipment',
+      requestId: REQUEST_ID,
+      summaryPolicy: 'STATUS_VERSION',
+    }));
+    expect(mocks.outbox.append).toHaveBeenCalledWith(transaction, {
+      aggregateId: SHIPMENT_ID,
+      aggregateType: 'shipment',
+      eventType: 'shipment.created',
+      payload: {
+        event_version: 1,
+        resource_id: SHIPMENT_ID,
+        resource_type: 'shipment',
+        resource_version: 1,
+      },
+    });
+    expect(mocks.idempotency.complete).toHaveBeenCalledWith(
+      transaction,
+      expect.objectContaining({ idempotencyKey: CREATE_SHIPMENT_IDEMPOTENCY_KEY }),
+      {
+        resourceId: SHIPMENT_ID,
+        responseForHash: { shipment_created: { order_id: ORDER_ID, shipment_id: SHIPMENT_ID } },
+        responseStatus: 201,
+        storage: 'HASH_ONLY',
+      },
+    );
+    const persistedMetadata = JSON.stringify([
+      mocks.audit.append.mock.calls,
+      mocks.outbox.append.mock.calls,
+      mocks.idempotency.complete.mock.calls.map((call) => call[2]),
+    ]);
+    expect(persistedMetadata).not.toContain('DEV-TRACK-001');
+    expect(persistedMetadata).not.toContain('Development carrier');
+  });
+
+  it('replays shipment creation from the current order-scoped projection before any business write', async () => {
+    const { mocks, service, transaction } = harness();
+    const record = { resource_id: SHIPMENT_ID, response_body: null, response_status: 201 };
+    mocks.idempotency.claim.mockResolvedValue({ kind: 'replay', record });
+    mocks.fulfillment.getAdminShipmentInTransaction.mockResolvedValue(
+      shipment({ status: 'IN_TRANSIT', version: 2 }),
+    );
+
+    await expect(service.createShipment(
+      requestContext(),
+      ORDER_ID,
+      {
+        carrierCode: 'MOCK',
+        carrierName: 'Development carrier',
+        items: [{ orderItemId: ORDER_ITEM_ID, quantity: 2 }],
+        trackingNo: 'DEV-TRACK-001',
+      },
+      3,
+      CREATE_SHIPMENT_IDEMPOTENCY_KEY,
+    )).resolves.toMatchObject({ shipment_id: SHIPMENT_ID, status: 'IN_TRANSIT', version: 2 });
+
+    expect(mocks.fulfillment.getAdminShipmentInTransaction).toHaveBeenCalledWith(transaction, {
+      orderId: ORDER_ID,
+      shipmentId: SHIPMENT_ID,
+    });
+    expect(mocks.idempotency.assertHashOnlyReplay).toHaveBeenCalledWith(record, {
+      resourceId: SHIPMENT_ID,
+      responseForHash: { shipment_created: { order_id: ORDER_ID, shipment_id: SHIPMENT_ID } },
+      responseStatus: 201,
+      storage: 'HASH_ONLY',
+    });
+    expect(mocks.fulfillment.createShipmentInTransaction).not.toHaveBeenCalled();
+    expect(mocks.idempotency.complete).not.toHaveBeenCalled();
+    expect(mocks.audit.append).not.toHaveBeenCalled();
+    expect(mocks.outbox.append).not.toHaveBeenCalled();
+  });
+
+  it('fails the shipment transaction before outbox and idempotency completion when audit persistence fails', async () => {
+    const { mocks, service } = harness();
+    mocks.fulfillment.createShipmentInTransaction.mockResolvedValue({
+      kind: 'created',
+      orderVersion: 4,
+      shipment: shipment({ events: [], status: 'SHIPPED', version: 1 }),
+    });
+    mocks.audit.append.mockRejectedValue(new Error('audit unavailable'));
+
+    await expect(service.createShipment(
+      requestContext(),
+      ORDER_ID,
+      {
+        carrierCode: 'MOCK',
+        carrierName: 'Development carrier',
+        items: [{ orderItemId: ORDER_ITEM_ID, quantity: 2 }],
+        trackingNo: 'DEV-TRACK-001',
+      },
+      3,
+      CREATE_SHIPMENT_IDEMPOTENCY_KEY,
+    )).rejects.toThrow('audit unavailable');
+
+    expect(mocks.fulfillment.createShipmentInTransaction).toHaveBeenCalledOnce();
+    expect(mocks.audit.append).toHaveBeenCalledOnce();
+    expect(mocks.outbox.append).not.toHaveBeenCalled();
+    expect(mocks.idempotency.complete).not.toHaveBeenCalled();
+  });
+
+  it('appends a tracking correction with a stable HMAC key and redacted persistence metadata', async () => {
+    const { mocks, service, transaction } = harness();
+    const correctionReason = 'Operator corrected a copied tracking reference';
+    const corrected = shipment({
+      carrierCode: 'NEW',
+      carrierName: 'New carrier',
+      events: [{
+        actorAccountId: ACCOUNT_ID,
+        carrierCode: 'NEW',
+        carrierName: 'New carrier',
+        createdAt: UPDATED_AT,
+        description: 'Tracking reference corrected',
+        eventId: EVENT_ID,
+        eventKey: 'evt_fixture',
+        eventType: 'TRACKING_CORRECTION',
+        location: null,
+        occurredAt: UPDATED_AT,
+        reason: correctionReason,
+        source: 'ADMIN',
+        statusCode: null,
+        trackingNo: 'DEV-TRACK-002',
+      }],
+      trackingNo: 'DEV-TRACK-002',
+      version: 3,
+    });
+    mocks.fulfillment.appendLogisticsEventInTransaction.mockResolvedValue({
+      event: corrected.events[0],
+      kind: 'applied',
+      shipment: corrected,
+    });
+    const input = {
+      carrierCode: 'NEW',
+      carrierName: 'New carrier',
+      description: 'Tracking reference corrected',
+      eventType: 'TRACKING_CORRECTION' as const,
+      location: null,
+      occurredAt: UPDATED_AT.toISOString(),
+      reason: correctionReason,
+      trackingNo: 'DEV-TRACK-002',
+    };
+
+    await expect(service.appendLogisticsEvent(
+      requestContext(), SHIPMENT_ID, input, 2, APPEND_EVENT_IDEMPOTENCY_KEY,
+    )).resolves.toMatchObject({
+      events: [{ event_type: 'TRACKING_CORRECTION', reason: correctionReason }],
+      shipment: { shipment_id: SHIPMENT_ID, tracking_no: 'DEV-TRACK-002', version: 3 },
+    });
+
+    const eventCommand = mocks.fulfillment.appendLogisticsEventInTransaction.mock.calls[0]?.[1] as {
+      event: { occurredAt: Date; reason: string };
+      eventId: string;
+      eventKey: string;
+    };
+    const expectedEventKey = `evt_${createHmac('sha256', Buffer.alloc(32, 42))
+      .update('qingxu:fulfillment-logistics-event:v1\0', 'utf8')
+      .update(JSON.stringify([ACCOUNT_ID, SHIPMENT_ID, APPEND_EVENT_IDEMPOTENCY_KEY]), 'utf8')
+      .digest('hex')}`;
+    expect(eventCommand).toMatchObject({
+      event: { occurredAt: UPDATED_AT, reason: correctionReason },
+      eventId: expect.stringMatching(/^[0-9A-HJKMNP-TV-Z]{26}$/),
+      eventKey: expectedEventKey,
+    });
+    expect(mocks.audit.append).toHaveBeenCalledWith(transaction, expect.objectContaining({
+      action: 'UPDATE',
+      after: { status: 'IN_TRANSIT', version: 3 },
+      before: { status: 'IN_TRANSIT', version: 2 },
+      objectId: SHIPMENT_ID,
+      reason: expect.stringMatching(/^TRACKING_CORRECTION:[a-f0-9]{64}$/),
+      summaryPolicy: 'STATUS_VERSION',
+    }));
+    expect(mocks.outbox.append).toHaveBeenCalledWith(transaction, expect.objectContaining({
+      aggregateId: SHIPMENT_ID,
+      eventType: 'shipment.updated',
+      payload: expect.objectContaining({ resource_version: 3 }),
+    }));
+    expect(mocks.idempotency.complete).toHaveBeenCalledWith(
+      transaction,
+      expect.objectContaining({ idempotencyKey: APPEND_EVENT_IDEMPOTENCY_KEY }),
+      {
+        resourceId: SHIPMENT_ID,
+        responseForHash: { logistics_event_appended: { shipment_id: SHIPMENT_ID } },
+        responseStatus: 200,
+        storage: 'HASH_ONLY',
+      },
+    );
+    const persistedMetadata = JSON.stringify([
+      mocks.audit.append.mock.calls,
+      mocks.outbox.append.mock.calls,
+      mocks.idempotency.complete.mock.calls.map((call) => call[2]),
+    ]);
+    expect(persistedMetadata).not.toContain(correctionReason);
+    expect(persistedMetadata).not.toContain('DEV-TRACK-002');
+    expect(persistedMetadata).not.toContain('Tracking reference corrected');
+  });
+
+  it('replays a logistics event as the current shipment projection without appending another event', async () => {
+    const { mocks, service, transaction } = harness();
+    const record = { resource_id: SHIPMENT_ID, response_body: null, response_status: 200 };
+    mocks.idempotency.claim.mockResolvedValue({ kind: 'replay', record });
+    mocks.fulfillment.getAdminShipmentInTransaction.mockResolvedValue(shipment({ version: 4 }));
+
+    await expect(service.appendLogisticsEvent(
+      requestContext(),
+      SHIPMENT_ID,
+      {
+        description: 'Parcel delivered',
+        eventType: 'STATUS',
+        location: 'Auckland',
+        occurredAt: UPDATED_AT.toISOString(),
+        statusCode: 'DELIVERED',
+      },
+      3,
+      APPEND_EVENT_IDEMPOTENCY_KEY,
+    )).resolves.toMatchObject({ shipment: { shipment_id: SHIPMENT_ID, version: 4 } });
+
+    expect(mocks.fulfillment.getAdminShipmentInTransaction).toHaveBeenCalledWith(transaction, {
+      shipmentId: SHIPMENT_ID,
+    });
+    expect(mocks.idempotency.assertHashOnlyReplay).toHaveBeenCalledWith(record, {
+      resourceId: SHIPMENT_ID,
+      responseForHash: { logistics_event_appended: { shipment_id: SHIPMENT_ID } },
+      responseStatus: 200,
+      storage: 'HASH_ONLY',
+    });
+    expect(mocks.fulfillment.appendLogisticsEventInTransaction).not.toHaveBeenCalled();
+    expect(mocks.idempotency.complete).not.toHaveBeenCalled();
+    expect(mocks.audit.append).not.toHaveBeenCalled();
+    expect(mocks.outbox.append).not.toHaveBeenCalled();
   });
 
   it('denies address access without the dedicated permission and persists a redacted failure audit', async () => {

@@ -89,6 +89,22 @@ export class StoreOrdersController {
     );
   }
 
+  @Get(':order_id/logistics')
+  @NoStore()
+  logistics(
+    @Param('order_id') orderIdValue: string,
+    @Body() body: unknown,
+    @Query() query: unknown,
+    @StoreAuthRequest() request: StoreAuthRequestContext,
+  ) {
+    parseStoreEmptyBody(body);
+    parseStoreAuthEmptyQuery(query);
+    return this.orders.getLogistics(
+      requireStoreSession(request),
+      parseStoreOrderId(orderIdValue),
+    );
+  }
+
   @Post(':order_id/cancel')
   @HttpCode(HttpStatus.OK)
   @NoStore()

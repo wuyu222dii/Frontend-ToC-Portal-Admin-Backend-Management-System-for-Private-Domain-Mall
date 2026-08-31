@@ -139,12 +139,14 @@ const detailResponse = {
   timeline: [],
   version: 3,
 };
+const logisticsResponse = { events: [], shipment: null };
 
 const createOrder = vi.fn();
 const listOrders = vi.fn();
 const getOrder = vi.fn();
+const getLogistics = vi.fn();
 const cancelOrder = vi.fn();
-const orderService = { cancelOrder, createOrder, getOrder, listOrders };
+const orderService = { cancelOrder, createOrder, getLogistics, getOrder, listOrders };
 const findUnique = vi.fn();
 const redisEval = vi.fn();
 const database = {
@@ -264,6 +266,7 @@ describe('B9.2-B9.3 Store order HTTP boundary', () => {
     createOrder.mockResolvedValue(orderResponse);
     listOrders.mockResolvedValue(listResponse);
     getOrder.mockResolvedValue(detailResponse);
+    getLogistics.mockResolvedValue(logisticsResponse);
     cancelOrder.mockResolvedValue(orderResponse);
   });
 
@@ -336,6 +339,17 @@ describe('B9.2-B9.3 Store order HTTP boundary', () => {
       ORDER_ID,
     );
     expectNoStore(fetched);
+
+    const logistics = await request(app.getHttpServer())
+      .get(`/api/v1/store/orders/${ORDER_ID}/logistics`)
+      .set('Authorization', bearer)
+      .expect(200);
+    expect(logistics.body.data).toEqual(logisticsResponse);
+    expect(getLogistics).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: ACCOUNT_ID, customerId: CUSTOMER_ID, sessionId: SESSION_ID }),
+      ORDER_ID,
+    );
+    expectNoStore(logistics);
 
     const cancelled = await request(app.getHttpServer())
       .post(`/api/v1/store/orders/${ORDER_ID}/cancel`)
@@ -418,6 +432,9 @@ describe('B9.2-B9.3 Store order HTTP boundary', () => {
       () => request(app.getHttpServer()).get('/api/v1/store/orders/not-an-ulid'),
       () => request(app.getHttpServer()).get(`/api/v1/store/orders/${ORDER_ID}?expand=payment`),
       () => request(app.getHttpServer()).get(`/api/v1/store/orders/${ORDER_ID}`).send({ reveal: true }),
+      () => request(app.getHttpServer()).get('/api/v1/store/orders/not-an-ulid/logistics'),
+      () => request(app.getHttpServer()).get(`/api/v1/store/orders/${ORDER_ID}/logistics?refresh=true`),
+      () => request(app.getHttpServer()).get(`/api/v1/store/orders/${ORDER_ID}/logistics`).send({ reveal: true }),
       () => request(app.getHttpServer())
         .post(`/api/v1/store/orders/${ORDER_ID}/cancel`)
         .set('Idempotency-Key', IDEMPOTENCY_KEY)
@@ -460,6 +477,7 @@ describe('B9.2-B9.3 Store order HTTP boundary', () => {
     }
     expect(listOrders).not.toHaveBeenCalled();
     expect(getOrder).not.toHaveBeenCalled();
+    expect(getLogistics).not.toHaveBeenCalled();
     expect(cancelOrder).not.toHaveBeenCalled();
   });
 
@@ -483,6 +501,7 @@ describe('B9.2-B9.3 Store order HTTP boundary', () => {
       () => request(app.getHttpServer())
         .post('/api/v1/store/orders').set('Idempotency-Key', IDEMPOTENCY_KEY).send(submitBody),
       () => request(app.getHttpServer()).get(`/api/v1/store/orders/${ORDER_ID}`),
+      () => request(app.getHttpServer()).get(`/api/v1/store/orders/${ORDER_ID}/logistics`),
       () => request(app.getHttpServer())
         .post(`/api/v1/store/orders/${ORDER_ID}/cancel`)
         .set('Idempotency-Key', IDEMPOTENCY_KEY).set('If-Match', '"3"').send({}),
@@ -496,6 +515,7 @@ describe('B9.2-B9.3 Store order HTTP boundary', () => {
     expect(createOrder).not.toHaveBeenCalled();
     expect(listOrders).not.toHaveBeenCalled();
     expect(getOrder).not.toHaveBeenCalled();
+    expect(getLogistics).not.toHaveBeenCalled();
     expect(cancelOrder).not.toHaveBeenCalled();
   });
 
@@ -505,6 +525,7 @@ describe('B9.2-B9.3 Store order HTTP boundary', () => {
       () => request(forbiddenApp.getHttpServer())
         .post('/api/v1/store/orders').set('Idempotency-Key', IDEMPOTENCY_KEY).send(submitBody),
       () => request(forbiddenApp.getHttpServer()).get(`/api/v1/store/orders/${ORDER_ID}`),
+      () => request(forbiddenApp.getHttpServer()).get(`/api/v1/store/orders/${ORDER_ID}/logistics`),
       () => request(forbiddenApp.getHttpServer())
         .post(`/api/v1/store/orders/${ORDER_ID}/cancel`)
         .set('Idempotency-Key', IDEMPOTENCY_KEY).set('If-Match', '"3"').send({}),
@@ -517,6 +538,7 @@ describe('B9.2-B9.3 Store order HTTP boundary', () => {
     expect(createOrder).not.toHaveBeenCalled();
     expect(listOrders).not.toHaveBeenCalled();
     expect(getOrder).not.toHaveBeenCalled();
+    expect(getLogistics).not.toHaveBeenCalled();
     expect(cancelOrder).not.toHaveBeenCalled();
   });
 

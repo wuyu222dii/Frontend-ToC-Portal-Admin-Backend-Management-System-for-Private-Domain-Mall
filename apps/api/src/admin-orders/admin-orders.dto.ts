@@ -6,6 +6,7 @@ const MAX_MONEY = '9999999999999999.99';
 const ONE_DAY_MS = 24 * 60 * 60 * 1_000;
 const POSTGRES_INTEGER_MAX = 2_147_483_647;
 const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1_000;
+const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 const ORDER_STATUSES = ['PENDING_PAYMENT', 'PENDING_SHIPMENT', 'SHIPPING', 'COMPLETED', 'CLOSED'] as const;
 const PAYMENT_STATUSES = ['UNPAID', 'PROCESSING', 'PAID'] as const;
@@ -51,6 +52,41 @@ export interface AdminFulfillmentAddressAccessHeaders {
   reason: string;
 }
 
+export interface AdminShipmentLineInput {
+  orderItemId: string;
+  quantity: number;
+}
+
+export interface AdminCreateShipmentInput {
+  carrierCode: string;
+  carrierName: string;
+  items: AdminShipmentLineInput[];
+  trackingNo: string;
+}
+
+interface AdminLogisticsEventBaseInput {
+  description: string;
+  location: string | null;
+  occurredAt: string;
+}
+
+export interface AdminLogisticsStatusEventInput extends AdminLogisticsEventBaseInput {
+  eventType: 'STATUS';
+  statusCode: 'DELIVERED' | 'IN_TRANSIT';
+}
+
+export interface AdminLogisticsCorrectionEventInput extends AdminLogisticsEventBaseInput {
+  carrierCode: string;
+  carrierName: string;
+  eventType: 'TRACKING_CORRECTION';
+  reason: string;
+  trackingNo: string;
+}
+
+export type AdminLogisticsEventInput =
+  | AdminLogisticsCorrectionEventInput
+  | AdminLogisticsStatusEventInput;
+
 type PlainRecord = Record<string, unknown>;
 
 function invalid(message: string): never {
@@ -63,6 +99,68 @@ function plainRecord(value: unknown, label: string): PlainRecord {
     return invalid(`${label} must be a plain object`);
   }
   return value as PlainRecord;
+}
+
+function closedBody(
+  value: unknown,
+  required: readonly string[],
+  optional: readonly string[] = [],
+): PlainRecord {
+  const body = plainRecord(value, 'Request body');
+  const allowed = new Set([...required, ...optional]);
+  if (required.some((field) => !Object.hasOwn(body, field)) ||
+    Object.keys(body).some((field) => !allowed.has(field))) {
+    return invalid('Request body fields are invalid');
+  }
+  return body;
+}
+
+function normalizedText(
+  value: unknown,
+  field: string,
+  minimum: number,
+  maximum: number,
+): string {
+  if (typeof value !== 'string') return invalid(`${field} is invalid`);
+  const normalized = value.trim();
+  const length = Array.from(normalized).length;
+  if (length < minimum || length > maximum || /\p{Cc}/u.test(normalized)) {
+    return invalid(`${field} is invalid`);
+  }
+  return normalized;
+}
+
+function nullableLocation(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') return invalid('location is invalid');
+  const normalized = value.trim();
+  if (normalized.length === 0) return null;
+  return normalizedText(normalized, 'location', 1, 160);
+}
+
+function normalizedTimestamp(value: unknown): string {
+  if (typeof value !== 'string' || !RFC3339.test(value)) return invalid('occurred_at is invalid');
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds)) return invalid('occurred_at is invalid');
+  return new Date(milliseconds).toISOString();
+}
+
+function positiveDatabaseInteger(value: unknown, field: string): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 1 || Number(value) > POSTGRES_INTEGER_MAX) {
+    return invalid(`${field} is invalid`);
+  }
+  return Number(value);
+}
+
+function shipmentLine(value: unknown): AdminShipmentLineInput {
+  const line = plainRecord(value, 'items item');
+  if (Object.keys(line).length !== 2 || !Object.hasOwn(line, 'order_item_id') ||
+    !Object.hasOwn(line, 'quantity')) return invalid('items item fields are invalid');
+  if (!isValidUlid(line.order_item_id)) return invalid('order_item_id is invalid');
+  return {
+    orderItemId: line.order_item_id,
+    quantity: positiveDatabaseInteger(line.quantity, 'quantity'),
+  };
 }
 
 function positiveInteger(value: unknown, fallback: number, maximum: number, field: string): number {
@@ -135,6 +233,71 @@ function money(value: unknown, field: 'min_amount' | 'max_amount'): string | und
 export function parseAdminOrderId(value: string): string {
   if (!isValidUlid(value)) return invalid('order_id is invalid');
   return value;
+}
+
+export function parseAdminShipmentId(value: string): string {
+  if (!isValidUlid(value)) return invalid('shipment_id is invalid');
+  return value;
+}
+
+export function parseAdminCreateShipmentBody(value: unknown): AdminCreateShipmentInput {
+  const body = closedBody(value, ['carrier_code', 'carrier_name', 'tracking_no', 'items']);
+  if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > 100) {
+    return invalid('items is invalid');
+  }
+  const items = body.items.map(shipmentLine)
+    .sort((left, right) => left.orderItemId.localeCompare(right.orderItemId));
+  if (new Set(items.map(({ orderItemId }) => orderItemId)).size !== items.length) {
+    return invalid('items order_item_id values must be unique');
+  }
+  return {
+    carrierCode: normalizedText(body.carrier_code, 'carrier_code', 1, 40),
+    carrierName: normalizedText(body.carrier_name, 'carrier_name', 1, 80),
+    items,
+    trackingNo: normalizedText(body.tracking_no, 'tracking_no', 1, 120),
+  };
+}
+
+export function parseAdminLogisticsEventBody(value: unknown): AdminLogisticsEventInput {
+  const discriminator = plainRecord(value, 'Request body').event_type;
+  if (discriminator === 'STATUS') {
+    const body = closedBody(
+      value,
+      ['event_type', 'status_code', 'description', 'occurred_at'],
+      ['location'],
+    );
+    if (body.status_code !== 'IN_TRANSIT' && body.status_code !== 'DELIVERED') {
+      return invalid('status_code is invalid');
+    }
+    return {
+      description: normalizedText(body.description, 'description', 1, 300),
+      eventType: 'STATUS',
+      location: nullableLocation(body.location),
+      occurredAt: normalizedTimestamp(body.occurred_at),
+      statusCode: body.status_code,
+    };
+  }
+  if (discriminator === 'TRACKING_CORRECTION') {
+    const body = closedBody(
+      value,
+      [
+        'event_type', 'carrier_code', 'carrier_name', 'tracking_no', 'reason', 'description',
+        'occurred_at',
+      ],
+      ['location'],
+    );
+    return {
+      carrierCode: normalizedText(body.carrier_code, 'carrier_code', 1, 40),
+      carrierName: normalizedText(body.carrier_name, 'carrier_name', 1, 80),
+      description: normalizedText(body.description, 'description', 1, 300),
+      eventType: 'TRACKING_CORRECTION',
+      location: nullableLocation(body.location),
+      occurredAt: normalizedTimestamp(body.occurred_at),
+      reason: normalizedText(body.reason, 'reason', 2, 500),
+      trackingNo: normalizedText(body.tracking_no, 'tracking_no', 1, 120),
+    };
+  }
+  return invalid('event_type is invalid');
 }
 
 export function parseAdminOrderListQuery(value: unknown): AdminOrderListQuery {
@@ -214,6 +377,11 @@ export function parseAdminOrderListQuery(value: unknown): AdminOrderListQuery {
     return invalid('min_amount must not be greater than max_amount');
   }
   return input;
+}
+
+export function parseAdminOrderEmptyQuery(value: unknown): void {
+  const query = plainRecord(value, 'Query');
+  if (Object.keys(query).length !== 0) return invalid('Query fields are invalid');
 }
 
 export function parseAdminFulfillmentAddressAccessHeaders(

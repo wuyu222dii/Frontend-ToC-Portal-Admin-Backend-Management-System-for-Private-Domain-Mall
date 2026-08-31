@@ -56,11 +56,16 @@ const AUDIT_STATUS = new Set([
   'PROCESSED',
   'PUBLISHED',
   'READY',
+  'READY_TO_SHIP',
   'RECEIVED',
   'REJECTED',
   'REVOKED',
   'ROTATED',
+  'SHIPPED',
+  'SHIPPING',
   'SUCCEEDED',
+  'IN_TRANSIT',
+  'DELIVERED',
 ]);
 const AUDIT_MODULE = new Set([
   'access',

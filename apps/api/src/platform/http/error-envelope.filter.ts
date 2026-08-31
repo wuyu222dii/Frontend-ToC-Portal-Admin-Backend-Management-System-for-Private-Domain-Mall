@@ -49,6 +49,7 @@ const HTTP_ERROR_MAP: Readonly<Record<number, Omit<ResolvedError, 'status'>>> = 
 
 const SENSITIVE_EXACT_PATHS = new Set([
   '/api/v1/admin/orders',
+  '/api/v1/admin/shipments',
   '/api/v1/store/addresses',
   '/api/v1/store/legal-documents',
   '/api/v1/store/cart',
@@ -60,6 +61,7 @@ const SENSITIVE_EXACT_PATHS = new Set([
 ]);
 const SENSITIVE_PATH_PREFIXES = [
   '/api/v1/admin/orders/',
+  '/api/v1/admin/shipments/',
   '/api/v1/store/addresses/',
   '/api/v1/store/auth/',
   '/api/v1/store/attribution/',

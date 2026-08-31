@@ -30,7 +30,7 @@ import { configureApi } from '../platform/http/configure-api';
 import { ErrorEnvelopeFilter } from '../platform/http/error-envelope.filter';
 import { RequestIdMiddleware } from '../platform/http/request-id.middleware';
 import { SuccessEnvelopeInterceptor } from '../platform/http/success-envelope.interceptor';
-import { AdminOrdersController } from './admin-orders.controller';
+import { AdminOrdersController, AdminShipmentsController } from './admin-orders.controller';
 import { AdminOrdersService } from './admin-orders.service';
 
 const accountId = '01J00000000000000000000000';
@@ -42,6 +42,9 @@ const sessionId = '01J00000000000000000000005';
 const requestId = 'req_0123456789abcdef0123456789abcdef';
 const adminAccessJti = 'access:01J00000000000000000000008';
 const customerAccessJti = 'access:01J00000000000000000000009';
+const orderItemId = '01J0000000000000000000000A';
+const shipmentId = '01J0000000000000000000000B';
+const idempotencyKey = '00000000-0000-4000-8000-000000000001';
 
 const listResult = {
   items: [],
@@ -62,11 +65,47 @@ const addressResult = {
   snapshot_at: '2026-08-31T04:00:00.000Z',
   snapshot_id: '01J00000000000000000000006',
 };
+const shipmentResult = {
+  carrier_code: 'DEV',
+  carrier_name: 'Development Carrier',
+  delivered_at: null,
+  items: [{ order_item_id: orderItemId, quantity: 1 }],
+  order_id: orderId,
+  shipment_id: shipmentId,
+  shipped_at: '2026-08-31T04:00:00.000Z',
+  status: 'SHIPPED',
+  tracking_no: 'DEV-TRACK-001',
+  version: 1,
+};
+const logisticsResult = {
+  events: [{
+    carrier_code: null,
+    carrier_name: null,
+    description: 'Accepted by carrier',
+    event_id: '01J0000000000000000000000C',
+    event_key: 'evt_fixture',
+    event_type: 'STATUS',
+    location: 'Auckland',
+    occurred_at: '2026-08-31T04:05:00.000Z',
+    reason: null,
+    status_code: 'IN_TRANSIT',
+    tracking_no: null,
+  }],
+  shipment: { ...shipmentResult, status: 'IN_TRANSIT', version: 2 },
+};
 
 const listOrders = vi.fn().mockResolvedValue(listResult);
 const getOrder = vi.fn().mockResolvedValue(detailResult);
 const getFulfillmentAddress = vi.fn().mockResolvedValue(addressResult);
-const service = { getFulfillmentAddress, getOrder, listOrders };
+const createShipment = vi.fn().mockResolvedValue(shipmentResult);
+const appendLogisticsEvent = vi.fn().mockResolvedValue(logisticsResult);
+const service = {
+  appendLogisticsEvent,
+  createShipment,
+  getFulfillmentAddress,
+  getOrder,
+  listOrders,
+};
 
 const superAdmin: RbacPrincipal = {
   accountId,
@@ -193,7 +232,7 @@ class AgentAdminGuard implements CanActivate {
 }
 
 @Module({
-  controllers: [AdminOrdersController],
+  controllers: [AdminOrdersController, AdminShipmentsController],
   providers: [
     { provide: AdminOrdersService, useValue: service },
     { provide: APP_FILTER, useClass: ErrorEnvelopeFilter },
@@ -204,7 +243,7 @@ class AgentAdminGuard implements CanActivate {
 class UnauthenticatedOrdersTestModule {}
 
 @Module({
-  controllers: [AdminOrdersController],
+  controllers: [AdminOrdersController, AdminShipmentsController],
   providers: [
     { provide: AdminOrdersService, useValue: service },
     { provide: APP_FILTER, useClass: ErrorEnvelopeFilter },
@@ -216,7 +255,7 @@ class UnauthenticatedOrdersTestModule {}
 class SuperAdminOrdersTestModule {}
 
 @Module({
-  controllers: [AdminOrdersController],
+  controllers: [AdminOrdersController, AdminShipmentsController],
   providers: [
     { provide: AdminOrdersService, useValue: service },
     { provide: API_RUNTIME_CONFIG, useValue: runtimeConfig },
@@ -234,7 +273,7 @@ class RealAuthenticationOrdersTestModule implements NestModule {
 }
 
 @Module({
-  controllers: [AdminOrdersController],
+  controllers: [AdminOrdersController, AdminShipmentsController],
   providers: [
     { provide: AdminOrdersService, useValue: service },
     { provide: APP_FILTER, useClass: ErrorEnvelopeFilter },
@@ -270,6 +309,10 @@ describe('B11.1 Admin orders protected HTTP surface', () => {
     ['detail', () => request(app.getHttpServer()).get('/api/v1/admin/orders/not-an-order')],
     ['fulfillment address', () => request(app.getHttpServer())
       .get('/api/v1/admin/orders/not-an-order/fulfillment-address')],
+    ['shipment creation', () => request(app.getHttpServer())
+      .post('/api/v1/admin/orders/not-an-order/shipments')],
+    ['logistics event', () => request(app.getHttpServer())
+      .post('/api/v1/admin/shipments/not-a-shipment/events')],
   ] as const)(
     'returns 401 with no-store before %s parsing or service dispatch',
     async (_operation, build) => {
@@ -279,6 +322,8 @@ describe('B11.1 Admin orders protected HTTP surface', () => {
       expect(listOrders).not.toHaveBeenCalled();
       expect(getOrder).not.toHaveBeenCalled();
       expect(getFulfillmentAddress).not.toHaveBeenCalled();
+      expect(createShipment).not.toHaveBeenCalled();
+      expect(appendLogisticsEvent).not.toHaveBeenCalled();
     },
   );
 
@@ -301,6 +346,8 @@ describe('B11.1 Admin orders SUPER_ADMIN HTTP mapping', () => {
     listOrders.mockResolvedValue(listResult);
     getOrder.mockResolvedValue(detailResult);
     getFulfillmentAddress.mockResolvedValue(addressResult);
+    createShipment.mockResolvedValue(shipmentResult);
+    appendLogisticsEvent.mockResolvedValue(logisticsResult);
   });
 
   afterAll(async () => app.close());
@@ -384,6 +431,76 @@ describe('B11.1 Admin orders SUPER_ADMIN HTTP mapping', () => {
     expectNoStore(response.headers);
   });
 
+  it('maps the closed shipment command to 201 with SUPER_ADMIN context and no-store', async () => {
+    const response = await request(app.getHttpServer())
+      .post(`/api/v1/admin/orders/${orderId}/shipments`)
+      .set('Idempotency-Key', idempotencyKey)
+      .set('If-Match', '"3"')
+      .send({
+        carrier_code: ' DEV ',
+        carrier_name: ' Development Carrier ',
+        items: [{ order_item_id: orderItemId, quantity: 1 }],
+        tracking_no: ' DEV-TRACK-001 ',
+      })
+      .expect(201);
+
+    expect(createShipment).toHaveBeenCalledWith(
+      expect.objectContaining({ principal: superAdmin, requestId }),
+      orderId,
+      {
+        carrierCode: 'DEV',
+        carrierName: 'Development Carrier',
+        items: [{ orderItemId, quantity: 1 }],
+        trackingNo: 'DEV-TRACK-001',
+      },
+      3,
+      idempotencyKey,
+    );
+    expect(response.body).toEqual({
+      code: 'OK',
+      data: shipmentResult,
+      message: 'success',
+      request_id: requestId,
+    });
+    expectNoStore(response.headers);
+  });
+
+  it('maps the closed logistics command to 200 with SUPER_ADMIN context and no-store', async () => {
+    const response = await request(app.getHttpServer())
+      .post(`/api/v1/admin/shipments/${shipmentId}/events`)
+      .set('Idempotency-Key', idempotencyKey)
+      .set('If-Match', '"1"')
+      .send({
+        description: ' Accepted by carrier ',
+        event_type: 'STATUS',
+        location: ' Auckland ',
+        occurred_at: '2026-08-31T16:05:00+12:00',
+        status_code: 'IN_TRANSIT',
+      })
+      .expect(200);
+
+    expect(appendLogisticsEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ principal: superAdmin, requestId }),
+      shipmentId,
+      {
+        description: 'Accepted by carrier',
+        eventType: 'STATUS',
+        location: 'Auckland',
+        occurredAt: '2026-08-31T04:05:00.000Z',
+        statusCode: 'IN_TRANSIT',
+      },
+      1,
+      idempotencyKey,
+    );
+    expect(response.body).toEqual({
+      code: 'OK',
+      data: logisticsResult,
+      message: 'success',
+      request_id: requestId,
+    });
+    expectNoStore(response.headers);
+  });
+
   it.each([
     ['unknown list query field', () => request(app.getHttpServer())
       .get('/api/v1/admin/orders?include_address=true'), listOrders],
@@ -393,12 +510,78 @@ describe('B11.1 Admin orders SUPER_ADMIN HTTP mapping', () => {
       .get('/api/v1/admin/orders/not-an-order/fulfillment-address')
       .set('X-Access-Purpose', 'ORDER_FULFILLMENT')
       .set('X-Access-Reason', 'Prepare shipment'), getFulfillmentAddress],
+    ['unknown shipment query field', () => request(app.getHttpServer())
+      .post(`/api/v1/admin/orders/${orderId}/shipments?force=true`)
+      .set('Idempotency-Key', idempotencyKey)
+      .set('If-Match', '"3"')
+      .send({
+        carrier_code: 'DEV', carrier_name: 'Carrier', tracking_no: 'TRACK',
+        items: [{ order_item_id: orderItemId, quantity: 1 }],
+      }), createShipment],
+    ['invalid shipment body', () => request(app.getHttpServer())
+      .post(`/api/v1/admin/orders/${orderId}/shipments`)
+      .set('Idempotency-Key', idempotencyKey)
+      .set('If-Match', '"3"')
+      .send({ carrier_code: 'DEV', carrier_name: 'Carrier', items: [], tracking_no: 'TRACK' }),
+    createShipment],
+    ['unknown logistics query field', () => request(app.getHttpServer())
+      .post(`/api/v1/admin/shipments/${shipmentId}/events?force=true`)
+      .set('Idempotency-Key', idempotencyKey)
+      .set('If-Match', '"1"')
+      .send({
+        description: 'Accepted', event_type: 'STATUS', occurred_at: '2026-08-31T04:05:00Z',
+        status_code: 'IN_TRANSIT',
+      }), appendLogisticsEvent],
+    ['invalid logistics If-Match', () => request(app.getHttpServer())
+      .post(`/api/v1/admin/shipments/${shipmentId}/events`)
+      .set('Idempotency-Key', idempotencyKey)
+      .set('If-Match', '1')
+      .send({
+        description: 'Accepted', event_type: 'STATUS', occurred_at: '2026-08-31T04:05:00Z',
+        status_code: 'IN_TRANSIT',
+      }), appendLogisticsEvent],
   ] as const)(
     'returns frozen 400 with no-store before service dispatch for %s',
     async (_label, build, serviceMethod) => {
       const response = await build().expect(400);
       expect(response.body).toMatchObject({ code: 'INVALID_ARGUMENT', request_id: requestId });
       expectNoStore(response.headers);
+      expect(serviceMethod).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['shipment creation', `/api/v1/admin/orders/${orderId}/shipments`, {
+      carrier_code: 'DEV',
+      carrier_name: 'Carrier',
+      items: [{ order_item_id: orderItemId, quantity: 1 }],
+      tracking_no: 'TRACK',
+    }, createShipment],
+    ['logistics event', `/api/v1/admin/shipments/${shipmentId}/events`, {
+      description: 'Accepted',
+      event_type: 'STATUS',
+      occurred_at: '2026-08-31T04:05:00Z',
+      status_code: 'IN_TRANSIT',
+    }, appendLogisticsEvent],
+  ] as const)(
+    'closes the %s Idempotency-Key and If-Match header contract',
+    async (_label, path, body, serviceMethod) => {
+      const cases = [
+        { idempotency: undefined, ifMatch: '"3"' },
+        { idempotency: 'not-a-valid-key', ifMatch: '"3"' },
+        { idempotency: idempotencyKey, ifMatch: undefined },
+        { idempotency: idempotencyKey, ifMatch: 'W/"3"' },
+      ] as const;
+      for (const headers of cases) {
+        let pending = request(app.getHttpServer()).post(path);
+        if (headers.idempotency !== undefined) {
+          pending = pending.set('Idempotency-Key', headers.idempotency);
+        }
+        if (headers.ifMatch !== undefined) pending = pending.set('If-Match', headers.ifMatch);
+        const response = await pending.send(body).expect(400);
+        expect(response.body).toMatchObject({ code: 'INVALID_ARGUMENT', request_id: requestId });
+        expectNoStore(response.headers);
+      }
       expect(serviceMethod).not.toHaveBeenCalled();
     },
   );
@@ -413,6 +596,22 @@ describe('B11.1 Admin orders SUPER_ADMIN HTTP mapping', () => {
       .set('X-Access-Purpose', 'ORDER_FULFILLMENT')
       .set('X-Access-Reason', 'Prepare shipment'), getFulfillmentAddress,
       'STATE_CONFLICT', 409],
+    ['shipment creation', () => request(app.getHttpServer())
+      .post(`/api/v1/admin/orders/${orderId}/shipments`)
+      .set('Idempotency-Key', idempotencyKey)
+      .set('If-Match', '"3"')
+      .send({
+        carrier_code: 'DEV', carrier_name: 'Carrier', tracking_no: 'TRACK',
+        items: [{ order_item_id: orderItemId, quantity: 1 }],
+      }), createShipment, 'SHIPMENT_ITEMS_MISMATCH', 422],
+    ['logistics event', () => request(app.getHttpServer())
+      .post(`/api/v1/admin/shipments/${shipmentId}/events`)
+      .set('Idempotency-Key', idempotencyKey)
+      .set('If-Match', '"1"')
+      .send({
+        description: 'Delivered', event_type: 'STATUS', occurred_at: '2026-08-31T04:05:00Z',
+        status_code: 'DELIVERED',
+      }), appendLogisticsEvent, 'SHIPMENT_STATE_CONFLICT', 409],
   ] as const)(
     'maps %s service %s to HTTP %s and preserves no-store',
     async (_operation, build, serviceMethod, code, status) => {
@@ -506,6 +705,10 @@ describe('B11.1 Admin orders wrong-role HTTP boundary', () => {
   it.each([
     ['list', () => request(app.getHttpServer()).get('/api/v1/admin/orders?page=0')],
     ['detail', () => request(app.getHttpServer()).get('/api/v1/admin/orders/not-an-order')],
+    ['shipment creation', () => request(app.getHttpServer())
+      .post('/api/v1/admin/orders/not-an-order/shipments')],
+    ['logistics event', () => request(app.getHttpServer())
+      .post('/api/v1/admin/shipments/not-a-shipment/events')],
   ] as const)(
     'returns 403 with no-store before %s parsing or service dispatch for an AGENT_ADMIN',
     async (_operation, build) => {
@@ -519,6 +722,8 @@ describe('B11.1 Admin orders wrong-role HTTP boundary', () => {
       expect(listOrders).not.toHaveBeenCalled();
       expect(getOrder).not.toHaveBeenCalled();
       expect(getFulfillmentAddress).not.toHaveBeenCalled();
+      expect(createShipment).not.toHaveBeenCalled();
+      expect(appendLogisticsEvent).not.toHaveBeenCalled();
     },
   );
 

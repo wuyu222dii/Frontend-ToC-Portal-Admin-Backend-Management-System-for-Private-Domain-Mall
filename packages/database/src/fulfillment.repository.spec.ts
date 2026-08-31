@@ -342,6 +342,23 @@ describe('FulfillmentRepository', () => {
     expect(JSON.stringify(result)).not.toContain('provider-transaction-sensitive-4826');
   });
 
+  it.each([
+    ['unpaid payment axis', { payment_status: 'PROCESSING' }],
+    ['unresolved payment resolution', { payment_resolution: 'MANUAL_REQUIRED' }],
+    ['shipment and fulfillment drift', { fulfillment_status: 'IN_TRANSIT' }],
+  ])('hides ADD_LOGISTICS_EVENT eligibility for %s', async (_label, override) => {
+    const tx = transaction();
+    vi.mocked(tx.salesOrder.findUnique).mockResolvedValueOnce({
+      ...detailRecord(),
+      ...override,
+    } as never);
+
+    const result = await new FulfillmentRepository({} as PrismaClient)
+      .getAdminOrderDetailInTransaction(tx, { orderId });
+
+    expect(result.eligibility.canAddLogisticsEvent).toBe(false);
+  });
+
   it('isolates complete address material behind its dedicated read and copies encrypted buffers', async () => {
     const phoneCiphertext = Buffer.from('phone-ciphertext-fixture');
     const detailCiphertext = Buffer.from('detail-ciphertext-fixture');

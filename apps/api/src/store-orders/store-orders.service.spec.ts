@@ -38,6 +38,9 @@ const ORDER_ITEM_ID = '01J0000000000000000000000F';
 const RESERVATION_ID = '01J0000000000000000000000G';
 const CANDIDATE_ID = '01J0000000000000000000000H';
 const ADDRESS_SNAPSHOT_ID = '01J0000000000000000000000J';
+const SHIPMENT_ID = '01J0000000000000000000000N';
+const SHIPMENT_ITEM_ID = '01J0000000000000000000000P';
+const LOGISTICS_EVENT_ID = '01J0000000000000000000000Q';
 const IDEMPOTENCY_KEY = '00000000-0000-4000-8000-000000000001';
 const REQUEST_ID = 'req_00000000000000000000000000000001';
 const IP_ADDRESS = '127.0.0.1';
@@ -353,6 +356,7 @@ function harness() {
     listOwnedOrdersInTransaction: vi.fn(async () => ({ items: [listItemSnapshot()], total: 1 })),
   };
   const fulfillment = {
+    getOwnedFulfillmentProjection: vi.fn(async () => fulfillmentProjection()),
     getOwnedFulfillmentProjectionInTransaction: vi.fn(async () => fulfillmentProjection()),
     listOwnedFulfillmentProjectionsInTransaction: vi.fn(async () => new Map([
       [ORDER_ID, fulfillmentProjection()],
@@ -703,6 +707,93 @@ describe('B9.2-B9.3 StoreOrdersService', () => {
       current.transaction,
       { customerId: CUSTOMER_ID, orderId: ORDER_ID },
     );
+  });
+
+  it('returns the owned logistics projection with a nullable shipment and stable event order', async () => {
+    const current = harness();
+    const occurredAt = new Date('2026-08-28T02:00:00.000Z');
+    const shippedAt = new Date('2026-08-28T01:00:00.000Z');
+    current.fulfillment.getOwnedFulfillmentProjection.mockResolvedValueOnce(fulfillmentProjection({
+      canViewLogistics: true,
+      fulfillmentStatus: 'IN_TRANSIT',
+      orderStatus: 'SHIPPING',
+      paymentStatus: 'PAID',
+      shipment: {
+        carrierCode: 'DEV',
+        carrierName: 'Development Carrier',
+        createdAt: shippedAt,
+        deliveredAt: null,
+        events: [{
+          actorAccountId: ACCOUNT_ID,
+          carrierCode: null,
+          carrierName: null,
+          createdAt: occurredAt,
+          description: 'In transit',
+          eventId: LOGISTICS_EVENT_ID,
+          eventKey: 'event-key-digest',
+          eventType: 'STATUS',
+          location: null,
+          occurredAt,
+          reason: null,
+          source: 'ADMIN_MANUAL',
+          statusCode: 'IN_TRANSIT',
+          trackingNo: null,
+        }],
+        items: [{
+          orderItemId: ORDER_ITEM_ID,
+          productName: 'Daily cleanser',
+          quantity: 2,
+          shipmentItemId: SHIPMENT_ITEM_ID,
+          skuId: SKU_ID,
+          skuName: '120 ml',
+        }],
+        orderId: ORDER_ID,
+        shipmentId: SHIPMENT_ID,
+        shippedAt,
+        status: 'IN_TRANSIT',
+        trackingNo: 'DEV-TRACK-1',
+        updatedAt: occurredAt,
+        version: 2,
+      },
+    }));
+
+    await expect(current.service.getLogistics(session, ORDER_ID)).resolves.toEqual({
+      events: [{
+        carrier_code: null,
+        carrier_name: null,
+        description: 'In transit',
+        event_id: LOGISTICS_EVENT_ID,
+        event_key: 'event-key-digest',
+        event_type: 'STATUS',
+        location: null,
+        occurred_at: occurredAt.toISOString(),
+        reason: null,
+        status_code: 'IN_TRANSIT',
+        tracking_no: null,
+      }],
+      shipment: {
+        carrier_code: 'DEV',
+        carrier_name: 'Development Carrier',
+        delivered_at: null,
+        items: [{ order_item_id: ORDER_ITEM_ID, quantity: 2 }],
+        order_id: ORDER_ID,
+        shipment_id: SHIPMENT_ID,
+        shipped_at: shippedAt.toISOString(),
+        status: 'IN_TRANSIT',
+        tracking_no: 'DEV-TRACK-1',
+        version: 2,
+      },
+    });
+    expect(current.fulfillment.getOwnedFulfillmentProjection).toHaveBeenCalledWith({
+      customerId: CUSTOMER_ID,
+      orderId: ORDER_ID,
+    });
+
+    current.fulfillment.getOwnedFulfillmentProjection.mockResolvedValueOnce(fulfillmentProjection());
+    await expect(current.service.getLogistics(session, ORDER_ID)).resolves.toEqual({
+      events: [],
+      shipment: null,
+    });
   });
 
   it('fails closed with a generic error when the frozen address ciphertext is unreadable', async () => {

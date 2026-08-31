@@ -2,9 +2,13 @@ import { ApplicationError } from '@qingxu/platform-core';
 import { describe, expect, it } from 'vitest';
 
 import {
+  parseAdminCreateShipmentBody,
   parseAdminFulfillmentAddressAccessHeaders,
+  parseAdminLogisticsEventBody,
+  parseAdminOrderEmptyQuery,
   parseAdminOrderId,
   parseAdminOrderListQuery,
+  parseAdminShipmentId,
   type AdminOrderFulfillmentStatusFilter,
   type AdminOrderPaymentStatusFilter,
   type AdminOrderRefundProcessingStatusFilter,
@@ -16,6 +20,9 @@ import {
 const ORDER_ID = '01J00000000000000000000001';
 const CUSTOMER_ID = '01J00000000000000000000002';
 const AGENT_ID = '01J00000000000000000000003';
+const ORDER_ITEM_ID = '01J00000000000000000000004';
+const ORDER_ITEM_ID_2 = '01J00000000000000000000005';
+const SHIPMENT_ID = '01J00000000000000000000006';
 
 const ORDER_STATUSES: readonly AdminOrderStatusFilter[] = [
   'PENDING_PAYMENT', 'PENDING_SHIPMENT', 'SHIPPING', 'COMPLETED', 'CLOSED',
@@ -172,5 +179,124 @@ describe('B11.1 Admin order DTO', () => {
   ])('rejects %s', (_label, purpose, reason) => {
     expect(() => parseAdminFulfillmentAddressAccessHeaders(purpose, reason))
       .toThrowError(ApplicationError);
+  });
+});
+
+describe('B11.2 Admin fulfillment command DTO', () => {
+  it('accepts only an empty query for fulfillment commands', () => {
+    expect(parseAdminOrderEmptyQuery({})).toBeUndefined();
+    expect(() => parseAdminOrderEmptyQuery({ force: 'true' })).toThrowError(ApplicationError);
+  });
+
+  it('normalizes and stably orders the exact shipment request', () => {
+    expect(parseAdminCreateShipmentBody({
+      carrier_code: '  DEV  ',
+      carrier_name: '  Development Carrier  ',
+      items: [
+        { order_item_id: ORDER_ITEM_ID_2, quantity: 2 },
+        { order_item_id: ORDER_ITEM_ID, quantity: 1 },
+      ],
+      tracking_no: '  TRACK-001  ',
+    })).toEqual({
+      carrierCode: 'DEV',
+      carrierName: 'Development Carrier',
+      items: [
+        { orderItemId: ORDER_ITEM_ID, quantity: 1 },
+        { orderItemId: ORDER_ITEM_ID_2, quantity: 2 },
+      ],
+      trackingNo: 'TRACK-001',
+    });
+  });
+
+  it.each([
+    ['non-object body', null],
+    ['unknown field', { carrier_code: 'DEV', carrier_name: 'Carrier', tracking_no: 'T', items: [], extra: 1 }],
+    ['empty items', { carrier_code: 'DEV', carrier_name: 'Carrier', tracking_no: 'T', items: [] }],
+    ['duplicate item', {
+      carrier_code: 'DEV', carrier_name: 'Carrier', tracking_no: 'T',
+      items: [{ order_item_id: ORDER_ITEM_ID, quantity: 1 }, { order_item_id: ORDER_ITEM_ID, quantity: 2 }],
+    }],
+    ['invalid item ID', {
+      carrier_code: 'DEV', carrier_name: 'Carrier', tracking_no: 'T',
+      items: [{ order_item_id: 'not-an-item', quantity: 1 }],
+    }],
+    ['zero quantity', {
+      carrier_code: 'DEV', carrier_name: 'Carrier', tracking_no: 'T',
+      items: [{ order_item_id: ORDER_ITEM_ID, quantity: 0 }],
+    }],
+    ['blank carrier', {
+      carrier_code: ' ', carrier_name: 'Carrier', tracking_no: 'T',
+      items: [{ order_item_id: ORDER_ITEM_ID, quantity: 1 }],
+    }],
+    ['control in tracking number', {
+      carrier_code: 'DEV', carrier_name: 'Carrier', tracking_no: 'TRACK\n1',
+      items: [{ order_item_id: ORDER_ITEM_ID, quantity: 1 }],
+    }],
+  ])('rejects shipment %s', (_label, body) => {
+    expect(() => parseAdminCreateShipmentBody(body)).toThrowError(ApplicationError);
+  });
+
+  it('parses the closed STATUS event and canonicalizes occurred_at', () => {
+    expect(parseAdminLogisticsEventBody({
+      description: '  Accepted by carrier  ',
+      event_type: 'STATUS',
+      location: '  Auckland  ',
+      occurred_at: '2026-08-30T14:00:00+12:00',
+      status_code: 'IN_TRANSIT',
+    })).toEqual({
+      description: 'Accepted by carrier',
+      eventType: 'STATUS',
+      location: 'Auckland',
+      occurredAt: '2026-08-30T02:00:00.000Z',
+      statusCode: 'IN_TRANSIT',
+    });
+  });
+
+  it('parses the mutually exclusive correction event and normalizes blank location to null', () => {
+    expect(parseAdminLogisticsEventBody({
+      carrier_code: 'NEW',
+      carrier_name: 'New Carrier',
+      description: 'Tracking reference corrected',
+      event_type: 'TRACKING_CORRECTION',
+      location: ' ',
+      occurred_at: '2026-08-30T02:00:00Z',
+      reason: 'Dispatch entry correction',
+      tracking_no: 'TRACK-002',
+    })).toEqual({
+      carrierCode: 'NEW',
+      carrierName: 'New Carrier',
+      description: 'Tracking reference corrected',
+      eventType: 'TRACKING_CORRECTION',
+      location: null,
+      occurredAt: '2026-08-30T02:00:00.000Z',
+      reason: 'Dispatch entry correction',
+      trackingNo: 'TRACK-002',
+    });
+  });
+
+  it.each([
+    ['unknown event type', { event_type: 'SCAN' }],
+    ['SHIPPED status target', {
+      description: 'Duplicate dispatch', event_type: 'STATUS', occurred_at: '2026-08-30T02:00:00Z',
+      status_code: 'SHIPPED',
+    }],
+    ['mixed status and correction fields', {
+      carrier_code: 'DEV', description: 'Mixed', event_type: 'STATUS', occurred_at: '2026-08-30T02:00:00Z',
+      status_code: 'IN_TRANSIT',
+    }],
+    ['missing correction reason', {
+      carrier_code: 'DEV', carrier_name: 'Carrier', description: 'Correction',
+      event_type: 'TRACKING_CORRECTION', occurred_at: '2026-08-30T02:00:00Z', tracking_no: 'T',
+    }],
+    ['invalid timestamp', {
+      description: 'Accepted', event_type: 'STATUS', occurred_at: 'not-a-time', status_code: 'IN_TRANSIT',
+    }],
+  ])('rejects logistics %s', (_label, body) => {
+    expect(() => parseAdminLogisticsEventBody(body)).toThrowError(ApplicationError);
+  });
+
+  it('accepts only a ULID shipment path parameter', () => {
+    expect(parseAdminShipmentId(SHIPMENT_ID)).toBe(SHIPMENT_ID);
+    expect(() => parseAdminShipmentId('not-a-shipment')).toThrowError(ApplicationError);
   });
 });

@@ -32,8 +32,10 @@ import {
 } from '../admin-catalog/admin-catalog.request';
 import { API_RUNTIME_CONFIG } from '../platform/config/api-runtime-config';
 import { API_DATABASE_RUNTIME } from '../platform/database/api-database-runtime';
+import { FulfillmentCompletionService } from '../fulfillment/fulfillment-completion.service';
 import {
   parseAdminFulfillmentAddressAccessHeaders,
+  type AdminCompleteOrderInput,
   type AdminCreateShipmentInput,
   type AdminLogisticsEventInput,
   type AdminOrderListQuery,
@@ -70,6 +72,7 @@ function detailDisplayStatus(detail: AdminFulfillmentOrderDetail): string {
 export class AdminOrdersService {
   private readonly audit!: AuditRepository;
   private readonly fulfillment!: FulfillmentRepository;
+  private readonly completion!: FulfillmentCompletionService;
   private readonly idempotency!: IdempotencyRepository;
   private readonly outbox!: OutboxRepository;
 
@@ -80,6 +83,7 @@ export class AdminOrdersService {
     if (config && database) {
       this.audit = new AuditRepository(config.encryption.ipHashKey);
       this.fulfillment = new FulfillmentRepository(database.prisma, config.encryption.ipHashKey);
+      this.completion = new FulfillmentCompletionService(config, database);
       this.idempotency = new IdempotencyRepository(config.encryption.idempotencyHashKeys);
       this.outbox = new OutboxRepository(database);
     }
@@ -112,6 +116,26 @@ export class AdminOrdersService {
 
   async getOrder(orderId: string) {
     return this.detailView(await this.repository().getAdminOrderDetail({ orderId }));
+  }
+
+  async completeOrder(
+    request: AdminCatalogRequestContext,
+    orderId: string,
+    input: AdminCompleteOrderInput,
+    expectedVersion: number,
+    idempotencyKey: string,
+  ) {
+    const ipAddress = catalogRequestIp(request);
+    await this.completionService().completeAdmin({
+      actorAccountId: request.principal.accountId,
+      expectedOrderVersion: expectedVersion,
+      idempotencyKey,
+      ...(ipAddress === undefined ? {} : { ipAddress }),
+      orderId,
+      reason: input.reason,
+      requestId: request.requestId,
+    });
+    return this.getOrder(orderId);
   }
 
   createShipment(
@@ -806,6 +830,11 @@ export class AdminOrdersService {
   private repository(): FulfillmentRepository {
     if (!this.fulfillment) throw internal('Fulfillment repository is unavailable');
     return this.fulfillment;
+  }
+
+  private completionService(): FulfillmentCompletionService {
+    if (!this.completion) throw internal('Fulfillment completion service is unavailable');
+    return this.completion;
   }
 
   private auditRepository(): AuditRepository {

@@ -105,6 +105,29 @@ export class StoreOrdersController {
     );
   }
 
+  @Post(':order_id/confirm-receipt')
+  @HttpCode(HttpStatus.OK)
+  @NoStore()
+  confirmReceipt(
+    @Param('order_id') orderIdValue: string,
+    @Body() body: unknown,
+    @Query() query: unknown,
+    @IfMatchVersion() expectedVersion: number,
+    @IdempotencyKey() key: string,
+    @StoreAuthRequest() request: StoreAuthRequestContext,
+  ) {
+    parseStoreEmptyBody(body);
+    parseStoreAuthEmptyQuery(query);
+    return this.orders.confirmReceipt(
+      requireStoreSession(request),
+      parseStoreOrderId(orderIdValue),
+      expectedVersion,
+      key,
+      requireStoreRequestId(request),
+      storeRequestIp(request),
+    );
+  }
+
   @Post(':order_id/cancel')
   @HttpCode(HttpStatus.OK)
   @NoStore()

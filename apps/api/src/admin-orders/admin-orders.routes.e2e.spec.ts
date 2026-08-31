@@ -97,10 +97,12 @@ const logisticsResult = {
 const listOrders = vi.fn().mockResolvedValue(listResult);
 const getOrder = vi.fn().mockResolvedValue(detailResult);
 const getFulfillmentAddress = vi.fn().mockResolvedValue(addressResult);
+const completeOrder = vi.fn().mockResolvedValue(detailResult);
 const createShipment = vi.fn().mockResolvedValue(shipmentResult);
 const appendLogisticsEvent = vi.fn().mockResolvedValue(logisticsResult);
 const service = {
   appendLogisticsEvent,
+  completeOrder,
   createShipment,
   getFulfillmentAddress,
   getOrder,
@@ -309,6 +311,8 @@ describe('B11.1 Admin orders protected HTTP surface', () => {
     ['detail', () => request(app.getHttpServer()).get('/api/v1/admin/orders/not-an-order')],
     ['fulfillment address', () => request(app.getHttpServer())
       .get('/api/v1/admin/orders/not-an-order/fulfillment-address')],
+    ['order completion', () => request(app.getHttpServer())
+      .post('/api/v1/admin/orders/not-an-order/complete')],
     ['shipment creation', () => request(app.getHttpServer())
       .post('/api/v1/admin/orders/not-an-order/shipments')],
     ['logistics event', () => request(app.getHttpServer())
@@ -322,6 +326,7 @@ describe('B11.1 Admin orders protected HTTP surface', () => {
       expect(listOrders).not.toHaveBeenCalled();
       expect(getOrder).not.toHaveBeenCalled();
       expect(getFulfillmentAddress).not.toHaveBeenCalled();
+      expect(completeOrder).not.toHaveBeenCalled();
       expect(createShipment).not.toHaveBeenCalled();
       expect(appendLogisticsEvent).not.toHaveBeenCalled();
     },
@@ -346,6 +351,7 @@ describe('B11.1 Admin orders SUPER_ADMIN HTTP mapping', () => {
     listOrders.mockResolvedValue(listResult);
     getOrder.mockResolvedValue(detailResult);
     getFulfillmentAddress.mockResolvedValue(addressResult);
+    completeOrder.mockResolvedValue(detailResult);
     createShipment.mockResolvedValue(shipmentResult);
     appendLogisticsEvent.mockResolvedValue(logisticsResult);
   });
@@ -465,6 +471,30 @@ describe('B11.1 Admin orders SUPER_ADMIN HTTP mapping', () => {
     expectNoStore(response.headers);
   });
 
+  it('maps the closed forced-completion command to 200 with SUPER_ADMIN context and no-store', async () => {
+    const response = await request(app.getHttpServer())
+      .post(`/api/v1/admin/orders/${orderId}/complete`)
+      .set('Idempotency-Key', idempotencyKey)
+      .set('If-Match', '"3"')
+      .send({ completion_reason: 'ADMIN_FORCED', reason: ' Development delivery confirmed ' })
+      .expect(200);
+
+    expect(completeOrder).toHaveBeenCalledWith(
+      expect.objectContaining({ principal: superAdmin, requestId }),
+      orderId,
+      { completionReason: 'ADMIN_FORCED', reason: 'Development delivery confirmed' },
+      3,
+      idempotencyKey,
+    );
+    expect(response.body).toEqual({
+      code: 'OK',
+      data: detailResult,
+      message: 'success',
+      request_id: requestId,
+    });
+    expectNoStore(response.headers);
+  });
+
   it('maps the closed logistics command to 200 with SUPER_ADMIN context and no-store', async () => {
     const response = await request(app.getHttpServer())
       .post(`/api/v1/admin/shipments/${shipmentId}/events`)
@@ -524,6 +554,24 @@ describe('B11.1 Admin orders SUPER_ADMIN HTTP mapping', () => {
       .set('If-Match', '"3"')
       .send({ carrier_code: 'DEV', carrier_name: 'Carrier', items: [], tracking_no: 'TRACK' }),
     createShipment],
+    ['open completion body', () => request(app.getHttpServer())
+      .post(`/api/v1/admin/orders/${orderId}/complete`)
+      .set('Idempotency-Key', idempotencyKey)
+      .set('If-Match', '"3"')
+      .send({ completion_reason: 'ADMIN_FORCED', extra: true, reason: 'Delivered' }),
+    completeOrder],
+    ['invalid completion order ULID', () => request(app.getHttpServer())
+      .post('/api/v1/admin/orders/not-an-order/complete')
+      .set('Idempotency-Key', idempotencyKey)
+      .set('If-Match', '"3"')
+      .send({ completion_reason: 'ADMIN_FORCED', reason: 'Delivered by administrator' }),
+    completeOrder],
+    ['unknown completion query field', () => request(app.getHttpServer())
+      .post(`/api/v1/admin/orders/${orderId}/complete?force=true`)
+      .set('Idempotency-Key', idempotencyKey)
+      .set('If-Match', '"3"')
+      .send({ completion_reason: 'ADMIN_FORCED', reason: 'Delivered by administrator' }),
+    completeOrder],
     ['unknown logistics query field', () => request(app.getHttpServer())
       .post(`/api/v1/admin/shipments/${shipmentId}/events?force=true`)
       .set('Idempotency-Key', idempotencyKey)
@@ -551,6 +599,10 @@ describe('B11.1 Admin orders SUPER_ADMIN HTTP mapping', () => {
   );
 
   it.each([
+    ['order completion', `/api/v1/admin/orders/${orderId}/complete`, {
+      completion_reason: 'ADMIN_FORCED',
+      reason: 'Delivered by administrator',
+    }, completeOrder],
     ['shipment creation', `/api/v1/admin/orders/${orderId}/shipments`, {
       carrier_code: 'DEV',
       carrier_name: 'Carrier',
@@ -596,6 +648,12 @@ describe('B11.1 Admin orders SUPER_ADMIN HTTP mapping', () => {
       .set('X-Access-Purpose', 'ORDER_FULFILLMENT')
       .set('X-Access-Reason', 'Prepare shipment'), getFulfillmentAddress,
       'STATE_CONFLICT', 409],
+    ['order completion', () => request(app.getHttpServer())
+      .post(`/api/v1/admin/orders/${orderId}/complete`)
+      .set('Idempotency-Key', idempotencyKey)
+      .set('If-Match', '"3"')
+      .send({ completion_reason: 'ADMIN_FORCED', reason: 'Delivered by administrator' }),
+    completeOrder, 'ORDER_NOT_RECEIVABLE', 409],
     ['shipment creation', () => request(app.getHttpServer())
       .post(`/api/v1/admin/orders/${orderId}/shipments`)
       .set('Idempotency-Key', idempotencyKey)
@@ -705,6 +763,8 @@ describe('B11.1 Admin orders wrong-role HTTP boundary', () => {
   it.each([
     ['list', () => request(app.getHttpServer()).get('/api/v1/admin/orders?page=0')],
     ['detail', () => request(app.getHttpServer()).get('/api/v1/admin/orders/not-an-order')],
+    ['order completion', () => request(app.getHttpServer())
+      .post('/api/v1/admin/orders/not-an-order/complete')],
     ['shipment creation', () => request(app.getHttpServer())
       .post('/api/v1/admin/orders/not-an-order/shipments')],
     ['logistics event', () => request(app.getHttpServer())
@@ -722,6 +782,7 @@ describe('B11.1 Admin orders wrong-role HTTP boundary', () => {
       expect(listOrders).not.toHaveBeenCalled();
       expect(getOrder).not.toHaveBeenCalled();
       expect(getFulfillmentAddress).not.toHaveBeenCalled();
+      expect(completeOrder).not.toHaveBeenCalled();
       expect(createShipment).not.toHaveBeenCalled();
       expect(appendLogisticsEvent).not.toHaveBeenCalled();
     },

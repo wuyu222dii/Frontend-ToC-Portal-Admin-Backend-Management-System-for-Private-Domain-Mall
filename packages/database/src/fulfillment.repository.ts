@@ -1,4 +1,4 @@
-import { ApplicationError, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, generateUlid, isValidUlid } from '@qingxu/platform-core';
 import { createHmac } from 'node:crypto';
 
 import { Prisma, type PrismaClient } from '../.generated/prisma/client';
@@ -10,12 +10,16 @@ import type {
   OrderCompletionReason,
   OrderSource,
   OrderStatus,
+  PaymentAttemptStatus,
+  PaymentIntentStatus,
   PaymentResolution,
   PaymentStatus,
   RefundProcessingStatus,
   RefundProgressStatus,
+  RefundStatus,
   ShipmentStatus,
 } from '../.generated/prisma/enums';
+import { acquireTransactionLock } from './advisory-lock';
 import type { DatabaseTransaction } from './idempotency.repository';
 
 const MAX_POSTGRES_INTEGER = 2_147_483_647;
@@ -37,6 +41,15 @@ const AFTERSALE_STATUSES = new Set<AftersaleStatus>([
   'COMPLETED',
   'REJECTED',
   'REJECTED_AFTER_RETURN',
+]);
+const ACTIVE_REFUND_STATUSES = new Set<RefundStatus>(['FAILED', 'PENDING', 'PROCESSING']);
+const REFUND_STATUSES = new Set<RefundStatus>(['CANCELLED', 'FAILED', 'PENDING', 'PROCESSING', 'SUCCEEDED']);
+const PAYMENT_INTENT_STATUSES = new Set<PaymentIntentStatus>([
+  'CANCELLED', 'CLOSED', 'CLOSE_PENDING', 'CREATING', 'EXPIRED', 'FAILED', 'OPEN', 'SUCCEEDED',
+]);
+const ACTIVE_PAYMENT_INTENT_STATUSES = new Set<PaymentIntentStatus>(['CLOSE_PENDING', 'CREATING', 'OPEN']);
+const PAYMENT_ATTEMPT_STATUSES = new Set<PaymentAttemptStatus>([
+  'CANCELLED', 'FAILED', 'INITIATED', 'SUCCEEDED', 'SUCCEEDED_LATE',
 ]);
 
 export type FulfillmentOrderListSort = 'AMOUNT_DESC' | 'CREATED_DESC' | 'PAID_DESC';
@@ -120,6 +133,59 @@ export interface AppendFulfillmentLogisticsEventInput {
   eventKey: string;
   expectedShipmentVersion: number;
   shipmentId: string;
+}
+
+export type CompletionActorInput =
+  | { actorAccountId: string; kind: 'ADMIN' }
+  | { accountId: string; customerId: string; kind: 'CUSTOMER' };
+
+export interface CompleteFulfillmentOrderInput {
+  actor: CompletionActorInput;
+  completionReason: 'ADMIN_FORCED' | 'CUSTOMER_CONFIRMED';
+  expectedOrderVersion: number;
+  orderId: string;
+}
+
+export interface CompletedOrderReplayInput {
+  actor: CompletionActorInput;
+  completionReason: 'ADMIN_FORCED' | 'CUSTOMER_CONFIRMED';
+  orderId: string;
+}
+
+export interface FulfillmentCompletionState {
+  fulfillmentStatus: FulfillmentStatus;
+  orderStatus: OrderStatus;
+  orderVersion: number;
+  shipmentStatus: ShipmentStatus;
+  shipmentVersion: number;
+}
+
+export interface FulfillmentCommissionCredit {
+  ledgerId: string;
+  version: number;
+}
+
+export interface CompleteFulfillmentOrderResult {
+  after: FulfillmentCompletionState;
+  aftersaleExpiresAt: Date;
+  before: FulfillmentCompletionState;
+  businessRuleVersionId: string;
+  commissionCredits: FulfillmentCommissionCredit[];
+  completedAt: Date;
+  orderId: string;
+  shipmentId: string;
+}
+
+export interface CompletedOrderReplayResult {
+  aftersaleExpiresAt: Date;
+  businessRuleVersionId: string;
+  completedAt: Date;
+  completionReason: OrderCompletionReason;
+  orderId: string;
+  orderVersion: number;
+  shipmentId: string;
+  shipmentStatus: ShipmentStatus;
+  shipmentVersion: number;
 }
 
 export interface FulfillmentOrderAmounts {
@@ -539,6 +605,7 @@ const ADMIN_DETAIL_INCLUDE = {
       id: true,
       origin_type: true,
       refund_no: true,
+      status: true,
     },
   },
   shipment: { include: SHIPMENT_INCLUDE },
@@ -552,6 +619,22 @@ const OWNED_FULFILLMENT_SELECT = {
   order_status: true,
   payment_resolution: true,
   payment_status: true,
+  payment_intents: {
+    orderBy: [{ id: 'asc' }] satisfies Prisma.PaymentIntentOrderByWithRelationInput[],
+    select: {
+      attempts: {
+        orderBy: [{ id: 'asc' }] satisfies Prisma.PaymentAttemptOrderByWithRelationInput[],
+        select: { status: true },
+      },
+      id: true,
+      status: true,
+    },
+  },
+  refund_processing_status: true,
+  refunds: {
+    orderBy: [{ id: 'asc' }] satisfies Prisma.RefundOrderByWithRelationInput[],
+    select: { id: true, status: true },
+  },
   shipment: { include: SHIPMENT_INCLUDE },
   version: true,
 } satisfies Prisma.SalesOrderSelect;
@@ -574,6 +657,30 @@ const LOGISTICS_COMMAND_ORDER_SELECT = {
   version: true,
 } satisfies Prisma.SalesOrderSelect;
 
+const COMPLETION_ORDER_SELECT = {
+  aftersale_expires_at: true,
+  business_rule_version_id: true,
+  close_reason: true,
+  closed_at: true,
+  completed_at: true,
+  completion_reason: true,
+  customer_id: true,
+  final_agent_id: true,
+  final_channel: true,
+  fulfillment_status: true,
+  id: true,
+  order_status: true,
+  payment_resolution: true,
+  payment_status: true,
+  refund_processing_status: true,
+  version: true,
+} satisfies Prisma.SalesOrderSelect;
+
+const COMPLETION_COMMISSION_INCLUDE = {
+  order_item: { select: { id: true, order_id: true } },
+  position: true,
+} satisfies Prisma.OrderItemCommissionSnapshotInclude;
+
 type AdminListRecord = Prisma.SalesOrderGetPayload<{ include: typeof ADMIN_LIST_INCLUDE }>;
 type AdminDetailRecord = Prisma.SalesOrderGetPayload<{ include: typeof ADMIN_DETAIL_INCLUDE }>;
 type FulfillmentItemRecord = Prisma.OrderItemGetPayload<{ select: typeof ORDER_ITEM_SELECT }>;
@@ -581,6 +688,7 @@ type ShipmentRecord = Prisma.ShipmentGetPayload<{ include: typeof SHIPMENT_INCLU
 type OwnedFulfillmentRecord = Prisma.SalesOrderGetPayload<{ select: typeof OWNED_FULFILLMENT_SELECT }>;
 type ShipmentCommandOrderRecord = Prisma.SalesOrderGetPayload<{ select: typeof SHIPMENT_COMMAND_ORDER_SELECT }>;
 type LogisticsCommandOrderRecord = Prisma.SalesOrderGetPayload<{ select: typeof LOGISTICS_COMMAND_ORDER_SELECT }>;
+type CompletionOrderRecord = Prisma.SalesOrderGetPayload<{ select: typeof COMPLETION_ORDER_SELECT }>;
 
 interface LockedOrderItemRow {
   id: string;
@@ -601,6 +709,37 @@ interface LockedAdminActorRow {
   id: string;
   role: string;
   status: string;
+}
+
+interface LockedBusinessRuleRow {
+  aftersale_window_days: number;
+  effective_at: Date | null;
+  id: string;
+}
+
+interface LockedRefundRow {
+  id: string;
+  status: RefundStatus;
+}
+
+interface LockedPaymentIntentRow {
+  id: string;
+  status: PaymentIntentStatus;
+  succeeded_at: Date | null;
+}
+
+interface LockedPaymentAttemptRow {
+  id: string;
+  payment_intent_id: string;
+  status: PaymentAttemptStatus;
+}
+
+interface LockedWalletRow {
+  agent_id: string;
+  available_balance: Prisma.Decimal;
+  frozen_balance: Prisma.Decimal;
+  id: string;
+  version: number;
 }
 
 function internal(message: string): ApplicationError {
@@ -640,6 +779,14 @@ function activeAftersaleBlocksShipment(): ApplicationError {
 
 function authenticationRequired(): ApplicationError {
   return new ApplicationError('AUTH_REQUIRED', 'Active administrator account is required');
+}
+
+function completionAuthenticationRequired(): ApplicationError {
+  return new ApplicationError('AUTH_REQUIRED', 'Active completion actor is required');
+}
+
+function orderNotReceivable(message = 'The order cannot be confirmed as received'): ApplicationError {
+  return new ApplicationError('ORDER_NOT_RECEIVABLE', message);
 }
 
 function plainObject(value: unknown): value is Record<string, unknown> {
@@ -902,6 +1049,60 @@ function validateLogisticsEventInput(input: AppendFulfillmentLogisticsEventInput
     requireRequestText(input.event.location, 1, 160, 'Logistics event location');
   }
   requireDate(input.event.occurredAt, 'Logistics event occurrence time');
+}
+
+function validateCompletionActor(actor: CompletionActorInput): void {
+  if (!plainObject(actor) || (actor.kind !== 'ADMIN' && actor.kind !== 'CUSTOMER')) {
+    throw new TypeError('Completion actor must use a closed actor kind');
+  }
+  if (actor.kind === 'ADMIN') {
+    requireExactKeys(actor, ['actorAccountId', 'kind'], ['actorAccountId', 'kind'], 'Admin completion actor');
+    requireUlid(actor.actorAccountId, 'Completion actor Account ID');
+    return;
+  }
+  requireExactKeys(
+    actor,
+    ['accountId', 'customerId', 'kind'],
+    ['accountId', 'customerId', 'kind'],
+    'Customer completion actor',
+  );
+  requireUlid(actor.accountId, 'Completion customer Account ID');
+  requireUlid(actor.customerId, 'Completion Customer ID');
+}
+
+function validateCompletionReason(
+  actor: CompletionActorInput,
+  completionReason: CompleteFulfillmentOrderInput['completionReason'],
+): void {
+  const expected = actor.kind === 'ADMIN' ? 'ADMIN_FORCED' : 'CUSTOMER_CONFIRMED';
+  if (completionReason !== expected) {
+    throw new TypeError('Completion reason does not match the closed actor kind');
+  }
+}
+
+function validateCompleteOrderInput(input: CompleteFulfillmentOrderInput): void {
+  requireExactKeys(
+    input,
+    ['actor', 'completionReason', 'expectedOrderVersion', 'orderId'],
+    ['actor', 'completionReason', 'expectedOrderVersion', 'orderId'],
+    'Complete fulfillment order input',
+  );
+  validateCompletionActor(input.actor);
+  validateCompletionReason(input.actor, input.completionReason);
+  requirePositiveVersion(input.expectedOrderVersion, 'Expected completion order version');
+  requireUlid(input.orderId, 'Completion order ID');
+}
+
+function validateCompletedOrderReplayInput(input: CompletedOrderReplayInput): void {
+  requireExactKeys(
+    input,
+    ['actor', 'completionReason', 'orderId'],
+    ['actor', 'completionReason', 'orderId'],
+    'Completed order replay input',
+  );
+  validateCompletionActor(input.actor);
+  validateCompletionReason(input.actor, input.completionReason);
+  requireUlid(input.orderId, 'Completed replay order ID');
 }
 
 const ORDER_STATUSES = new Set<OrderStatus>([
@@ -1175,6 +1376,30 @@ function hasActiveAftersale(records: readonly { status: AftersaleStatus }[]): bo
   return records.some(({ status }) => ACTIVE_AFTERSALE_STATUSES.has(status));
 }
 
+function hasResolvedSuccessfulPayment(records: readonly {
+  attempts: readonly { status: PaymentAttemptStatus }[];
+  status: PaymentIntentStatus;
+}[]): boolean {
+  if (records.some(({ status }) => ACTIVE_PAYMENT_INTENT_STATUSES.has(status))) return false;
+  const succeeded = records.filter(({ status }) => status === 'SUCCEEDED');
+  if (succeeded.length !== 1) return false;
+  let successfulAttempts = 0;
+  for (const intent of records) {
+    for (const attempt of intent.attempts) {
+      if (attempt.status === 'INITIATED' || attempt.status === 'SUCCEEDED_LATE') return false;
+      if (attempt.status === 'SUCCEEDED') {
+        if (intent.status !== 'SUCCEEDED') return false;
+        successfulAttempts += 1;
+      }
+    }
+  }
+  return successfulAttempts === 1 && succeeded[0]?.attempts.filter(({ status }) => status === 'SUCCEEDED').length === 1;
+}
+
+function hasActiveRefund(records: readonly { status: RefundStatus }[]): boolean {
+  return records.some(({ status }) => ACTIVE_REFUND_STATUSES.has(status));
+}
+
 function readEligible(record: {
   fulfillment_status: FulfillmentStatus;
   order_status: OrderStatus;
@@ -1194,10 +1419,13 @@ function readEligible(record: {
 function actionEligibility(record: AdminDetailRecord): FulfillmentActionEligibility {
   const activeAftersaleCount = record.aftersales.filter(({ status }) =>
     ACTIVE_AFTERSALE_STATUSES.has(status)).length;
-  const hasUnresolvedPayment = record.payment_resolution !== 'NORMAL';
+  const hasUnresolvedPayment = record.payment_resolution !== 'NORMAL' ||
+    !hasResolvedSuccessfulPayment(record.payment_intents) || record.refund_processing_status !== 'IDLE' ||
+    hasActiveRefund(record.refunds);
   const shipment = record.shipment;
   const canComplete = record.payment_status === 'PAID' && !hasUnresolvedPayment &&
     record.order_status === 'SHIPPING' && activeAftersaleCount === 0 && shipment !== null &&
+    record.fulfillment_status === shipment.status &&
     (shipment.status === 'SHIPPED' || shipment.status === 'IN_TRANSIT' || shipment.status === 'DELIVERED');
   return {
     activeAftersaleCount,
@@ -1324,9 +1552,13 @@ function inventoryImpact(records: Array<{
 function ownedFulfillmentProjection(record: OwnedFulfillmentRecord): OwnedFulfillmentProjection {
   const shipment = record.shipment === null ? null : shipmentProjection(record.shipment);
   const activeAftersale = hasActiveAftersale(record.aftersales);
+  const unresolvedPayment = record.payment_resolution !== 'NORMAL' ||
+    !hasResolvedSuccessfulPayment(record.payment_intents) || record.refund_processing_status !== 'IDLE' ||
+    hasActiveRefund(record.refunds);
   return {
-    canConfirmReceipt: record.payment_status === 'PAID' && record.payment_resolution === 'NORMAL' &&
+    canConfirmReceipt: record.payment_status === 'PAID' && !unresolvedPayment &&
       record.order_status === 'SHIPPING' && !activeAftersale && shipment !== null &&
+      record.fulfillment_status === shipment.status &&
       (shipment.status === 'SHIPPED' || shipment.status === 'IN_TRANSIT' || shipment.status === 'DELIVERED'),
     canViewLogistics: shipment !== null,
     customerId: safeUlid(record.customer_id, 'Stored customer ID'),
@@ -1432,6 +1664,17 @@ export class FulfillmentRepository {
     return new Date(current);
   }
 
+  private async transactionTime(transaction: DatabaseTransaction): Promise<Date> {
+    const rows = await transaction.$queryRaw<Array<{ transaction_time: Date }>>(
+      Prisma.sql`SELECT transaction_timestamp() AS transaction_time`,
+    );
+    const value = rows[0]?.transaction_time;
+    if (!(value instanceof Date) || !Number.isFinite(value.getTime())) {
+      throw internal('Database transaction clock is unavailable');
+    }
+    return new Date(value);
+  }
+
   private async lockActor(transaction: DatabaseTransaction, actorAccountId: string): Promise<void> {
     const rows = await transaction.$queryRaw<LockedAdminActorRow[]>(Prisma.sql`
       SELECT id, role, status, deleted_at, password_hash IS NOT NULL AS has_password
@@ -1446,6 +1689,106 @@ export class FulfillmentRepository {
     }
   }
 
+  private async lockCompletionActor(
+    transaction: DatabaseTransaction,
+    actor: CompletionActorInput,
+  ): Promise<void> {
+    if (actor.kind === 'ADMIN') {
+      await this.lockActor(transaction, actor.actorAccountId);
+      return;
+    }
+    await acquireTransactionLock(transaction, 'store-auth-account', [actor.accountId]);
+    await acquireTransactionLock(transaction, 'store-auth-customer', [actor.customerId]);
+    const account = await transaction.account.findUnique({
+      select: {
+        customer_profile: { select: { account_id: true, anonymized_at: true, id: true } },
+        deleted_at: true,
+        login_name: true,
+        password_hash: true,
+        role: true,
+        status: true,
+        wechat_open_id: true,
+      },
+      where: { id: actor.accountId },
+    });
+    const customer = account?.customer_profile;
+    if (!account || account.role !== 'CUSTOMER' || account.status !== 'ACTIVE' ||
+      account.deleted_at !== null || account.login_name !== null || account.password_hash !== null ||
+      account.wechat_open_id === null || !customer || customer.id !== actor.customerId ||
+      customer.account_id !== actor.accountId || customer.anonymized_at !== null) {
+      throw completionAuthenticationRequired();
+    }
+  }
+
+  private async lockCompletionOrder(
+    transaction: DatabaseTransaction,
+    actor: CompletionActorInput,
+    orderId: string,
+  ): Promise<CompletionOrderRecord> {
+    const locked = actor.kind === 'CUSTOMER'
+      ? await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+          SELECT id
+          FROM public.sales_order
+          WHERE id = ${orderId} AND customer_id = ${actor.customerId}
+          FOR UPDATE
+        `)
+      : await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+          SELECT id
+          FROM public.sales_order
+          WHERE id = ${orderId}
+          FOR UPDATE
+        `);
+    if (locked.length !== 1 || locked[0]?.id !== orderId) throw notFound();
+    const order = await transaction.salesOrder.findUnique({
+      select: COMPLETION_ORDER_SELECT,
+      where: { id: orderId },
+    });
+    if (order === null || order.id !== orderId ||
+      (actor.kind === 'CUSTOMER' && order.customer_id !== actor.customerId)) {
+      throw notFound();
+    }
+    return order;
+  }
+
+  private async lockCompletionWallets(
+    transaction: DatabaseTransaction,
+    agentIds: readonly string[],
+  ): Promise<Map<string, LockedWalletRow>> {
+    const orderedAgentIds = [...new Set(agentIds)].sort();
+    for (const agentId of orderedAgentIds) {
+      await acquireTransactionLock(transaction, 'agent-wallet', [agentId]);
+    }
+    if (orderedAgentIds.length === 0) return new Map();
+    const wallets = await transaction.$queryRaw<LockedWalletRow[]>(Prisma.sql`
+      SELECT id, agent_id, available_balance, frozen_balance, version
+      FROM public.agent_wallet
+      WHERE agent_id IN (${Prisma.join(orderedAgentIds)})
+      ORDER BY agent_id ASC
+      FOR UPDATE
+    `);
+    if (wallets.length !== orderedAgentIds.length) {
+      throw internal('A frozen commission Agent wallet is missing');
+    }
+    const mapped = new Map<string, LockedWalletRow>();
+    for (const wallet of wallets) {
+      const agentId = safeUlid(wallet.agent_id, 'Stored commission wallet Agent ID');
+      safeUlid(wallet.id, 'Stored commission wallet ID');
+      const version = safeCount(wallet.version, 'Stored commission wallet version', 1);
+      if (!Prisma.Decimal.isDecimal(wallet.available_balance) || wallet.available_balance.decimalPlaces() > 2 ||
+        wallet.available_balance.abs().greaterThan('9999999999999999.99') ||
+        !Prisma.Decimal.isDecimal(wallet.frozen_balance) || wallet.frozen_balance.isNegative() ||
+        wallet.frozen_balance.decimalPlaces() > 2 ||
+        wallet.frozen_balance.greaterThan('9999999999999999.99') || mapped.has(agentId)) {
+        throw internal('Stored commission wallet facts are invalid');
+      }
+      mapped.set(agentId, { ...wallet, version });
+    }
+    if (orderedAgentIds.some((agentId) => !mapped.has(agentId))) {
+      throw internal('A frozen commission Agent wallet is missing');
+    }
+    return mapped;
+  }
+
   private async readShipmentInTransaction(
     transaction: DatabaseTransaction,
     shipmentId: string,
@@ -1456,6 +1799,442 @@ export class FulfillmentRepository {
     });
     if (shipment === null) throw shipmentNotFound();
     return shipment;
+  }
+
+  async getCompletedOrderForReplayInTransaction(
+    transaction: DatabaseTransaction,
+    input: CompletedOrderReplayInput,
+  ): Promise<CompletedOrderReplayResult> {
+    validateCompletedOrderReplayInput(input);
+    await this.lockCompletionActor(transaction, input.actor);
+    const order = await this.lockCompletionOrder(transaction, input.actor, input.orderId);
+    const lockedShipment = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id
+      FROM public.shipment
+      WHERE order_id = ${input.orderId}
+      FOR UPDATE
+    `);
+    const shipmentId = lockedShipment[0]?.id;
+    if (lockedShipment.length !== 1 || shipmentId === undefined) {
+      throw internal('Completed order shipment facts are missing');
+    }
+    const shipment = await transaction.shipment.findUnique({
+      select: { delivered_at: true, id: true, status: true, version: true },
+      where: { id: shipmentId },
+    });
+    if (shipment === null || shipment.status !== 'DELIVERED' || shipment.delivered_at === null ||
+      order.order_status !== 'COMPLETED' || order.fulfillment_status !== 'DELIVERED' ||
+      order.completion_reason !== input.completionReason || order.completed_at === null ||
+      order.aftersale_expires_at === null || order.business_rule_version_id === null ||
+      order.close_reason !== null || order.closed_at !== null) {
+      throw internal('HASH_ONLY completion replay facts are inconsistent');
+    }
+    return {
+      aftersaleExpiresAt: safeDate(order.aftersale_expires_at, 'Stored replay aftersale expiry'),
+      businessRuleVersionId: safeUlid(order.business_rule_version_id, 'Stored replay business rule ID'),
+      completedAt: safeDate(order.completed_at, 'Stored replay completion time'),
+      completionReason: order.completion_reason,
+      orderId: safeUlid(order.id, 'Stored replay order ID'),
+      orderVersion: safeCount(order.version, 'Stored replay order version', 1),
+      shipmentId: safeUlid(shipment.id, 'Stored replay shipment ID'),
+      shipmentStatus: shipment.status,
+      shipmentVersion: safeCount(shipment.version, 'Stored replay shipment version', 1),
+    };
+  }
+
+  async completeOrderInTransaction(
+    transaction: DatabaseTransaction,
+    input: CompleteFulfillmentOrderInput,
+  ): Promise<CompleteFulfillmentOrderResult> {
+    validateCompleteOrderInput(input);
+    await this.lockCompletionActor(transaction, input.actor);
+    const order = await this.lockCompletionOrder(transaction, input.actor, input.orderId);
+    const orderVersion = safeCount(order.version, 'Stored completion order version', 1);
+    if (order.payment_status !== 'PAID' || order.payment_resolution !== 'NORMAL' ||
+      order.refund_processing_status !== 'IDLE' || order.order_status !== 'SHIPPING' ||
+      order.close_reason !== null || order.closed_at !== null || order.completion_reason !== null ||
+      order.completed_at !== null || order.aftersale_expires_at !== null ||
+      order.business_rule_version_id !== null) {
+      throw orderNotReceivable();
+    }
+    if (orderVersion !== input.expectedOrderVersion) throw orderVersionConflict();
+
+    const orderItems = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id
+      FROM public.order_item
+      WHERE order_id = ${input.orderId}
+      ORDER BY id ASC
+      FOR UPDATE
+    `);
+    if (orderItems.length === 0 || new Set(orderItems.map(({ id }) => id)).size !== orderItems.length ||
+      orderItems.some(({ id }) => !isValidUlid(id))) {
+      throw internal('Completion order item facts are invalid');
+    }
+
+    const paymentIntents = await transaction.$queryRaw<LockedPaymentIntentRow[]>(Prisma.sql`
+      SELECT id, status, succeeded_at
+      FROM public.payment_intent
+      WHERE order_id = ${input.orderId}
+      ORDER BY id ASC
+      FOR UPDATE
+    `);
+    let succeededPaymentIntents = 0;
+    let succeededPaymentIntentId: string | null = null;
+    const paymentIntentIds = new Set<string>();
+    for (const intent of paymentIntents) {
+      const intentId = safeUlid(intent.id, 'Stored completion payment intent ID');
+      if (paymentIntentIds.has(intentId)) throw internal('Stored completion payment intent IDs are duplicated');
+      paymentIntentIds.add(intentId);
+      if (!PAYMENT_INTENT_STATUSES.has(intent.status)) {
+        throw internal('Stored completion payment intent status is invalid');
+      }
+      if (intent.status === 'SUCCEEDED') {
+        succeededPaymentIntents += 1;
+        succeededPaymentIntentId = intentId;
+        if (intent.succeeded_at === null) throw internal('Successful payment intent is missing its completion time');
+        safeDate(intent.succeeded_at, 'Stored successful payment intent time');
+      } else if (intent.succeeded_at !== null) {
+        throw internal('Non-successful payment intent contains a success time');
+      }
+    }
+    if (paymentIntents.some(({ status }) => ACTIVE_PAYMENT_INTENT_STATUSES.has(status))) {
+      throw orderNotReceivable();
+    }
+    if (succeededPaymentIntents !== 1) {
+      throw internal('Paid completion order must have exactly one successful payment intent');
+    }
+    const paymentAttempts = await transaction.$queryRaw<LockedPaymentAttemptRow[]>(Prisma.sql`
+      SELECT attempt.id, attempt.payment_intent_id, attempt.status
+      FROM public.payment_attempt AS attempt
+      INNER JOIN public.payment_intent AS intent ON intent.id = attempt.payment_intent_id
+      WHERE intent.order_id = ${input.orderId}
+      ORDER BY attempt.id ASC
+      FOR UPDATE OF attempt
+    `);
+    let successfulPaymentAttempts = 0;
+    for (const attempt of paymentAttempts) {
+      safeUlid(attempt.id, 'Stored completion payment attempt ID');
+      const intentId = safeUlid(attempt.payment_intent_id, 'Stored completion attempt intent ID');
+      if (!paymentIntentIds.has(intentId) || !PAYMENT_ATTEMPT_STATUSES.has(attempt.status)) {
+        throw internal('Stored completion payment attempt facts are invalid');
+      }
+      if (attempt.status === 'INITIATED' || attempt.status === 'SUCCEEDED_LATE') throw orderNotReceivable();
+      if (attempt.status === 'SUCCEEDED') {
+        successfulPaymentAttempts += 1;
+        if (intentId !== succeededPaymentIntentId) {
+          throw internal('Successful payment attempt belongs to a non-successful intent');
+        }
+      }
+    }
+    if (successfulPaymentAttempts !== 1) {
+      throw internal('Paid completion order must have exactly one successful payment attempt');
+    }
+
+    const refunds = await transaction.$queryRaw<LockedRefundRow[]>(Prisma.sql`
+      SELECT id, status
+      FROM public.refund
+      WHERE order_id = ${input.orderId}
+      ORDER BY id ASC
+      FOR UPDATE
+    `);
+    for (const refund of refunds) {
+      safeUlid(refund.id, 'Stored completion refund ID');
+      if (!REFUND_STATUSES.has(refund.status)) throw internal('Stored completion refund status is invalid');
+    }
+    if (refunds.some(({ status }) => ACTIVE_REFUND_STATUSES.has(status))) throw orderNotReceivable();
+
+    const aftersales = await transaction.$queryRaw<LockedAftersaleRow[]>(Prisma.sql`
+      SELECT id, status
+      FROM public.aftersale
+      WHERE order_id = ${input.orderId}
+      ORDER BY id ASC
+      FOR UPDATE
+    `);
+    for (const aftersale of aftersales) {
+      safeUlid(aftersale.id, 'Stored completion aftersale ID');
+      if (!AFTERSALE_STATUSES.has(aftersale.status as AftersaleStatus)) {
+        throw internal('Stored completion aftersale status is invalid');
+      }
+    }
+    if (aftersales.some(({ status }) => ACTIVE_AFTERSALE_STATUSES.has(status as AftersaleStatus))) {
+      throw orderNotReceivable();
+    }
+
+    const lockedShipments = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id
+      FROM public.shipment
+      WHERE order_id = ${input.orderId}
+      FOR UPDATE
+    `);
+    const shipmentId = lockedShipments[0]?.id;
+    if (lockedShipments.length !== 1 || shipmentId === undefined || !isValidUlid(shipmentId)) {
+      throw orderNotReceivable();
+    }
+    const shipment = await transaction.shipment.findUnique({
+      select: { delivered_at: true, id: true, shipped_at: true, status: true, version: true },
+      where: { id: shipmentId },
+    });
+    if (shipment === null || shipment.id !== shipmentId ||
+      (shipment.status !== 'SHIPPED' && shipment.status !== 'IN_TRANSIT' && shipment.status !== 'DELIVERED') ||
+      order.fulfillment_status !== shipment.status) {
+      throw orderNotReceivable();
+    }
+    const shipmentVersion = safeCount(shipment.version, 'Stored completion shipment version', 1);
+    const shippedAt = safeDate(shipment.shipped_at, 'Stored completion shipment dispatch time');
+    if ((shipment.status === 'DELIVERED') !== (shipment.delivered_at !== null)) {
+      throw internal('Stored completion shipment delivery facts are inconsistent');
+    }
+
+    const serverTime = await this.transactionTime(transaction);
+    if (serverTime.getTime() < shippedAt.getTime()) {
+      throw internal('Database completion time precedes shipment dispatch');
+    }
+    const rules = await transaction.$queryRaw<LockedBusinessRuleRow[]>(Prisma.sql`
+      SELECT id, aftersale_window_days, effective_at
+      FROM public.business_rule_version
+      WHERE status = 'PUBLISHED'
+      ORDER BY id ASC
+      FOR UPDATE
+    `);
+    const rule = rules[0];
+    if (rules.length !== 1 || rule === undefined || !isValidUlid(rule.id) ||
+      !Number.isSafeInteger(rule.aftersale_window_days) || rule.aftersale_window_days < 1 ||
+      rule.aftersale_window_days > 365 || rule.effective_at === null ||
+      safeDate(rule.effective_at, 'Stored completion business rule effective time').getTime() > serverTime.getTime()) {
+      throw internal('A unique effective PUBLISHED business rule is required for completion');
+    }
+    const aftersaleExpiresAt = new Date(
+      serverTime.getTime() + rule.aftersale_window_days * 24 * 60 * 60 * 1_000,
+    );
+    if (!Number.isFinite(aftersaleExpiresAt.getTime())) throw internal('Completion aftersale expiry is invalid');
+
+    const lockedPositions = await transaction.$queryRaw<Array<{ id: string; snapshot_id: string }>>(Prisma.sql`
+      SELECT position.id, position.snapshot_id
+      FROM public.order_item_commission_position AS position
+      INNER JOIN public.order_item_commission_snapshot AS snapshot ON snapshot.id = position.snapshot_id
+      INNER JOIN public.order_item AS item ON item.id = snapshot.order_item_id
+      WHERE item.order_id = ${input.orderId}
+      ORDER BY snapshot.id ASC, position.id ASC
+      FOR UPDATE OF position
+    `);
+    if (lockedPositions.some(({ id, snapshot_id: snapshotId }) =>
+      !isValidUlid(id) || !isValidUlid(snapshotId))) {
+      throw internal('Stored completion commission position IDs are invalid');
+    }
+    const commissions = await transaction.orderItemCommissionSnapshot.findMany({
+      include: COMPLETION_COMMISSION_INCLUDE,
+      orderBy: [{ id: 'asc' }],
+      where: { order_item: { order_id: input.orderId } },
+    });
+    const lockedPositionIds = new Set(lockedPositions.map(({ id }) => id));
+    if (order.final_channel === 'DIRECT') {
+      if (order.final_agent_id !== null || commissions.length !== 0 || lockedPositions.length !== 0) {
+        throw internal('Stored DIRECT completion commission facts are inconsistent');
+      }
+    } else if (order.final_channel === 'AGENT') {
+      if (order.final_agent_id === null || !isValidUlid(order.final_agent_id) ||
+        commissions.length !== orderItems.length || lockedPositions.length !== commissions.length) {
+        throw internal('Stored AGENT completion commission facts are incomplete');
+      }
+    } else {
+      throw internal('Stored completion attribution is missing');
+    }
+
+    const expectedCommissions: Array<{
+      agentId: string;
+      amount: Prisma.Decimal;
+      positionId: string;
+      positionVersion: number;
+      snapshotId: string;
+    }> = [];
+    for (const commission of commissions) {
+      const snapshotId = safeUlid(commission.id, 'Stored completion commission snapshot ID');
+      const agentId = safeUlid(commission.agent_id, 'Stored completion commission Agent ID');
+      if (commission.order_item.order_id !== input.orderId ||
+        (order.final_agent_id !== null && agentId !== order.final_agent_id) || commission.position === null ||
+        !lockedPositionIds.has(commission.position.id) || commission.position.snapshot_id !== snapshotId) {
+        throw internal('Stored completion commission ownership is inconsistent');
+      }
+      const position = commission.position;
+      const positionId = safeUlid(position.id, 'Stored completion commission position ID');
+      const positionVersion = safeCount(position.version, 'Stored completion commission position version', 1);
+      safeMoney(commission.original_commission, 'Stored completion commission snapshot amount');
+      safeMoney(position.original_commission, 'Stored completion position original amount');
+      safeMoney(position.expected_remaining, 'Stored completion expected commission amount');
+      safeMoney(position.reversed_total, 'Stored completion reversed commission amount');
+      if (!position.original_commission.equals(commission.original_commission) ||
+        !position.original_commission.equals(position.expected_remaining.add(position.reversed_total))) {
+        throw internal('Stored completion commission amounts do not close');
+      }
+      if (position.state === 'NONE') {
+        if (!position.original_commission.isZero() || position.available_at !== null) {
+          throw internal('Stored NONE commission position is inconsistent');
+        }
+        continue;
+      }
+      if (position.state === 'CANCELLED') {
+        if (!position.expected_remaining.isZero() || position.available_at !== null) {
+          throw internal('Stored CANCELLED commission position is inconsistent');
+        }
+        continue;
+      }
+      if (position.state !== 'EXPECTED' || position.available_at !== null) {
+        throw internal('Stored commission position is not eligible for completion');
+      }
+      expectedCommissions.push({
+        agentId,
+        amount: position.expected_remaining,
+        positionId,
+        positionVersion,
+        snapshotId,
+      });
+    }
+
+    const positiveAgentIds = expectedCommissions
+      .filter(({ amount }) => !amount.isZero())
+      .map(({ agentId }) => agentId);
+    const wallets = await this.lockCompletionWallets(transaction, positiveAgentIds);
+    const walletCredits = new Map<string, Prisma.Decimal>();
+    const commissionCredits: FulfillmentCommissionCredit[] = [];
+    for (const commission of expectedCommissions) {
+      const changed = await transaction.orderItemCommissionPosition.updateMany({
+        data: {
+          available_at: serverTime,
+          expected_remaining: new Prisma.Decimal(0),
+          state: 'AVAILABLE',
+          updated_at: serverTime,
+          version: { increment: 1 },
+        },
+        where: {
+          expected_remaining: commission.amount,
+          id: commission.positionId,
+          state: 'EXPECTED',
+          version: commission.positionVersion,
+        },
+      });
+      if (changed.count !== 1) throw internal('Commission position changed after its completion lock');
+      if (commission.amount.isZero()) continue;
+
+      const ledgerId = generateUlid(serverTime.getTime());
+      const idempotencyKey = `complete:${input.orderId}:${commission.snapshotId}`;
+      const inserted = await transaction.commissionLedger.createMany({
+        data: [{
+          agent_id: commission.agentId,
+          available_change: commission.amount,
+          expected_change: commission.amount.negated(),
+          frozen_change: new Prisma.Decimal(0),
+          id: ledgerId,
+          idempotency_key: idempotencyKey,
+          ledger_type: 'AVAILABLE_CREDIT',
+          occurred_at: serverTime,
+          reason: 'ORDER_COMPLETED',
+          snapshot_id: commission.snapshotId,
+        }],
+        skipDuplicates: true,
+      });
+      if (inserted.count !== 1) {
+        const winner = await transaction.commissionLedger.findUnique({
+          where: {
+            agent_id_idempotency_key: {
+              agent_id: commission.agentId,
+              idempotency_key: idempotencyKey,
+            },
+          },
+        });
+        if (winner !== null && winner.snapshot_id === commission.snapshotId &&
+          winner.ledger_type === 'AVAILABLE_CREDIT' && winner.expected_change.equals(commission.amount.negated()) &&
+          winner.available_change.equals(commission.amount) && winner.frozen_change.isZero()) {
+          throw orderNotReceivable('Commission completion was already recorded');
+        }
+        throw internal('Commission completion ledger key conflicts with another fact');
+      }
+      walletCredits.set(
+        commission.agentId,
+        (walletCredits.get(commission.agentId) ?? new Prisma.Decimal(0)).add(commission.amount),
+      );
+      commissionCredits.push({ ledgerId, version: commission.positionVersion + 1 });
+    }
+
+    for (const [agentId, amount] of [...walletCredits.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+      const wallet = wallets.get(agentId);
+      if (wallet === undefined) throw internal('A frozen commission Agent wallet is missing');
+      if (wallet.available_balance.add(amount).abs().greaterThan('9999999999999999.99')) {
+        throw internal('Commission wallet balance would exceed the supported range');
+      }
+      const changed = await transaction.agentWallet.updateMany({
+        data: {
+          available_balance: { increment: amount },
+          updated_at: serverTime,
+          version: { increment: 1 },
+        },
+        where: { id: wallet.id, version: wallet.version },
+      });
+      if (changed.count !== 1) throw internal('Commission wallet changed after its completion lock');
+    }
+
+    let completedShipmentVersion = shipmentVersion;
+    if (shipment.status !== 'DELIVERED') {
+      const shipmentChanged = await transaction.shipment.updateMany({
+        data: {
+          delivered_at: serverTime,
+          status: 'DELIVERED',
+          updated_at: serverTime,
+          version: { increment: 1 },
+        },
+        where: { id: shipmentId, status: shipment.status, version: shipmentVersion },
+      });
+      if (shipmentChanged.count !== 1) throw internal('Shipment changed after its completion lock');
+      completedShipmentVersion += 1;
+    }
+    const orderChanged = await transaction.salesOrder.updateMany({
+      data: {
+        aftersale_expires_at: aftersaleExpiresAt,
+        business_rule_version_id: rule.id,
+        completed_at: serverTime,
+        completion_reason: input.completionReason,
+        fulfillment_status: 'DELIVERED',
+        order_status: 'COMPLETED',
+        updated_at: serverTime,
+        version: { increment: 1 },
+      },
+      where: {
+        business_rule_version_id: null,
+        close_reason: null,
+        closed_at: null,
+        completed_at: null,
+        completion_reason: null,
+        id: input.orderId,
+        order_status: 'SHIPPING',
+        payment_resolution: 'NORMAL',
+        payment_status: 'PAID',
+        refund_processing_status: 'IDLE',
+        version: orderVersion,
+      },
+    });
+    if (orderChanged.count !== 1) throw internal('Order changed after its completion lock');
+
+    return {
+      after: {
+        fulfillmentStatus: 'DELIVERED',
+        orderStatus: 'COMPLETED',
+        orderVersion: orderVersion + 1,
+        shipmentStatus: 'DELIVERED',
+        shipmentVersion: completedShipmentVersion,
+      },
+      aftersaleExpiresAt,
+      before: {
+        fulfillmentStatus: order.fulfillment_status,
+        orderStatus: order.order_status,
+        orderVersion,
+        shipmentStatus: shipment.status,
+        shipmentVersion,
+      },
+      businessRuleVersionId: rule.id,
+      commissionCredits,
+      completedAt: serverTime,
+      orderId: input.orderId,
+      shipmentId,
+    };
   }
 
   async createShipmentInTransaction(

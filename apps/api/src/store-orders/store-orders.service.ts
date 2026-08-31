@@ -31,6 +31,7 @@ import type { ObjectStoragePort } from '@qingxu/storage';
 import { API_RUNTIME_CONFIG } from '../platform/config/api-runtime-config';
 import { API_DATABASE_RUNTIME } from '../platform/database/api-database-runtime';
 import { API_OBJECT_STORAGE } from '../platform/storage/api-object-storage';
+import { FulfillmentCompletionService } from '../fulfillment/fulfillment-completion.service';
 import {
   storeCheckoutQuoteFactBinding,
   storeCheckoutQuoteRequestBinding,
@@ -61,6 +62,7 @@ export function storeOrderDisplayStatus(order: StoreOrderSnapshot): OrderDisplay
 @Injectable()
 export class StoreOrdersService {
   private readonly fulfillment!: FulfillmentRepository;
+  private readonly completion!: FulfillmentCompletionService;
   private readonly orders!: StoreOrderRepository;
   private readonly audit!: AuditRepository;
   private readonly idempotency!: IdempotencyRepository;
@@ -75,6 +77,7 @@ export class StoreOrdersService {
   ) {
     if (config && database) {
       this.fulfillment = new FulfillmentRepository(database.prisma);
+      this.completion = new FulfillmentCompletionService(config, database);
       this.orders = new StoreOrderRepository(database.prisma);
       this.audit = new AuditRepository(config.encryption.ipHashKey);
       this.idempotency = new IdempotencyRepository(config.encryption.idempotencyHashKeys);
@@ -137,6 +140,26 @@ export class StoreOrdersService {
       orderId,
     });
     return this.logisticsView(fulfillment);
+  }
+
+  async confirmReceipt(
+    session: CurrentStoreSession,
+    orderId: string,
+    expectedVersion: number,
+    idempotencyKey: string,
+    requestId: string,
+    ipAddress?: string,
+  ) {
+    await this.completionService().confirmCustomer({
+      accountId: session.accountId,
+      customerId: session.customerId,
+      expectedOrderVersion: expectedVersion,
+      idempotencyKey,
+      ...(ipAddress === undefined ? {} : { ipAddress }),
+      orderId,
+      requestId,
+    });
+    return this.getOrder(session, orderId);
   }
 
   createOrder(
@@ -748,6 +771,11 @@ export class StoreOrdersService {
   private fulfillmentRepository(): FulfillmentRepository {
     if (!this.fulfillment) throw internal('Fulfillment repository is unavailable');
     return this.fulfillment;
+  }
+
+  private completionService(): FulfillmentCompletionService {
+    if (!this.completion) throw internal('Store order completion service is unavailable');
+    return this.completion;
   }
 
   private idempotencyRepository(): IdempotencyRepository {

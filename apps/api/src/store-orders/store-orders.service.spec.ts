@@ -375,9 +375,15 @@ function harness() {
   const storage = {
     publicUrl: vi.fn((objectKey: string) => `https://assets.example.test/${objectKey}`),
   };
+  const completion = {
+    confirmCustomer: vi.fn(async () => {
+      sequence.push('confirmCustomer');
+    }),
+  };
   const service = new StoreOrdersService();
   Object.assign(service, {
     audit,
+    completion,
     config,
     credentials,
     database,
@@ -389,6 +395,7 @@ function harness() {
   });
   return {
     audit,
+    completion,
     credentials,
     database,
     fulfillment,
@@ -413,6 +420,33 @@ describe('B9.2-B9.3 StoreOrdersService', () => {
       fulfillmentStatus: 'NOT_STARTED',
       orderStatus: 'PENDING_SHIPMENT',
     }))).toThrow(expect.objectContaining({ code: 'INTERNAL_ERROR' }));
+  });
+
+  it('confirms receipt through the shared transaction service and returns the current owned detail', async () => {
+    const current = harness();
+
+    await expect(current.service.confirmReceipt(
+      session,
+      ORDER_ID,
+      3,
+      IDEMPOTENCY_KEY,
+      REQUEST_ID,
+      IP_ADDRESS,
+    )).resolves.toMatchObject({ order_id: ORDER_ID, version: 1 });
+
+    expect(current.completion.confirmCustomer).toHaveBeenCalledWith({
+      accountId: ACCOUNT_ID,
+      customerId: CUSTOMER_ID,
+      expectedOrderVersion: 3,
+      idempotencyKey: IDEMPOTENCY_KEY,
+      ipAddress: IP_ADDRESS,
+      orderId: ORDER_ID,
+      requestId: REQUEST_ID,
+    });
+    expect(current.orders.getOwnedOrderDetailInTransaction).toHaveBeenCalledWith(
+      current.transaction,
+      { customerId: CUSTOMER_ID, orderId: ORDER_ID },
+    );
   });
 
   it('creates, protects and records an order in the required transaction order without persisting secrets', async () => {

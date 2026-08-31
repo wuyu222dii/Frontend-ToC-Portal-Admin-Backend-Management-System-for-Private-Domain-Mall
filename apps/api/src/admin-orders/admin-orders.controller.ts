@@ -20,6 +20,7 @@ import { IfMatchVersion } from '../platform/http/if-match.decorator';
 import { NoStore } from '../platform/http/no-store.decorator';
 import {
   parseAdminCreateShipmentBody,
+  parseAdminCompleteOrderBody,
   parseAdminLogisticsEventBody,
   parseAdminOrderEmptyQuery,
   parseAdminOrderId,
@@ -44,6 +45,28 @@ export class AdminOrdersController {
   @RequireRoles('SUPER_ADMIN')
   get(@Param('order_id') orderIdValue: string) {
     return this.orders.getOrder(parseAdminOrderId(orderIdValue));
+  }
+
+  @Post(':order_id/complete')
+  @HttpCode(HttpStatus.OK)
+  @NoStore()
+  @RequireRoles('SUPER_ADMIN')
+  complete(
+    @Param('order_id') orderIdValue: string,
+    @Query() query: unknown,
+    @Body() body: unknown,
+    @IfMatchVersion() expectedVersion: number,
+    @IdempotencyKey() idempotencyKey: string,
+    @Req() rawRequest: PrincipalRequest,
+  ) {
+    parseAdminOrderEmptyQuery(query);
+    return this.orders.completeOrder(
+      requireAdminCatalogRequest(rawRequest),
+      parseAdminOrderId(orderIdValue),
+      parseAdminCompleteOrderBody(body),
+      expectedVersion,
+      idempotencyKey,
+    );
   }
 
   @Post(':order_id/shipments')

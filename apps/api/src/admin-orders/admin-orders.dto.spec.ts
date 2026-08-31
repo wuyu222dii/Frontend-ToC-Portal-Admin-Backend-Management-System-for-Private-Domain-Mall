@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   parseAdminCreateShipmentBody,
+  parseAdminCompleteOrderBody,
   parseAdminFulfillmentAddressAccessHeaders,
   parseAdminLogisticsEventBody,
   parseAdminOrderEmptyQuery,
@@ -298,5 +299,30 @@ describe('B11.2 Admin fulfillment command DTO', () => {
   it('accepts only a ULID shipment path parameter', () => {
     expect(parseAdminShipmentId(SHIPMENT_ID)).toBe(SHIPMENT_ID);
     expect(() => parseAdminShipmentId('not-a-shipment')).toThrowError(ApplicationError);
+  });
+});
+
+describe('B11.3 Admin order completion DTO', () => {
+  it('normalizes the exact ADMIN_FORCED completion request', () => {
+    expect(parseAdminCompleteOrderBody({
+      completion_reason: 'ADMIN_FORCED',
+      reason: '  Customer confirmed delivery by phone  ',
+    })).toEqual({
+      completionReason: 'ADMIN_FORCED',
+      reason: 'Customer confirmed delivery by phone',
+    });
+  });
+
+  it.each([
+    ['non-object body', null],
+    ['missing reason', { completion_reason: 'ADMIN_FORCED' }],
+    ['missing completion reason', { reason: 'Manual confirmation' }],
+    ['unknown field', { completion_reason: 'ADMIN_FORCED', reason: 'Manual confirmation', force: true }],
+    ['wrong completion reason', { completion_reason: 'CUSTOMER_CONFIRMED', reason: 'Manual confirmation' }],
+    ['short reason', { completion_reason: 'ADMIN_FORCED', reason: ' x ' }],
+    ['long reason', { completion_reason: 'ADMIN_FORCED', reason: 'x'.repeat(501) }],
+    ['control character', { completion_reason: 'ADMIN_FORCED', reason: 'Manual\nconfirmation' }],
+  ])('rejects %s', (_label, value) => {
+    expect(() => parseAdminCompleteOrderBody(value)).toThrowError(ApplicationError);
   });
 });

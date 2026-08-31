@@ -11,7 +11,7 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import type { PlatformRuntimeConfig } from '@qingxu/config';
 import type { DatabaseRuntime } from '@qingxu/database';
-import { signStoreAccessToken } from '@qingxu/platform-core';
+import { ApplicationError, signStoreAccessToken } from '@qingxu/platform-core';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -146,7 +146,8 @@ const listOrders = vi.fn();
 const getOrder = vi.fn();
 const getLogistics = vi.fn();
 const cancelOrder = vi.fn();
-const orderService = { cancelOrder, createOrder, getLogistics, getOrder, listOrders };
+const confirmReceipt = vi.fn();
+const orderService = { cancelOrder, confirmReceipt, createOrder, getLogistics, getOrder, listOrders };
 const findUnique = vi.fn();
 const redisEval = vi.fn();
 const database = {
@@ -268,6 +269,7 @@ describe('B9.2-B9.3 Store order HTTP boundary', () => {
     getOrder.mockResolvedValue(detailResponse);
     getLogistics.mockResolvedValue(logisticsResponse);
     cancelOrder.mockResolvedValue(orderResponse);
+    confirmReceipt.mockResolvedValue(detailResponse);
   });
 
   it('returns 201 no-store and passes the authenticated command context', async () => {
@@ -368,6 +370,24 @@ describe('B9.2-B9.3 Store order HTTP boundary', () => {
       expect.any(String),
     );
     expectNoStore(cancelled);
+
+    const confirmed = await request(app.getHttpServer())
+      .post(`/api/v1/store/orders/${ORDER_ID}/confirm-receipt`)
+      .set('Authorization', bearer)
+      .set('Idempotency-Key', IDEMPOTENCY_KEY)
+      .set('If-Match', '"3"')
+      .send({})
+      .expect(200);
+    expect(confirmed.body.data).toEqual(detailResponse);
+    expect(confirmReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: ACCOUNT_ID, customerId: CUSTOMER_ID, sessionId: SESSION_ID }),
+      ORDER_ID,
+      3,
+      IDEMPOTENCY_KEY,
+      expect.stringMatching(/^req_[0-9a-f]{32}$/),
+      expect.any(String),
+    );
+    expectNoStore(confirmed);
   });
 
   it('returns 202 when cancellation remains CLOSE_PENDING', async () => {
@@ -389,6 +409,23 @@ describe('B9.2-B9.3 Store order HTTP boundary', () => {
       .expect(202);
 
     expect(response.body.data).toEqual(orderResponse);
+    expectNoStore(response);
+  });
+
+  it('maps a receipt state conflict to 409 without weakening no-store', async () => {
+    confirmReceipt.mockRejectedValueOnce(
+      new ApplicationError('ORDER_NOT_RECEIVABLE', 'Order cannot be confirmed as received'),
+    );
+
+    const response = await request(app.getHttpServer())
+      .post(`/api/v1/store/orders/${ORDER_ID}/confirm-receipt`)
+      .set('Authorization', `Bearer ${storeToken}`)
+      .set('Idempotency-Key', IDEMPOTENCY_KEY)
+      .set('If-Match', '"3"')
+      .send({})
+      .expect(409);
+
+    expect(response.body.code).toBe('ORDER_NOT_RECEIVABLE');
     expectNoStore(response);
   });
 
@@ -468,6 +505,39 @@ describe('B9.2-B9.3 Store order HTTP boundary', () => {
         .set('Idempotency-Key', IDEMPOTENCY_KEY)
         .set('If-Match', '"3"')
         .send({ reason: 'open body' }),
+      () => request(app.getHttpServer())
+        .post(`/api/v1/store/orders/${ORDER_ID}/confirm-receipt`)
+        .set('If-Match', '"3"')
+        .send({}),
+      () => request(app.getHttpServer())
+        .post(`/api/v1/store/orders/${ORDER_ID}/confirm-receipt`)
+        .set('Idempotency-Key', IDEMPOTENCY_KEY)
+        .send({}),
+      () => request(app.getHttpServer())
+        .post(`/api/v1/store/orders/${ORDER_ID}/confirm-receipt`)
+        .set('Idempotency-Key', IDEMPOTENCY_KEY)
+        .set('If-Match', 'W/"3"')
+        .send({}),
+      () => request(app.getHttpServer())
+        .post(`/api/v1/store/orders/${ORDER_ID}/confirm-receipt`)
+        .set('Idempotency-Key', 'not-a-uuid')
+        .set('If-Match', '"3"')
+        .send({}),
+      () => request(app.getHttpServer())
+        .post('/api/v1/store/orders/not-an-ulid/confirm-receipt')
+        .set('Idempotency-Key', IDEMPOTENCY_KEY)
+        .set('If-Match', '"3"')
+        .send({}),
+      () => request(app.getHttpServer())
+        .post(`/api/v1/store/orders/${ORDER_ID}/confirm-receipt?force=true`)
+        .set('Idempotency-Key', IDEMPOTENCY_KEY)
+        .set('If-Match', '"3"')
+        .send({}),
+      () => request(app.getHttpServer())
+        .post(`/api/v1/store/orders/${ORDER_ID}/confirm-receipt`)
+        .set('Idempotency-Key', IDEMPOTENCY_KEY)
+        .set('If-Match', '"3"')
+        .send({ reason: 'open body' }),
     ];
 
     for (const createProbe of probes) {
@@ -479,6 +549,7 @@ describe('B9.2-B9.3 Store order HTTP boundary', () => {
     expect(getOrder).not.toHaveBeenCalled();
     expect(getLogistics).not.toHaveBeenCalled();
     expect(cancelOrder).not.toHaveBeenCalled();
+    expect(confirmReceipt).not.toHaveBeenCalled();
   });
 
   it('keeps malformed JSON no-store before guards and service dispatch', async () => {
@@ -505,6 +576,9 @@ describe('B9.2-B9.3 Store order HTTP boundary', () => {
       () => request(app.getHttpServer())
         .post(`/api/v1/store/orders/${ORDER_ID}/cancel`)
         .set('Idempotency-Key', IDEMPOTENCY_KEY).set('If-Match', '"3"').send({}),
+      () => request(app.getHttpServer())
+        .post(`/api/v1/store/orders/${ORDER_ID}/confirm-receipt`)
+        .set('Idempotency-Key', IDEMPOTENCY_KEY).set('If-Match', '"3"').send({}),
     ];
     for (const createProbe of probes) {
       const response = await createProbe().expect(401);
@@ -517,6 +591,7 @@ describe('B9.2-B9.3 Store order HTTP boundary', () => {
     expect(getOrder).not.toHaveBeenCalled();
     expect(getLogistics).not.toHaveBeenCalled();
     expect(cancelOrder).not.toHaveBeenCalled();
+    expect(confirmReceipt).not.toHaveBeenCalled();
   });
 
   it('rejects a non-CUSTOMER principal before controller guards or dispatch on all B9 routes', async () => {
@@ -529,6 +604,9 @@ describe('B9.2-B9.3 Store order HTTP boundary', () => {
       () => request(forbiddenApp.getHttpServer())
         .post(`/api/v1/store/orders/${ORDER_ID}/cancel`)
         .set('Idempotency-Key', IDEMPOTENCY_KEY).set('If-Match', '"3"').send({}),
+      () => request(forbiddenApp.getHttpServer())
+        .post(`/api/v1/store/orders/${ORDER_ID}/confirm-receipt`)
+        .set('Idempotency-Key', IDEMPOTENCY_KEY).set('If-Match', '"3"').send({}),
     ];
     for (const createProbe of probes) {
       const response = await createProbe().expect(403);
@@ -540,6 +618,7 @@ describe('B9.2-B9.3 Store order HTTP boundary', () => {
     expect(getOrder).not.toHaveBeenCalled();
     expect(getLogistics).not.toHaveBeenCalled();
     expect(cancelOrder).not.toHaveBeenCalled();
+    expect(confirmReceipt).not.toHaveBeenCalled();
   });
 
   it('preserves exact Retry-After from the shared limiter', async () => {
@@ -565,6 +644,21 @@ describe('B9.2-B9.3 Store order HTTP boundary', () => {
     expect(response.body.code).toBe('RATE_LIMITED');
     expect(response.headers['retry-after']).toBe('19');
     expect(listOrders).not.toHaveBeenCalled();
+    expectNoStore(response);
+  });
+
+  it('preserves exact Retry-After on receipt confirmation before service dispatch', async () => {
+    redisEval.mockResolvedValueOnce([121, 23]);
+    const response = await request(app.getHttpServer())
+      .post(`/api/v1/store/orders/${ORDER_ID}/confirm-receipt`)
+      .set('Authorization', `Bearer ${storeToken}`)
+      .set('Idempotency-Key', IDEMPOTENCY_KEY)
+      .set('If-Match', '"3"')
+      .send({})
+      .expect(429);
+    expect(response.body.code).toBe('RATE_LIMITED');
+    expect(response.headers['retry-after']).toBe('23');
+    expect(confirmReceipt).not.toHaveBeenCalled();
     expectNoStore(response);
   });
 

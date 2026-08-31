@@ -273,6 +273,7 @@ function shipment(
 
 interface ServiceInternals {
   audit: { append: ReturnType<typeof vi.fn> };
+  completion: { completeAdmin: ReturnType<typeof vi.fn> };
   fulfillment: {
     appendLogisticsEventInTransaction: ReturnType<typeof vi.fn>;
     createShipmentInTransaction: ReturnType<typeof vi.fn>;
@@ -298,6 +299,7 @@ function harness() {
   const service = new AdminOrdersService(runtimeConfig, database);
   const mocks: ServiceInternals = {
     audit: { append: vi.fn().mockResolvedValue({}) },
+    completion: { completeAdmin: vi.fn().mockResolvedValue({}) },
     fulfillment: {
       appendLogisticsEventInTransaction: vi.fn(),
       createShipmentInTransaction: vi.fn(),
@@ -370,6 +372,29 @@ describe('AdminOrdersService', () => {
     expect(ordinaryProjection).not.toContain(RECIPIENT_NAME);
     expect(ordinaryProjection).not.toContain('phoneCiphertext');
     expect(ordinaryProjection).not.toContain('detailCiphertext');
+  });
+
+  it('completes through the shared transaction service and then reads the current Admin projection', async () => {
+    const { mocks, service } = harness();
+
+    await expect(service.completeOrder(
+      requestContext(),
+      ORDER_ID,
+      { completionReason: 'ADMIN_FORCED', reason: 'Delivery verified by administrator' },
+      3,
+      CREATE_SHIPMENT_IDEMPOTENCY_KEY,
+    )).resolves.toMatchObject({ order_id: ORDER_ID, version: 3 });
+
+    expect(mocks.completion.completeAdmin).toHaveBeenCalledWith({
+      actorAccountId: ACCOUNT_ID,
+      expectedOrderVersion: 3,
+      idempotencyKey: CREATE_SHIPMENT_IDEMPOTENCY_KEY,
+      ipAddress: '127.0.0.1',
+      orderId: ORDER_ID,
+      reason: 'Delivery verified by administrator',
+      requestId: REQUEST_ID,
+    });
+    expect(mocks.fulfillment.getAdminOrderDetail).toHaveBeenCalledWith({ orderId: ORDER_ID });
   });
 
   it('uses the complete shared status matrix for Admin list projections', async () => {

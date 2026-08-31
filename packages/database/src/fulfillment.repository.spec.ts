@@ -215,6 +215,7 @@ function detailRecord() {
       id: refundId,
       origin_type: 'AFTERSALE',
       refund_no: `RF${refundId}`,
+      status: 'SUCCEEDED',
     }],
     shipment: shipment(),
   };
@@ -357,6 +358,28 @@ describe('FulfillmentRepository', () => {
       .getAdminOrderDetailInTransaction(tx, { orderId });
 
     expect(result.eligibility.canAddLogisticsEvent).toBe(false);
+  });
+
+  it.each([
+    ['active payment intent', {
+      payment_intents: [{
+        ...detailRecord().payment_intents[0],
+        attempts: [{ ...detailRecord().payment_intents[0]!.attempts[0], finished_at: null, status: 'INITIATED' }],
+        status: 'OPEN',
+      }],
+    }],
+    ['active refund', {
+      refund_processing_status: 'REFUNDING',
+      refunds: [{ ...detailRecord().refunds[0], status: 'PROCESSING' }],
+    }],
+  ])('fails closed for Admin completion projection with %s', async (_label, override) => {
+    const tx = transaction();
+    vi.mocked(tx.salesOrder.findUnique).mockResolvedValueOnce({ ...detailRecord(), ...override } as never);
+
+    const result = await new FulfillmentRepository({} as PrismaClient)
+      .getAdminOrderDetailInTransaction(tx, { orderId });
+
+    expect(result.eligibility).toMatchObject({ canComplete: false, hasUnresolvedPayment: true });
   });
 
   it('isolates complete address material behind its dedicated read and copies encrypted buffers', async () => {
@@ -510,6 +533,13 @@ describe('FulfillmentRepository', () => {
       order_status: 'SHIPPING',
       payment_resolution: 'NORMAL',
       payment_status: 'PAID',
+      payment_intents: [{
+        attempts: [{ status: 'SUCCEEDED' }],
+        id: paymentIntentId,
+        status: 'SUCCEEDED',
+      }],
+      refund_processing_status: 'IDLE',
+      refunds: [{ id: refundId, status: 'SUCCEEDED' }],
       shipment: shipment(),
       version: 4,
     } as never);
@@ -540,6 +570,13 @@ describe('FulfillmentRepository', () => {
       order_status: 'SHIPPING',
       payment_resolution: 'NORMAL',
       payment_status: 'PAID',
+      payment_intents: [{
+        attempts: [{ status: 'SUCCEEDED' }],
+        id: paymentIntentId,
+        status: 'SUCCEEDED',
+      }],
+      refund_processing_status: 'IDLE',
+      refunds: [{ id: refundId, status: 'CANCELLED' }],
       shipment: shipment(),
       version: 4,
     }] as never);
@@ -558,6 +595,33 @@ describe('FulfillmentRepository', () => {
     expect([...result.keys()]).toEqual([orderId]);
     expect(result.get(orderId)).toMatchObject({ canConfirmReceipt: true, canViewLogistics: true });
     expect(result.has(missingOrderId)).toBe(false);
+  });
+
+  it('fails closed for Store receipt eligibility while refund processing is unresolved', async () => {
+    const tx = transaction();
+    vi.mocked(tx.salesOrder.findFirst).mockResolvedValueOnce({
+      aftersales: [],
+      customer_id: customerId,
+      fulfillment_status: 'SHIPPED',
+      id: orderId,
+      order_status: 'SHIPPING',
+      payment_resolution: 'NORMAL',
+      payment_status: 'PAID',
+      payment_intents: [{
+        attempts: [{ status: 'SUCCEEDED' }],
+        id: paymentIntentId,
+        status: 'SUCCEEDED',
+      }],
+      refund_processing_status: 'REFUNDING',
+      refunds: [],
+      shipment: shipment(),
+      version: 4,
+    } as never);
+
+    await expect(new FulfillmentRepository({} as PrismaClient).getOwnedFulfillmentProjectionInTransaction(
+      tx,
+      { customerId, orderId },
+    )).resolves.toMatchObject({ canConfirmReceipt: false });
   });
 
   it('accepts an empty Store fulfillment batch without querying and rejects duplicate IDs', async () => {

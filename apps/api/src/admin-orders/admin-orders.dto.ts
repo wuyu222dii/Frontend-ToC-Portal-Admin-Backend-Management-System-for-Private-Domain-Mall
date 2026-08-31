@@ -64,6 +64,11 @@ export interface AdminCreateShipmentInput {
   trackingNo: string;
 }
 
+export interface AdminCompleteOrderInput {
+  completionReason: 'ADMIN_FORCED';
+  reason: string;
+}
+
 interface AdminLogisticsEventBaseInput {
   description: string;
   location: string | null;
@@ -255,6 +260,17 @@ export function parseAdminCreateShipmentBody(value: unknown): AdminCreateShipmen
     carrierName: normalizedText(body.carrier_name, 'carrier_name', 1, 80),
     items,
     trackingNo: normalizedText(body.tracking_no, 'tracking_no', 1, 120),
+  };
+}
+
+export function parseAdminCompleteOrderBody(value: unknown): AdminCompleteOrderInput {
+  const body = closedBody(value, ['reason', 'completion_reason']);
+  if (body.completion_reason !== 'ADMIN_FORCED') {
+    return invalid('completion_reason is invalid');
+  }
+  return {
+    completionReason: 'ADMIN_FORCED',
+    reason: normalizedText(body.reason, 'reason', 2, 500),
   };
 }
 

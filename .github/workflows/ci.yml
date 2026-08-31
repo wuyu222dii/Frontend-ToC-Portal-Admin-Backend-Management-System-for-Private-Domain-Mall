@@ -159,7 +159,7 @@ jobs:
       - name: Lint OpenAPI
         run: pnpm contracts:lint
 
-      - name: Check CH-022 contract invariants
+      - name: Check CH-024 contract invariants
         run: pnpm contracts:check
 
       - name: Check generated contract drift
@@ -217,6 +217,11 @@ jobs:
         env:
           B10_VERTICAL_TEST_MODE: full
         run: pnpm e2e:b10:vertical
+
+      - name: Run B11 browser to Nest, PostgreSQL, Redis, MinIO and Worker fulfillment vertical smoke
+        env:
+          B11_VERTICAL_TEST_MODE: full
+        run: pnpm e2e:b11:vertical
 
       - name: Test B1 persistence and worker concurrency
         env:
@@ -299,6 +304,11 @@ jobs:
           B10_STORE_PAYMENT_DATABASE_TEST_MODE: full
         run: pnpm db:test-b10-payments
 
+      - name: Test B11 fulfillment commands and completion with PostgreSQL
+        env:
+          B11_FULFILLMENT_DATABASE_TEST_MODE: full
+        run: pnpm db:test-b11-fulfillment
+
       - name: Verify Prisma migration drift
         run: pnpm db:diff
 
@@ -340,3 +350,6 @@ jobs:
 
       - name: Run B10 payment and reconciliation browser E2E
         run: pnpm e2e:b10
+
+      - name: Run B11 order fulfillment browser E2E
+        run: pnpm e2e:b11

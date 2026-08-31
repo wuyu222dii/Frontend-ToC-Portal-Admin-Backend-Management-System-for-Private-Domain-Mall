@@ -481,25 +481,71 @@ async function seedCompletionFixture(
   return { businessRuleId, previousPublishedRuleIds: publishedRules.map(({ id }) => id), windowDays };
 }
 
-async function assertNoFixtureFacts(runtime: DatabaseRuntime, ids: CompletionFixture): Promise<void> {
-  await expect(Promise.all([
-    runtime.prisma.salesOrder.count({ where: { id: ids.orderId } }),
-    runtime.prisma.shipment.count({ where: { id: ids.shipmentId } }),
-    runtime.prisma.orderItemCommissionSnapshot.count({ where: { id: ids.snapshotId } }),
-    runtime.prisma.commissionLedger.count({ where: { agent_id: ids.agentId } }),
-    runtime.prisma.agentWallet.count({ where: { id: ids.walletId } }),
-    runtime.prisma.account.count({ where: { id: { in: ids.accountIds } } }),
-    runtime.prisma.idempotencyRecord.count({ where: { actor_id: { in: ids.accountIds } } }),
-    runtime.prisma.auditLog.count({ where: { actor_account_id: { in: ids.accountIds } } }),
-    runtime.prisma.outboxEvent.count({ where: { aggregate_id: ids.orderId } }),
-  ])).resolves.toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0]);
+async function assertNoFixtureFacts(
+  runtime: DatabaseRuntime,
+  ids: CompletionFixture,
+  relatedOutboxAggregateIds: readonly string[] = [],
+  restoredPublishedRuleIds: readonly string[] = [],
+): Promise<void> {
+  const checks = [
+    ['shipment_item', runtime.prisma.shipmentItem.count({ where: { shipment: { order_id: ids.orderId } } })],
+    ['logistics_event', runtime.prisma.logisticsEvent.count({ where: { shipment: { order_id: ids.orderId } } })],
+    ['shipment', runtime.prisma.shipment.count({ where: { order_id: ids.orderId } })],
+    ['order_item', runtime.prisma.orderItem.count({ where: { order_id: ids.orderId } })],
+    ['payment_attempt', runtime.prisma.paymentAttempt.count({
+      where: { payment_intent: { order_id: ids.orderId } },
+    })],
+    ['payment_intent', runtime.prisma.paymentIntent.count({ where: { order_id: ids.orderId } })],
+    ['refund_attempt', runtime.prisma.refundAttempt.count({ where: { refund: { order_id: ids.orderId } } })],
+    ['refund_item', runtime.prisma.refundItem.count({ where: { refund: { order_id: ids.orderId } } })],
+    ['refund', runtime.prisma.refund.count({ where: { order_id: ids.orderId } })],
+    ['aftersale_item', runtime.prisma.aftersaleItem.count({ where: { aftersale: { order_id: ids.orderId } } })],
+    ['aftersale', runtime.prisma.aftersale.count({ where: { order_id: ids.orderId } })],
+    ['commission_position', runtime.prisma.orderItemCommissionPosition.count({
+      where: { snapshot: { order_item: { order_id: ids.orderId } } },
+    })],
+    ['commission_snapshot', runtime.prisma.orderItemCommissionSnapshot.count({
+      where: { order_item: { order_id: ids.orderId } },
+    })],
+    ['commission_rule_entry', runtime.prisma.commissionRuleEntry.count({
+      where: { rule_version_id: ids.commissionRuleId },
+    })],
+    ['commission_rule', runtime.prisma.commissionRuleVersion.count({ where: { id: ids.commissionRuleId } })],
+    ['commission_ledger', runtime.prisma.commissionLedger.count({ where: { agent_id: ids.agentId } })],
+    ['agent_wallet', runtime.prisma.agentWallet.count({ where: { agent_id: ids.agentId } })],
+    ['sales_order', runtime.prisma.salesOrder.count({ where: { id: ids.orderId } })],
+    ['business_rule', runtime.prisma.businessRuleVersion.count({ where: { id: ids.businessRuleId } })],
+    ['agent_profile', runtime.prisma.agentProfile.count({ where: { id: ids.agentId } })],
+    ['customer_profile', runtime.prisma.customerProfile.count({ where: { id: ids.customerId } })],
+    ['sku', runtime.prisma.sku.count({ where: { id: ids.skuId } })],
+    ['product', runtime.prisma.product.count({ where: { id: ids.productId } })],
+    ['category', runtime.prisma.category.count({ where: { id: ids.categoryId } })],
+    ['brand', runtime.prisma.brand.count({ where: { id: ids.brandId } })],
+    ['idempotency_record', runtime.prisma.idempotencyRecord.count({
+      where: { OR: [{ actor_id: { in: ids.accountIds } }, { resource_id: ids.orderId }] },
+    })],
+    ['audit_log', runtime.prisma.auditLog.count({
+      where: { OR: [{ actor_account_id: { in: ids.accountIds } }, { object_id: ids.orderId }] },
+    })],
+    ['outbox_event', runtime.prisma.outboxEvent.count({
+      where: { aggregate_id: { in: [ids.orderId, ...relatedOutboxAggregateIds] } },
+    })],
+    ['account', runtime.prisma.account.count({ where: { id: { in: ids.accountIds } } })],
+  ] as const;
+  const counts = Object.fromEntries(await Promise.all(checks.map(async ([table, query]) => [table, await query])));
+  expect(counts).toEqual(Object.fromEntries(checks.map(([table]) => [table, 0])));
+
+  const restoredPublishedRuleCount = await runtime.prisma.businessRuleVersion.count({
+    where: { id: { in: restoredPublishedRuleIds }, status: 'PUBLISHED' },
+  });
+  expect(restoredPublishedRuleCount).toBe(restoredPublishedRuleIds.length);
 }
 
 async function cleanupFullFixture(
   connectionString: string,
   ids: CompletionFixture,
   previousPublishedRuleIds: readonly string[],
-): Promise<void> {
+): Promise<string[]> {
   const pool = new Pool({
     application_name: 'qingxu-b113-completion-cleanup',
     connectionString,
@@ -507,9 +553,15 @@ async function cleanupFullFixture(
     max: 1,
   });
   let client: PoolClient | undefined;
+  let relatedOutboxAggregateIds: string[] = [];
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    const ledgerIds = await client.query<{ id: string }>(
+      'SELECT id FROM public.commission_ledger WHERE agent_id = $1 ORDER BY id',
+      [ids.agentId],
+    );
+    relatedOutboxAggregateIds = ledgerIds.rows.map(({ id }) => id);
     await client.query(
       `DELETE FROM public.outbox_event
        WHERE aggregate_id = $1
@@ -575,6 +627,7 @@ async function cleanupFullFixture(
     client?.release();
     await pool.end();
   }
+  return relatedOutboxAggregateIds;
 }
 
 databaseDescribe('B11.3 fulfillment completion database integration', () => {
@@ -940,6 +993,7 @@ databaseDescribe('B11.3 fulfillment completion database integration', () => {
     const customerKey = randomUUID();
     const adminKey = randomUUID();
     let previousPublishedRuleIds: string[] = [];
+    let relatedOutboxAggregateIds: string[] = [];
     try {
       await runtime.prisma.$transaction(async (transaction) => {
         const seeded = await seedCompletionFixture(transaction, ids, now, { shipmentStatus: 'SHIPPED' });
@@ -995,8 +1049,8 @@ databaseDescribe('B11.3 fulfillment completion database integration', () => {
         .resolves.toMatchObject({ available_balance: new Prisma.Decimal('5.50'), version: 2 });
       await expect(runtime.prisma.logisticsEvent.count({ where: { shipment_id: ids.shipmentId } })).resolves.toBe(0);
     } finally {
-      await cleanupFullFixture(cleanupConnectionString, ids, previousPublishedRuleIds);
+      relatedOutboxAggregateIds = await cleanupFullFixture(cleanupConnectionString, ids, previousPublishedRuleIds);
     }
-    await assertNoFixtureFacts(runtime, ids);
+    await assertNoFixtureFacts(runtime, ids, relatedOutboxAggregateIds, previousPublishedRuleIds);
   }, 120_000);
 });

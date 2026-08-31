@@ -146,22 +146,37 @@ function logisticsEventTitle(event: StoreLogisticsEvent): string {
   return '物流进度已更新';
 }
 
-function copyTrackingNumber() {
+function writeTrackingNumber(trackingNumber: string): Promise<void> {
+  // #ifdef H5
+  if (typeof navigator.clipboard?.writeText !== 'function') {
+    return Promise.reject(new Error('Clipboard API is unavailable'));
+  }
+  return navigator.clipboard.writeText(trackingNumber);
+  // #endif
+  // #ifndef H5
+  // eslint-disable-next-line no-unreachable
+  return new Promise((resolve, reject) => {
+    uni.setClipboardData({
+      data: trackingNumber,
+      fail: reject,
+      success: () => resolve(),
+    });
+  });
+  // #endif
+}
+
+async function copyTrackingNumber() {
   const trackingNumber = logistics.value?.shipment?.tracking_no;
   if (!trackingNumber || copyPending.value) return;
   copyPending.value = true;
-  uni.setClipboardData({
-    data: trackingNumber,
-    fail: () => {
-      void uni.showToast({ icon: 'none', title: '复制失败，请稍后重试' });
-    },
-    success: () => {
-      void uni.showToast({ icon: 'none', title: '运单号已复制' });
-    },
-    complete: () => {
-      copyPending.value = false;
-    },
-  });
+  try {
+    await writeTrackingNumber(trackingNumber);
+    void uni.showToast({ icon: 'none', title: '运单号已复制' });
+  } catch {
+    void uni.showToast({ icon: 'none', title: '复制失败，请稍后重试' });
+  } finally {
+    copyPending.value = false;
+  }
 }
 
 onLoad((query) => {

@@ -189,3 +189,9 @@ jobs:
           B10_STORE_PAYMENT_DATABASE_TEST_MODE: rollback
           DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
         run: pnpm db:test-b10-payments
+
+      - name: Run rollback-only B11 fulfillment command and completion smoke
+        env:
+          B11_FULFILLMENT_DATABASE_TEST_MODE: rollback
+          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
+        run: pnpm db:test-b11-fulfillment

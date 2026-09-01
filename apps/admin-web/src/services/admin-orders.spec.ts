@@ -276,6 +276,17 @@ describe('B11.4 strict Admin order decoders', () => {
       ...detail,
       available_actions: ['COMPLETE', 'COMPLETE'],
     }))).toThrow('response.data.available_actions');
+    expect(() => decodeAdminOrderDetailResponse(envelope({
+      ...detail,
+      aftersales: [{
+        aftersale_id: snapshotId,
+        aftersale_no: 'AS-DEVELOPMENT-001',
+        created_at: '2026-08-31T04:07:00.000Z',
+        requested_amount: '9.00',
+        status: 'UNKNOWN',
+        type: 'REFUND_ONLY',
+      }],
+    }))).toThrow('response.data.aftersales[0].status');
   });
 
   it('rejects non-RFC3339 and calendar-invalid date-time values', () => {

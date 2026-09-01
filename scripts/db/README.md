@@ -40,13 +40,13 @@ The bootstrap applies the frozen `0001_initial` SQL as project owner, sets role
 passwords over PostgreSQL stdin, and then runs `prisma migrate resolve` through
 `mall_migrator`. It immediately deploys the remaining checked-in migrations,
 including `0002_b9_inventory_fact_indexes` and `0003_b10_payment_fact_indexes`,
-plus the CH-023 `0004_b10_commission_position_trigger_fix`, through
-`mall_migrator`. Prisma
+plus the CH-023 `0004_b10_commission_position_trigger_fix` and the CH-026
+`0005_b12_aftersale_refund_guards`, through `mall_migrator`. Prisma
 therefore creates and records `_prisma_migrations` itself; the script never
-inserts or fabricates a migration-history row. The resulting four-row migration
+inserts or fabricates a migration-history row. The resulting five-row migration
 history is owned by `mall_migrator` and inaccessible to `mall_runtime`. The
 operation can be retried after interruption only in an empty or fully registered
-CH-023 state. A baseline-only or otherwise partial state is refused for manual
+B12 state. A baseline-only or otherwise partial state is refused for manual
 inspection; the script never resets or overwrites it.
 
 CI replay requires `CI=true`, `ALLOW_CI_EPHEMERAL_POSTGRES=1`, and an empty
@@ -72,13 +72,23 @@ provide all three inputs:
 The protected `supabase-development` environment supplies
 `SUPABASE_DIRECT_URL` for `mall_migrator`. The workflow pins and verifies the
 Supabase CA, requires a successful `ci.yml` push run for the exact `main` SHA,
-validates the project-scoped connection, requires the exact completed B10 chain
-or an idempotent CH-023 target, rejects duplicate successful payment-attempt and
-late-payment refund facts, runs `prisma migrate deploy`, and then uses
-read-only checks for history, permissions, native object fingerprints, and Prisma
-drift. The incremental workflow never runs the privilege-mutating bootstrap
+validates the project-scoped connection, requires the exact completed `0001 -> 0004`
+chain or an idempotent `0001 -> 0005` target, rejects duplicate payment/refund
+success and active-refund-attempt facts, and preflights refund source/item envelopes
+(including the exact manual-compensation order item) plus head/item totals before
+running `prisma migrate deploy`. Migration `0005` then acquires a five-second,
+fail-fast `SHARE` write boundary over the minimal envelope tables and repeats those
+checks transactionally. The workflow finally uses read-only checks for history,
+permissions, native object fingerprints, and Prisma drift. The incremental workflow
+never runs the privilege-mutating bootstrap
 repair SQL. It shares a concurrency group with the
 rollback-only smoke workflow, so the two database jobs cannot overlap.
+
+Pause development writers before dispatching `0005`; the short lock timeout is an
+intentional fail-closed control, not an online-migration retry loop. If deploy fails,
+inspect the exact `_prisma_migrations` row and database error before using the
+approved Prisma recovery procedure. Do not blindly rerun the workflow or edit
+migration history by hand.
 
 After migration succeeds on the target SHA, run `Supabase development smoke` on
 that same `main` SHA, supplying the same exact `target_sha`; the smoke workflow

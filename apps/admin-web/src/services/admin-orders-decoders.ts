@@ -363,7 +363,11 @@ function readAftersale(value: unknown, path: string): components['schemas']['Ord
     aftersale_no: string(result.aftersale_no, `${path}.aftersale_no`),
     created_at: dateTime(result.created_at, `${path}.created_at`),
     requested_amount: money(result.requested_amount, `${path}.requested_amount`),
-    status: string(result.status, `${path}.status`),
+    status: oneOf(result.status, [
+      'PENDING_REVIEW', 'REJECTED', 'REFUNDING', 'WAITING_RETURN', 'WAITING_RECEIPT',
+      'RETURN_EXCEPTION', 'REFUNDING_AFTER_RETURN', 'REJECTED_AFTER_RETURN',
+      'REFUND_FAILED', 'COMPLETED', 'CANCELLED',
+    ] as const, `${path}.status`),
     type: oneOf(result.type, ['REFUND_ONLY', 'RETURN_REFUND'] as const, `${path}.type`),
   };
 }

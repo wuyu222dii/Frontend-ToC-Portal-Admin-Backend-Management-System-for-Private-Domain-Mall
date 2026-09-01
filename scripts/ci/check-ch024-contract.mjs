@@ -20,6 +20,18 @@ const b9DatabaseDesignPath = 'product-materials/docs/03-技术设计/数据库�
 const redoclyCli = join(repositoryRoot, 'node_modules/@redocly/cli/bin/cli.js');
 const temporaryDirectory = mkdtempSync(join(tmpdir(), 'qingxu-ch024-contract-'));
 const bundledPath = join(temporaryDirectory, 'openapi.json');
+const expectedContractVersion = process.env.QINGXU_CONTRACT_EXPECTED_VERSION ?? '2.4.9-ch024';
+const expectedSchemaReferenceCount = Number.parseInt(
+  process.env.QINGXU_CONTRACT_EXPECTED_SCHEMA_REFERENCES ?? '705',
+  10,
+);
+const expectedLocalReferenceCount = Number.parseInt(
+  process.env.QINGXU_CONTRACT_EXPECTED_LOCAL_REFERENCES ?? '2695',
+  10,
+);
+const ordinaryAftersalesEnabled = process.env.QINGXU_CONTRACT_ORDINARY_AFTERSALES_ENABLED === '1';
+const returnAddressInStoreBusinessErrors =
+  process.env.QINGXU_CONTRACT_RETURN_ADDRESS_IN_STORE_ERRORS !== '0';
 
 const HTTP_METHODS = new Set(['delete', 'get', 'head', 'options', 'patch', 'post', 'put', 'trace']);
 const MASTER_DATA_PATHS = [
@@ -269,7 +281,7 @@ try {
     source: readFileSync(join(repositoryRoot, path), 'utf8'),
   }));
   const b9DatabaseDesign = readFileSync(join(repositoryRoot, b9DatabaseDesignPath), 'utf8');
-  assert.equal(document.info.version, '2.4.9-ch024');
+  assert.equal(document.info.version, expectedContractVersion);
 
   const pathCount = Object.keys(document.paths).length;
   const operations = Object.values(document.paths).flatMap((pathItem) =>
@@ -1692,8 +1704,12 @@ try {
   ]);
   assert.deepEqual(document.components.responses.StoreCustomerBusinessError.content
     ['application/json'].schema.properties.code.enum,
-  ['CART_ITEM_LIMIT_EXCEEDED', 'DEFAULT_ADDRESS_REQUIRED',
-    'ACTIVE_AFTERSALE_BLOCKS_SHIPMENT']);
+  ordinaryAftersalesEnabled
+    ? ['CART_ITEM_LIMIT_EXCEEDED', 'DEFAULT_ADDRESS_REQUIRED',
+      'ACTIVE_AFTERSALE_BLOCKS_SHIPMENT', 'AFTERSALE_QUOTA_EXCEEDED',
+      ...(returnAddressInStoreBusinessErrors ? ['RETURN_ADDRESS_NOT_CONFIGURED'] : [])]
+    : ['CART_ITEM_LIMIT_EXCEEDED', 'DEFAULT_ADDRESS_REQUIRED',
+      'ACTIVE_AFTERSALE_BLOCKS_SHIPMENT']);
   const customerRateLimit = document.components.responses.StoreCustomerRateLimited;
   assert.equal(customerRateLimit.headers['Retry-After'].required, true);
   assert.equal(customerRateLimit.headers['Retry-After'].schema.minimum, 1);
@@ -1776,21 +1792,29 @@ try {
       '#/components/schemas/StoreOrderResponse');
   }
 
+  const expectedStoreOrderActions = ordinaryAftersalesEnabled
+    ? ['PAY', 'CANCEL', 'VIEW_LOGISTICS', 'CONFIRM_RECEIPT', 'APPLY_AFTERSALE']
+    : ['PAY', 'CANCEL', 'VIEW_LOGISTICS', 'CONFIRM_RECEIPT'];
   assert.deepEqual(schemas.StoreOrderListItem.properties.available_actions.items, {
-    type: 'string', enum: ['PAY', 'CANCEL', 'VIEW_LOGISTICS', 'CONFIRM_RECEIPT'],
-  }, 'B11 order lists must expose the closed payment and fulfillment actions');
+    type: 'string', enum: expectedStoreOrderActions,
+  }, 'Store order lists must expose only the currently supported actions');
   assert.match(schemas.StoreOrderListItem.properties.available_actions.description,
     /无支付意图.+失败终态 intent.+CANCEL/s);
   const storeOrderDetail = schemas.StoreOrderDetailResponse.properties.data;
   assert.deepEqual(storeOrderDetail.properties.available_actions.items, {
-    type: 'string', enum: ['PAY', 'CANCEL', 'VIEW_LOGISTICS', 'CONFIRM_RECEIPT'],
-  }, 'B11 order details must expose the closed payment and fulfillment actions');
+    type: 'string', enum: expectedStoreOrderActions,
+  }, 'Store order details must expose only the currently supported actions');
   assert.match(storeOrderDetail.properties.available_actions.description,
     /无支付意图.+失败终态 intent.+CANCEL/s);
   assert.equal(storeOrderDetail.properties.packages.maxItems, 1,
     'B11 order detail must expose at most one package');
-  assert.equal(storeOrderDetail.properties.aftersales.maxItems, 0,
-    'ordinary aftersales must remain closed in B11');
+  if (ordinaryAftersalesEnabled) {
+    assert.equal(storeOrderDetail.properties.aftersales.maxItems, undefined,
+      'ordinary aftersales must not remain fixed empty after B12 opens them');
+  } else {
+    assert.equal(storeOrderDetail.properties.aftersales.maxItems, 0,
+      'ordinary aftersales must remain closed in B11');
+  }
   for (const field of ['payment_attempts', 'refund_attempts']) {
     assert.equal(storeOrderDetail.properties[field].maxItems, undefined,
       `B10 order detail ${field} must expose persisted payment facts`);
@@ -2272,8 +2296,10 @@ try {
   for (const reference of references) resolveLocalReference(document, reference);
   const schemaReferences = references.filter((reference) =>
     reference.startsWith('#/components/schemas/')).length;
-  assert.equal(schemaReferences, 705, 'OpenAPI schema reference count drifted');
-  assert.equal(references.length, 2_695, 'OpenAPI local reference count drifted');
+  assert.equal(schemaReferences, expectedSchemaReferenceCount,
+    'OpenAPI schema reference count drifted');
+  assert.equal(references.length, expectedLocalReferenceCount,
+    'OpenAPI local reference count drifted');
 
   process.stdout.write(JSON.stringify({
     status: 'passed',

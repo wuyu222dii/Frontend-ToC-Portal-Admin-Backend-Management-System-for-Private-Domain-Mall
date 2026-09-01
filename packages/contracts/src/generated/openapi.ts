@@ -727,7 +727,7 @@ export interface paths {
         put?: never;
         /**
          * 微信退款通知收件箱
-         * @description 仅在真实微信支付配置完整时注册路由；未配置时不得注册。必须基于未经解析的原始请求体与四个 WeChatpay 头完成验签，再以 Provider 事件唯一键持久化 Inbox；不得记录原始报文、签名、证书材料或解密后的敏感字段。
+         * @description 兼容保留真实微信退款通知契约；B12 development 只允许 Mock Provider 且必须不注册此路由。未来仅在真实微信支付配置完整时才可注册，未配置时不得注册；必须基于未经解析的原始请求体与四个 WeChatpay 头完成验签，再以 Provider 事件唯一键持久化 Inbox；不得记录原始报文、签名、证书材料或解密后的敏感字段。
          */
         post: operations["postCallbacksWechatRefund"];
         delete?: never;
@@ -763,10 +763,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 本人售后列表 */
+        /**
+         * 本人售后列表
+         * @description 仅接受当前 CUSTOMER 会话并只返回本人售后，固定按 created_at DESC,aftersale_id DESC 稳定分页；共享 CUSTOMER+来源 IP 120/60 固定窗口限流，Redis 异常时 fail closed。个性化响应一律禁止缓存。
+         */
         get: operations["getStoreAftersales"];
         put?: never;
-        /** 创建仅退款或退货退款，并占用可退额度 */
+        /**
+         * 服务端试算并确认创建仅退款或退货退款
+         * @description 仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 会话。action=PREVIEW 使用 Repeatable Read 服务端试算金额、可退数量/金额与阻断，可提交时签发 5 分钟无状态用途隔离 HMAC preview_token 和 confirmation_hash；action=CONFIRM 必须重放精确规范业务字段，再以 Serializable 事务重验后占用额度并创建售后。PREVIEW 和 CONFIRM 必须使用不同 Idempotency-Key，两阶段都使用 HASH_ONLY，不缓存 preview token、证据能力或响应正文；预览响应丢失时必须使用新键重新试算。与其他登录后 Store 操作共享 CUSTOMER+规范化来源 IP 用途隔离 HMAC 的 Redis 固定窗口，每 60 秒 120 次，Redis 不可用时 fail closed。
+         */
         post: operations["postStoreAftersales"];
         delete?: never;
         options?: never;
@@ -781,7 +787,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 售后详情与时间线 */
+        /**
+         * 售后详情与时间线
+         * @description 仅接受当前 CUSTOMER 会话；跨客户访问统一返回 404。共享 CUSTOMER+来源 IP 120/60 固定窗口限流，Redis 异常时 fail closed，成功与错误响应均禁止缓存。
+         */
         get: operations["getStoreAftersalesByAftersaleId"];
         put?: never;
         post?: never;
@@ -800,7 +809,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 在允许阶段取消并释放占用 */
+        /**
+         * 在允许阶段取消并释放占用
+         * @description 仅接受当前 CUSTOMER 取消本人售后；必须使用 If-Match 校验 aftersale.version。使用 HASH_ONLY 幂等策略，共享 CUSTOMER+来源 IP 120/60 固定窗口限流，Redis 异常时 fail closed。
+         */
         post: operations["postStoreAftersalesByAftersaleIdCancel"];
         delete?: never;
         options?: never;
@@ -817,7 +829,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 填写退货承运商和运单号 */
+        /**
+         * 填写退货承运商和运单号
+         * @description 仅接受当前 CUSTOMER 为本人 WAITING_RETURN 售后提交退货物流；必须使用 If-Match 校验 aftersale.version。使用 HASH_ONLY 幂等策略，共享 CUSTOMER+来源 IP 120/60 固定窗口限流，Redis 异常时 fail closed。
+         */
         post: operations["postStoreAftersalesByAftersaleIdReturnShipment"];
         delete?: never;
         options?: never;
@@ -2343,7 +2358,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 同意售后；退货退款由服务端锁唯一当前 PUBLISHED 地址并冻结快照，客户端不可选版本 */
+        /**
+         * 同意售后；退货退款由服务端锁唯一当前 PUBLISHED 地址并冻结快照，客户端不可选版本
+         * @description 使用 HASH_ONLY 幂等策略和 If-Match 乐观锁。审核通过只推进售后状态：仅退款进入 REFUNDING，退货退款冻结唯一当前 PUBLISHED 退货地址快照并进入 WAITING_RETURN；未配置地址返回 RETURN_ADDRESS_NOT_CONFIGURED。此 operation 不得创建退款、调用 Provider 或改写资金事实；实际退款必须另行 refund-preview 与 refunds confirm。
+         */
         post: operations["postAdminAftersalesByAftersaleIdApprove"];
         delete?: never;
         options?: never;
@@ -2360,7 +2378,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 预览拒绝及释放占用影响 */
+        /**
+         * 预览拒绝及释放占用影响
+         * @description 使用 HASH_ONLY 幂等策略，preview token 仅保存用途隔离哈希，不缓存 token 或响应正文。
+         */
         post: operations["postAdminAftersalesByAftersaleIdRejectPreview"];
         delete?: never;
         options?: never;
@@ -2377,7 +2398,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** HR-08 确认初审拒绝，原因必填 */
+        /**
+         * HR-08 确认初审拒绝，原因必填
+         * @description 使用 HASH_ONLY 幂等策略；必须提交与预览完全一致的业务字段、preview_token、confirmation_hash 和 If-Match。
+         */
         post: operations["postAdminAftersalesByAftersaleIdReject"];
         delete?: never;
         options?: never;
@@ -2394,7 +2418,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 写实收、PASS/ABNORMAL、逐项处置与 evidence_file_ids；异常进入 RETURN_EXCEPTION */
+        /**
+         * 写实收、PASS/ABNORMAL、逐项处置与 evidence_file_ids；异常进入 RETURN_EXCEPTION
+         * @description 使用 HASH_ONLY 幂等策略和 If-Match 乐观锁。请求 items 必须精确覆盖本售后全部售后项，证据经 READY/AFTERSALE_EVIDENCE/归属校验后按 file_id 封存；结论提交后不可改写。
+         */
         post: operations["postAdminAftersalesByAftersaleIdReturnInspections"];
         delete?: never;
         options?: never;
@@ -2431,7 +2458,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** HR-08 预览验货后拒绝及释放占用影响 */
+        /**
+         * HR-08 预览验货后拒绝及释放占用影响
+         * @description 使用 HASH_ONLY 幂等策略，preview token 仅保存用途隔离哈希；证据必须沿用验货时的不可变封存集合。
+         */
         post: operations["postAdminAftersalesByAftersaleIdReturnResolutionRejectPreview"];
         delete?: never;
         options?: never;
@@ -2448,7 +2478,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** HR-08 确认验货后拒绝，原因必填并沿用封存证据 */
+        /**
+         * HR-08 确认验货后拒绝，原因必填并沿用封存证据
+         * @description 使用 HASH_ONLY 幂等策略；必须提交与预览完全一致的业务字段、preview_token、confirmation_hash 和 If-Match。
+         */
         post: operations["postAdminAftersalesByAftersaleIdReturnResolutionReject"];
         delete?: never;
         options?: never;
@@ -2465,7 +2498,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 返回退款影响、资源版本、短时 preview_token 和 confirmation_hash */
+        /**
+         * 返回退款影响、资源版本、短时 preview_token 和 confirmation_hash
+         * @description 普通退款必经预览；使用 HASH_ONLY 幂等策略，preview token 仅保存用途隔离哈希，不缓存 token、金额能力或响应正文。
+         */
         post: operations["postAdminAftersalesByAftersaleIdRefundPreview"];
         delete?: never;
         options?: never;
@@ -2482,7 +2518,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 使用预览确认创建退款和首次退款尝试；商户退款号在退款生命周期内稳定 */
+        /**
+         * 使用预览确认创建退款和首次退款尝试；商户退款号在退款生命周期内稳定
+         * @description 必须使用 refund-preview 签发的短时能力、confirmation_hash 和 If-Match，使用 HASH_ONLY 幂等策略。B12 development 仅允许 Mock Provider；Provider 调用必须在数据库事务外执行，并以稳定退款号收敛响应丢失、UNKNOWN、重复或乱序结果。
+         */
         post: operations["postAdminAftersalesByAftersaleIdRefunds"];
         delete?: never;
         options?: never;
@@ -2499,7 +2538,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 预览失败退款重试并签发新的短时确认 token */
+        /**
+         * 预览失败退款重试并签发新的短时确认 token
+         * @description 退款失败重试仅对 Admin 开放；使用 HASH_ONLY 幂等策略，preview token 仅保存用途隔离哈希。
+         */
         post: operations["postAdminRefundsByRefundIdRetryPreview"];
         delete?: never;
         options?: never;
@@ -2516,7 +2558,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** REFUND_FAILED 重试；必须使用不同于历次尝试的新 Idempotency-Key */
+        /**
+         * REFUND_FAILED 重试；必须使用不同于历次尝试的新 Idempotency-Key
+         * @description 仅 Admin 可使用新预览能力、confirmation_hash 和 If-Match 重试稳定 refund_id；使用 HASH_ONLY 幂等策略。B12 development 仅允许 Mock Provider，不得从客户端选择 Provider。
+         */
         post: operations["postAdminRefundsByRefundIdRetry"];
         delete?: never;
         options?: never;
@@ -2573,7 +2618,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** HR-09 预览独立金额补偿的金额额度和佣金影响 */
+        /**
+         * HR-09 预览独立金额补偿的金额额度和佣金影响
+         * @description B12 金额补偿必须先预览；使用 HASH_ONLY 幂等策略，preview token 仅保存用途隔离哈希，不缓存 token、金额能力或响应正文。
+         */
         post: operations["postAdminOrdersByOrderIdManualCompensationsPreview"];
         delete?: never;
         options?: never;
@@ -2590,7 +2638,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** HR-09 确认 AMOUNT_COMPENSATION；只占金额、不占数量、不回库 */
+        /**
+         * HR-09 确认 AMOUNT_COMPENSATION；只占金额、不占数量、不回库
+         * @description 必须使用 preview 签发的短时能力、confirmation_hash 和 If-Match，使用 HASH_ONLY 幂等策略。B12 development 仅允许 Mock Provider；Provider 调用必须在数据库事务外执行，并以稳定退款号收敛响应丢失、UNKNOWN、重复或乱序结果。
+         */
         post: operations["postAdminOrdersByOrderIdManualCompensations"];
         delete?: never;
         options?: never;
@@ -3689,18 +3740,56 @@ export interface components {
             order_item_id: string;
             quantity: number;
         };
-        CreateAftersaleRequest: {
+        /** @description 同一 operation 的闭合两阶段命令。PREVIEW 只返回服务端试算与短时凭证，CONFIRM 必须重放精确业务字段并携带该凭证后才创建售后。 */
+        CreateAftersaleRequest: ({
+            /** @constant */
+            action: "PREVIEW";
             order_id: string;
             /** @enum {string} */
             type: "REFUND_ONLY" | "RETURN_REFUND";
-            reason_code: string;
+            /** @enum {string} */
+            reason_code: "UNSHIPPED_NO_LONGER_NEEDED" | "ITEM_DAMAGED" | "ITEM_NOT_AS_DESCRIBED" | "WRONG_ITEM" | "MISSING_ITEM" | "QUALITY_ISSUE" | "OTHER";
+            /** @description 服务端先 trim；空白或包含控制字符时拒绝。reason_code=OTHER 时必须提交。 */
             reason_text?: string | null;
             items: components["schemas"]["AftersaleLineInput"][];
+            /** @description 最多 9 个当前 CUSTOMER 拥有的 READY/PRIVATE/AFTERSALE_EVIDENCE 文件，file_id 不得重复。 */
             evidence_file_ids?: string[];
-        };
+        } & ({
+            /** @enum {unknown} */
+            reason_code?: "UNSHIPPED_NO_LONGER_NEEDED" | "ITEM_DAMAGED" | "ITEM_NOT_AS_DESCRIBED" | "WRONG_ITEM" | "MISSING_ITEM" | "QUALITY_ISSUE";
+        } | {
+            /** @constant */
+            reason_code?: "OTHER";
+            reason_text: string;
+        })) | ({
+            /** @constant */
+            action: "CONFIRM";
+            order_id: string;
+            /** @enum {string} */
+            type: "REFUND_ONLY" | "RETURN_REFUND";
+            /** @enum {string} */
+            reason_code: "UNSHIPPED_NO_LONGER_NEEDED" | "ITEM_DAMAGED" | "ITEM_NOT_AS_DESCRIBED" | "WRONG_ITEM" | "MISSING_ITEM" | "QUALITY_ISSUE" | "OTHER";
+            /** @description 必须与 PREVIEW 的规范业务字段精确一致；reason_code=OTHER 时必须提交。 */
+            reason_text?: string | null;
+            items: components["schemas"]["AftersaleLineInput"][];
+            /** @description 必须与 PREVIEW 的 canonical 文件清单精确一致。 */
+            evidence_file_ids?: string[];
+            preview_token: string;
+            confirmation_hash: string;
+        } & ({
+            /** @enum {unknown} */
+            reason_code?: "UNSHIPPED_NO_LONGER_NEEDED" | "ITEM_DAMAGED" | "ITEM_NOT_AS_DESCRIBED" | "WRONG_ITEM" | "MISSING_ITEM" | "QUALITY_ISSUE";
+        } | {
+            /** @constant */
+            reason_code?: "OTHER";
+            reason_text: string;
+        }));
         ReturnShipmentRequest: {
+            /** @description 服务端 trim 后验证；只允许 ASCII 字母、数字、点、下划线和连字号，不允许控制字符。 */
             carrier_code: string;
+            /** @description 服务端 trim 后不得为空，不允许控制字符。 */
             carrier_name: string;
+            /** @description 服务端 trim 后验证；只允许 ASCII 字母、数字、点、下划线、斜线和连字号，不允许控制字符。 */
             tracking_no: string;
         };
         CreatePromotionAssetRequest: {
@@ -3818,6 +3907,7 @@ export interface components {
             completion_reason: "ADMIN_FORCED";
         };
         AftersaleApproveRequest: {
+            /** @description 可选审核备注；非 null 时服务端 trim，空白或包含控制字符时拒绝。 */
             note?: string | null;
         };
         /** @description 批准退款数量必须等于回库、损坏、报废之和；批准退款数量与退回客户数量之和、四类处置数量之和都必须等于 received_qty。PASS 必须全量实收并全量批准退款；少件、0 件或其他不符必须 ABNORMAL。 */
@@ -3832,15 +3922,23 @@ export interface components {
             return_to_customer_qty: number;
             note?: string | null;
         };
+        /** @description PASS 不接受 abnormal_reason 且证据可以为空；ABNORMAL 必填 2-500 字符异常原因和至少一份证据。两分支均必须精确覆盖全部售后项。 */
         ReturnInspectionRequest: {
-            /** @enum {string} */
-            result: "PASS" | "ABNORMAL";
-            abnormal_reason?: string | null;
+            /** @constant */
+            result: "PASS";
             /** @description 必须在同一事务中精确覆盖该售后的全部 aftersale_item，每个 order_item_id 恰好出现一次，不允许遗漏、重复或额外项。 */
             items: components["schemas"]["ReturnInspectionLine"][];
-            /** @description 服务端校验 READY/purpose/归属后按 canonical 顺序封存完整集合；验货提交后不得追加、删除、换序或替换。 */
+            /** @description PASS 可以为空；服务端校验 READY/purpose/归属后按 canonical 顺序封存完整集合，提交后不得追加、删除、换序或替换。 */
             evidence_file_ids: string[];
-        } & unknown;
+        } | {
+            /** @constant */
+            result: "ABNORMAL";
+            abnormal_reason: string;
+            /** @description 必须在同一事务中精确覆盖该售后的全部 aftersale_item，每个 order_item_id 恰好出现一次，不允许遗漏、重复或额外项。 */
+            items: components["schemas"]["ReturnInspectionLine"][];
+            /** @description ABNORMAL 至少一份；服务端校验 READY/purpose/归属后按 canonical 顺序封存完整集合，提交后不得追加、删除、换序或替换。 */
+            evidence_file_ids: string[];
+        };
         /** @description 配合必填 If-Match 使用验货记录中已冻结的逐项 approved_refund_qty 继续退款，不允许在此接口提高数量；聚合版本冲突返回 409。 */
         ContinueRefundRequest: {
             /** @constant */
@@ -3873,6 +3971,7 @@ export interface components {
         ManualCompensationAction: {
             order_item_id: string;
             amount: components["schemas"]["PositiveMoney"];
+            /** @description 服务端 trim 后必须保留 2-500 个字符，且不得包含控制字符。 */
             reason: string;
         };
         BusinessRuleChanges: {
@@ -4480,14 +4579,14 @@ export interface components {
             data: {
                 refund_id: string;
                 refund_no: string;
-                /** @enum {string} */
-                origin_type: "AFTERSALE" | "LATE_PAYMENT" | "MANUAL_COMPENSATION";
+                /** @constant */
+                origin_type: "AFTERSALE";
                 /** @enum {string} */
                 status: "PENDING" | "PROCESSING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
                 amount: components["schemas"]["PositiveMoney"];
-                items?: {
+                items: {
                     order_item_id: string;
-                    aftersale_item_id?: string | null;
+                    aftersale_item_id: string;
                     quantity: number;
                     server_allocated_amount: components["schemas"]["PositiveMoney"];
                 }[];
@@ -5422,8 +5521,8 @@ export interface components {
             items: components["schemas"]["StoreOrderCompactItem"][];
             /** Format: date-time */
             pay_expires_at: string | null;
-            /** @description B10 对未过期、待付款且允许创建或复用支付意图的订单返回 PAY；无支付意图或仅有失败终态 intent 且可主动取消时返回 CANCEL。B11 对已有包裹返回 VIEW_LOGISTICS，对已支付、NORMAL、order_status=SHIPPING、包裹状态为 SHIPPED/IN_TRANSIT/DELIVERED 且不存在活动售后或未解决支付异常的订单返回 CONFIRM_RECEIPT。所有动作均由服务端当前投影决定。 */
-            available_actions: ("PAY" | "CANCEL" | "VIEW_LOGISTICS" | "CONFIRM_RECEIPT")[];
+            /** @description B10 对未过期、待付款且允许创建或复用支付意图的订单返回 PAY；无支付意图或仅有失败终态 intent 且可主动取消时返回 CANCEL。B11 对已有包裹返回 VIEW_LOGISTICS，对已支付、NORMAL、order_status=SHIPPING、包裹状态为 SHIPPED/IN_TRANSIT/DELIVERED 且不存在活动售后或未解决支付异常的订单返回 CONFIRM_RECEIPT。B12 仅在 payment_status=PAID 且 payment_resolution=NORMAL，并满足以下任一时间分支时返回 APPLY_AFTERSALE：(1) order_status=PENDING_SHIPMENT/SHIPPING 且尚未完成，此时 aftersale_expires_at=null 表示售后期尚未起算但仍可申请；(2) order_status=COMPLETED 且 aftersale_expires_at 非空、数据库当前时间 <= aftersale_expires_at。order_status=CLOSED、支付异常未解决或全部订单项无剩余额度时绝不返回。至少一个订单项必须在扣除已成功退款和该项所有活动售后数量/金额占用后 remaining quota > 0；其他订单项存在活动售后不得全局阻止当前仍有额度的订单项。客户端不得自行推导；所有动作均由服务端当前投影决定。 */
+            available_actions: ("PAY" | "CANCEL" | "VIEW_LOGISTICS" | "CONFIRM_RECEIPT" | "APPLY_AFTERSALE")[];
             aftersale_summary: components["schemas"]["OrderAftersaleListSummary"];
             /** Format: date-time */
             created_at: string;
@@ -5518,6 +5617,12 @@ export interface components {
             type: "REFUND_ONLY" | "RETURN_REFUND";
             /** @enum {string} */
             status: "PENDING_REVIEW" | "REJECTED" | "REFUNDING" | "WAITING_RETURN" | "WAITING_RECEIPT" | "RETURN_EXCEPTION" | "REFUNDING_AFTER_RETURN" | "REJECTED_AFTER_RETURN" | "REFUND_FAILED" | "COMPLETED" | "CANCELLED";
+            /** @enum {string} */
+            refund_progress_status: "NONE" | "PARTIAL" | "FULL";
+            /** @enum {string} */
+            refund_processing_status: "IDLE" | "REFUNDING" | "FAILED";
+            /** @description 只返回当前售后投影真实允许的消费者动作；不包含 Admin 退款重试或审核动作。 */
+            available_actions: ("CANCEL" | "SUBMIT_RETURN_SHIPMENT" | "VIEW_ORDER")[];
             requested_amount: components["schemas"]["PositiveMoney"];
             /** Format: date-time */
             created_at: string;
@@ -6260,6 +6365,10 @@ export interface components {
             data: {
                 compensation_id: string;
                 compensation_no: string;
+                /** @constant */
+                origin_type: "MANUAL_COMPENSATION";
+                refund_id: string;
+                refund_no: string;
                 order_id: string;
                 order_item_id: string;
                 /** @enum {string} */
@@ -6872,7 +6981,8 @@ export interface components {
             aftersale_no: string;
             /** @enum {string} */
             type: "REFUND_ONLY" | "RETURN_REFUND";
-            status: string;
+            /** @enum {string} */
+            status: "PENDING_REVIEW" | "REJECTED" | "REFUNDING" | "WAITING_RETURN" | "WAITING_RECEIPT" | "RETURN_EXCEPTION" | "REFUNDING_AFTER_RETURN" | "REJECTED_AFTER_RETURN" | "REFUND_FAILED" | "COMPLETED" | "CANCELLED";
             requested_amount: components["schemas"]["NonNegativeMoney"];
             /** Format: date-time */
             created_at: string;
@@ -6925,16 +7035,16 @@ export interface components {
                 amounts: components["schemas"]["OrderAmountsDetailView"];
                 items: components["schemas"]["OrderItemView"][];
                 shipping_address: components["schemas"]["StoreFrozenAddressView"];
-                /** @description B10 对未过期、待付款且允许创建或复用支付意图的订单返回 PAY；无支付意图或仅有失败终态 intent 且可主动取消时返回 CANCEL。B11 对已有包裹返回 VIEW_LOGISTICS，对已支付、NORMAL、order_status=SHIPPING、包裹状态为 SHIPPED/IN_TRANSIT/DELIVERED 且不存在活动售后或未解决支付异常的订单返回 CONFIRM_RECEIPT。所有动作均由服务端当前投影决定。 */
-                available_actions: ("PAY" | "CANCEL" | "VIEW_LOGISTICS" | "CONFIRM_RECEIPT")[];
+                /** @description B10 对未过期、待付款且允许创建或复用支付意图的订单返回 PAY；无支付意图或仅有失败终态 intent 且可主动取消时返回 CANCEL。B11 对已有包裹返回 VIEW_LOGISTICS，对已支付、NORMAL、order_status=SHIPPING、包裹状态为 SHIPPED/IN_TRANSIT/DELIVERED 且不存在活动售后或未解决支付异常的订单返回 CONFIRM_RECEIPT。B12 仅在 payment_status=PAID 且 payment_resolution=NORMAL，并满足以下任一时间分支时返回 APPLY_AFTERSALE：(1) order_status=PENDING_SHIPMENT/SHIPPING 且尚未完成，此时 aftersale_expires_at=null 表示售后期尚未起算但仍可申请；(2) order_status=COMPLETED 且 aftersale_expires_at 非空、数据库当前时间 <= aftersale_expires_at。order_status=CLOSED、支付异常未解决或全部订单项无剩余额度时绝不返回。至少一个订单项必须在扣除已成功退款和该项所有活动售后数量/金额占用后 remaining quota > 0；其他订单项存在活动售后不得全局阻止当前仍有额度的订单项。客户端不得自行推导；所有动作均由服务端当前投影决定。 */
+                available_actions: ("PAY" | "CANCEL" | "VIEW_LOGISTICS" | "CONFIRM_RECEIPT" | "APPLY_AFTERSALE")[];
                 timeline: components["schemas"]["OrderStateTimelineEventView"][];
                 /** @description B11 仅支持单包裹；未发货时为空数组，发货后按唯一包裹返回人工物流节点。 */
                 packages: components["schemas"]["OrderPackageDetailView"][];
-                /** @description B9 未开放售后，固定返回空数组。 */
+                /** @description B12 按 created_at ASC,aftersale_id ASC 返回当前 CUSTOMER 本人订单的售后摘要；跨客户数据、内部处理人、库存和佣金字段不得出现。无售后时返回空数组。 */
                 aftersales: components["schemas"]["OrderAftersaleSummaryView"][];
                 /** @description 按 created_at ASC,payment_attempt_id ASC 返回已创建的支付尝试；没有尝试时为空数组。 */
                 payment_attempts: components["schemas"]["PaymentAttemptDetailView"][];
-                /** @description 仅返回 B10 迟到支付自动退款尝试；没有退款时为空数组，消费者主动退款仍未开放。 */
+                /** @description 按 created_at ASC,refund_id ASC,attempt_no ASC 返回当前 CUSTOMER 本人订单可见的迟到支付退款、B12 稳定普通退款尝试与总部金额补偿尝试；没有退款时为空数组。不返回 Provider 原文、原始交易号、签名或内部对账能力。 */
                 refund_attempts: components["schemas"]["RefundAttemptDetailView"][];
                 errors: components["schemas"]["SafeDomainErrorView"][];
                 version: number;
@@ -7061,6 +7171,7 @@ export interface components {
             resolved_at: string | null;
         };
         ReturnShipmentDetailView: {
+            carrier_code: string;
             carrier_name: string;
             tracking_no: string;
             /** Format: date-time */
@@ -7103,8 +7214,11 @@ export interface components {
                 return_address: components["schemas"]["ReturnAddressSnapshotView"] | null;
                 return_shipment: components["schemas"]["ReturnShipmentDetailView"] | null;
                 inspection: components["schemas"]["StoreReturnInspectionDetailView"] | null;
-                refund_attempts: components["schemas"]["RefundAttemptDetailView"][];
-                available_actions: ("CANCEL" | "SUBMIT_RETURN_SHIPMENT" | "RETRY_REFUND" | "VIEW_ORDER")[];
+                refund_attempts: (components["schemas"]["RefundAttemptDetailView"] & {
+                    /** @constant */
+                    origin_type?: "AFTERSALE";
+                })[];
+                available_actions: ("CANCEL" | "SUBMIT_RETURN_SHIPMENT" | "VIEW_ORDER")[];
                 timeline: components["schemas"]["AftersaleTimelineEventView"][];
                 errors: components["schemas"]["SafeDomainErrorView"][];
                 /** Format: date-time */
@@ -7141,7 +7255,10 @@ export interface components {
                 return_address_snapshot: components["schemas"]["ReturnAddressSnapshotView"] | null;
                 return_shipment: components["schemas"]["ReturnShipmentDetailView"] | null;
                 inspection: components["schemas"]["ReturnInspectionDetailView"] | null;
-                refund_attempts: components["schemas"]["RefundAttemptDetailView"][];
+                refund_attempts: (components["schemas"]["RefundAttemptDetailView"] & {
+                    /** @constant */
+                    origin_type?: "AFTERSALE";
+                })[];
                 available_actions: ("APPROVE" | "REJECT" | "RECORD_INSPECTION" | "CONTINUE_REFUND" | "REJECT_AFTER_RETURN" | "CREATE_REFUND" | "RETRY_REFUND" | "VIEW_ORDER")[];
                 timeline: components["schemas"]["AftersaleTimelineEventView"][];
                 errors: components["schemas"]["SafeDomainErrorView"][];
@@ -7537,7 +7654,7 @@ export interface components {
                 };
             };
         };
-        /** @description B8/B9/B10/B11 登录后 Store 接口的通用错误；不得缓存或回显被拒绝的个性化值。 */
+        /** @description B8/B9/B10/B11/B12 登录后 Store 接口的通用错误；不得缓存或回显被拒绝的个性化值。 */
         StoreCustomerError: {
             headers: {
                 "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
@@ -7557,7 +7674,7 @@ export interface components {
                 };
             };
         };
-        /** @description B8/B9/B10/B11 登录后 Store 接口的闭合版本、状态、幂等、报价、支付结果或确认收货冲突响应。 */
+        /** @description B8/B9/B10/B11/B12 登录后 Store 接口的闭合版本、状态、幂等、报价、支付结果、确认收货或售后冲突响应。 */
         StoreCustomerConflict: {
             headers: {
                 "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
@@ -7578,8 +7695,8 @@ export interface components {
                 };
             };
         };
-        /** @description B8/B9/B10/B11 登录后 Store 接口的闭合业务校验响应。 */
-        StoreCustomerBusinessError: {
+        /** @description B12 Store 售后预览过期、篡改、当前事实变化或资源/状态冲突的闭合 409 响应。 */
+        B12StoreAftersaleConflict: {
             headers: {
                 "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
                 Pragma: components["headers"]["StorePragmaNoCacheRequired"];
@@ -7588,7 +7705,7 @@ export interface components {
             content: {
                 "application/json": {
                     /** @enum {string} */
-                    code: "CART_ITEM_LIMIT_EXCEEDED" | "DEFAULT_ADDRESS_REQUIRED" | "ACTIVE_AFTERSALE_BLOCKS_SHIPMENT";
+                    code: "RESOURCE_VERSION_CONFLICT" | "STATE_CONFLICT" | "AFTERSALE_PREVIEW_EXPIRED" | "AFTERSALE_PREVIEW_MISMATCH" | "AFTERSALE_REQUOTE_REQUIRED";
                     message: string;
                     details?: {
                         field: string | null;
@@ -7599,7 +7716,28 @@ export interface components {
                 };
             };
         };
-        /** @description B8 的 13 个登录后收藏、购物车和地址 operation、B9 的 5 个报价/订单 operation、B10 的 2 个支付 operation 与 B11 的 2 个履约 operation 共享 Redis 固定窗口；key 只保存 CUSTOMER 与规范化来源 IP 组合的用途隔离 HMAC，每个组合每 60 秒最多 120 次。超限返回准确 Retry-After；Redis 不可用时 fail closed。 */
+        /** @description B8/B9/B10/B11/B12 登录后 Store 接口的闭合业务校验响应。 */
+        StoreCustomerBusinessError: {
+            headers: {
+                "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                Pragma: components["headers"]["StorePragmaNoCacheRequired"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    code: "CART_ITEM_LIMIT_EXCEEDED" | "DEFAULT_ADDRESS_REQUIRED" | "ACTIVE_AFTERSALE_BLOCKS_SHIPMENT" | "AFTERSALE_QUOTA_EXCEEDED";
+                    message: string;
+                    details?: {
+                        field: string | null;
+                        reason: string;
+                        rejected_value?: null;
+                    }[];
+                    request_id: string;
+                };
+            };
+        };
+        /** @description B8 的 13 个登录后收藏、购物车和地址 operation、B9 的 5 个报价/订单 operation、B10 的 2 个支付 operation、B11 的 2 个履约 operation 与 B12 的 5 个售后 operation 共享 Redis 固定窗口；key 只保存 CUSTOMER 与规范化来源 IP 组合的用途隔离 HMAC，每个组合每 60 秒最多 120 次。超限返回准确 Retry-After；Redis 不可用时 fail closed。 */
         StoreCustomerRateLimited: {
             headers: {
                 "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
@@ -7643,13 +7781,51 @@ export interface components {
                 };
             };
         };
-        /** @description 库存、售后额度、金额分配或业务前置校验失败；固定业务码包括 ACTIVE_PRODUCT_DEPENDENCY、FILE_CONTENT_MISMATCH，CH-010 的 PRODUCT_PRIMARY_IMAGE_REQUIRED、PRODUCT_ACTIVE_SKU_REQUIRED、ACTIVE_SKU_DEPENDENCY、ACTIVE_INVENTORY_RESERVATION，CH-012 的 INVENTORY_QUANTITY_OUT_OF_RANGE，以及 CH-024 的 ACTIVE_AFTERSALE_BLOCKS_SHIPMENT、SHIPMENT_ITEMS_MISMATCH；库存确认低于锁定量继续使用 STOCK_INSUFFICIENT（均为 422）。 */
+        /** @description 库存、售后额度、金额分配或业务前置校验失败；固定业务码包括 ACTIVE_PRODUCT_DEPENDENCY、FILE_CONTENT_MISMATCH，CH-010 的 PRODUCT_PRIMARY_IMAGE_REQUIRED、PRODUCT_ACTIVE_SKU_REQUIRED、ACTIVE_SKU_DEPENDENCY、ACTIVE_INVENTORY_RESERVATION，CH-012 的 INVENTORY_QUANTITY_OUT_OF_RANGE，CH-024 的 ACTIVE_AFTERSALE_BLOCKS_SHIPMENT、SHIPMENT_ITEMS_MISMATCH，以及 CH-026 的 AFTERSALE_QUOTA_EXCEEDED、RETURN_ADDRESS_NOT_CONFIGURED；库存确认低于锁定量继续使用 STOCK_INSUFFICIENT（均为 422）。 */
         BusinessError: {
             headers: {
                 [name: string]: unknown;
             };
             content: {
                 "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
+        /** @description B12 退货退款审核通过时没有唯一当前 PUBLISHED 总部退货地址；不得推进状态或临时接受客户端地址。 */
+        B12AdminReturnAddressNotConfigured: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: "RETURN_ADDRESS_NOT_CONFIGURED";
+                    message: string;
+                    details?: {
+                        field: string | null;
+                        reason: string;
+                        rejected_value?: null;
+                    }[];
+                    request_id: string;
+                };
+            };
+        };
+        /** @description B12 普通退款或金额补偿超过订单项当前剩余可退数量/金额；不得返回任意业务码或泄露内部分配事实。 */
+        B12AdminAftersaleQuotaExceeded: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: "AFTERSALE_QUOTA_EXCEEDED";
+                    message: string;
+                    details?: {
+                        field: string | null;
+                        reason: string;
+                        rejected_value?: null;
+                    }[];
+                    request_id: string;
+                };
             };
         };
         /** @description 访问、登录或 MFA 失败次数受限 */
@@ -7732,6 +7908,10 @@ export interface components {
         CacheControlNoStore: "no-store, private";
         /** @description 兼容旧客户端和中间代理的禁止缓存指令。 */
         PragmaNoCache: "no-cache";
+        /** @description B12 Admin 敏感明文或短时预览能力响应必返的禁止缓存指令。 */
+        AdminCacheControlNoStoreRequired: "no-store, private";
+        /** @description B12 Admin 敏感响应必返的兼容禁止缓存指令。 */
+        AdminPragmaNoCacheRequired: "no-cache";
         /** @description Store 个性化或敏感响应必返的禁止缓存指令。 */
         StoreCacheControlNoStoreRequired: "no-store, private";
         /** @description Store 个性化或敏感响应必返的兼容禁止缓存指令。 */
@@ -9271,20 +9451,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["AftersaleListResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     postStoreAftersales: {
@@ -9302,23 +9484,75 @@ export interface operations {
             };
         };
         responses: {
-            /** @description 成功 */
+            /** @description PREVIEW 服务端试算；有阻断仍返回 200，但不签发确认凭证 */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: "OK";
+                        /** @constant */
+                        message: "success";
+                        data: {
+                            can_submit: boolean;
+                            blockers: ("ORDER_NOT_ELIGIBLE" | "ITEM_UNAVAILABLE" | "AFTERSALE_QUOTA_EXCEEDED" | "EVIDENCE_UNAVAILABLE")[];
+                            items: {
+                                order_item_id: string;
+                                requested_quantity: number;
+                                remaining_refundable_quantity: number;
+                                allocated_amount: components["schemas"]["NonNegativeMoney"];
+                                remaining_refundable_amount: components["schemas"]["NonNegativeMoney"];
+                            }[];
+                            requested_amount: components["schemas"]["NonNegativeMoney"];
+                            preview_token: string | null;
+                            confirmation_hash: string | null;
+                            /** Format: date-time */
+                            expires_at: string | null;
+                        } & ({
+                            /** @constant */
+                            can_submit?: true;
+                            blockers?: unknown;
+                            preview_token?: string;
+                            confirmation_hash?: string;
+                            expires_at?: string;
+                        } | {
+                            /** @constant */
+                            can_submit?: false;
+                            blockers?: unknown;
+                            /** @constant */
+                            preview_token?: unknown;
+                            /** @constant */
+                            confirmation_hash?: unknown;
+                            /** @constant */
+                            expires_at?: unknown;
+                        });
+                        request_id: string;
+                    };
+                };
+            };
+            /** @description CONFIRM 验证凭证与当前事实后创建售后并占用可退额度 */
             201: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["StoreAftersaleResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["B12StoreAftersaleConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     getStoreAftersalesByAftersaleId: {
@@ -9335,23 +9569,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
-                    /** @description 包含本人售后、退货物流与证据引用，不得缓存 */
-                    "Cache-Control"?: "no-store, private";
-                    Pragma?: "no-cache";
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["StoreAftersaleDetailResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     postStoreAftersalesByAftersaleIdCancel: {
@@ -9359,6 +9592,7 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
                 aftersale_id: string;
@@ -9367,27 +9601,32 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ReasonOptionalRequest"];
+                "application/json": {
+                    /** @description 提交时服务端先 trim；空白或包含控制字符时拒绝。 */
+                    reason?: string;
+                };
             };
         };
         responses: {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["StoreAftersaleResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     postStoreAftersalesByAftersaleIdReturnShipment: {
@@ -9395,6 +9634,7 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
                 aftersale_id: string;
@@ -9410,20 +9650,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["StoreCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["StorePragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["StoreAftersaleResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["StoreCustomerError"];
+            401: components["responses"]["StoreCustomerError"];
+            403: components["responses"]["StoreCustomerError"];
+            404: components["responses"]["StoreCustomerError"];
+            409: components["responses"]["StoreCustomerConflict"];
+            422: components["responses"]["StoreCustomerBusinessError"];
+            429: components["responses"]["StoreCustomerRateLimited"];
+            500: components["responses"]["StoreCustomerError"];
         };
     };
     postAgentAuthLogin: {
@@ -12762,8 +13004,8 @@ export interface operations {
             200: {
                 headers: {
                     /** @description 包含受限售后证据引用与内部处理事实，不得缓存 */
-                    "Cache-Control"?: "no-store, private";
-                    Pragma?: "no-cache";
+                    "Cache-Control": "no-store, private";
+                    Pragma: "no-cache";
                     [name: string]: unknown;
                 };
                 content: {
@@ -12785,6 +13027,7 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
                 aftersale_id: string;
@@ -12811,7 +13054,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
+            422: components["responses"]["B12AdminReturnAddressNotConfigured"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
         };
@@ -12829,15 +13072,17 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ReasonAction"];
+                "application/json": {
+                    reason: string;
+                };
             };
         };
         responses: {
             /** @description 成功 */
             200: {
                 headers: {
-                    "Cache-Control": components["headers"]["CacheControlNoStore"];
-                    Pragma: components["headers"]["PragmaNoCache"];
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -12868,7 +13113,9 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ReasonAction"] & components["schemas"]["HighRiskConfirmationFields"];
+                "application/json": {
+                    reason: string;
+                } & components["schemas"]["HighRiskConfirmationFields"];
             };
         };
         responses: {
@@ -12896,6 +13143,7 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
                 aftersale_id: string;
@@ -12984,8 +13232,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
-                    "Cache-Control": components["headers"]["CacheControlNoStore"];
-                    Pragma: components["headers"]["PragmaNoCache"];
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -13059,8 +13307,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
-                    "Cache-Control": components["headers"]["CacheControlNoStore"];
-                    Pragma: components["headers"]["PragmaNoCache"];
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -13072,7 +13320,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
+            422: components["responses"]["B12AdminAftersaleQuotaExceeded"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
         };
@@ -13098,6 +13346,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -13109,7 +13359,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
+            422: components["responses"]["B12AdminAftersaleQuotaExceeded"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
         };
@@ -13127,15 +13377,17 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ReasonAction"];
+                "application/json": {
+                    reason: string;
+                };
             };
         };
         responses: {
             /** @description 成功 */
             200: {
                 headers: {
-                    "Cache-Control": components["headers"]["CacheControlNoStore"];
-                    Pragma: components["headers"]["PragmaNoCache"];
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -13147,7 +13399,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
+            422: components["responses"]["B12AdminAftersaleQuotaExceeded"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
         };
@@ -13166,17 +13418,21 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ReasonAction"] & components["schemas"]["HighRiskConfirmationFields"];
+                "application/json": {
+                    reason: string;
+                } & components["schemas"]["HighRiskConfirmationFields"];
             };
         };
         responses: {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RefundResponse"];
+                    "application/json": components["schemas"]["RefundResponse"] | components["schemas"]["ManualCompensationResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -13184,7 +13440,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
+            422: components["responses"]["B12AdminAftersaleQuotaExceeded"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
         };
@@ -13303,8 +13559,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
-                    "Cache-Control": components["headers"]["CacheControlNoStore"];
-                    Pragma: components["headers"]["PragmaNoCache"];
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -13316,7 +13572,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
+            422: components["responses"]["B12AdminAftersaleQuotaExceeded"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
         };
@@ -13342,6 +13598,8 @@ export interface operations {
             /** @description 成功 */
             201: {
                 headers: {
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -13353,7 +13611,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
+            422: components["responses"]["B12AdminAftersaleQuotaExceeded"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
         };

@@ -2,7 +2,7 @@
 
 本目录集中管理三端商城的需求、方案、技术、风控、开发文档和可点击原型。
 
-当前交付状态：B0 至 B11 development 均已通过。B10 历史批次与最终双绿证据继续保留；B11 最终 SHA `c8e42c44a6a31099c00070294a85f628913165df` 的[普通 CI Run `33379627199`](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33379627199)与[Supabase development rollback-only smoke Run `33385726528`](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33385726528)均成功且 head SHA 相同，B11 development `GO`，CH-025 已自动失效。当前产品/API 基线仍为 `v2.4.9 / 2.4.9-ch024`。仅允许 Mock Provider 和脱敏 development；普通售后、第三方物流、自动确认、多包裹、真实支付、真实客户数据、staging 和 production 继续 `NO-GO`。
+当前交付状态：B0 至 B11 development 均已通过。B10 历史批次与最终双绿证据继续保留；B11 最终 SHA `c8e42c44a6a31099c00070294a85f628913165df` 的[普通 CI Run `33379627199`](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33379627199)与[Supabase development rollback-only smoke Run `33385726528`](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33385726528)均成功且 head SHA 相同，B11 development `GO`，CH-025 已自动失效。当前产品/API 基线为 `v2.4.10 / 2.4.10-ch026`；B12.0 治理、契约与 `0005_b12_aftersale_refund_guards` 本地实施及 P0/P1 复核已完成，普通售后、退货验货和普通退款业务尚未实现。B12.1 在精确 SHA 的普通 CI、Supabase development migration、rollback-only smoke 依次成功，且完成实际独立 reviewer 或另行批准 CH-027 前保持阻塞。仅允许 Mock Provider 和脱敏 development；第三方物流、自动确认、多包裹、真实支付/退款、真实客户数据、staging 和 production 继续 `NO-GO`。
 
 ## 目录
 
@@ -29,4 +29,5 @@
 - [B9 订单、报价与库存预占](docs/05-开发管理/B9-订单报价与库存预占.md)
 - [B10 支付、对账与迟到支付退款](docs/05-开发管理/B10-支付对账与迟到支付退款.md)
 - [B11 订单履约与物流](docs/05-开发管理/B11-订单履约与物流.md)
+- [B12 售后验货与普通退款](docs/05-开发管理/B12-售后验货与普通退款.md)
 - [三端可点击原型](prototype/README.md)

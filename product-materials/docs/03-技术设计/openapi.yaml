@@ -1,8 +1,8 @@
 openapi: "3.1.0"
 info:
   title: "洗化产品私域商城 API"
-  version: "2.4.9-ch024"
-  description: "CH-024 单一线协议，继承 CH-006、CH-008、CH-010、CH-012、CH-014、CH-016、CH-018、CH-020 与 CH-022，并闭合 B11 development 单包裹发货、人工物流、确认收货和佣金可用语义。普通售后、多包裹、第三方物流和自动确认收货继续不开放；所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
+  version: "2.4.10-ch026"
+  description: "CH-026 单一线协议，继承 CH-006、CH-008、CH-010、CH-012、CH-014、CH-016、CH-018、CH-020、CH-022 与 CH-024，并闭合 B12 development 普通售后、退货验货、普通退款与失败重试语义。B12 development 仅允许 Mock Provider，不注册真实微信退款回调；多包裹、第三方物流、真实资金、staging 和 production 继续不开放；所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
   license:
     name: "Proprietary"
     identifier: "LicenseRef-Proprietary"
@@ -2054,7 +2054,7 @@ paths:
       tags:
         - "Callbacks"
       summary: "微信退款通知收件箱"
-      description: "仅在真实微信支付配置完整时注册路由；未配置时不得注册。必须基于未经解析的原始请求体与四个 WeChatpay 头完成验签，再以 Provider 事件唯一键持久化 Inbox；不得记录原始报文、签名、证书材料或解密后的敏感字段。"
+      description: "兼容保留真实微信退款通知契约；B12 development 只允许 Mock Provider 且必须不注册此路由。未来仅在真实微信支付配置完整时才可注册，未配置时不得注册；必须基于未经解析的原始请求体与四个 WeChatpay 头完成验签，再以 Provider 事件唯一键持久化 Inbox；不得记录原始报文、签名、证书材料或解密后的敏感字段。"
       operationId: "postCallbacksWechatRefund"
       security:
         -
@@ -2144,8 +2144,10 @@ paths:
     post:
       tags:
         - "Store"
-      summary: "创建仅退款或退货退款，并占用可退额度"
+      summary: "服务端试算并确认创建仅退款或退货退款"
+      description: "仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 会话。action=PREVIEW 使用 Repeatable Read 服务端试算金额、可退数量/金额与阻断，可提交时签发 5 分钟无状态用途隔离 HMAC preview_token 和 confirmation_hash；action=CONFIRM 必须重放精确规范业务字段，再以 Serializable 事务重验后占用额度并创建售后。PREVIEW 和 CONFIRM 必须使用不同 Idempotency-Key，两阶段都使用 HASH_ONLY，不缓存 preview token、证据能力或响应正文；预览响应丢失时必须使用新键重新试算。与其他登录后 Store 操作共享 CUSTOMER+规范化来源 IP 用途隔离 HMAC 的 Redis 固定窗口，每 60 秒 120 次，Redis 不可用时 fail closed。"
       operationId: "postStoreAftersales"
+      x-idempotency-storage: "HASH_ONLY"
       security:
         -
           bearerAuth: []
@@ -2159,32 +2161,132 @@ paths:
             schema:
               "$ref": "#/components/schemas/CreateAftersaleRequest"
       responses:
+        200:
+          description: "PREVIEW 服务端试算；有阻断仍返回 200，但不签发确认凭证"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
+          content:
+            application/json:
+              schema:
+                type: "object"
+                additionalProperties: false
+                required: ["code", "message", "data", "request_id"]
+                properties:
+                  code:
+                    const: "OK"
+                  message:
+                    const: "success"
+                  data:
+                    type: "object"
+                    additionalProperties: false
+                    required: ["can_submit", "blockers", "items", "requested_amount", "preview_token", "confirmation_hash", "expires_at"]
+                    properties:
+                      can_submit:
+                        type: "boolean"
+                      blockers:
+                        type: "array"
+                        uniqueItems: true
+                        items:
+                          type: "string"
+                          enum: ["ORDER_NOT_ELIGIBLE", "ITEM_UNAVAILABLE", "AFTERSALE_QUOTA_EXCEEDED", "EVIDENCE_UNAVAILABLE"]
+                      items:
+                        type: "array"
+                        minItems: 1
+                        maxItems: 100
+                        items:
+                          type: "object"
+                          additionalProperties: false
+                          required: ["order_item_id", "requested_quantity", "remaining_refundable_quantity", "allocated_amount", "remaining_refundable_amount"]
+                          properties:
+                            order_item_id:
+                              type: "string"
+                              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+                            requested_quantity:
+                              type: "integer"
+                              minimum: 1
+                              maximum: 99
+                            remaining_refundable_quantity:
+                              type: "integer"
+                              minimum: 0
+                              maximum: 99
+                            allocated_amount:
+                              "$ref": "#/components/schemas/NonNegativeMoney"
+                            remaining_refundable_amount:
+                              "$ref": "#/components/schemas/NonNegativeMoney"
+                      requested_amount:
+                        "$ref": "#/components/schemas/NonNegativeMoney"
+                      preview_token:
+                        type: ["string", "null"]
+                        minLength: 16
+                        maxLength: 512
+                      confirmation_hash:
+                        type: ["string", "null"]
+                        pattern: "^[a-f0-9]{64}$"
+                      expires_at:
+                        type: ["string", "null"]
+                        format: "date-time"
+                    oneOf:
+                      -
+                        properties:
+                          can_submit:
+                            const: true
+                          blockers:
+                            maxItems: 0
+                          preview_token:
+                            type: "string"
+                          confirmation_hash:
+                            type: "string"
+                          expires_at:
+                            type: "string"
+                      -
+                        properties:
+                          can_submit:
+                            const: false
+                          blockers:
+                            minItems: 1
+                          preview_token:
+                            const: null
+                          confirmation_hash:
+                            const: null
+                          expires_at:
+                            const: null
+                  request_id:
+                    type: "string"
         201:
-          description: "成功"
+          description: "CONFIRM 验证凭证与当前事实后创建售后并占用可退额度"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/StoreAftersaleResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreCustomerError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreCustomerError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreCustomerError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreCustomerError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/B12StoreAftersaleConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreCustomerError"
     get:
       tags:
         - "Store"
       summary: "本人售后列表"
+      description: "仅接受当前 CUSTOMER 会话并只返回本人售后，固定按 created_at DESC,aftersale_id DESC 稳定分页；共享 CUSTOMER+来源 IP 120/60 固定窗口限流，Redis 异常时 fail closed。个性化响应一律禁止缓存。"
       operationId: "getStoreAftersales"
       security:
         -
@@ -2208,7 +2310,7 @@ paths:
           required: false
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
           description: "订单 ID"
         -
           name: "status"
@@ -2258,31 +2360,37 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/AftersaleListResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreCustomerError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreCustomerError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreCustomerError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreCustomerError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreCustomerConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreCustomerError"
   /store/aftersales/{aftersale_id}:
     get:
       tags:
         - "Store"
       summary: "售后详情与时间线"
+      description: "仅接受当前 CUSTOMER 会话；跨客户访问统一返回 404。共享 CUSTOMER+来源 IP 120/60 固定窗口限流，Redis 异常时 fail closed，成功与错误响应均禁止缓存。"
       operationId: "getStoreAftersalesByAftersaleId"
       security:
         -
@@ -2294,44 +2402,43 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
       responses:
         200:
           description: "成功"
           headers:
             Cache-Control:
-              description: "包含本人售后、退货物流与证据引用，不得缓存"
-              schema:
-                const: "no-store, private"
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
             Pragma:
-              schema:
-                const: "no-cache"
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/StoreAftersaleDetailResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreCustomerError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreCustomerError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreCustomerError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreCustomerError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreCustomerConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreCustomerError"
   /store/aftersales/{aftersale_id}/cancel:
     post:
       tags:
         - "Store"
       summary: "在允许阶段取消并释放占用"
+      description: "仅接受当前 CUSTOMER 取消本人售后；必须使用 If-Match 校验 aftersale.version。使用 HASH_ONLY 幂等策略，共享 CUSTOMER+来源 IP 120/60 固定窗口限流，Redis 异常时 fail closed。"
       operationId: "postStoreAftersalesByAftersaleIdCancel"
+      x-idempotency-storage: "HASH_ONLY"
       security:
         -
           bearerAuth: []
@@ -2342,44 +2449,61 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
+        -
+          "$ref": "#/components/parameters/IfMatch"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              "$ref": "#/components/schemas/ReasonOptionalRequest"
+              type: "object"
+              additionalProperties: false
+              properties:
+                reason:
+                  type: "string"
+                  minLength: 2
+                  maxLength: 500
+                  pattern: "^[^\\u0000-\\u001F\\u007F]*$"
+                  description: "提交时服务端先 trim；空白或包含控制字符时拒绝。"
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/StoreAftersaleResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreCustomerError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreCustomerError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreCustomerError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreCustomerError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreCustomerConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreCustomerError"
   /store/aftersales/{aftersale_id}/return-shipment:
     post:
       tags:
         - "Store"
       summary: "填写退货承运商和运单号"
+      description: "仅接受当前 CUSTOMER 为本人 WAITING_RETURN 售后提交退货物流；必须使用 If-Match 校验 aftersale.version。使用 HASH_ONLY 幂等策略，共享 CUSTOMER+来源 IP 120/60 固定窗口限流，Redis 异常时 fail closed。"
       operationId: "postStoreAftersalesByAftersaleIdReturnShipment"
+      x-idempotency-storage: "HASH_ONLY"
       security:
         -
           bearerAuth: []
@@ -2390,9 +2514,11 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
+        -
+          "$ref": "#/components/parameters/IfMatch"
       requestBody:
         required: true
         content:
@@ -2402,26 +2528,31 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/StorePragmaNoCacheRequired"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/StoreAftersaleResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/StoreCustomerError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/StoreCustomerError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/StoreCustomerError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/StoreCustomerError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/StoreCustomerConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/StoreCustomerBusinessError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/StoreCustomerRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/StoreCustomerError"
   /agent/auth/login:
     post:
       tags:
@@ -7341,7 +7472,7 @@ paths:
           required: false
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
           description: "订单 ID"
         -
           name: "status"
@@ -7394,7 +7525,7 @@ paths:
           required: false
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
           description: "客户 ID"
       responses:
         200:
@@ -7435,16 +7566,18 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
       responses:
         200:
           description: "成功"
           headers:
             Cache-Control:
               description: "包含受限售后证据引用与内部处理事实，不得缓存"
+              required: true
               schema:
                 const: "no-store, private"
             Pragma:
+              required: true
               schema:
                 const: "no-cache"
           content:
@@ -7472,7 +7605,9 @@ paths:
       tags:
         - "Admin"
       summary: "同意售后；退货退款由服务端锁唯一当前 PUBLISHED 地址并冻结快照，客户端不可选版本"
+      description: "使用 HASH_ONLY 幂等策略和 If-Match 乐观锁。审核通过只推进售后状态：仅退款进入 REFUNDING，退货退款冻结唯一当前 PUBLISHED 退货地址快照并进入 WAITING_RETURN；未配置地址返回 RETURN_ADDRESS_NOT_CONFIGURED。此 operation 不得创建退款、调用 Provider 或改写资金事实；实际退款必须另行 refund-preview 与 refunds confirm。"
       operationId: "postAdminAftersalesByAftersaleIdApprove"
+      x-idempotency-storage: "HASH_ONLY"
       security:
         -
           bearerAuth: []
@@ -7483,9 +7618,11 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
+        -
+          "$ref": "#/components/parameters/IfMatch"
       requestBody:
         required: true
         content:
@@ -7510,7 +7647,7 @@ paths:
         409:
           "$ref": "#/components/responses/StateConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/B12AdminReturnAddressNotConfigured"
         429:
           "$ref": "#/components/responses/RateLimited"
         500:
@@ -7520,7 +7657,9 @@ paths:
       tags:
         - "Admin"
       summary: "预览拒绝及释放占用影响"
+      description: "使用 HASH_ONLY 幂等策略，preview token 仅保存用途隔离哈希，不缓存 token 或响应正文。"
       operationId: "postAdminAftersalesByAftersaleIdRejectPreview"
+      x-idempotency-storage: "HASH_ONLY"
       security:
         -
           bearerAuth: []
@@ -7531,7 +7670,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -7541,16 +7680,23 @@ paths:
             schema:
               allOf:
                 -
-                  "$ref": "#/components/schemas/ReasonAction"
+                  type: "object"
+                  required: ["reason"]
+                  properties:
+                    reason:
+                      type: "string"
+                      minLength: 2
+                      maxLength: 500
+                      pattern: "^[^\\u0000-\\u001F\\u007F]*$"
               unevaluatedProperties: false
       responses:
         200:
           description: "成功"
           headers:
             Cache-Control:
-              "$ref": "#/components/headers/CacheControlNoStore"
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
             Pragma:
-              "$ref": "#/components/headers/PragmaNoCache"
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -7576,7 +7722,9 @@ paths:
       tags:
         - "Admin"
       summary: "HR-08 确认初审拒绝，原因必填"
+      description: "使用 HASH_ONLY 幂等策略；必须提交与预览完全一致的业务字段、preview_token、confirmation_hash 和 If-Match。"
       operationId: "postAdminAftersalesByAftersaleIdReject"
+      x-idempotency-storage: "HASH_ONLY"
       security:
         -
           bearerAuth: []
@@ -7587,7 +7735,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
         -
@@ -7599,7 +7747,14 @@ paths:
             schema:
               allOf:
                 -
-                  "$ref": "#/components/schemas/ReasonAction"
+                  type: "object"
+                  required: ["reason"]
+                  properties:
+                    reason:
+                      type: "string"
+                      minLength: 2
+                      maxLength: 500
+                      pattern: "^[^\\u0000-\\u001F\\u007F]*$"
                 -
                   "$ref": "#/components/schemas/HighRiskConfirmationFields"
               unevaluatedProperties: false
@@ -7631,7 +7786,9 @@ paths:
       tags:
         - "Admin"
       summary: "写实收、PASS/ABNORMAL、逐项处置与 evidence_file_ids；异常进入 RETURN_EXCEPTION"
+      description: "使用 HASH_ONLY 幂等策略和 If-Match 乐观锁。请求 items 必须精确覆盖本售后全部售后项，证据经 READY/AFTERSALE_EVIDENCE/归属校验后按 file_id 封存；结论提交后不可改写。"
       operationId: "postAdminAftersalesByAftersaleIdReturnInspections"
+      x-idempotency-storage: "HASH_ONLY"
       security:
         -
           bearerAuth: []
@@ -7642,9 +7799,11 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
+        -
+          "$ref": "#/components/parameters/IfMatch"
       requestBody:
         required: true
         content:
@@ -7681,6 +7840,7 @@ paths:
       summary: "携带 If-Match 基于封存验货版本继续退款；版本冲突先刷新"
       description: "仅可基于当前不可变验货结论推进一次；If-Match 与当前售后/验货聚合版本不一致返回 RESOURCE_VERSION_CONFLICT，不得静默覆盖或自动重试写入。"
       operationId: "postAdminAftersalesByAftersaleIdReturnResolutionContinueRefund"
+      x-idempotency-storage: "HASH_ONLY"
       security:
         -
           bearerAuth: []
@@ -7691,7 +7851,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
         -
@@ -7730,7 +7890,9 @@ paths:
       tags:
         - "Admin"
       summary: "HR-08 预览验货后拒绝及释放占用影响"
+      description: "使用 HASH_ONLY 幂等策略，preview token 仅保存用途隔离哈希；证据必须沿用验货时的不可变封存集合。"
       operationId: "postAdminAftersalesByAftersaleIdReturnResolutionRejectPreview"
+      x-idempotency-storage: "HASH_ONLY"
       security:
         -
           bearerAuth: []
@@ -7741,7 +7903,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -7755,9 +7917,9 @@ paths:
           description: "成功"
           headers:
             Cache-Control:
-              "$ref": "#/components/headers/CacheControlNoStore"
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
             Pragma:
-              "$ref": "#/components/headers/PragmaNoCache"
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -7783,7 +7945,9 @@ paths:
       tags:
         - "Admin"
       summary: "HR-08 确认验货后拒绝，原因必填并沿用封存证据"
+      description: "使用 HASH_ONLY 幂等策略；必须提交与预览完全一致的业务字段、preview_token、confirmation_hash 和 If-Match。"
       operationId: "postAdminAftersalesByAftersaleIdReturnResolutionReject"
+      x-idempotency-storage: "HASH_ONLY"
       security:
         -
           bearerAuth: []
@@ -7794,7 +7958,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
         -
@@ -7833,7 +7997,9 @@ paths:
       tags:
         - "Admin"
       summary: "返回退款影响、资源版本、短时 preview_token 和 confirmation_hash"
+      description: "普通退款必经预览；使用 HASH_ONLY 幂等策略，preview token 仅保存用途隔离哈希，不缓存 token、金额能力或响应正文。"
       operationId: "postAdminAftersalesByAftersaleIdRefundPreview"
+      x-idempotency-storage: "HASH_ONLY"
       security:
         -
           bearerAuth: []
@@ -7844,7 +8010,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -7861,9 +8027,9 @@ paths:
           description: "成功"
           headers:
             Cache-Control:
-              "$ref": "#/components/headers/CacheControlNoStore"
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
             Pragma:
-              "$ref": "#/components/headers/PragmaNoCache"
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -7879,7 +8045,7 @@ paths:
         409:
           "$ref": "#/components/responses/StateConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/B12AdminAftersaleQuotaExceeded"
         429:
           "$ref": "#/components/responses/RateLimited"
         500:
@@ -7889,7 +8055,10 @@ paths:
       tags:
         - "Admin"
       summary: "使用预览确认创建退款和首次退款尝试；商户退款号在退款生命周期内稳定"
+      description: "必须使用 refund-preview 签发的短时能力、confirmation_hash 和 If-Match，使用 HASH_ONLY 幂等策略。B12 development 仅允许 Mock Provider；Provider 调用必须在数据库事务外执行，并以稳定退款号收敛响应丢失、UNKNOWN、重复或乱序结果。"
       operationId: "postAdminAftersalesByAftersaleIdRefunds"
+      x-idempotency-storage: "HASH_ONLY"
+      x-development-payment-provider: "MOCK_ONLY"
       security:
         -
           bearerAuth: []
@@ -7900,7 +8069,7 @@ paths:
           required: true
           schema:
             type: "string"
-            minLength: 1
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         -
           "$ref": "#/components/parameters/IdempotencyKey"
         -
@@ -7919,6 +8088,11 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -7934,7 +8108,7 @@ paths:
         409:
           "$ref": "#/components/responses/StateConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/B12AdminAftersaleQuotaExceeded"
         429:
           "$ref": "#/components/responses/RateLimited"
         500:
@@ -7944,7 +8118,9 @@ paths:
       tags:
         - "Admin"
       summary: "预览失败退款重试并签发新的短时确认 token"
+      description: "退款失败重试仅对 Admin 开放；使用 HASH_ONLY 幂等策略，preview token 仅保存用途隔离哈希。"
       operationId: "postAdminRefundsByRefundIdRetryPreview"
+      x-idempotency-storage: "HASH_ONLY"
       security:
         -
           bearerAuth: []
@@ -7965,16 +8141,23 @@ paths:
             schema:
               allOf:
                 -
-                  "$ref": "#/components/schemas/ReasonAction"
+                  type: "object"
+                  required: ["reason"]
+                  properties:
+                    reason:
+                      type: "string"
+                      minLength: 2
+                      maxLength: 500
+                      pattern: "^[^\\u0000-\\u001F\\u007F]*$"
               unevaluatedProperties: false
       responses:
         200:
           description: "成功"
           headers:
             Cache-Control:
-              "$ref": "#/components/headers/CacheControlNoStore"
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
             Pragma:
-              "$ref": "#/components/headers/PragmaNoCache"
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -7990,7 +8173,7 @@ paths:
         409:
           "$ref": "#/components/responses/StateConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/B12AdminAftersaleQuotaExceeded"
         429:
           "$ref": "#/components/responses/RateLimited"
         500:
@@ -8000,7 +8183,10 @@ paths:
       tags:
         - "Admin"
       summary: "REFUND_FAILED 重试；必须使用不同于历次尝试的新 Idempotency-Key"
+      description: "仅 Admin 可使用新预览能力、confirmation_hash 和 If-Match 重试稳定 refund_id；使用 HASH_ONLY 幂等策略。B12 development 仅允许 Mock Provider，不得从客户端选择 Provider。"
       operationId: "postAdminRefundsByRefundIdRetry"
+      x-idempotency-storage: "HASH_ONLY"
+      x-development-payment-provider: "MOCK_ONLY"
       security:
         -
           bearerAuth: []
@@ -8023,17 +8209,31 @@ paths:
             schema:
               allOf:
                 -
-                  "$ref": "#/components/schemas/ReasonAction"
+                  type: "object"
+                  required: ["reason"]
+                  properties:
+                    reason:
+                      type: "string"
+                      minLength: 2
+                      maxLength: 500
+                      pattern: "^[^\\u0000-\\u001F\\u007F]*$"
                 -
                   "$ref": "#/components/schemas/HighRiskConfirmationFields"
               unevaluatedProperties: false
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/RefundResponse"
+                oneOf:
+                  - "$ref": "#/components/schemas/RefundResponse"
+                  - "$ref": "#/components/schemas/ManualCompensationResponse"
         400:
           "$ref": "#/components/responses/BadRequest"
         401:
@@ -8045,7 +8245,7 @@ paths:
         409:
           "$ref": "#/components/responses/StateConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/B12AdminAftersaleQuotaExceeded"
         429:
           "$ref": "#/components/responses/RateLimited"
         500:
@@ -8222,7 +8422,9 @@ paths:
       tags:
         - "Admin"
       summary: "HR-09 预览独立金额补偿的金额额度和佣金影响"
+      description: "B12 金额补偿必须先预览；使用 HASH_ONLY 幂等策略，preview token 仅保存用途隔离哈希，不缓存 token、金额能力或响应正文。"
       operationId: "postAdminOrdersByOrderIdManualCompensationsPreview"
+      x-idempotency-storage: "HASH_ONLY"
       security:
         -
           bearerAuth: []
@@ -8250,9 +8452,9 @@ paths:
           description: "成功"
           headers:
             Cache-Control:
-              "$ref": "#/components/headers/CacheControlNoStore"
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
             Pragma:
-              "$ref": "#/components/headers/PragmaNoCache"
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -8268,7 +8470,7 @@ paths:
         409:
           "$ref": "#/components/responses/StateConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/B12AdminAftersaleQuotaExceeded"
         429:
           "$ref": "#/components/responses/RateLimited"
         500:
@@ -8278,7 +8480,10 @@ paths:
       tags:
         - "Admin"
       summary: "HR-09 确认 AMOUNT_COMPENSATION；只占金额、不占数量、不回库"
+      description: "必须使用 preview 签发的短时能力、confirmation_hash 和 If-Match，使用 HASH_ONLY 幂等策略。B12 development 仅允许 Mock Provider；Provider 调用必须在数据库事务外执行，并以稳定退款号收敛响应丢失、UNKNOWN、重复或乱序结果。"
       operationId: "postAdminOrdersByOrderIdManualCompensations"
+      x-idempotency-storage: "HASH_ONLY"
+      x-development-payment-provider: "MOCK_ONLY"
       security:
         -
           bearerAuth: []
@@ -8308,6 +8513,11 @@ paths:
       responses:
         201:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -8323,7 +8533,7 @@ paths:
         409:
           "$ref": "#/components/responses/StateConflict"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/B12AdminAftersaleQuotaExceeded"
         429:
           "$ref": "#/components/responses/RateLimited"
         500:
@@ -10675,6 +10885,16 @@ components:
       description: "兼容旧客户端和中间代理的禁止缓存指令。"
       schema:
         const: "no-cache"
+    AdminCacheControlNoStoreRequired:
+      description: "B12 Admin 敏感明文或短时预览能力响应必返的禁止缓存指令。"
+      required: true
+      schema:
+        const: "no-store, private"
+    AdminPragmaNoCacheRequired:
+      description: "B12 Admin 敏感响应必返的兼容禁止缓存指令。"
+      required: true
+      schema:
+        const: "no-cache"
     StoreCacheControlNoStoreRequired:
       description: "Store 个性化或敏感响应必返的禁止缓存指令。"
       required: true
@@ -10907,7 +11127,7 @@ components:
               request_id:
                 type: "string"
     StoreCustomerError:
-      description: "B8/B9/B10/B11 登录后 Store 接口的通用错误；不得缓存或回显被拒绝的个性化值。"
+      description: "B8/B9/B10/B11/B12 登录后 Store 接口的通用错误；不得缓存或回显被拒绝的个性化值。"
       headers:
         Cache-Control:
           "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
@@ -10940,7 +11160,7 @@ components:
               request_id:
                 type: "string"
     StoreCustomerConflict:
-      description: "B8/B9/B10/B11 登录后 Store 接口的闭合版本、状态、幂等、报价、支付结果或确认收货冲突响应。"
+      description: "B8/B9/B10/B11/B12 登录后 Store 接口的闭合版本、状态、幂等、报价、支付结果、确认收货或售后冲突响应。"
       headers:
         Cache-Control:
           "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
@@ -10973,8 +11193,8 @@ components:
                       type: "null"
               request_id:
                 type: "string"
-    StoreCustomerBusinessError:
-      description: "B8/B9/B10/B11 登录后 Store 接口的闭合业务校验响应。"
+    B12StoreAftersaleConflict:
+      description: "B12 Store 售后预览过期、篡改、当前事实变化或资源/状态冲突的闭合 409 响应。"
       headers:
         Cache-Control:
           "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
@@ -10989,7 +11209,41 @@ components:
             properties:
               code:
                 type: "string"
-                enum: ["CART_ITEM_LIMIT_EXCEEDED", "DEFAULT_ADDRESS_REQUIRED", "ACTIVE_AFTERSALE_BLOCKS_SHIPMENT"]
+                enum: ["RESOURCE_VERSION_CONFLICT", "STATE_CONFLICT", "AFTERSALE_PREVIEW_EXPIRED", "AFTERSALE_PREVIEW_MISMATCH", "AFTERSALE_REQUOTE_REQUIRED"]
+              message:
+                type: "string"
+              details:
+                type: "array"
+                items:
+                  type: "object"
+                  additionalProperties: false
+                  required: ["field", "reason"]
+                  properties:
+                    field:
+                      type: ["string", "null"]
+                    reason:
+                      type: "string"
+                    rejected_value:
+                      type: "null"
+              request_id:
+                type: "string"
+    StoreCustomerBusinessError:
+      description: "B8/B9/B10/B11/B12 登录后 Store 接口的闭合业务校验响应。"
+      headers:
+        Cache-Control:
+          "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
+        Pragma:
+          "$ref": "#/components/headers/StorePragmaNoCacheRequired"
+      content:
+        application/json:
+          schema:
+            type: "object"
+            additionalProperties: false
+            required: ["code", "message", "request_id"]
+            properties:
+              code:
+                type: "string"
+                enum: ["CART_ITEM_LIMIT_EXCEEDED", "DEFAULT_ADDRESS_REQUIRED", "ACTIVE_AFTERSALE_BLOCKS_SHIPMENT", "AFTERSALE_QUOTA_EXCEEDED"]
               message:
                 type: "string"
               details:
@@ -11008,7 +11262,7 @@ components:
               request_id:
                 type: "string"
     StoreCustomerRateLimited:
-      description: "B8 的 13 个登录后收藏、购物车和地址 operation、B9 的 5 个报价/订单 operation、B10 的 2 个支付 operation 与 B11 的 2 个履约 operation 共享 Redis 固定窗口；key 只保存 CUSTOMER 与规范化来源 IP 组合的用途隔离 HMAC，每个组合每 60 秒最多 120 次。超限返回准确 Retry-After；Redis 不可用时 fail closed。"
+      description: "B8 的 13 个登录后收藏、购物车和地址 operation、B9 的 5 个报价/订单 operation、B10 的 2 个支付 operation、B11 的 2 个履约 operation 与 B12 的 5 个售后 operation 共享 Redis 固定窗口；key 只保存 CUSTOMER 与规范化来源 IP 组合的用途隔离 HMAC，每个组合每 60 秒最多 120 次。超限返回准确 Retry-After；Redis 不可用时 fail closed。"
       headers:
         Cache-Control:
           "$ref": "#/components/headers/StoreCacheControlNoStoreRequired"
@@ -11082,11 +11336,67 @@ components:
               request_id:
                 type: "string"
     BusinessError:
-      description: "库存、售后额度、金额分配或业务前置校验失败；固定业务码包括 ACTIVE_PRODUCT_DEPENDENCY、FILE_CONTENT_MISMATCH，CH-010 的 PRODUCT_PRIMARY_IMAGE_REQUIRED、PRODUCT_ACTIVE_SKU_REQUIRED、ACTIVE_SKU_DEPENDENCY、ACTIVE_INVENTORY_RESERVATION，CH-012 的 INVENTORY_QUANTITY_OUT_OF_RANGE，以及 CH-024 的 ACTIVE_AFTERSALE_BLOCKS_SHIPMENT、SHIPMENT_ITEMS_MISMATCH；库存确认低于锁定量继续使用 STOCK_INSUFFICIENT（均为 422）。"
+      description: "库存、售后额度、金额分配或业务前置校验失败；固定业务码包括 ACTIVE_PRODUCT_DEPENDENCY、FILE_CONTENT_MISMATCH，CH-010 的 PRODUCT_PRIMARY_IMAGE_REQUIRED、PRODUCT_ACTIVE_SKU_REQUIRED、ACTIVE_SKU_DEPENDENCY、ACTIVE_INVENTORY_RESERVATION，CH-012 的 INVENTORY_QUANTITY_OUT_OF_RANGE，CH-024 的 ACTIVE_AFTERSALE_BLOCKS_SHIPMENT、SHIPMENT_ITEMS_MISMATCH，以及 CH-026 的 AFTERSALE_QUOTA_EXCEEDED、RETURN_ADDRESS_NOT_CONFIGURED；库存确认低于锁定量继续使用 STOCK_INSUFFICIENT（均为 422）。"
       content:
         application/json:
           schema:
             "$ref": "#/components/schemas/ErrorResponse"
+    B12AdminReturnAddressNotConfigured:
+      description: "B12 退货退款审核通过时没有唯一当前 PUBLISHED 总部退货地址；不得推进状态或临时接受客户端地址。"
+      content:
+        application/json:
+          schema:
+            type: "object"
+            additionalProperties: false
+            required: ["code", "message", "request_id"]
+            properties:
+              code:
+                const: "RETURN_ADDRESS_NOT_CONFIGURED"
+              message:
+                type: "string"
+              details:
+                type: "array"
+                items:
+                  type: "object"
+                  additionalProperties: false
+                  required: ["field", "reason"]
+                  properties:
+                    field:
+                      type: ["string", "null"]
+                    reason:
+                      type: "string"
+                    rejected_value:
+                      type: "null"
+              request_id:
+                type: "string"
+    B12AdminAftersaleQuotaExceeded:
+      description: "B12 普通退款或金额补偿超过订单项当前剩余可退数量/金额；不得返回任意业务码或泄露内部分配事实。"
+      content:
+        application/json:
+          schema:
+            type: "object"
+            additionalProperties: false
+            required: ["code", "message", "request_id"]
+            properties:
+              code:
+                const: "AFTERSALE_QUOTA_EXCEEDED"
+              message:
+                type: "string"
+              details:
+                type: "array"
+                items:
+                  type: "object"
+                  additionalProperties: false
+                  required: ["field", "reason"]
+                  properties:
+                    field:
+                      type: ["string", "null"]
+                    reason:
+                      type: "string"
+                    rejected_value:
+                      type: "null"
+              request_id:
+                type: "string"
     RateLimited:
       description: "访问、登录或 MFA 失败次数受限"
       content:
@@ -12323,41 +12633,123 @@ components:
       properties:
         order_item_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         quantity:
           type: "integer"
           minimum: 1
+          maximum: 99
     CreateAftersaleRequest:
-      type: "object"
-      additionalProperties: false
-      required:
-        - "order_id"
-        - "type"
-        - "reason_code"
-        - "items"
-      properties:
-        order_id:
-          type: "string"
-        type:
-          type: "string"
-          enum:
-            - "REFUND_ONLY"
-            - "RETURN_REFUND"
-        reason_code:
-          type: "string"
-        reason_text:
-          type:
-            - "string"
-            - "null"
-          maxLength: 500
-        items:
-          type: "array"
-          minItems: 1
-          items:
-            "$ref": "#/components/schemas/AftersaleLineInput"
-        evidence_file_ids:
-          type: "array"
-          items:
-            type: "string"
+      oneOf:
+        -
+          type: "object"
+          additionalProperties: false
+          required: ["action", "order_id", "type", "reason_code", "items"]
+          properties:
+            action:
+              const: "PREVIEW"
+            order_id:
+              type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+            type:
+              type: "string"
+              enum: ["REFUND_ONLY", "RETURN_REFUND"]
+            reason_code:
+              type: "string"
+              enum: ["UNSHIPPED_NO_LONGER_NEEDED", "ITEM_DAMAGED", "ITEM_NOT_AS_DESCRIBED", "WRONG_ITEM", "MISSING_ITEM", "QUALITY_ISSUE", "OTHER"]
+            reason_text:
+              type: ["string", "null"]
+              minLength: 2
+              maxLength: 500
+              pattern: "^[^\\u0000-\\u001F\\u007F]*$"
+              description: "服务端先 trim；空白或包含控制字符时拒绝。reason_code=OTHER 时必须提交。"
+            items:
+              type: "array"
+              minItems: 1
+              maxItems: 100
+              uniqueItems: true
+              x-unique-by: "order_item_id"
+              items:
+                "$ref": "#/components/schemas/AftersaleLineInput"
+            evidence_file_ids:
+              type: "array"
+              maxItems: 9
+              uniqueItems: true
+              description: "最多 9 个当前 CUSTOMER 拥有的 READY/PRIVATE/AFTERSALE_EVIDENCE 文件，file_id 不得重复。"
+              items:
+                type: "string"
+                pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+          oneOf:
+            -
+              properties:
+                reason_code:
+                  enum: ["UNSHIPPED_NO_LONGER_NEEDED", "ITEM_DAMAGED", "ITEM_NOT_AS_DESCRIBED", "WRONG_ITEM", "MISSING_ITEM", "QUALITY_ISSUE"]
+            -
+              required: ["reason_text"]
+              properties:
+                reason_code:
+                  const: "OTHER"
+                reason_text:
+                  type: "string"
+                  minLength: 2
+        -
+          type: "object"
+          additionalProperties: false
+          required: ["action", "order_id", "type", "reason_code", "items", "preview_token", "confirmation_hash"]
+          properties:
+            action:
+              const: "CONFIRM"
+            order_id:
+              type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+            type:
+              type: "string"
+              enum: ["REFUND_ONLY", "RETURN_REFUND"]
+            reason_code:
+              type: "string"
+              enum: ["UNSHIPPED_NO_LONGER_NEEDED", "ITEM_DAMAGED", "ITEM_NOT_AS_DESCRIBED", "WRONG_ITEM", "MISSING_ITEM", "QUALITY_ISSUE", "OTHER"]
+            reason_text:
+              type: ["string", "null"]
+              minLength: 2
+              maxLength: 500
+              pattern: "^[^\\u0000-\\u001F\\u007F]*$"
+              description: "必须与 PREVIEW 的规范业务字段精确一致；reason_code=OTHER 时必须提交。"
+            items:
+              type: "array"
+              minItems: 1
+              maxItems: 100
+              uniqueItems: true
+              x-unique-by: "order_item_id"
+              items:
+                "$ref": "#/components/schemas/AftersaleLineInput"
+            evidence_file_ids:
+              type: "array"
+              maxItems: 9
+              uniqueItems: true
+              description: "必须与 PREVIEW 的 canonical 文件清单精确一致。"
+              items:
+                type: "string"
+                pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+            preview_token:
+              type: "string"
+              minLength: 16
+              maxLength: 512
+            confirmation_hash:
+              type: "string"
+              pattern: "^[a-f0-9]{64}$"
+          oneOf:
+            -
+              properties:
+                reason_code:
+                  enum: ["UNSHIPPED_NO_LONGER_NEEDED", "ITEM_DAMAGED", "ITEM_NOT_AS_DESCRIBED", "WRONG_ITEM", "MISSING_ITEM", "QUALITY_ISSUE"]
+            -
+              required: ["reason_text"]
+              properties:
+                reason_code:
+                  const: "OTHER"
+                reason_text:
+                  type: "string"
+                  minLength: 2
+      description: "同一 operation 的闭合两阶段命令。PREVIEW 只返回服务端试算与短时凭证，CONFIRM 必须重放精确业务字段并携带该凭证后才创建售后。"
     ReturnShipmentRequest:
       type: "object"
       additionalProperties: false
@@ -12368,10 +12760,22 @@ components:
       properties:
         carrier_code:
           type: "string"
+          minLength: 1
+          maxLength: 40
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$"
+          description: "服务端 trim 后验证；只允许 ASCII 字母、数字、点、下划线和连字号，不允许控制字符。"
         carrier_name:
           type: "string"
+          minLength: 1
+          maxLength: 80
+          pattern: "^(?=.*\\S)[^\\u0000-\\u001F\\u007F]+$"
+          description: "服务端 trim 后不得为空，不允许控制字符。"
         tracking_no:
           type: "string"
+          minLength: 1
+          maxLength: 120
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._/-]{0,119}$"
+          description: "服务端 trim 后验证；只允许 ASCII 字母、数字、点、下划线、斜线和连字号，不允许控制字符。"
     CreatePromotionAssetRequest:
       type: "object"
       additionalProperties: false
@@ -12747,6 +13151,8 @@ components:
             - "string"
             - "null"
           maxLength: 500
+          pattern: "^[^\\u0000-\\u001F\\u007F]*$"
+          description: "可选审核备注；非 null 时服务端 trim，空白或包含控制字符时拒绝。"
     ReturnInspectionLine:
       type: "object"
       additionalProperties: false
@@ -12761,77 +13167,98 @@ components:
       properties:
         order_item_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         received_qty:
           type: "integer"
           minimum: 0
+          maximum: 99
         approved_refund_qty:
           type: "integer"
           minimum: 0
+          maximum: 99
           description: "验货时冻结的可退款数量；必须等于回库、损坏、报废数量之和，且与退回客户数量之和等于实收数量。"
         restock_qty:
           type: "integer"
           minimum: 0
+          maximum: 99
         damaged_qty:
           type: "integer"
           minimum: 0
+          maximum: 99
         scrap_qty:
           type: "integer"
           minimum: 0
+          maximum: 99
         return_to_customer_qty:
           type: "integer"
           minimum: 0
+          maximum: 99
         note:
           type:
             - "string"
             - "null"
           maxLength: 500
+          pattern: "^[^\\u0000-\\u001F\\u007F]*$"
       description: "批准退款数量必须等于回库、损坏、报废之和；批准退款数量与退回客户数量之和、四类处置数量之和都必须等于 received_qty。PASS 必须全量实收并全量批准退款；少件、0 件或其他不符必须 ABNORMAL。"
     ReturnInspectionRequest:
-      type: "object"
-      additionalProperties: false
-      required:
-        - "result"
-        - "items"
-        - "evidence_file_ids"
-      properties:
-        result:
-          type: "string"
-          enum:
-            - "PASS"
-            - "ABNORMAL"
-        abnormal_reason:
-          type:
-            - "string"
-            - "null"
-          maxLength: 500
-        items:
-          type: "array"
-          minItems: 1
-          uniqueItems: true
-          description: "必须在同一事务中精确覆盖该售后的全部 aftersale_item，每个 order_item_id 恰好出现一次，不允许遗漏、重复或额外项。"
-          items:
-            "$ref": "#/components/schemas/ReturnInspectionLine"
-        evidence_file_ids:
-          type: "array"
-          uniqueItems: true
-          description: "服务端校验 READY/purpose/归属后按 canonical 顺序封存完整集合；验货提交后不得追加、删除、换序或替换。"
-          items:
-            type: "string"
-      allOf:
+      oneOf:
         -
-          if:
-            properties:
-              result:
-                const: "ABNORMAL"
-          then:
-            required:
-              - "abnormal_reason"
-            properties:
-              abnormal_reason:
+          type: "object"
+          additionalProperties: false
+          required: ["result", "items", "evidence_file_ids"]
+          properties:
+            result:
+              const: "PASS"
+            items:
+              type: "array"
+              minItems: 1
+              maxItems: 100
+              uniqueItems: true
+              x-unique-by: "order_item_id"
+              description: "必须在同一事务中精确覆盖该售后的全部 aftersale_item，每个 order_item_id 恰好出现一次，不允许遗漏、重复或额外项。"
+              items:
+                "$ref": "#/components/schemas/ReturnInspectionLine"
+            evidence_file_ids:
+              type: "array"
+              maxItems: 9
+              uniqueItems: true
+              description: "PASS 可以为空；服务端校验 READY/purpose/归属后按 canonical 顺序封存完整集合，提交后不得追加、删除、换序或替换。"
+              items:
                 type: "string"
-                minLength: 2
-              evidence_file_ids:
-                minItems: 1
+                pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+        -
+          type: "object"
+          additionalProperties: false
+          required: ["result", "abnormal_reason", "items", "evidence_file_ids"]
+          properties:
+            result:
+              const: "ABNORMAL"
+            abnormal_reason:
+              type: "string"
+              minLength: 2
+              maxLength: 500
+              pattern: "^[^\\u0000-\\u001F\\u007F]*$"
+            items:
+              type: "array"
+              minItems: 1
+              maxItems: 100
+              uniqueItems: true
+              x-unique-by: "order_item_id"
+              description: "必须在同一事务中精确覆盖该售后的全部 aftersale_item，每个 order_item_id 恰好出现一次，不允许遗漏、重复或额外项。"
+              items:
+                "$ref": "#/components/schemas/ReturnInspectionLine"
+            evidence_file_ids:
+              type: "array"
+              minItems: 1
+              maxItems: 9
+              uniqueItems: true
+              description: "ABNORMAL 至少一份；服务端校验 READY/purpose/归属后按 canonical 顺序封存完整集合，提交后不得追加、删除、换序或替换。"
+              items:
+                type: "string"
+                pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+      discriminator:
+        propertyName: "result"
+      description: "PASS 不接受 abnormal_reason 且证据可以为空；ABNORMAL 必填 2-500 字符异常原因和至少一份证据。两分支均必须精确覆盖全部售后项。"
     ContinueRefundRequest:
       type: "object"
       additionalProperties: false
@@ -12846,6 +13273,7 @@ components:
           type: "string"
           minLength: 2
           maxLength: 500
+          pattern: "^[^\\u0000-\\u001F\\u007F]*$"
     RejectAfterReturnPreviewRequest:
       type: "object"
       additionalProperties: false
@@ -12860,6 +13288,7 @@ components:
           type: "string"
           minLength: 2
           maxLength: 500
+          pattern: "^[^\\u0000-\\u001F\\u007F]*$"
     RejectAfterReturnConfirmRequest:
       type: "object"
       additionalProperties: false
@@ -12872,6 +13301,7 @@ components:
           type: "string"
           minLength: 2
           maxLength: 500
+          pattern: "^[^\\u0000-\\u001F\\u007F]*$"
         preview_token:
           type: "string"
           minLength: 16
@@ -12888,9 +13318,11 @@ components:
       properties:
         aftersale_item_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         quantity:
           type: "integer"
           minimum: 1
+          maximum: 99
     RefundItemsAction:
       type: "object"
       required:
@@ -12901,9 +13333,13 @@ components:
           type: "string"
           minLength: 2
           maxLength: 500
+          pattern: "^[^\\u0000-\\u001F\\u007F]*$"
         items:
           type: "array"
           minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          x-unique-by: "aftersale_item_id"
           items:
             "$ref": "#/components/schemas/RefundItemQuantity"
     ManualCompensationAction:
@@ -12915,12 +13351,15 @@ components:
       properties:
         order_item_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         amount:
           "$ref": "#/components/schemas/PositiveMoney"
         reason:
           type: "string"
           minLength: 2
           maxLength: 500
+          pattern: "^[^\\u0000-\\u001F\\u007F]*$"
+          description: "服务端 trim 后必须保留 2-500 个字符，且不得包含控制字符。"
     BusinessRuleChanges:
       type: "object"
       additionalProperties: false
@@ -13924,10 +14363,13 @@ components:
       properties:
         order_item_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         product_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         sku_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         product_name:
           type: "string"
         sku_name:
@@ -14488,6 +14930,7 @@ components:
           properties:
             aftersale_id:
               type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
             aftersale_no:
               type: "string"
             type:
@@ -14523,8 +14966,10 @@ components:
                 properties:
                   aftersale_item_id:
                     type: "string"
+                    pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
                   order_item_id:
                     type: "string"
+                    pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
                   quantity:
                     type: "integer"
                     minimum: 1
@@ -14607,10 +15052,12 @@ components:
           properties:
             aftersale_id:
               type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
             aftersale_no:
               type: "string"
             order_id:
               type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
             type:
               type: "string"
               enum: ["REFUND_ONLY", "RETURN_REFUND"]
@@ -14627,8 +15074,10 @@ components:
                 properties:
                   aftersale_item_id:
                     type: "string"
+                    pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
                   order_item_id:
                     type: "string"
+                    pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
                   quantity:
                     type: "integer"
                     minimum: 1
@@ -14653,6 +15102,7 @@ components:
                   properties:
                     inspection_id:
                       type: "string"
+                      pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
                     result:
                       type: "string"
                       enum: ["PASS", "ABNORMAL"]
@@ -14662,9 +15112,11 @@ components:
                         - "null"
                     evidence_file_ids:
                       type: "array"
+                      maxItems: 9
                       uniqueItems: true
                       items:
                         type: "string"
+                        pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
                     items:
                       type: "array"
                       items:
@@ -14690,6 +15142,7 @@ components:
               type:
                 - "string"
                 - "null"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
               description: "同一售后唯一稳定退款生命周期；失败重试复用该 refund_id/refund_no。"
             version:
               type: "integer"
@@ -14718,17 +15171,15 @@ components:
             - "origin_type"
             - "status"
             - "amount"
+            - "items"
           properties:
             refund_id:
               type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
             refund_no:
               type: "string"
             origin_type:
-              type: "string"
-              enum:
-                - "AFTERSALE"
-                - "LATE_PAYMENT"
-                - "MANUAL_COMPENSATION"
+              const: "AFTERSALE"
             status:
               type: "string"
               enum:
@@ -14741,22 +15192,27 @@ components:
               "$ref": "#/components/schemas/PositiveMoney"
             items:
               type: "array"
+              minItems: 1
+              maxItems: 100
               items:
                 type: "object"
                 additionalProperties: false
                 required:
                   - "order_item_id"
+                  - "aftersale_item_id"
                   - "quantity"
                   - "server_allocated_amount"
                 properties:
                   order_item_id:
                     type: "string"
+                    pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
                   aftersale_item_id:
-                    type:
-                      - "string"
-                      - "null"
+                    type: "string"
+                    pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
                   quantity:
                     type: "integer"
+                    minimum: 1
+                    maximum: 99
                   server_allocated_amount:
                     "$ref": "#/components/schemas/PositiveMoney"
         request_id:
@@ -17174,10 +17630,13 @@ components:
       properties:
         order_item_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         product_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         sku_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         product_name:
           type: "string"
         sku_name:
@@ -17200,6 +17659,7 @@ components:
           minimum: 0
         latest_aftersale_id:
           type: ["string", "null"]
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         latest_status:
           type: ["string", "null"]
           enum: ["PENDING_REVIEW", "REJECTED", "REFUNDING", "WAITING_RETURN", "WAITING_RECEIPT", "RETURN_EXCEPTION", "REFUNDING_AFTER_RETURN", "REJECTED_AFTER_RETURN", "REFUND_FAILED", "COMPLETED", "CANCELLED", null]
@@ -17212,6 +17672,7 @@ components:
       properties:
         order_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         order_no:
           type: "string"
         order_status:
@@ -17255,8 +17716,8 @@ components:
           uniqueItems: true
           items:
             type: "string"
-            enum: ["PAY", "CANCEL", "VIEW_LOGISTICS", "CONFIRM_RECEIPT"]
-          description: "B10 对未过期、待付款且允许创建或复用支付意图的订单返回 PAY；无支付意图或仅有失败终态 intent 且可主动取消时返回 CANCEL。B11 对已有包裹返回 VIEW_LOGISTICS，对已支付、NORMAL、order_status=SHIPPING、包裹状态为 SHIPPED/IN_TRANSIT/DELIVERED 且不存在活动售后或未解决支付异常的订单返回 CONFIRM_RECEIPT。所有动作均由服务端当前投影决定。"
+            enum: ["PAY", "CANCEL", "VIEW_LOGISTICS", "CONFIRM_RECEIPT", "APPLY_AFTERSALE"]
+          description: "B10 对未过期、待付款且允许创建或复用支付意图的订单返回 PAY；无支付意图或仅有失败终态 intent 且可主动取消时返回 CANCEL。B11 对已有包裹返回 VIEW_LOGISTICS，对已支付、NORMAL、order_status=SHIPPING、包裹状态为 SHIPPED/IN_TRANSIT/DELIVERED 且不存在活动售后或未解决支付异常的订单返回 CONFIRM_RECEIPT。B12 仅在 payment_status=PAID 且 payment_resolution=NORMAL，并满足以下任一时间分支时返回 APPLY_AFTERSALE：(1) order_status=PENDING_SHIPMENT/SHIPPING 且尚未完成，此时 aftersale_expires_at=null 表示售后期尚未起算但仍可申请；(2) order_status=COMPLETED 且 aftersale_expires_at 非空、数据库当前时间 <= aftersale_expires_at。order_status=CLOSED、支付异常未解决或全部订单项无剩余额度时绝不返回。至少一个订单项必须在扣除已成功退款和该项所有活动售后数量/金额占用后 remaining quota > 0；其他订单项存在活动售后不得全局阻止当前仍有额度的订单项。客户端不得自行推导；所有动作均由服务端当前投影决定。"
         aftersale_summary:
           "$ref": "#/components/schemas/OrderAftersaleListSummary"
         created_at:
@@ -17422,15 +17883,20 @@ components:
         - "order_id"
         - "type"
         - "status"
+        - "refund_progress_status"
+        - "refund_processing_status"
+        - "available_actions"
         - "requested_amount"
         - "created_at"
       properties:
         aftersale_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         aftersale_no:
           type: "string"
         order_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         type:
           type: "string"
           enum:
@@ -17450,6 +17916,19 @@ components:
             - "REFUND_FAILED"
             - "COMPLETED"
             - "CANCELLED"
+        refund_progress_status:
+          type: "string"
+          enum: ["NONE", "PARTIAL", "FULL"]
+        refund_processing_status:
+          type: "string"
+          enum: ["IDLE", "REFUNDING", "FAILED"]
+        available_actions:
+          type: "array"
+          uniqueItems: true
+          items:
+            type: "string"
+            enum: ["CANCEL", "SUBMIT_RETURN_SHIPMENT", "VIEW_ORDER"]
+          description: "只返回当前售后投影真实允许的消费者动作；不包含 Admin 退款重试或审核动作。"
         requested_amount:
           "$ref": "#/components/schemas/PositiveMoney"
         created_at:
@@ -19348,6 +19827,9 @@ components:
           required:
             - "compensation_id"
             - "compensation_no"
+            - "origin_type"
+            - "refund_id"
+            - "refund_no"
             - "order_id"
             - "order_item_id"
             - "status"
@@ -19359,12 +19841,22 @@ components:
           properties:
             compensation_id:
               type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
             compensation_no:
+              type: "string"
+            origin_type:
+              const: "MANUAL_COMPENSATION"
+            refund_id:
+              type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+            refund_no:
               type: "string"
             order_id:
               type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
             order_item_id:
               type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
             status:
               type: "string"
               enum:
@@ -20367,10 +20859,12 @@ components:
       properties:
         aftersale_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         aftersale_no:
           type: "string"
         order_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         type:
           type: "string"
           enum: ["REFUND_ONLY", "RETURN_REFUND"]
@@ -20381,12 +20875,14 @@ components:
           "$ref": "#/components/schemas/PositiveMoney"
         customer_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         customer_alias:
           type: "string"
         agent_id:
           type:
             - "string"
             - "null"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         created_at:
           type: "string"
           format: "date-time"
@@ -20435,6 +20931,7 @@ components:
       properties:
         order_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         order_no:
           type: "string"
         display_status:
@@ -20713,6 +21210,7 @@ components:
       properties:
         refund_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         refund_no:
           type: "string"
         attempt_no:
@@ -20795,6 +21293,7 @@ components:
       properties:
         aftersale_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         aftersale_no:
           type: "string"
         type:
@@ -20802,6 +21301,7 @@ components:
           enum: ["REFUND_ONLY", "RETURN_REFUND"]
         status:
           type: "string"
+          enum: ["PENDING_REVIEW", "REJECTED", "REFUNDING", "WAITING_RETURN", "WAITING_RECEIPT", "RETURN_EXCEPTION", "REFUNDING_AFTER_RETURN", "REJECTED_AFTER_RETURN", "REFUND_FAILED", "COMPLETED", "CANCELLED"]
         requested_amount:
           "$ref": "#/components/schemas/NonNegativeMoney"
         created_at:
@@ -20814,6 +21314,7 @@ components:
       properties:
         sku_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         reserved_change:
           type: "integer"
         available_change:
@@ -20829,8 +21330,10 @@ components:
       properties:
         commission_snapshot_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         order_item_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         original_commission:
           "$ref": "#/components/schemas/NonNegativeMoney"
         expected_remaining:
@@ -20856,6 +21359,7 @@ components:
           properties:
             order_id:
               type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
             order_no:
               type: "string"
             order_status:
@@ -20903,8 +21407,8 @@ components:
               uniqueItems: true
               items:
                 type: "string"
-                enum: ["PAY", "CANCEL", "VIEW_LOGISTICS", "CONFIRM_RECEIPT"]
-              description: "B10 对未过期、待付款且允许创建或复用支付意图的订单返回 PAY；无支付意图或仅有失败终态 intent 且可主动取消时返回 CANCEL。B11 对已有包裹返回 VIEW_LOGISTICS，对已支付、NORMAL、order_status=SHIPPING、包裹状态为 SHIPPED/IN_TRANSIT/DELIVERED 且不存在活动售后或未解决支付异常的订单返回 CONFIRM_RECEIPT。所有动作均由服务端当前投影决定。"
+                enum: ["PAY", "CANCEL", "VIEW_LOGISTICS", "CONFIRM_RECEIPT", "APPLY_AFTERSALE"]
+              description: "B10 对未过期、待付款且允许创建或复用支付意图的订单返回 PAY；无支付意图或仅有失败终态 intent 且可主动取消时返回 CANCEL。B11 对已有包裹返回 VIEW_LOGISTICS，对已支付、NORMAL、order_status=SHIPPING、包裹状态为 SHIPPED/IN_TRANSIT/DELIVERED 且不存在活动售后或未解决支付异常的订单返回 CONFIRM_RECEIPT。B12 仅在 payment_status=PAID 且 payment_resolution=NORMAL，并满足以下任一时间分支时返回 APPLY_AFTERSALE：(1) order_status=PENDING_SHIPMENT/SHIPPING 且尚未完成，此时 aftersale_expires_at=null 表示售后期尚未起算但仍可申请；(2) order_status=COMPLETED 且 aftersale_expires_at 非空、数据库当前时间 <= aftersale_expires_at。order_status=CLOSED、支付异常未解决或全部订单项无剩余额度时绝不返回。至少一个订单项必须在扣除已成功退款和该项所有活动售后数量/金额占用后 remaining quota > 0；其他订单项存在活动售后不得全局阻止当前仍有额度的订单项。客户端不得自行推导；所有动作均由服务端当前投影决定。"
             timeline:
               type: "array"
               items:
@@ -20917,8 +21421,7 @@ components:
                 "$ref": "#/components/schemas/OrderPackageDetailView"
             aftersales:
               type: "array"
-              maxItems: 0
-              description: "B9 未开放售后，固定返回空数组。"
+              description: "B12 按 created_at ASC,aftersale_id ASC 返回当前 CUSTOMER 本人订单的售后摘要；跨客户数据、内部处理人、库存和佣金字段不得出现。无售后时返回空数组。"
               items:
                 "$ref": "#/components/schemas/OrderAftersaleSummaryView"
             payment_attempts:
@@ -20928,7 +21431,7 @@ components:
                 "$ref": "#/components/schemas/PaymentAttemptDetailView"
             refund_attempts:
               type: "array"
-              description: "仅返回 B10 迟到支付自动退款尝试；没有退款时为空数组，消费者主动退款仍未开放。"
+              description: "按 created_at ASC,refund_id ASC,attempt_no ASC 返回当前 CUSTOMER 本人订单可见的迟到支付退款、B12 稳定普通退款尝试与总部金额补偿尝试；没有退款时为空数组。不返回 Provider 原文、原始交易号、签名或内部对账能力。"
               items:
                 "$ref": "#/components/schemas/RefundAttemptDetailView"
             errors:
@@ -21073,8 +21576,10 @@ components:
       properties:
         aftersale_item_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         order_item_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         product_name:
           type: "string"
         sku_name:
@@ -21102,6 +21607,7 @@ components:
       properties:
         account_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         display_name:
           type: "string"
       description: "仅后台验货投影可见的操作账号摘要，不包含登录名、手机号或认证信息。"
@@ -21112,6 +21618,7 @@ components:
       properties:
         inspection_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         result:
           type: "string"
           enum: ["PASS", "ABNORMAL"]
@@ -21119,9 +21626,11 @@ components:
           type: ["string", "null"]
         evidence_file_ids:
           type: "array"
+          maxItems: 9
           uniqueItems: true
           items:
             type: "string"
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
           description: "按服务端 canonical 顺序返回验货提交时封存的完整证据集合；提交后不可追加、删除、换序或替换。内部 manifest/hash 不对接口暴露。"
         items:
           type: "array"
@@ -21149,6 +21658,7 @@ components:
       properties:
         order_item_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         received_qty:
           type: "integer"
           minimum: 0
@@ -21174,6 +21684,7 @@ components:
       properties:
         inspection_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         result:
           type: "string"
           enum: ["PASS", "ABNORMAL"]
@@ -21181,9 +21692,11 @@ components:
           type: ["string", "null"]
         evidence_file_ids:
           type: "array"
+          maxItems: 9
           uniqueItems: true
           items:
             type: "string"
+            pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
           description: "封存证据集合；下载仍按当前消费者与售后归属鉴权。"
         items:
           type: "array"
@@ -21206,12 +21719,19 @@ components:
     ReturnShipmentDetailView:
       type: "object"
       additionalProperties: false
-      required: ["carrier_name", "tracking_no", "submitted_at"]
+      required: ["carrier_code", "carrier_name", "tracking_no", "submitted_at"]
       properties:
+        carrier_code:
+          type: "string"
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$"
         carrier_name:
           type: "string"
+          minLength: 1
+          maxLength: 80
+          pattern: "^(?=.*\\S)[^\\u0000-\\u001F\\u007F]+$"
         tracking_no:
           type: "string"
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._/-]{0,119}$"
         submitted_at:
           type: "string"
           format: "date-time"
@@ -21240,6 +21760,7 @@ components:
       properties:
         event_id:
           type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         event:
           type: "string"
         from_status:
@@ -21268,6 +21789,7 @@ components:
           properties:
             aftersale_id:
               type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
             aftersale_no:
               type: "string"
             order:
@@ -21306,13 +21828,18 @@ components:
             refund_attempts:
               type: "array"
               items:
-                "$ref": "#/components/schemas/RefundAttemptDetailView"
+                allOf:
+                  - "$ref": "#/components/schemas/RefundAttemptDetailView"
+                  - type: "object"
+                    properties:
+                      origin_type:
+                        const: "AFTERSALE"
             available_actions:
               type: "array"
               uniqueItems: true
               items:
                 type: "string"
-                enum: ["CANCEL", "SUBMIT_RETURN_SHIPMENT", "RETRY_REFUND", "VIEW_ORDER"]
+                enum: ["CANCEL", "SUBMIT_RETURN_SHIPMENT", "VIEW_ORDER"]
             timeline:
               type: "array"
               items:
@@ -21345,6 +21872,7 @@ components:
           properties:
             aftersale_id:
               type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
             aftersale_no:
               type: "string"
             order:
@@ -21354,6 +21882,7 @@ components:
               properties:
                 order_id:
                   type: "string"
+                  pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
                 order_no:
                   type: "string"
                 state:
@@ -21365,6 +21894,7 @@ components:
               properties:
                 customer_id:
                   type: "string"
+                  pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
                 customer_alias:
                   type: "string"
                 nickname_masked:
@@ -21405,7 +21935,12 @@ components:
             refund_attempts:
               type: "array"
               items:
-                "$ref": "#/components/schemas/RefundAttemptDetailView"
+                allOf:
+                  - "$ref": "#/components/schemas/RefundAttemptDetailView"
+                  - type: "object"
+                    properties:
+                      origin_type:
+                        const: "AFTERSALE"
             available_actions:
               type: "array"
               uniqueItems: true

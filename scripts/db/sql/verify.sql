@@ -32,7 +32,7 @@ BEGIN
     AND pg_get_userbyid(c.relowner) = 'mall_migrator'
     AND c.relname <> '_prisma_migrations'
     AND i.indpred IS NOT NULL;
-  IF actual <> 20 THEN RAISE EXCEPTION 'expected 20 partial indexes, found %', actual; END IF;
+  IF actual <> 22 THEN RAISE EXCEPTION 'expected 22 partial indexes, found %', actual; END IF;
 
   IF NOT EXISTS (
     SELECT 1
@@ -96,6 +96,40 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'B10 late-payment refund uniqueness index is missing or malformed';
   END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_index i
+    JOIN pg_class c ON c.oid = i.indrelid
+    JOIN pg_class ic ON ic.oid = i.indexrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = 'refund_attempt'
+      AND ic.relname = 'uq_refund_attempt_one_active_per_refund'
+      AND i.indisunique
+      AND i.indnatts = 1
+      AND pg_get_indexdef(i.indexrelid, 1, true) = 'refund_id'
+      AND pg_get_expr(i.indpred, i.indrelid) =
+        '(status = ANY (ARRAY[''INITIATED''::"RefundAttemptStatus", ''PROCESSING''::"RefundAttemptStatus"]))'
+  ) THEN
+    RAISE EXCEPTION 'B12 active refund-attempt uniqueness index is missing or malformed';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_index i
+    JOIN pg_class c ON c.oid = i.indrelid
+    JOIN pg_class ic ON ic.oid = i.indexrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = 'refund_attempt'
+      AND ic.relname = 'uq_refund_attempt_one_success_per_refund'
+      AND i.indisunique
+      AND i.indnatts = 1
+      AND pg_get_indexdef(i.indexrelid, 1, true) = 'refund_id'
+      AND pg_get_expr(i.indpred, i.indrelid) =
+        '(status = ''SUCCEEDED''::"RefundAttemptStatus")'
+  ) THEN
+    RAISE EXCEPTION 'B12 successful refund-attempt uniqueness index is missing or malformed';
+  END IF;
 
   SELECT count(*) INTO actual
   FROM pg_constraint c
@@ -148,7 +182,7 @@ BEGIN
     JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public' AND NOT t.tgisinternal
     AND pg_get_userbyid(c.relowner) = 'mall_migrator';
-  IF actual <> 24 THEN RAISE EXCEPTION 'expected 24 user triggers, found %', actual; END IF;
+  IF actual <> 26 THEN RAISE EXCEPTION 'expected 26 user triggers, found %', actual; END IF;
 
   SELECT coalesce(sum(
     (CASE WHEN (t.tgtype & 4) <> 0 THEN 1 ELSE 0 END) +
@@ -160,12 +194,12 @@ BEGIN
     JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public' AND NOT t.tgisinternal
     AND pg_get_userbyid(c.relowner) = 'mall_migrator';
-  IF actual <> 45 THEN RAISE EXCEPTION 'expected 45 trigger event bindings, found %', actual; END IF;
+  IF actual <> 50 THEN RAISE EXCEPTION 'expected 50 trigger event bindings, found %', actual; END IF;
 
   SELECT count(*) INTO actual
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public' AND pg_get_userbyid(p.proowner) = 'mall_migrator';
-  IF actual <> 15 THEN RAISE EXCEPTION 'expected 15 migrator-owned functions, found %', actual; END IF;
+  IF actual <> 16 THEN RAISE EXCEPTION 'expected 16 migrator-owned functions, found %', actual; END IF;
   SELECT md5(string_agg(concat_ws(E'\x1f',
     p.proname,
     pg_get_function_identity_arguments(p.oid),
@@ -184,8 +218,8 @@ BEGIN
   JOIN pg_namespace n ON n.oid = p.pronamespace
   JOIN pg_language l ON l.oid = p.prolang
   WHERE n.nspname = 'public' AND pg_get_userbyid(p.proowner) = 'mall_migrator';
-  IF actual_hash <> '51d217760d398d6d53b9ad93a685254f' THEN
-    RAISE EXCEPTION 'application function definitions differ from the frozen CH-023 baseline: %', actual_hash;
+  IF actual_hash <> 'f50cb72196e16f0a5505eb53dcd461d1' THEN
+    RAISE EXCEPTION 'application function definitions differ from the frozen B12 baseline: %', actual_hash;
   END IF;
 
   IF NOT EXISTS (
@@ -199,6 +233,36 @@ BEGIN
       AND position('FOR SHARE' IN upper(p.prosrc)) = 0
   ) THEN
     RAISE EXCEPTION 'commission position trigger function is not the CH-023 SECURITY INVOKER definition';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname = 'enforce_refund_item_return_limit'
+      AND pg_get_function_identity_arguments(p.oid) = ''
+      AND NOT p.prosecdef
+      AND position('FOR SHARE OF RI, RII' IN upper(p.prosrc)) = 0
+      AND position('WHERE "ID" = NEW."REFUND_ID"' IN upper(p.prosrc)) > 0
+      AND position('FOR UPDATE' IN upper(p.prosrc)) > 0
+  ) THEN
+    RAISE EXCEPTION 'refund item return-limit function is not the B12 SECURITY INVOKER definition';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname = 'enforce_refund_envelope'
+      AND pg_get_function_identity_arguments(p.oid) = ''
+      AND NOT p.prosecdef
+      AND position('REFUND AMOUNT MUST EQUAL THE SUM OF ITS ITEMS' IN upper(p.prosrc)) > 0
+      AND position('MANUAL_COMPENSATION' IN upper(p.prosrc)) > 0
+      AND position('RI."QUANTITY" <> 1' IN upper(p.prosrc)) > 0
+      AND position('ORDER BY CANDIDATE."REFUND_ID"' IN upper(p.prosrc)) > 0
+      AND position('FOR UPDATE OF R' IN upper(p.prosrc)) > 0
+  ) THEN
+    RAISE EXCEPTION 'refund envelope function is not the B12 SECURITY INVOKER definition';
   END IF;
 
   SELECT md5(string_agg(concat_ws(E'\x1f',
@@ -222,7 +286,7 @@ BEGIN
   JOIN pg_proc pf ON pf.oid = t.tgfoid
   WHERE n.nspname = 'public' AND NOT t.tgisinternal
     AND pg_get_userbyid(c.relowner) = 'mall_migrator';
-  IF actual_hash <> '36741571a517110c208fd155f985c71e' THEN
+  IF actual_hash <> '5e1a4fbb1796c6b503e2ed77df474cc3' THEN
     RAISE EXCEPTION 'application trigger definitions differ from the frozen baseline: %', actual_hash;
   END IF;
 
@@ -261,7 +325,7 @@ BEGIN
   JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public' AND i.indpred IS NOT NULL
     AND pg_get_userbyid(c.relowner) = 'mall_migrator';
-  IF actual_hash <> '844245d1020b6c8eb662d6fc973084a0' THEN
+  IF actual_hash <> 'ad8fe12c0942686b13f55e244cfa2f27' THEN
     RAISE EXCEPTION 'partial-index definitions differ from the frozen baseline: %', actual_hash;
   END IF;
   IF EXISTS (
@@ -281,8 +345,8 @@ BEGIN
   WHERE n.nspname = 'public'
     AND pg_get_userbyid(p.proowner) = 'mall_migrator'
     AND has_function_privilege('mall_runtime', p.oid, 'EXECUTE');
-  IF actual <> 15 THEN
-    RAISE EXCEPTION 'expected mall_runtime EXECUTE on 15 application functions, found %', actual;
+  IF actual <> 16 THEN
+    RAISE EXCEPTION 'expected mall_runtime EXECUTE on 16 application functions, found %', actual;
   END IF;
 
   IF to_regclass('public._prisma_migrations') IS NULL THEN
@@ -314,7 +378,12 @@ BEGIN
       AND rolled_back_at IS NULL
   ) <> 1 OR (
     SELECT count(*) FROM public._prisma_migrations
-  ) <> 4 OR EXISTS (
+    WHERE migration_name = '0005_b12_aftersale_refund_guards'
+      AND finished_at IS NOT NULL
+      AND rolled_back_at IS NULL
+  ) <> 1 OR (
+    SELECT count(*) FROM public._prisma_migrations
+  ) <> 5 OR EXISTS (
     SELECT 1 FROM public._prisma_migrations
     WHERE finished_at IS NULL
       OR rolled_back_at IS NOT NULL
@@ -322,10 +391,11 @@ BEGIN
         '0001_initial',
         '0002_b9_inventory_fact_indexes',
         '0003_b10_payment_fact_indexes',
-        '0004_b10_commission_position_trigger_fix'
+        '0004_b10_commission_position_trigger_fix',
+        '0005_b12_aftersale_refund_guards'
       )
   ) THEN
-    RAISE EXCEPTION 'expected the exact completed 0001 -> 0002 -> 0003 -> 0004 CH-023 migration history';
+    RAISE EXCEPTION 'expected the exact completed 0001 -> 0002 -> 0003 -> 0004 -> 0005 B12 migration history';
   END IF;
   IF has_table_privilege('mall_runtime', 'public._prisma_migrations', 'SELECT')
     OR has_table_privilege('mall_runtime', 'public._prisma_migrations', 'INSERT')
@@ -617,16 +687,16 @@ END $$;
 SELECT json_build_object(
   'tables', 76,
   'enums', 59,
-  'partial_indexes', 20,
+  'partial_indexes', 22,
   'check_constraints', 165,
   'rls_tables', 76,
   'runtime_policies', 76,
   'runtime_policy_shape_verified', true,
-  'user_triggers', 24,
-  'trigger_event_bindings', 45,
-  'owned_functions', 15,
+  'user_triggers', 26,
+  'trigger_event_bindings', 50,
+  'owned_functions', 16,
   'native_definition_fingerprints_verified', true,
-  'runtime_function_execute', 15,
+  'runtime_function_execute', 16,
   'supabase_data_api_roles', 4,
   'data_api_function_execute_denied', true,
   'data_api_effective_table_privileges_denied', true,

@@ -4,11 +4,11 @@
 
 | 项目 | 内容 |
 |---|---|
-| 文档版本 | v2.4.9 |
-| 对应产品基线 | MVP/PRD v2.4.9、CH-001 至 CH-024；在线接口以 CH-024 为准 |
-| 接口阶段 | B0-B11 development 已完成并维持 `GO`；B11.0-B11.5、严格解码、资源绑定、五视口、真实纵向与全仓门禁均已完成。OpenAPI 基线仍为 `2.4.9-ch024`，实测统计保持 173 paths / 198 operations / 198 unique operationId / 326 schemas / 705 schema refs / 2,695 local refs / 0 dangling refs。最终同 SHA 双绿已闭合，CH-025 已自动失效。普通售后、真实客户数据、staging、production、真实支付与真实物流集成均为 `NO-GO` |
+| 文档版本 | v2.4.10 |
+| 对应产品基线 | MVP/PRD v2.4.10、CH-001 至 CH-026；在线接口以 CH-026 为准 |
+| 接口阶段 | B0-B11 development 已完成并维持 `GO`。CH-026 已批准，B12.0 治理、契约与 `0005_b12_aftersale_refund_guards` 本地实施完成；OpenAPI `2.4.10-ch026` 实测为 173 paths / 198 operations / 198 unique operationId / 326 schemas / 706 schema refs / 2,720 local refs / 0 dangling refs。B12.1 业务代码尚未准入，仍须在精确 B12.0 SHA 上取得普通 CI、Supabase development migration、rollback-only smoke 三项成功证据。真实客户数据、staging、production、真实微信退款与真实物流集成均为 `NO-GO` |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
-| 更新时间 | 2026-08-30 |
+| 更新时间 | 2026-09-01 |
 
 ## 1. 设计目标
 
@@ -56,13 +56,13 @@ OpenAPI 与所有客户端只配置一个 server：`/api/v1`。下表及全文�
 | `Idempotency-Key` | 订单、支付、售后、退款、提现、规则变更等写操作 | UUID，主体 + 路径范围内 24 小时唯一；退款每次新尝试必须使用未用于该退款单的新键 |
 | `X-Request-Id` | 可选 | 客户端追踪 ID；缺失时由服务端生成 |
 | `X-Candidate-Token` | 游客读取或替换推广候选 | 首次创建候选后由服务端签发的短时不透明 token；GET 不消费，替换或登录迁移时原子失效；不使用设备 ID |
-| `If-Match` | 配置、高风险写操作、订单取消及 CH-024 履约写操作 | 必填，携带客户端已读取的订单或包裹 ETag，例如 `"12"`；版本变化返回 `RESOURCE_VERSION_CONFLICT`。同键同请求的已完成幂等重放先于版本校验 |
+| `If-Match` | 配置、高风险写操作、订单取消、CH-024 履约及 CH-026 已有售后/退款资源写操作 | 必填，携带客户端已读取的资源 ETag，例如 `"12"`；版本变化返回 `RESOURCE_VERSION_CONFLICT`。同键同请求的已完成幂等重放先于版本校验 |
 
 ### 2.4 数据格式
 
 - 时间统一使用 UTC ISO 8601，例如 `2026-08-11T02:30:00Z`；报表按 `Asia/Shanghai` 计算自然日/月。
 - ID 统一作为字符串返回，客户端不得假设为可安全运算的 JavaScript Number。
-- CH-024 延续并补齐所有 `order_id`、`order_item_id`、`shipment_id`、`payment_intent_id` 与 `refund_id` 路径及请求标识的 26 位 ULID 校验；非法值在进入 repository 前返回参数错误，不允许按普通字符串查询。
+- CH-026 延续并补齐所有 `order_id`、`order_item_id`、`shipment_id`、`payment_intent_id`、`aftersale_id`、`refund_id` 与 `file_id` 路径及请求标识的 26 位 ULID 校验；非法值在进入 repository 前返回参数错误，不允许按普通字符串查询。
 - 金额使用两位小数字符串，禁止使用浮点数。OpenAPI 分为 `PositiveMoney`（业务输入和必须为正的事实）、`NonNegativeMoney`（余额、累计金额和普通响应）与 `SignedMoney`（佣金/钱包账本变动）；不得用同一个可负 schema 接收退款、售后或提现金额。
 - 佣金比例使用百分比字符串，例如 `"12.5000"` 表示 12.5%；合法范围严格为 `0.0000` 至 `100.0000`。计算固定为 `HALF_UP(commission_base * effective_rate / 100, 2)`；`null` 表示继承，`"0.0000"` 表示明确无佣金。
 - 分页默认 `page=1&page_size=20`，`page_size` 最大 100。
@@ -125,7 +125,7 @@ OpenAPI 与所有客户端只配置一个 server：`/api/v1`。下表及全文�
 | 403 | `PERMISSION_DENIED`、`REAUTH_REQUIRED` | 角色、数据范围或二次验证不足 |
 | 404 | `RESOURCE_NOT_FOUND` | 不存在或无权查看时统一返回 |
 | 409 | `RESOURCE_VERSION_CONFLICT`、`STATE_CONFLICT`、`SOFT_DELETED_KEY_RESERVED`、`CHECKOUT_QUOTE_EXPIRED`、`CHECKOUT_QUOTE_MISMATCH`、`CHECKOUT_REQUOTE_REQUIRED`、`ORDER_NOT_CANCELLABLE`、`ORDER_PAYMENT_EXPIRED`、`PAYMENT_NOT_ALLOWED`、`PAYMENT_RESULT_CONFLICT`、`SHIPMENT_STATE_CONFLICT`、`ORDER_NOT_RECEIVABLE` | 乐观锁、非法状态、软删除业务键保留、报价/支付过期或不匹配、支付状态冲突、履约状态冲突，或订单尚不可确认完成 |
-| 422 | `STOCK_INSUFFICIENT`、`AFTERSALE_QUOTA_EXCEEDED`、`ACTIVE_PRODUCT_DEPENDENCY`、`FILE_CONTENT_MISMATCH`、`PRODUCT_PRIMARY_IMAGE_REQUIRED`、`PRODUCT_ACTIVE_SKU_REQUIRED`、`ACTIVE_SKU_DEPENDENCY`、`ACTIVE_INVENTORY_RESERVATION`、`INVENTORY_QUANTITY_OUT_OF_RANGE`、`CART_ITEM_LIMIT_EXCEEDED`、`DEFAULT_ADDRESS_REQUIRED`、`ACTIVE_AFTERSALE_BLOCKS_SHIPMENT`、`SHIPMENT_ITEMS_MISMATCH` | 业务依赖、活动预占/售后、库存/购物车整数边界、默认地址约束、发货项与全部剩余可发数量不一致，或文件实测内容校验不通过 |
+| 422 | `STOCK_INSUFFICIENT`、`AFTERSALE_QUOTA_EXCEEDED`、`RETURN_ADDRESS_NOT_CONFIGURED`、`ACTIVE_PRODUCT_DEPENDENCY`、`FILE_CONTENT_MISMATCH`、`PRODUCT_PRIMARY_IMAGE_REQUIRED`、`PRODUCT_ACTIVE_SKU_REQUIRED`、`ACTIVE_SKU_DEPENDENCY`、`ACTIVE_INVENTORY_RESERVATION`、`INVENTORY_QUANTITY_OUT_OF_RANGE`、`CART_ITEM_LIMIT_EXCEEDED`、`DEFAULT_ADDRESS_REQUIRED`、`ACTIVE_AFTERSALE_BLOCKS_SHIPMENT`、`SHIPMENT_ITEMS_MISMATCH` | 业务依赖、售后/退货地址/活动预占、库存/购物车整数边界、默认地址约束、发货项与全部剩余可发数量不一致，或文件实测内容校验不通过 |
 | 429 | `RATE_LIMITED`、`REAUTH_LOCKED` | 访问或验证次数受限 |
 | 500 | `INTERNAL_ERROR` | 未预期错误，不暴露堆栈和敏感值 |
 | 503 | `PAYMENT_PROVIDER_UNAVAILABLE`、`PAYMENT_CONFIGURATION_UNAVAILABLE` | 支付 Provider 或配置暂不可用；必须 fail-closed，不得伪造支付结果 |
@@ -411,7 +411,7 @@ B6.1 已按上述契约开放这 5 个 GET。独立 `StoreCatalogRepository` 使
 
 地址列表使用 `StoreAddressSummaryResponse/StoreAddressSummaryView`，只返回 `recipient_name_masked/phone_masked/detail_masked`；地址 GET 详情、POST 和 PATCH 使用 `StoreAddressDetailResponse/StoreAddressDetailView`，完整 `recipient_name/phone/detail` 仅在 bearer 所属 CUSTOMER 读取本人地址时返回，跨客户对象统一按 404 处理。四类地址读取/写入响应均返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；DELETE 只返回 `CommandResponse`。完整收件人、电话和门牌地址不得进入访问日志、追踪、埋点、审计前后摘要或 `idempotency_record.response_body`；审计只记录地址 ID、版本、状态与默认标志。POST/PATCH 的幂等记录只保存结果资源 ID、版本和响应摘要哈希，重放时重新鉴权并实时生成响应，不持久化 PII 明文。
 
-订单创建与取消返回摘要 `StoreOrderResponse`；列表使用 `StoreOrderListResponse`，每单含紧凑 SKU 项、`pay_expires_at`、服务端 `available_actions` 与售后摘要，并按 `display_group` 映射订单 Tab。详情 GET 与 CH-024 确认收货均返回端点专用 `StoreOrderDetailResponse`，必须一次包含服务端计算的订单/支付/退款/履约状态、支付截止与服务端时间、冻结收货地址、可执行动作、四条主状态轴合并时间线、唯一包裹与人工物流节点、关联售后、支付尝试、稳定退款及历次尝试、角色安全错误和资源版本。消费者只能读取本人订单；Provider 原文、内部堆栈、库存内部流水和佣金均不得出现在小程序响应。CH-024 的订单、物流和确认收货成功及 JSON 错误响应统一设置 `Cache-Control: no-store, private` 与 `Pragma: no-cache`。
+订单创建与取消返回摘要 `StoreOrderResponse`；列表使用 `StoreOrderListResponse`，每单含紧凑 SKU 项、`pay_expires_at`、服务端 `available_actions` 与售后摘要，并按 `display_group` 映射订单 Tab。详情 GET 与 CH-024 确认收货均返回端点专用 `StoreOrderDetailResponse`，必须一次包含服务端计算的订单/支付/退款/履约状态、支付截止与服务端时间、冻结收货地址、可执行动作、四条主状态轴合并时间线、唯一包裹与人工物流节点、关联售后、支付尝试、稳定退款及历次尝试、角色安全错误和资源版本。CH-026 解除旧 B9 的售后固定空数组限制：`APPLY_AFTERSALE` 只在 `PAID+NORMAL` 且订单为 `PENDING_SHIPMENT|SHIPPING`（完成前期限允许为 `null`），或订单为 `COMPLETED` 且数据库当前时间不晚于非空 `aftersale_expires_at` 时出现；`CLOSED` 永不出现，且必须至少一个订单项剩余可退数量和金额都大于 0。活动售后按订单项占用扣减额度，不全局屏蔽其他仍可退项。详情可返回本人普通退款和金额补偿的安全尝试投影；客户端不得自行推导资格。消费者只能读取本人订单；Provider 原文、内部堆栈、库存内部流水和佣金均不得出现在小程序响应。相关成功及 JSON 错误响应统一设置 `Cache-Control: no-store, private` 与 `Pragma: no-cache`。
 
 报价请求只提交服务端可重新读取的标识和数量：
 
@@ -549,33 +549,36 @@ CH-023 不修改上述 API 或事务语义。它只新增 `0004_b10_commission_p
 
 | 方法 | 路径 | 身份 | 说明 |
 |---|---|---|---|
-| `POST` | `/store/aftersales` | CUSTOMER | 创建仅退款或退货退款，并占用可退额度 |
+| `POST` | `/store/aftersales` | CUSTOMER | 同一路径先 PREVIEW 服务端试算，再以新幂等键和短时凭证 CONFIRM 创建并占用可退额度 |
 | `GET` | `/store/aftersales` | CUSTOMER | 本人售后列表 |
 | `GET` | `/store/aftersales/{aftersale_id}` | CUSTOMER | 售后详情与时间线 |
 | `POST` | `/store/aftersales/{aftersale_id}/cancel` | CUSTOMER | 在允许阶段取消并释放占用 |
 | `POST` | `/store/aftersales/{aftersale_id}/return-shipment` | CUSTOMER | 填写退货承运商和运单号 |
 
-售后创建、取消和填写退货物流返回摘要 `StoreAftersaleResponse`；详情 GET 返回端点专用 `StoreAftersaleDetailResponse`，包含订单摘要、逐项申请/占用/批准/退款数量、冻结退货地址、退货物流、验货结论、稳定退款尝试、可执行动作、时间线、安全错误和版本。消费者仅可见本人售后事实，不返回总部内部操作者、库存成本或佣金影响。
+售后 CONFIRM、取消和填写退货物流返回摘要 `StoreAftersaleResponse`；PREVIEW 返回 `can_submit`、闭合 blockers（`ORDER_NOT_ELIGIBLE | ITEM_UNAVAILABLE | AFTERSALE_QUOTA_EXCEEDED | EVIDENCE_UNAVAILABLE`）、逐项请求/剩余数量和金额、服务端分配金额、总额及可空短时凭证；详情 GET 返回端点专用 `StoreAftersaleDetailResponse`，包含订单摘要、逐项申请/占用/批准/退款数量、冻结退货地址、退货物流、验货结论、稳定退款尝试、可执行动作、时间线、安全错误和版本。本人售后列表固定 `created_at DESC,aftersale_id DESC`，每项返回闭合动作和退款进度/处理双轴。消费者仅可见本人售后事实，不返回总部内部操作者、库存成本或佣金影响。
+
+五个接口统一使用 CUSTOMER 鉴权、CUSTOMER+规范化来源 IP 的用途隔离 HMAC Redis 固定窗口 `120/60` 限流，并在 Redis 不可用时 fail closed。PREVIEW、CONFIRM、取消和退货物流使用 `HASH_ONLY`；PREVIEW 与 CONFIRM 必须使用不同幂等键，取消与退货物流必须同时携带新 `Idempotency-Key` 和 `If-Match`。所有成功及 JSON 错误响应都返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`。
 
 创建请求：
 
 ```json
 {
-  "order_id": "ord_01J5...",
+  "action": "PREVIEW",
+  "order_id": "01J00000000000000000000001",
   "type": "REFUND_ONLY",
   "reason_code": "UNSHIPPED_NO_LONGER_NEEDED",
   "reason_text": "改变购买计划",
   "items": [
     {
-      "order_item_id": "oi_01J5...",
+      "order_item_id": "01J00000000000000000000002",
       "quantity": 1
     }
   ],
-  "evidence_file_ids": []
+  "evidence_file_ids": ["01J00000000000000000000003"]
 }
 ```
 
-消费者只提交 `quantity`，不得提交金额。创建时服务端按订单项成交快照计算 `allocated_amount = HALF_UP(unit_price * quantity, 2)`，再事务性校验 `剩余可退 = 原成交 - 已成功退款 - 其他有效售后占用`；响应返回服务端分配金额。超出返回 `AFTERSALE_QUOTA_EXCEEDED`。首期单包裹下，只要订单存在活动售后，整单禁止发货；驳回或允许阶段取消后释放占用，退款失败继续保留。与商品数量无关的善意赔付只能由总部创建独立 `manual_compensation`：不占数量、不回库但占可退金额，成功后增加 `refunded_amount` 并按原订单项佣金快照冲正佣金。
+消费者只提交 `quantity`，不得提交金额。`items` 为 1-100 个按 `order_item_id` 唯一的项目；申请和后续验货的 `evidence_file_ids` 均最多 9 个不重复 ULID，且必须属于当前主体可引用的 READY/PRIVATE/AFTERSALE_EVIDENCE 文件。PREVIEW 按订单项成交快照计算 `allocated_amount = HALF_UP(unit_price * quantity, 2)` 和剩余额度；阻断时仍返回 200，但 `preview_token/confirmation_hash/expires_at` 全为 `null`。可提交时使用现有幂等密钥环经 HKDF 域 `qingxu:store-aftersale-preview:v1` 派生密钥并签发 5 分钟无状态 HMAC，绑定客户、会话、规范业务字段、订单与行版本、占用/退款、证据及试算金额。CONFIRM 以相同业务字段附带该 token/hash 和新幂等键，在 Serializable 事务重验后才占用；过期、不匹配或事实漂移返回闭合 `AFTERSALE_PREVIEW_EXPIRED | AFTERSALE_PREVIEW_MISMATCH | AFTERSALE_REQUOTE_REQUIRED` 409 并要求重新 PREVIEW。超出额度返回 `AFTERSALE_QUOTA_EXCEEDED`。首期单包裹下，只要订单存在活动售后，整单禁止发货；驳回或允许阶段取消后释放占用，退款失败继续保留。与商品数量无关的善意赔付只能由总部创建独立 `manual_compensation`：不占数量、不回库但占可退金额，成功后增加 `refunded_amount` 并按原订单项佣金快照冲正佣金；失败时复用其稳定 `refund_id/refund_no` 进入统一 Admin retry，不得另建补偿。迟到支付退款不进入该 retry，继续只由 ADM-10 对账收敛。
 
 ## 5. 一级代理工作台接口
 
@@ -778,6 +781,8 @@ Product ACTIVATE 必须重查 ACTIVE 品牌、ACTIVE 分类、至少一张 `READ
 总部订单列表使用 `AdminOrderListItem`，只返回客户 alias、掩码联系电话和代理归因摘要；普通订单详情使用端点专用 `AdminOrderDetailResponse`，包含完整状态快照、可执行动作、四条主轴时间线、物流包裹、关联售后、支付/退款尝试、安全错误、库存与佣金影响，但冻结收件人、手机号和门牌地址仍只返回掩码。CH-024 要求 Admin 订单列表、详情、发货、物流事件和兜底完成的全部 2xx 响应显式返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`。完整履约地址只能调用 `/fulfillment-address`：必须具备 `SUPER_ADMIN` 与 `ORDER_FULFILLMENT_PII_READ`，订单处于仍需发货/运输纠错的允许状态，并提交 `X-Access-Purpose: ORDER_FULFILLMENT` 与必填 `X-Access-Reason`；成功、失败、拒绝每次均审计，2xx 响应同样要求上述必返禁止缓存头，禁止进入日志、截图和导出。
 
 总部售后列表使用 `AdminAftersaleListItem`；详情使用端点专用 `AdminAftersaleDetailResponse`，返回订单与脱敏客户、占用、退货物流、验货、稳定退款尝试、可执行动作、时间线、安全错误以及库存/佣金影响。所有后台验货投影都必须返回只读 `inspected_by={account_id,display_name}`；消费者 `StoreAftersaleDetailResponse` 不得出现验货操作者。摘要写操作可继续返回 `AdminAftersaleResponse`，不得用摘要 DTO 冒充详情。
+
+CH-026 下所有 Admin 售后/退款写操作使用 `HASH_ONLY`；已有售后或退款资源的 mutation 必须携带 `If-Match`。拒绝、验货后拒绝、创建退款、失败重试和金额补偿继续使用绑定 actor/session/action/target/request/version 的短时 preview-confirm；409 后客户端必须刷新并使用新 preview 与新幂等键。审核通过只推进状态并在退货退款场景冻结当前唯一 PUBLISHED 退货地址，不得在 approve 内直接调用 Provider。
 
 每笔退款显式返回 `origin_type=AFTERSALE|LATE_PAYMENT|MANUAL_COMPENSATION`，且只绑定对应一种来源。商品退款请求逐售后项只携带 `aftersale_item_id + quantity`，金额由服务端按冻结分配计算，并使用 `preview_token`、`confirmation_hash`、`If-Match` 和幂等键。同一售后只有一条稳定 refund 生命周期：首次提交创建一条 `refund` 和第 1 条 `refund_attempt`；`PENDING/PROCESSING/FAILED` 时重复提交不得创建第二条退款，失败重试只追加新尝试，复用原 `refund_id`、稳定 `refund_no` 与订单项明细。未发货退款成功自动写 `REFUND_RESTOCK`；未发货全额退款关闭订单。已发货退货先写退货地址快照，再由总部一次提交精确覆盖本售后全部售后项的 `items`，每个 `order_item_id` 恰好一次，逐项包含 `received_qty/approved_refund_qty/restock_qty/damaged_qty/scrap_qty/return_to_customer_qty`。必须满足 `approved_refund_qty + return_to_customer_qty = received_qty` 且 `approved_refund_qty = restock_qty + damaged_qty + scrap_qty`。PASS 必须全量实收、全量批准退款且退回客户为 0；少件、0 件或其他不符必须 ABNORMAL。`evidence_file_ids` 由服务端按稳定规则排序、去重并形成 canonical 封存集合；验货结论、处理人、异常原因、验货时间、逐项处置和证据集合提交后不可追加、删除、换序、替换或改写。详情只返回封存后的 `evidence_file_ids`，不暴露内部 manifest/hash。异常解决只允许一次带 `If-Match` 的推进；资源版本变化返回 `RESOURCE_VERSION_CONFLICT`，客户端必须刷新详情，不得在旧验货结论上继续。继续退款请求必须固定 `resolution=CONTINUE_REFUND` 并提交非空 `reason`。验货后拒绝的 preview 使用 `RejectAfterReturnPreviewRequest`，只接受 `resolution=REJECT_AFTER_RETURN + reason`；confirm 使用 `RejectAfterReturnConfirmRequest`，在相同业务字段外仅接受必填 `preview_token/confirmation_hash`。两个 DTO 都闭合，preview 携带确认字段、confirm 缺确认字段，或任一请求携带 `evidence_file_ids/disposition/其他字段` 都必须校验失败；服务端沿用已封存证据。成功响应的验货投影返回同一 typed `resolution`、`resolution_reason` 与 `resolved_at`；异常继续退款只能使用验货时冻结的批准数量。未实收及退回客户数量在继续退款或验货后拒绝的终态事务释放占用。后续商品退款 quantity 不得超过该批准数量减已成功退款数量；发货后全额退款以 `COMPLETED/FULL_REFUND_AFTER_SHIPMENT` 收口。
 
@@ -1003,6 +1008,7 @@ Provider 回调先写入回调收件箱，再由幂等处理器消费；领域�
 - B9.1-B9.5 已完成。B9.3 代码与聚焦测试覆盖本人订单读取、If-Match/HASH_ONLY 取消、超时 Worker、全 payment_intent 状态 fail-closed、取消/超时唯一释放与并发锁序；关闭时履约轴保持 `NOT_STARTED`。B9.4 已完成 MP-08/10/11；B9.5 已将 `db:test-b9-store-orders`、`e2e:b9`、`e2e:b9:vertical` 接入普通 CI，并将 B9 repository smoke 接入 Supabase rollback-only。数据库 full `4 files / 29 tests`、B9 UI `12 passed / 28 designed skips`、真实 browser → Nest → PostgreSQL/Redis/MinIO → Worker `1/1`、全仓 `1,787 passed / 120 designed skips` 和精确清理均通过，三项原 P1 已关闭，最终复审为 `P0=0/P1=0/P2=1`。最终 SHA `19f9ad57190b28d11922db805b39af95b2f7ba3b` 的普通 CI Run `33230769777` 与 Supabase development rollback-only smoke Run `33233087710` 同 SHA 且均为 `completed/success`，B9 development `GO`，CH-019 已自动失效；唯一 P2 TR-020 不阻断 development，staging、production 与真实支付仍为 `NO-GO`。
 - CH-022 契约本地解析实测为 173 paths、198 operations、198 unique operationId、326 schemas、705 schema refs、2,678 local refs、0 dangling refs。CH-023 不改变任何在线契约或上述统计，0004 继续作为已部署的最小权限函数修复保留，B10.5/B10.6 未新增迁移。B10 最终 SHA `f5e59169b53a97704711c3aae3049e5b5d16a930` 的[普通 CI Run 33305811318](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33305811318)与[Supabase development rollback-only smoke Run 33306877575](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33306877575)同 SHA 且均成功，B10 development `GO`，CH-021 已自动失效；真实支付、staging 和 production 仍为 `NO-GO`。
 - CH-024 专属检查、生成与 Redocly lint 已通过，统计保持 `173/198/198/326/705/2,695/0`。B11.1-B11.4 历史实现证据保持；B11.5 本地真实纵向、严格客户端、API 回归、全仓门禁和最终远端同 SHA 双绿已完成。API 全量为 **81 files passed / 13 skipped；1,095 passed / 44 skipped**。B11 development `GO`，CH-025 已自动失效。
+- CH-026 契约解析实测为 173 paths、198 operations、198 unique operationId、326 schemas、706 schema refs、2,720 local refs、0 dangling refs，Redocly 0 warning。机器门禁覆盖 18 个售后/退款 operation、2 个金额补偿 operation、Store PREVIEW/CONFIRM 200/201、验货 PASS/ABNORMAL 判别联合、ULID、Store 限流/no-store、HASH_ONLY/If-Match、闭合原因/错误/证据/承运字段、Admin preview-confirm、来源闭合 retry，以及订单售后摘要和完整 `APPLY_AFTERSALE` 矩阵。该证据只属于 B12.0 契约，不代表 B12.1 业务实现或 B12 development `GO`。
 - B7.4 已实现注销后端：不合格 preview 返回 200、完整 blockers/impacts 及 null token/hash/expiry；合格预览才签发 5 分钟能力。confirm 后出现新阻断返回 422 且不消费能力、不产生部分去标识化；成功后在单事务清除登录主体/非交易 PII、结束绑定、使候选失效、匿名化代理隐私投影、写审计与 durable `PENDING account.anonymized` Outbox 事实，并将全部 session 留作 revoked tombstone。这里只证明事件事实已持久化，不宣称已投递或消费。全部旧 token 失效，HASH_ONLY 不重放完成响应；full 与受控 Supabase development rollback-only 门禁已通过，退出复审 `P0=0/P1=0`。
 - Product/SKU 固定创建状态、完整状态矩阵、恢复目标、不级联、首次 `published_at`、nullable 最低活动价、8 图、归档 SKU、零库存余额、不可变 code、201 SKU create 和四个新 422 均有契约及集成测试。
 - 非 `APPROVED` 提现无法请求完整银行卡号；短时授权不可跨提现单、跨会话或重复使用。

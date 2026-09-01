@@ -71,6 +71,12 @@ export interface StoreAftersaleCancelRequest {
   reason?: string;
 }
 
+export interface StoreAftersaleReturnShipmentRequest {
+  carrierCode: string;
+  carrierName: string;
+  trackingNo: string;
+}
+
 type PlainRecord = Record<string, unknown>;
 
 function invalid(message: string): never {
@@ -294,4 +300,34 @@ export function parseStoreAftersaleCancelBody(value: unknown): StoreAftersaleCan
   exactFields(body, ['reason'], [], 'Request body');
   if (body.reason === undefined) return {};
   return { reason: normalizedText(body.reason, 'reason', 500) };
+}
+
+export function parseStoreAftersaleReturnShipmentBody(
+  value: unknown,
+): StoreAftersaleReturnShipmentRequest {
+  const body = plainRecord(value, 'Request body');
+  exactFields(
+    body,
+    ['carrier_code', 'carrier_name', 'tracking_no'],
+    ['carrier_code', 'carrier_name', 'tracking_no'],
+    'Request body',
+  );
+  if (typeof body.carrier_code !== 'string') return invalid('carrier_code is invalid');
+  const carrierCode = body.carrier_code.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(carrierCode)) {
+    return invalid('carrier_code is invalid');
+  }
+  if (typeof body.carrier_name !== 'string' || hasControlCharacter(body.carrier_name)) {
+    return invalid('carrier_name is invalid');
+  }
+  const carrierName = body.carrier_name.trim();
+  if (Array.from(carrierName).length < 1 || Array.from(carrierName).length > 80) {
+    return invalid('carrier_name is invalid');
+  }
+  if (typeof body.tracking_no !== 'string') return invalid('tracking_no is invalid');
+  const trackingNo = body.tracking_no.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,119}$/.test(trackingNo)) {
+    return invalid('tracking_no is invalid');
+  }
+  return { carrierCode, carrierName, trackingNo };
 }

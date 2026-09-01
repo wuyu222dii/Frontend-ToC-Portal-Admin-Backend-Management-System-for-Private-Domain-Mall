@@ -21,11 +21,13 @@ import {
 
 import { API_RUNTIME_CONFIG } from '../platform/config/api-runtime-config';
 import { API_DATABASE_RUNTIME } from '../platform/database/api-database-runtime';
+import { verifyReturnAddressSnapshotSecurityMaterial } from '../platform/security/return-address-security';
 import { StoreAftersalePreviewCredential } from './store-aftersale-preview-credential';
 import type {
   StoreAftersaleCancelRequest,
   StoreAftersaleCreateRequest,
   StoreAftersaleListQuery,
+  StoreAftersaleReturnShipmentRequest,
 } from './store-aftersales.dto';
 
 /** Internal, non-serialized marker consumed only by StoreAftersalesController. */
@@ -33,6 +35,7 @@ export const STORE_AFTERSALE_HTTP_STATUS = Symbol('STORE_AFTERSALE_HTTP_STATUS')
 
 const AFTERSALE_COLLECTION_ROUTE = '/store/aftersales';
 const AFTERSALE_CANCEL_ROUTE = '/store/aftersales/{aftersale_id}/cancel';
+const AFTERSALE_RETURN_SHIPMENT_ROUTE = '/store/aftersales/{aftersale_id}/return-shipment';
 
 const FULFILLMENT_STATUSES = new Set<OrderDisplayStatusAxes['fulfillmentStatus']>([
   'CANCELLED',
@@ -255,6 +258,70 @@ export class StoreAftersalesService {
       await this.idempotencyRepository().complete(transaction, claim, {
         resourceId: aftersaleId,
         responseForHash: this.cancelIdempotencyResponse(aftersaleId),
+        responseStatus: 200,
+        storage: 'HASH_ONLY',
+      });
+      return this.summaryView(result.aftersale);
+    });
+  }
+
+  submitReturnShipment(
+    session: CurrentStoreSession,
+    aftersaleId: string,
+    input: StoreAftersaleReturnShipmentRequest,
+    expectedVersion: number,
+    idempotencyKey: string,
+    requestId: string,
+    ipAddress?: string,
+  ) {
+    const claim = this.returnShipmentClaim(
+      session.accountId,
+      aftersaleId,
+      input,
+      expectedVersion,
+      idempotencyKey,
+    );
+    return runSerializableTransaction(this.databaseRuntime().prisma, async (transaction) => {
+      const claimed = await this.idempotencyRepository().claim(transaction, claim);
+      if (claimed.kind === 'replay') {
+        if (claimed.record.resource_id !== aftersaleId) {
+          throw internal('Store return shipment replay resource is invalid');
+        }
+        const current = await this.repository().getOwnedAftersaleForReplayInTransaction(transaction, {
+          accountId: session.accountId,
+          aftersaleId,
+          customerId: session.customerId,
+        });
+        this.idempotencyRepository().assertHashOnlyReplay(claimed.record, {
+          resourceId: aftersaleId,
+          responseForHash: this.returnShipmentIdempotencyResponse(aftersaleId),
+          responseStatus: 200,
+          storage: 'HASH_ONLY',
+        });
+        return this.summaryView(current);
+      }
+
+      const result = await this.repository().submitReturnShipmentInTransaction(transaction, {
+        accountId: session.accountId,
+        aftersaleId,
+        carrierCode: input.carrierCode,
+        carrierName: input.carrierName,
+        customerId: session.customerId,
+        expectedVersion,
+        trackingNo: input.trackingNo,
+      });
+      await this.appendReturnShipmentAudit(
+        transaction,
+        session,
+        aftersaleId,
+        result.audit,
+        idempotencyKey,
+        requestId,
+        ipAddress,
+      );
+      await this.idempotencyRepository().complete(transaction, claim, {
+        resourceId: aftersaleId,
+        responseForHash: this.returnShipmentIdempotencyResponse(aftersaleId),
         responseStatus: 200,
         storage: 'HASH_ONLY',
       });
@@ -571,11 +638,28 @@ export class StoreAftersalesService {
     return projectOrderDisplayStatus(order as OrderDisplayStatusAxes);
   }
 
-  private returnAddressView(resource: StoreAftersaleDetailSnapshot): null {
-    if (resource.returnAddress !== null) {
-      throw internal('Store aftersale return address security adapter is unavailable');
+  private returnAddressView(resource: StoreAftersaleDetailSnapshot) {
+    if (resource.returnAddress === null) return null;
+    let verified: ReturnType<typeof verifyReturnAddressSnapshotSecurityMaterial>;
+    try {
+      verified = verifyReturnAddressSnapshotSecurityMaterial({
+        detailCiphertext: resource.returnAddress.detailCiphertext,
+        encryptionKeyId: resource.returnAddress.encryptionKeyId,
+        phoneCiphertext: resource.returnAddress.phoneCiphertext,
+        phoneLast4: resource.returnAddress.phoneLast4,
+        recordId: resource.returnAddress.snapshotId,
+      }, this.runtimeConfig().encryption.fieldKeys);
+    } catch (error) {
+      throw internal('Store aftersale return address could not be verified', error);
     }
-    return null;
+    return {
+      city: resource.returnAddress.city,
+      detail: verified.detail,
+      district: resource.returnAddress.district,
+      phone: verified.phone,
+      province: resource.returnAddress.province,
+      recipient_name: resource.returnAddress.recipientName,
+    };
   }
 
   private timelineActorRole(actorRole: StoreAftersaleDetailSnapshot['timeline'][number]['actorRole']) {
@@ -595,8 +679,8 @@ export class StoreAftersalesService {
   }
 
   private availableActions(actions: StoreAftersaleListItemSnapshot['availableActions']) {
-    return actions.filter((action): action is 'CANCEL' | 'VIEW_ORDER' =>
-      action === 'CANCEL' || action === 'VIEW_ORDER');
+    return actions.filter((action): action is 'CANCEL' | 'SUBMIT_RETURN_SHIPMENT' | 'VIEW_ORDER' =>
+      action === 'CANCEL' || action === 'SUBMIT_RETURN_SHIPMENT' || action === 'VIEW_ORDER');
   }
 
   private createClaim(
@@ -645,12 +729,40 @@ export class StoreAftersalesService {
     };
   }
 
+  private returnShipmentClaim(
+    actorId: string,
+    aftersaleId: string,
+    input: StoreAftersaleReturnShipmentRequest,
+    expectedVersion: number,
+    idempotencyKey: string,
+  ): IdempotencyClaim {
+    return {
+      actorId,
+      idempotencyKey,
+      request: {
+        body: {
+          carrier_code: input.carrierCode,
+          carrier_name: input.carrierName,
+          expected_version: expectedVersion,
+          tracking_no: input.trackingNo,
+        },
+        method: 'POST',
+        pathParameters: { aftersale_id: aftersaleId },
+        route: AFTERSALE_RETURN_SHIPMENT_ROUTE,
+      },
+    };
+  }
+
   private confirmIdempotencyResponse(aftersaleId: string) {
     return { aftersale_created: { aftersale_id: aftersaleId } };
   }
 
   private cancelIdempotencyResponse(aftersaleId: string) {
     return { aftersale_cancelled: { aftersale_id: aftersaleId } };
+  }
+
+  private returnShipmentIdempotencyResponse(aftersaleId: string) {
+    return { return_shipment_submitted: { aftersale_id: aftersaleId } };
   }
 
   private appendCreateAudit(
@@ -708,6 +820,33 @@ export class StoreAftersalesService {
     });
   }
 
+  private appendReturnShipmentAudit(
+    transaction: DatabaseTransaction,
+    session: CurrentStoreSession,
+    aftersaleId: string,
+    audit: { after: { status: string; version: number }; before: { status: string; version: number } },
+    idempotencyKey: string,
+    requestId: string,
+    ipAddress?: string,
+  ) {
+    return this.auditRepository().append(transaction, {
+      action: 'UPDATE',
+      actorAccountId: session.accountId,
+      actorRole: 'CUSTOMER',
+      after: audit.after,
+      before: audit.before,
+      idempotencyKey,
+      ...(ipAddress === undefined ? {} : { ipAddress }),
+      module: 'aftersale',
+      objectId: aftersaleId,
+      objectType: 'aftersale',
+      requestId,
+      result: 'SUCCESS',
+      resultCode: 'OK',
+      summaryPolicy: 'STATUS_VERSION',
+    });
+  }
+
   private repository(): StoreAftersaleRepository {
     if (!this.aftersales) throw internal('Store aftersale repository is unavailable');
     return this.aftersales;
@@ -731,5 +870,10 @@ export class StoreAftersalesService {
   private databaseRuntime(): DatabaseRuntime {
     if (!this.database) throw internal('Store aftersale database is unavailable');
     return this.database;
+  }
+
+  private runtimeConfig(): PlatformRuntimeConfig {
+    if (!this.config) throw internal('Store aftersale runtime config is unavailable');
+    return this.config;
   }
 }

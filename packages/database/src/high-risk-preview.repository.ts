@@ -13,9 +13,18 @@ import type {
 export const HIGH_RISK_PREVIEW_TTL_MS = 60_000;
 export const ACCOUNT_ANONYMIZE_PREVIEW_TTL_MS = 300_000;
 
-export type HighRiskPreviewTargetType = 'ACCOUNT' | 'BRAND' | 'CATEGORY' | 'INVENTORY' | 'PRODUCT' | 'SKU';
+export type HighRiskPreviewTargetType =
+  | 'ACCOUNT'
+  | 'AFTERSALE'
+  | 'BRAND'
+  | 'CATEGORY'
+  | 'INVENTORY'
+  | 'PRODUCT'
+  | 'RETURN_ADDRESS'
+  | 'SKU';
 export type HighRiskPreviewAction =
   | 'ACCOUNT.ANONYMIZE'
+  | 'AFTERSALE.REJECT'
   | 'BRAND.ACTIVATE'
   | 'BRAND.DEACTIVATE'
   | 'BRAND.SOFT_DELETE'
@@ -26,6 +35,7 @@ export type HighRiskPreviewAction =
   | 'PRODUCT.ACTIVATE'
   | 'PRODUCT.DEACTIVATE'
   | 'PRODUCT.SOFT_DELETE'
+  | 'RETURN_ADDRESS.PUBLISH'
   | 'SKU.ACTIVATE'
   | 'SKU.DEACTIVATE'
   | 'SKU.SOFT_DELETE';
@@ -76,6 +86,7 @@ const HASH_KEY_ID = /^[A-Za-z0-9._:-]{3,80}$/;
 const MAX_PREVIOUS_HASH_KEYS = 3;
 const PREVIEW_ACTION = new Set<HighRiskPreviewAction>([
   'ACCOUNT.ANONYMIZE',
+  'AFTERSALE.REJECT',
   'BRAND.ACTIVATE',
   'BRAND.DEACTIVATE',
   'BRAND.SOFT_DELETE',
@@ -86,16 +97,19 @@ const PREVIEW_ACTION = new Set<HighRiskPreviewAction>([
   'PRODUCT.ACTIVATE',
   'PRODUCT.DEACTIVATE',
   'PRODUCT.SOFT_DELETE',
+  'RETURN_ADDRESS.PUBLISH',
   'SKU.ACTIVATE',
   'SKU.DEACTIVATE',
   'SKU.SOFT_DELETE',
 ]);
 const PREVIEW_TARGET_TYPE = new Set<HighRiskPreviewTargetType>([
   'ACCOUNT',
+  'AFTERSALE',
   'BRAND',
   'CATEGORY',
   'INVENTORY',
   'PRODUCT',
+  'RETURN_ADDRESS',
   'SKU',
 ]);
 

@@ -786,6 +786,71 @@ describe('IdempotencyRepository', () => {
     } as never)).rejects.toThrow('unsupported fields');
   });
 
+  it('rejects a confirm key already used by the same actor in the supplied preview request scope', async () => {
+    const transaction = transactionStub();
+    const confirmClaim = {
+      ...baseClaim,
+      request: {
+        body: { confirmation_hash: 'a'.repeat(64), reason: 'Request rejected after review' },
+        method: 'POST' as const,
+        pathParameters: { aftersale_id: generateUlid() },
+        route: '/api/v1/admin/aftersales/{aftersale_id}/reject',
+      },
+    };
+    const previewRequest = {
+      method: 'POST' as const,
+      route: '/api/v1/admin/aftersales/{aftersale_id}/reject/preview',
+    };
+    vi.mocked(transaction.idempotencyRecord.findUnique).mockResolvedValue({
+      expires_at: new Date('2099-08-14T00:00:00.000Z'),
+    } as never);
+
+    await expect(repository().assertKeyNotUsedForRequest(transaction, confirmClaim, previewRequest))
+      .rejects.toMatchObject({ code: 'STATE_CONFLICT' });
+    const previewScope = deriveIdempotencyScope(previewRequest);
+    expect(transaction.$queryRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining('pg_advisory_xact_lock'),
+      'idempotency',
+      JSON.stringify([confirmClaim.actorId, previewScope, confirmClaim.idempotencyKey]),
+    );
+    expect(transaction.idempotencyRecord.findUnique).toHaveBeenCalledWith({
+      where: {
+        actor_id_scope_idempotency_key: {
+          actor_id: confirmClaim.actorId,
+          idempotency_key: confirmClaim.idempotencyKey,
+          scope: previewScope,
+        },
+      },
+    });
+  });
+
+  it('allows a confirm key when the supplied preview scope has no live record', async () => {
+    const transaction = transactionStub();
+    const previewRequest = { method: 'POST' as const, route: '/test/resources/preview' };
+    vi.mocked(transaction.idempotencyRecord.findUnique)
+      .mockResolvedValueOnce({ expires_at: new Date('2000-01-01T00:00:00.000Z') } as never)
+      .mockResolvedValueOnce(null);
+
+    await expect(repository().assertKeyNotUsedForRequest(transaction, baseClaim, previewRequest))
+      .resolves.toBeUndefined();
+    await expect(repository().assertKeyNotUsedForRequest(transaction, baseClaim, previewRequest))
+      .resolves.toBeUndefined();
+  });
+
+  it('rejects an invalid or identical supplied request scope before database access', async () => {
+    const transaction = transactionStub();
+    await expect(repository().assertKeyNotUsedForRequest(transaction, baseClaim, {
+      method: 'GET' as 'POST',
+      route: '/test/resources/preview',
+    })).rejects.toThrow('request scope descriptor is invalid');
+    await expect(repository().assertKeyNotUsedForRequest(transaction, baseClaim, {
+      method: baseClaim.request.method,
+      route: baseClaim.request.route,
+    })).rejects.toThrow('request scopes must differ');
+    expect(transaction.$queryRawUnsafe).not.toHaveBeenCalled();
+    expect(transaction.idempotencyRecord.findUnique).not.toHaveBeenCalled();
+  });
+
   it('rejects caller-controlled time and an invalid internal clock', async () => {
     await expect(repository().claim(transactionStub(), {
       ...baseClaim,

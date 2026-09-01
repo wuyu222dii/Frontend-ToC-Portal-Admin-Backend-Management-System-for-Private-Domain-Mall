@@ -10,7 +10,7 @@
 | 目标用户 | 终端消费者、一级代理、总部商城经营人员 |
 | 人员角色 | `SUPER_ADMIN`、`AGENT_ADMIN`、`CUSTOMER` |
 | 更新日期 | 2026-09-01 |
-| 文档状态 | B0 至 B11 development 已完成并维持 `GO`；B11 最终同 SHA 双绿已闭合，CH-025 已自动失效。当前产品/API 基线为 `v2.4.10 / 2.4.10-ch026`；B12.0 精确 SHA 的普通 CI、Supabase development migration 与 rollback-only smoke 已全部成功，CH-027 已批准。B12.1 Store 售后申请/查询/取消、额度占用、订单投影与 CUSTOMER 证据权限已实现并在 `P0=0/P1=0` 后暂停；B12.2-B12.6 尚未开始。真实客户数据、真实微信支付/退款、真实物流、staging/production 均为 `NO-GO` |
+| 文档状态 | B0 至 B11 development 已完成并维持 `GO`；B11 最终同 SHA 双绿已闭合，CH-025 已自动失效。当前产品/API 基线为 `v2.4.10 / 2.4.10-ch026`；B12.0 精确 SHA 的普通 CI、Supabase development migration 与 rollback-only smoke 已全部成功，CH-027 已批准。B12.1 Store 售后后端与 B12.2 Admin 初审、退货地址、消费者退货物流已依次实现并在 `P0=0/P1=0` 后暂停；B12.3-B12.6 尚未开始。真实客户数据、真实微信支付/退款、真实物流、staging/production 均为 `NO-GO` |
 
 ## 1. MVP 概述
 
@@ -521,4 +521,4 @@ B0-B11 development 已完成并维持 `GO`，历史证据保留。B11 最终同 
 
 ---
 
-项目状态：三端 MVP 产品/API 基线为 `v2.4.10 / 2.4.10-ch026`。B0 至 B11 development 已完成并保留远端证据；B12.0 三项远端门禁已闭合，CH-027 已批准。B12.1 Store 售后最小后端闭环已完成并暂停，B12.2 尚未开始，B12 整体仍非 development `GO`。真实客户数据、真实支付/退款、真实物流、staging/production 仍为 `NO-GO`，进入 staging 前须外部独立复核。
+项目状态：三端 MVP 产品/API 基线为 `v2.4.10 / 2.4.10-ch026`。B0 至 B11 development 已完成并保留远端证据；B12.0 三项远端门禁已闭合，CH-027 已批准。B12.1 Store 售后后端与 B12.2 Admin 初审、退货地址、消费者退货物流已完成并暂停，B12.3 尚未开始，B12 整体仍非 development `GO`。真实客户数据、真实支付/退款、真实物流、staging/production 仍为 `NO-GO`，进入 staging 前须外部独立复核。

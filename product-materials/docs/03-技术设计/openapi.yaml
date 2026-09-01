@@ -4914,6 +4914,16 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              description: "包含总部退货地址配置摘要，不得缓存"
+              required: true
+              schema:
+                const: "no-store, private"
+            Pragma:
+              required: true
+              schema:
+                const: "no-cache"
           content:
             application/json:
               schema:
@@ -4938,7 +4948,9 @@ paths:
       tags:
         - "Admin"
       summary: "HR-14 确认发布新的退货地址版本"
+      description: "必须使用 preview 返回的 resource_etag；首次配置时为\"1\"，后续为当前 PUBLISHED 地址的 version_no。confirm 会在串行化锁内重新校验当前版本 ID、最大版本号和 preview 事实。"
       operationId: "patchAdminSettingsReturnAddress"
+      x-idempotency-storage: "HASH_ONLY"
       security:
         -
           bearerAuth: []
@@ -4961,6 +4973,16 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              description: "包含总部退货地址配置摘要，不得缓存"
+              required: true
+              schema:
+                const: "no-store, private"
+            Pragma:
+              required: true
+              schema:
+                const: "no-cache"
           content:
             application/json:
               schema:
@@ -4987,6 +5009,7 @@ paths:
         - "Admin"
       summary: "HR-14 预览新地址生效边界，历史售后快照不变"
       operationId: "postAdminSettingsReturnAddressPreview"
+      x-idempotency-storage: "HASH_ONLY"
       security:
         -
           bearerAuth: []
@@ -5007,9 +5030,9 @@ paths:
           description: "成功"
           headers:
             Cache-Control:
-              "$ref": "#/components/headers/CacheControlNoStore"
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
             Pragma:
-              "$ref": "#/components/headers/PragmaNoCache"
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -7532,6 +7555,16 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              description: "包含受限售后处理事实，不得缓存"
+              required: true
+              schema:
+                const: "no-store, private"
+            Pragma:
+              required: true
+              schema:
+                const: "no-cache"
           content:
             application/json:
               schema:
@@ -7634,6 +7667,16 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              description: "包含受限售后处理事实，不得缓存"
+              required: true
+              schema:
+                const: "no-store, private"
+            Pragma:
+              required: true
+              schema:
+                const: "no-cache"
           content:
             application/json:
               schema:
@@ -7763,6 +7806,16 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              description: "包含受限售后处理事实，不得缓存"
+              required: true
+              schema:
+                const: "no-store, private"
+            Pragma:
+              required: true
+              schema:
+                const: "no-cache"
           content:
             application/json:
               schema:
@@ -18716,6 +18769,7 @@ components:
             version:
               type: "integer"
               minimum: 1
+              description: "与 version_no 相同，作为该不可变配置版本的乐观锁版本。"
         request_id:
           type: "string"
     AuditLogView:
@@ -21876,7 +21930,7 @@ components:
         data:
           type: "object"
           additionalProperties: false
-          required: ["aftersale_id", "aftersale_no", "order", "customer", "type", "status", "reason", "items", "return_address_snapshot", "return_shipment", "inspection", "refund_attempts", "available_actions", "timeline", "errors", "inventory_impact", "commission_impact", "created_at", "version"]
+          required: ["aftersale_id", "aftersale_no", "order", "customer", "type", "status", "reason", "items", "application_evidence_file_ids", "return_address_snapshot", "return_shipment", "inspection", "refund_attempts", "available_actions", "timeline", "errors", "inventory_impact", "commission_impact", "created_at", "version"]
           properties:
             aftersale_id:
               type: "string"
@@ -21923,6 +21977,14 @@ components:
               minItems: 1
               items:
                 "$ref": "#/components/schemas/AftersaleItemDetailView"
+            application_evidence_file_ids:
+              type: "array"
+              maxItems: 9
+              uniqueItems: true
+              items:
+                type: "string"
+                pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+              description: "消费者申请阶段提交的受限证据文件 ID；SUPER_ADMIN 仍须通过文件下载签名接口逐次鉴权读取。"
             return_address_snapshot:
               oneOf:
                 -

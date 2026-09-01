@@ -48,9 +48,12 @@ const HTTP_ERROR_MAP: Readonly<Record<number, Omit<ResolvedError, 'status'>>> = 
 };
 
 const SENSITIVE_EXACT_PATHS = new Set([
+  '/api/v1/admin/aftersales',
   '/api/v1/admin/orders',
+  '/api/v1/admin/settings/return-address',
   '/api/v1/admin/shipments',
   '/api/v1/store/addresses',
+  '/api/v1/store/aftersales',
   '/api/v1/store/legal-documents',
   '/api/v1/store/cart',
   '/api/v1/store/checkout/quotes',
@@ -60,9 +63,12 @@ const SENSITIVE_EXACT_PATHS = new Set([
   '/api/v1/store/service-agent',
 ]);
 const SENSITIVE_PATH_PREFIXES = [
+  '/api/v1/admin/aftersales/',
   '/api/v1/admin/orders/',
+  '/api/v1/admin/settings/return-address/',
   '/api/v1/admin/shipments/',
   '/api/v1/store/addresses/',
+  '/api/v1/store/aftersales/',
   '/api/v1/store/auth/',
   '/api/v1/store/attribution/',
   '/api/v1/store/cart/',

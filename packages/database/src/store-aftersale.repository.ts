@@ -280,6 +280,7 @@ export interface StoreAftersaleDetailSnapshot extends StoreAftersaleListItemSnap
     province: string;
     recipientName: string;
     snapshotId: string;
+    sourceVersionId: string;
   };
   returnShipment: null | {
     carrierCode: string;
@@ -319,6 +320,19 @@ export interface StoreAftersaleCancelResult {
   aftersale: StoreAftersaleDetailSnapshot;
   audit: { after: StoreAftersaleAuditState; before: StoreAftersaleAuditState };
   changed: true;
+}
+
+export interface StoreAftersaleReturnShipmentInput extends StoreAftersaleReadInput {
+  carrierCode: string;
+  carrierName: string;
+  expectedVersion: number;
+  trackingNo: string;
+}
+
+export interface StoreAftersaleReturnShipmentResult {
+  aftersale: StoreAftersaleDetailSnapshot;
+  audit: { after: StoreAftersaleAuditState; before: StoreAftersaleAuditState };
+  shipmentId: string;
 }
 
 const LIST_INCLUDE = {
@@ -399,6 +413,7 @@ const DETAIL_INCLUDE = {
       phone_last4: true,
       province: true,
       recipient_name: true,
+      source_version_id: true,
     },
   },
   return_inspection: {
@@ -599,6 +614,35 @@ function validateCancelInput(input: StoreAftersaleCancelInput): void {
   );
   requireUlid(input.aftersaleId, 'Store aftersale ID');
   requireVersion(input.expectedVersion, 'Store aftersale expected version');
+}
+
+function normalizeReturnShipmentInput(
+  input: StoreAftersaleReturnShipmentInput,
+): StoreAftersaleReturnShipmentInput {
+  validateIdentity(
+    input,
+    ['accountId', 'aftersaleId', 'carrierCode', 'carrierName', 'customerId', 'expectedVersion', 'trackingNo'],
+    'Store aftersale return shipment input',
+  );
+  requireUlid(input.aftersaleId, 'Store aftersale ID');
+  requireVersion(input.expectedVersion, 'Store aftersale expected version');
+  const carrierCode = typeof input.carrierCode === 'string' ? input.carrierCode.trim() : '';
+  const carrierName = typeof input.carrierName === 'string' ? input.carrierName.trim() : '';
+  const trackingNo = typeof input.trackingNo === 'string' ? input.trackingNo.trim() : '';
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(carrierCode)) {
+    throw new TypeError('Store return shipment carrier code is invalid');
+  }
+  if (Array.from(carrierName).length < 1 || Array.from(carrierName).length > 80 ||
+    Array.from(carrierName).some((character) => {
+      const point = character.codePointAt(0);
+      return point !== undefined && (point <= 0x1f || point === 0x7f);
+    })) {
+    throw new TypeError('Store return shipment carrier name is invalid');
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,119}$/.test(trackingNo)) {
+    throw new TypeError('Store return shipment tracking number is invalid');
+  }
+  return { ...input, carrierCode, carrierName, trackingNo };
 }
 
 function authenticationRequired(): ApplicationError {
@@ -819,9 +863,10 @@ function detailSnapshot(record: StoreAftersaleDetailRecord): StoreAftersaleDetai
     province: safeStoredText(record.return_address.province, 80, 'Stored aftersale return province'),
     recipientName: safeStoredText(record.return_address.recipient_name, 80, 'Stored aftersale return recipient'),
     snapshotId: safeUlid(record.return_address.id, 'Stored aftersale return address snapshot'),
+    sourceVersionId: safeUlid(record.return_address.source_version_id, 'Stored aftersale return address source version'),
   };
   if (returnAddress !== null && (returnAddress.phoneCiphertext.byteLength < 1 ||
-    returnAddress.detailCiphertext.byteLength < 1 || !/^[0-9]{4}$/.test(returnAddress.phoneLast4))) {
+    returnAddress.detailCiphertext.byteLength < 1 || !/^[0-9+ -]{4}$/.test(returnAddress.phoneLast4))) {
     throw internal('Stored aftersale return address material is invalid');
   }
   const inspection = record.return_inspection === null ? null : {
@@ -1610,5 +1655,87 @@ export class StoreAftersaleRepository {
     if (orderChanged.count !== 1) throw stateConflict('Store aftersale Order changed during cancellation');
     const aftersale = await this.readOwnedDetail(transaction, input.customerId, input.aftersaleId);
     return { aftersale, audit: { after: auditState(aftersale), before }, changed: true };
+  }
+
+  async submitReturnShipmentInTransaction(
+    transaction: DatabaseTransaction,
+    input: StoreAftersaleReturnShipmentInput,
+  ): Promise<StoreAftersaleReturnShipmentResult> {
+    const normalized = normalizeReturnShipmentInput(input);
+    await this.acquireIdentityLocks(transaction, normalized);
+    const candidate = await transaction.aftersale.findFirst({
+      where: { customer_id: normalized.customerId, id: normalized.aftersaleId },
+      select: { order_id: true },
+    });
+    if (!candidate) throw notFound();
+    await this.lockOrderEnvelope(transaction, normalized.customerId, candidate.order_id);
+    const current = await transaction.aftersale.findFirst({
+      where: { customer_id: normalized.customerId, id: normalized.aftersaleId },
+      select: {
+        id: true,
+        order_id: true,
+        refunds: { select: { id: true } },
+        return_address: { select: { id: true } },
+        return_inspection: { select: { id: true } },
+        return_shipment: { select: { id: true } },
+        status: true,
+        type: true,
+        version: true,
+      },
+    });
+    if (!current) throw notFound();
+    const before: StoreAftersaleAuditState = {
+      status: current.status as StoreAftersaleStatus,
+      version: safeVersion(current.version, 'Stored aftersale'),
+    };
+    if (!AFTERSALE_STATUSES.has(before.status)) throw internal('Stored aftersale status is invalid');
+    if (before.version !== normalized.expectedVersion) throw versionConflict();
+    if (current.type !== 'RETURN_REFUND' || current.status !== 'WAITING_RETURN' ||
+      current.return_shipment !== null) {
+      throw stateConflict('Store aftersale cannot accept return shipment in its current state');
+    }
+    if (current.return_address === null) throw internal('Returnable aftersale address snapshot is missing');
+    if (current.return_inspection !== null || current.refunds.length > 0) {
+      throw stateConflict('Store aftersale already has downstream processing facts');
+    }
+    const order = await transaction.salesOrder.findUnique({
+      where: { id: current.order_id },
+      select: { customer_id: true, id: true, version: true },
+    });
+    if (!order || order.customer_id !== normalized.customerId) {
+      throw internal('Stored aftersale Order envelope is missing');
+    }
+    const orderVersion = safeVersion(order.version, 'Stored aftersale Order');
+    const occurredAt = await this.transactionTime(transaction);
+    const shipmentId = generateUlid(occurredAt.getTime());
+    await transaction.returnShipment.create({
+      data: {
+        aftersale_id: current.id,
+        carrier_code: normalized.carrierCode,
+        carrier_name: normalized.carrierName,
+        created_at: occurredAt,
+        id: shipmentId,
+        received_at: null,
+        submitted_at: occurredAt,
+        tracking_no: normalized.trackingNo,
+      },
+      select: { id: true },
+    });
+    const changed = await transaction.aftersale.updateMany({
+      data: { status: 'WAITING_RECEIPT', updated_at: occurredAt, version: { increment: 1 } },
+      where: { id: current.id, status: 'WAITING_RETURN', version: current.version },
+    });
+    if (changed.count !== 1) throw stateConflict('Store aftersale changed during return shipment submission');
+    const orderChanged = await transaction.salesOrder.updateMany({
+      data: { updated_at: occurredAt, version: { increment: 1 } },
+      where: {
+        customer_id: normalized.customerId,
+        id: current.order_id,
+        version: orderVersion,
+      },
+    });
+    if (orderChanged.count !== 1) throw stateConflict('Store aftersale Order changed during return shipment submission');
+    const aftersale = await this.readOwnedDetail(transaction, normalized.customerId, normalized.aftersaleId);
+    return { aftersale, audit: { after: auditState(aftersale), before }, shipmentId };
   }
 }

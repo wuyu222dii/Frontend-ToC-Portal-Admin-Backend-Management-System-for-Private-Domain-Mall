@@ -30,6 +30,7 @@ import {
   parseStoreAftersaleCreateBody,
   parseStoreAftersaleId,
   parseStoreAftersaleListQuery,
+  parseStoreAftersaleReturnShipmentBody,
 } from './store-aftersales.dto';
 import {
   STORE_AFTERSALE_HTTP_STATUS,
@@ -114,6 +115,29 @@ export class StoreAftersalesController {
       requireStoreSession(request),
       parseStoreAftersaleId(aftersaleIdValue),
       parseStoreAftersaleCancelBody(body),
+      expectedVersion,
+      key,
+      requireStoreRequestId(request),
+      storeRequestIp(request),
+    );
+  }
+
+  @Post(':aftersale_id/return-shipment')
+  @HttpCode(HttpStatus.OK)
+  @NoStore()
+  submitReturnShipment(
+    @Param('aftersale_id') aftersaleIdValue: string,
+    @Body() body: unknown,
+    @Query() query: unknown,
+    @IfMatchVersion() expectedVersion: number,
+    @IdempotencyKey() key: string,
+    @StoreAuthRequest() request: StoreAuthRequestContext,
+  ) {
+    parseStoreAuthEmptyQuery(query);
+    return this.aftersales.submitReturnShipment(
+      requireStoreSession(request),
+      parseStoreAftersaleId(aftersaleIdValue),
+      parseStoreAftersaleReturnShipmentBody(body),
       expectedVersion,
       key,
       requireStoreRequestId(request),

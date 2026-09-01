@@ -72,6 +72,8 @@ const STORE_OPERATIONS = B12_OPERATIONS.filter(([, path]) => path.startsWith('/s
 const HASH_ONLY_OPERATIONS = [
   ...B12_OPERATIONS.filter(([method]) => method === 'post'),
   ...COMPENSATION_OPERATIONS,
+  ['post', '/admin/settings/return-address/preview'],
+  ['patch', '/admin/settings/return-address'],
 ];
 const RESOURCE_MUTATIONS = [
   ['post', '/store/aftersales/{aftersale_id}/cancel'],
@@ -84,6 +86,7 @@ const RESOURCE_MUTATIONS = [
   ['post', '/admin/aftersales/{aftersale_id}/refunds'],
   ['post', '/admin/refunds/{refund_id}/retry'],
   ['post', '/admin/orders/{order_id}/manual-compensations'],
+  ['patch', '/admin/settings/return-address'],
 ];
 const ADMIN_PREVIEW_PATHS = [
   '/admin/aftersales/{aftersale_id}/reject-preview',
@@ -96,6 +99,16 @@ const ADMIN_FINANCIAL_SUCCESS_RESPONSES = [
   ['/admin/aftersales/{aftersale_id}/refunds', '200'],
   ['/admin/refunds/{refund_id}/retry', '200'],
   ['/admin/orders/{order_id}/manual-compensations', '201'],
+];
+const B12_2_ADMIN_NO_STORE_SUCCESS_RESPONSES = [
+  ['get', '/admin/settings/return-address', '200'],
+  ['patch', '/admin/settings/return-address', '200'],
+  ['post', '/admin/settings/return-address/preview', '200'],
+  ['get', '/admin/aftersales', '200'],
+  ['get', '/admin/aftersales/{aftersale_id}', '200'],
+  ['post', '/admin/aftersales/{aftersale_id}/approve', '200'],
+  ['post', '/admin/aftersales/{aftersale_id}/reject-preview', '200'],
+  ['post', '/admin/aftersales/{aftersale_id}/reject', '200'],
 ];
 const ADMIN_QUOTA_PATHS = [
   '/admin/aftersales/{aftersale_id}/refund-preview',
@@ -244,6 +257,19 @@ try {
     .get.responses['200'].headers;
   assert.equal(resolveReference(document, adminAftersaleHeaders['Cache-Control']).required, true);
   assert.equal(resolveReference(document, adminAftersaleHeaders.Pragma).required, true);
+  for (const [method, path, status] of B12_2_ADMIN_NO_STORE_SUCCESS_RESPONSES) {
+    const headers = document.paths[path][method].responses[status].headers;
+    const cacheControl = resolveReference(document, headers?.['Cache-Control']);
+    const pragma = resolveReference(document, headers?.Pragma);
+    assert.equal(cacheControl?.required, true,
+      `${method.toUpperCase()} ${path} ${status} must require Cache-Control`);
+    assert.equal(cacheControl?.schema?.const, 'no-store, private',
+      `${method.toUpperCase()} ${path} ${status} Cache-Control drifted`);
+    assert.equal(pragma?.required, true,
+      `${method.toUpperCase()} ${path} ${status} must require Pragma`);
+    assert.equal(pragma?.schema?.const, 'no-cache',
+      `${method.toUpperCase()} ${path} ${status} Pragma drifted`);
+  }
 
   for (const [method, path] of B12_OPERATIONS) {
     const match = path.match(/\{(aftersale_id|refund_id)\}/);
@@ -398,6 +424,14 @@ try {
     'consumer aftersale actions must not expose Admin-only refund retry');
   assert.ok(schemas.AdminAftersaleDetailResponse.properties.data.properties
     .available_actions.items.enum.includes('RETRY_REFUND'));
+  const applicationEvidence = schemas.AdminAftersaleDetailResponse.properties.data
+    .properties.application_evidence_file_ids;
+  assert.ok(schemas.AdminAftersaleDetailResponse.properties.data.required
+    .includes('application_evidence_file_ids'));
+  assert.equal(applicationEvidence.maxItems, 9);
+  assert.equal(applicationEvidence.uniqueItems, true);
+  assertUlid(applicationEvidence.items,
+    'AdminAftersaleDetailResponse.data.application_evidence_file_ids[]');
   assert.match(document.paths['/store/aftersales'].get.description,
     /created_at DESC,aftersale_id DESC/);
   const aftersaleList = schemas.AftersaleListItem;
@@ -492,6 +526,11 @@ try {
   assert.match(approve.description, /只推进售后状态/);
   assert.match(approve.description, /不得创建退款/);
   assert.match(approve.description, /refund-preview.+refunds confirm/);
+  const returnAddressPublish = document.paths['/admin/settings/return-address'].patch;
+  assert.match(returnAddressPublish.description, /首次配置时为"1"/);
+  assert.match(returnAddressPublish.description, /当前版本 ID.+最大版本号.+preview 事实/);
+  assert.match(schemas.ReturnAddressResponse.properties.data.properties.version.description,
+    /version_no.+乐观锁版本/);
   for (const path of [
     '/admin/aftersales/{aftersale_id}/refunds',
     '/admin/refunds/{refund_id}/retry',

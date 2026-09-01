@@ -144,6 +144,7 @@ const createAftersale = vi.fn();
 const listAftersales = vi.fn();
 const getAftersale = vi.fn();
 const cancelAftersale = vi.fn();
+const submitReturnShipment = vi.fn();
 const findUnique = vi.fn();
 const redisEval = vi.fn();
 const database = {
@@ -185,7 +186,13 @@ function expectNoStore(response: { headers: Record<string, string | string[] | u
     StoreCustomerRateLimitGuard,
     {
       provide: StoreAftersalesService,
-      useValue: { cancelAftersale, createAftersale, getAftersale, listAftersales },
+      useValue: {
+        cancelAftersale,
+        createAftersale,
+        getAftersale,
+        listAftersales,
+        submitReturnShipment,
+      },
     },
     { provide: API_RUNTIME_CONFIG, useValue: runtimeConfig },
     { provide: API_DATABASE_RUNTIME, useValue: database },
@@ -205,10 +212,6 @@ class StoreAftersalesRoutesTestModule implements NestModule {
 class SuperAdminTestGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const http = context.switchToHttp();
-    http.getResponse<{ setHeader(name: string, value: string): void }>()
-      .setHeader('Cache-Control', 'no-store, private');
-    http.getResponse<{ setHeader(name: string, value: string): void }>()
-      .setHeader('Pragma', 'no-cache');
     http.getRequest<{ principal?: unknown }>().principal = {
       accountId: ACCOUNT_ID,
       assurance: 'MFA',
@@ -227,7 +230,13 @@ class SuperAdminTestGuard implements CanActivate {
     StoreCustomerRateLimitGuard,
     {
       provide: StoreAftersalesService,
-      useValue: { cancelAftersale, createAftersale, getAftersale, listAftersales },
+      useValue: {
+        cancelAftersale,
+        createAftersale,
+        getAftersale,
+        listAftersales,
+        submitReturnShipment,
+      },
     },
     { provide: APP_FILTER, useClass: ErrorEnvelopeFilter },
     { provide: APP_GUARD, useClass: SuperAdminTestGuard },
@@ -293,6 +302,7 @@ describe('B12.1 Store aftersales HTTP boundary', () => {
     listAftersales.mockResolvedValue(listResponse);
     getAftersale.mockResolvedValue(detailResponse);
     cancelAftersale.mockResolvedValue({ ...summaryResponse, status: 'CANCELLED' });
+    submitReturnShipment.mockResolvedValue({ ...summaryResponse, status: 'WAITING_RECEIPT' });
   });
 
   it('returns PREVIEW as 200 and CONFIRM as 201 with no-store headers', async () => {
@@ -322,7 +332,7 @@ describe('B12.1 Store aftersales HTTP boundary', () => {
     );
   });
 
-  it('serves only list, detail, and cancel beyond the collection route', async () => {
+  it('serves list, detail, cancel, and return-shipment routes', async () => {
     const listed = await request(app.getHttpServer())
       .get('/api/v1/store/aftersales?page=1&page_size=20')
       .set('Authorization', `Bearer ${storeToken}`)
@@ -356,13 +366,28 @@ describe('B12.1 Store aftersales HTTP boundary', () => {
     );
     expectNoStore(cancelled);
 
-    await request(app.getHttpServer())
+    const shipment = await request(app.getHttpServer())
       .post(`/api/v1/store/aftersales/${AFTERSALE_ID}/return-shipment`)
       .set('Authorization', `Bearer ${storeToken}`)
       .set('Idempotency-Key', IDEMPOTENCY_KEY)
       .set('If-Match', '"1"')
-      .send({})
-      .expect(404);
+      .send({
+        carrier_code: 'NZ-POST',
+        carrier_name: '  NZ Post  ',
+        tracking_no: '  TRACK/001  ',
+      })
+      .expect(200);
+    expect(shipment.body.data.status).toBe('WAITING_RECEIPT');
+    expect(submitReturnShipment).toHaveBeenCalledWith(
+      expect.objectContaining({ customerId: CUSTOMER_ID }),
+      AFTERSALE_ID,
+      { carrierCode: 'NZ-POST', carrierName: 'NZ Post', trackingNo: 'TRACK/001' },
+      1,
+      IDEMPOTENCY_KEY,
+      expect.any(String),
+      expect.any(String),
+    );
+    expectNoStore(shipment);
   });
 
   it.each([

@@ -6,7 +6,7 @@
 |---|---|
 | 文档版本 | v2.4.10 |
 | 对应产品基线 | MVP/PRD v2.4.10、CH-001 至 CH-026；在线接口以 CH-026 为准 |
-| 接口阶段 | B0-B11 development 已完成并维持 `GO`。CH-026 已批准；OpenAPI `2.4.10-ch026` 实测为 173 paths / 198 operations / 198 unique operationId / 326 schemas / 706 schema refs / 2,720 local refs / 0 dangling refs。B12.0 精确 SHA 三项远端门禁与 CH-027 已闭合；B12.1 已完成申请 PREVIEW/CONFIRM、本人列表/详情和取消接口并在 `P0=0/P1=0` 后暂停。B12.2 尚未开始，真实客户数据、staging、production、真实微信退款与真实物流集成均为 `NO-GO` |
+| 接口阶段 | B0-B11 development 已完成并维持 `GO`。CH-026 已批准；OpenAPI `2.4.10-ch026` 实测为 173 paths / 198 operations / 198 unique operationId / 326 schemas / 706 schema refs / 2,720 local refs / 0 dangling refs。B12.0 精确 SHA 三项远端门禁与 CH-027 已闭合；B12.1 Store 售后接口和 B12.2 Admin 初审、退货地址、消费者退货物流接口已完成并在 `P0=0/P1=0` 后暂停。B12.3 尚未开始，真实客户数据、staging、production、真实微信退款与真实物流集成均为 `NO-GO` |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
 | 更新时间 | 2026-09-01 |
 

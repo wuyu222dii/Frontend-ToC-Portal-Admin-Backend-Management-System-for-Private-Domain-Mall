@@ -1,5 +1,6 @@
 export * from './advisory-lock';
 export * from './admin-auth.repository';
+export * from './admin-aftersale.repository';
 export * from './audit.repository';
 export * from './banner.repository';
 export * from './callback-inbox.repository';
@@ -12,6 +13,7 @@ export * from './master-data.repository';
 export * from './outbox.repository';
 export * from './payment-reconciliation.repository';
 export * from './product-catalog.repository';
+export * from './return-address.repository';
 export * from './store-attribution.repository';
 export * from './store-address.repository';
 export * from './store-aftersale.repository';

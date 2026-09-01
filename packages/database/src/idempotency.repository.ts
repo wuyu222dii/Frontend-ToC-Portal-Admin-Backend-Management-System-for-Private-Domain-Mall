@@ -370,6 +370,7 @@ const COMMAND_RESPONSE_RESOURCE_TYPE = new Set([
 const MUTATION_METHOD = new Set(['DELETE', 'PATCH', 'POST', 'PUT']);
 const CLAIM_FIELDS = new Set(['actorId', 'idempotencyKey', 'request']);
 const REQUEST_DESCRIPTOR_FIELDS = new Set(['body', 'method', 'pathParameters', 'route']);
+const REQUEST_SCOPE_DESCRIPTOR_FIELDS = new Set(['method', 'route']);
 const CACHEABLE_RESULT_FIELDS = new Set(['policy', 'responseBody', 'responseStatus', 'storage']);
 const HASH_ONLY_RESULT_FIELDS = new Set(['resourceId', 'responseForHash', 'responseStatus', 'storage']);
 const HASH_KEY_ID = /^[A-Za-z0-9._:-]{3,80}$/;
@@ -388,6 +389,16 @@ export function deriveIdempotencyScope(
 ): string {
   const digest = sha256Hex(canonicalJson({ method: request.method, route: request.route }));
   return `idempotency:v1:${digest}`;
+}
+
+function validateRequestScopeDescriptor(
+  request: Pick<IdempotencyRequestDescriptor, 'method' | 'route'>,
+): void {
+  if (!isExactPlainObject(request, REQUEST_SCOPE_DESCRIPTOR_FIELDS) ||
+    !MUTATION_METHOD.has(request.method) ||
+    !/^\/[^?#]{0,159}$/.test(request.route)) {
+    throw new TypeError('Idempotency request scope descriptor is invalid');
+  }
 }
 
 function isExactPlainObject(value: unknown, fields: ReadonlySet<string>): value is Record<string, unknown> {
@@ -885,6 +896,41 @@ export class IdempotencyRepository {
       throw new ApplicationError('INTERNAL_ERROR', 'Idempotency record is not a banner response');
     }
     return record.response_body;
+  }
+
+  async assertKeyNotUsedForRequest(
+    transaction: DatabaseTransaction,
+    claim: IdempotencyClaim,
+    disallowedRequest: Pick<IdempotencyRequestDescriptor, 'method' | 'route'>,
+  ): Promise<void> {
+    validateClaim(claim);
+    validateRequestScopeDescriptor(disallowedRequest);
+    const claimScope = deriveIdempotencyScope(claim.request);
+    const disallowedScope = deriveIdempotencyScope(disallowedRequest);
+    if (claimScope === disallowedScope) {
+      throw new TypeError('Idempotency request scopes must differ');
+    }
+    await acquireTransactionLock(
+      transaction,
+      'idempotency',
+      [claim.actorId, disallowedScope, claim.idempotencyKey],
+    );
+    const record = await transaction.idempotencyRecord.findUnique({
+      where: {
+        actor_id_scope_idempotency_key: {
+          actor_id: claim.actorId,
+          scope: disallowedScope,
+          idempotency_key: claim.idempotencyKey,
+        },
+      },
+    });
+    const now = this.now();
+    if (!(now instanceof Date) || !Number.isFinite(now.getTime())) {
+      throw new TypeError('Idempotency clock must return a valid Date');
+    }
+    if (record && record.expires_at.getTime() > now.getTime()) {
+      throw new ApplicationError('STATE_CONFLICT', 'Idempotency key was already used in another request scope');
+    }
   }
 
   async claim(transaction: DatabaseTransaction, input: IdempotencyClaim): Promise<IdempotencyClaimResult> {

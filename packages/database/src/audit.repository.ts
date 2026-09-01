@@ -123,6 +123,7 @@ const AUDIT_OBJECT_TYPE = new Set([
   'product',
   'promotion',
   'refund',
+  'return_address',
   'session',
   'shipment',
   'sku',

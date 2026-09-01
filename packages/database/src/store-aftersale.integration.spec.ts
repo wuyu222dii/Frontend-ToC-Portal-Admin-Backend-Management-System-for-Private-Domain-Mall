@@ -5,6 +5,7 @@ import { Pool, type PoolClient } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { Prisma } from '../.generated/prisma/client';
+import { AdminAftersaleRepository } from './admin-aftersale.repository';
 import { AuditRepository } from './audit.repository';
 import { FulfillmentRepository } from './fulfillment.repository';
 import {
@@ -13,6 +14,7 @@ import {
   type IdempotencyClaim,
 } from './idempotency.repository';
 import { createDatabaseRuntime, type DatabaseRuntime } from './runtime';
+import { ReturnAddressRepository } from './return-address.repository';
 import { StoreAftersaleRepository } from './store-aftersale.repository';
 
 type DatabaseTestMode = 'full' | 'rollback';
@@ -55,6 +57,7 @@ interface FixtureRegistry {
   fileIds: Set<string>;
   orderIds: Set<string>;
   productIds: Set<string>;
+  returnAddressVersionIds: Set<string>;
   shipmentIds: Set<string>;
   skuIds: Set<string>;
 }
@@ -67,6 +70,7 @@ const registered: FixtureRegistry = {
   fileIds: new Set(),
   orderIds: new Set(),
   productIds: new Set(),
+  returnAddressVersionIds: new Set(),
   shipmentIds: new Set(),
   skuIds: new Set(),
 };
@@ -402,6 +406,37 @@ function shipmentInput(ids: FixtureIds, target: 'first' | 'second', expectedOrde
   };
 }
 
+async function publishFixtureReturnAddress(
+  transaction: DatabaseTransaction,
+  repository: ReturnAddressRepository,
+  adminAccountId: string,
+  marker: 'old' | 'shipment',
+) {
+  const preview = await repository.previewPublishInTransaction(transaction);
+  const phoneLast4 = marker === 'old' ? '+ 01' : '+ 11';
+  const result = await repository.publishInTransaction(transaction, {
+    actorAccountId: adminAccountId,
+    city: `B12 ${marker} City`,
+    district: `B12 ${marker} District`,
+    expectedCurrentPublishedId: preview.currentPublishedId,
+    expectedMaxVersionNo: preview.maxVersionNo,
+    expectedVersion: preview.resourceVersion,
+    province: `B12 ${marker} Province`,
+    reason: `B12 ${marker} return address fixture`,
+    recipientName: `B12 ${marker} Recipient`,
+  }, {
+    protectVersion: ({ versionId }) => ({
+      detailCiphertext: Buffer.from(`b122-${marker}-detail-${versionId}`),
+      encryptionKeyId: `b122-${marker}-key`,
+      phoneCiphertext: Buffer.from(`b122-${marker}-phone-${versionId}`),
+      phoneLast4,
+    }),
+    verifyPreview: (current) => expect(current).toEqual(preview),
+  });
+  registered.returnAddressVersionIds.add(result.address.versionId);
+  return result.address;
+}
+
 function hasPostgresCode(value: unknown, code: string, seen = new Set<object>()): boolean {
   if (typeof value !== 'object' || value === null || seen.has(value)) return false;
   seen.add(value);
@@ -472,6 +507,7 @@ async function cleanupFullFixtures(runtime: DatabaseRuntime, connectionString: s
   const fileIds = [...registered.fileIds];
   const orderIds = [...registered.orderIds];
   const productIds = [...registered.productIds];
+  const returnAddressVersionIds = [...registered.returnAddressVersionIds];
   const shipmentIds = [...registered.shipmentIds];
   const skuIds = [...registered.skuIds];
   const pool = new Pool({
@@ -495,11 +531,25 @@ async function cleanupFullFixtures(runtime: DatabaseRuntime, connectionString: s
       [orderIds],
     );
     await client.query(
+      `DELETE FROM public.return_shipment
+       WHERE aftersale_id IN (SELECT id FROM public.aftersale WHERE order_id::text = ANY($1::text[]))`,
+      [orderIds],
+    );
+    await client.query(
+      `DELETE FROM public.return_address_snapshot
+       WHERE aftersale_id IN (SELECT id FROM public.aftersale WHERE order_id::text = ANY($1::text[]))`,
+      [orderIds],
+    );
+    await client.query(
       `DELETE FROM public.aftersale_item
        WHERE aftersale_id IN (SELECT id FROM public.aftersale WHERE order_id::text = ANY($1::text[]))`,
       [orderIds],
     );
     await client.query('DELETE FROM public.aftersale WHERE order_id::text = ANY($1::text[])', [orderIds]);
+    await client.query(
+      'DELETE FROM public.return_address_version WHERE id::text = ANY($1::text[])',
+      [returnAddressVersionIds],
+    );
     await client.query(
       `DELETE FROM public.shipment_item
        WHERE shipment_id::text = ANY($1::text[])
@@ -535,6 +585,10 @@ async function cleanupFullFixtures(runtime: DatabaseRuntime, connectionString: s
     runtime.prisma.orderItem.count({ where: { order_id: { in: orderIds } } }),
     runtime.prisma.salesOrder.count({ where: { id: { in: orderIds } } }),
     runtime.prisma.account.count({ where: { id: { in: accountIds } } }),
+    runtime.prisma.returnAddressSnapshot.count({
+      where: { source_version_id: { in: returnAddressVersionIds } },
+    }),
+    runtime.prisma.returnAddressVersion.count({ where: { id: { in: returnAddressVersionIds } } }),
   ]);
   if (residues.some((count) => count !== 0)) {
     throw new TypeError(`B12 Store aftersale full fixture residue: ${JSON.stringify(residues)}`);
@@ -575,6 +629,7 @@ databaseDescribe('B12 Store aftersale database integration', () => {
     const audit = new AuditRepository(Buffer.alloc(32, 42), () => createdAt);
     const repository = new StoreAftersaleRepository(runtime.prisma);
     let createdAftersaleId: string | null = null;
+    let publishedAddressVersionId: string | null = null;
 
     await expect(runtime.prisma.$transaction(async (transaction) => {
       await seedFixture(transaction, ids, createdAt);
@@ -647,13 +702,66 @@ databaseDescribe('B12 Store aftersale database integration', () => {
 
       const second = await repository.confirmAftersaleInTransaction(
         transaction,
-        previewInput(ids, 'second', []),
+        { ...previewInput(ids, 'second', []), type: 'RETURN_REFUND' },
         {
           verifyPreview: (current) => {
             expect(current.canSubmit).toBe(true);
           },
         },
       );
+      const returnAddresses = new ReturnAddressRepository(runtime.prisma);
+      const addressPreview = await returnAddresses.previewPublishInTransaction(transaction);
+      const publishedAddress = await returnAddresses.publishInTransaction(transaction, {
+        actorAccountId: ids.adminAccountId,
+        city: 'B12 Fixture City',
+        district: 'B12 Fixture District',
+        expectedCurrentPublishedId: addressPreview.currentPublishedId,
+        expectedMaxVersionNo: addressPreview.maxVersionNo,
+        expectedVersion: addressPreview.resourceVersion,
+        province: 'B12 Fixture Province',
+        reason: 'B12 rollback-only return address fixture',
+        recipientName: 'B12 Fixture Recipient',
+      }, {
+        protectVersion: () => ({
+          detailCiphertext: Buffer.from('b122-protected-address-detail'),
+          encryptionKeyId: 'b122-fixture-key',
+          phoneCiphertext: Buffer.from('b122-protected-address-phone'),
+          phoneLast4: '+ -1',
+        }),
+        verifyPreview: (current) => expect(current).toEqual(addressPreview),
+      });
+      publishedAddressVersionId = publishedAddress.address.versionId;
+      const adminAftersales = new AdminAftersaleRepository(runtime.prisma, Buffer.alloc(32, 44));
+      const approved = await adminAftersales.approveInTransaction(transaction, {
+        actorAccountId: ids.adminAccountId,
+        aftersaleId: second.aftersale.aftersaleId,
+        expectedVersion: 1,
+        note: 'B12 rollback-only initial approval',
+      }, {
+        protectReturnAddress: ({ source }) => ({
+          detailCiphertext: Buffer.from('b122-protected-snapshot-detail'),
+          encryptionKeyId: 'b122-snapshot-key',
+          phoneCiphertext: Buffer.from('b122-protected-snapshot-phone'),
+          phoneLast4: source.phoneLast4,
+        }),
+      });
+      expect(approved.aftersale).toMatchObject({ status: 'WAITING_RETURN', version: 2 });
+      const submitted = await repository.submitReturnShipmentInTransaction(transaction, {
+        accountId: ids.accountId,
+        aftersaleId: second.aftersale.aftersaleId,
+        carrierCode: 'B12_FIXTURE',
+        carrierName: 'B12 Fixture Carrier',
+        customerId: ids.customerId,
+        expectedVersion: 2,
+        trackingNo: `B12/${second.aftersale.aftersaleId}`,
+      });
+      expect(submitted.aftersale).toMatchObject({
+        order: { version: 4 },
+        returnAddress: { phoneLast4: '+ -1', sourceVersionId: publishedAddress.address.versionId },
+        returnShipment: { carrierCode: 'B12_FIXTURE' },
+        status: 'WAITING_RECEIPT',
+        version: 3,
+      });
       const expectedListOrder = [created.aftersale.aftersaleId, second.aftersale.aftersaleId]
         .sort((left, right) => right.localeCompare(left));
       const firstPage = await repository.listOwnedAftersalesInTransaction(transaction, {
@@ -745,6 +853,7 @@ databaseDescribe('B12 Store aftersale database integration', () => {
     }, transactionOptions)).rejects.toBe(rollbackSentinel);
 
     expect(createdAftersaleId).not.toBeNull();
+    expect(publishedAddressVersionId).not.toBeNull();
     const residues = await Promise.all([
       runtime.prisma.aftersale.count({ where: { id: createdAftersaleId ?? undefined } }),
       runtime.prisma.orderItem.count({ where: { id: { in: [ids.orderItemId, ids.secondOrderItemId] } } }),
@@ -754,8 +863,9 @@ databaseDescribe('B12 Store aftersale database integration', () => {
       runtime.prisma.account.count({
         where: { id: { in: [ids.accountId, ids.otherAccountId, ids.adminAccountId] } },
       }),
+      runtime.prisma.returnAddressVersion.count({ where: { id: publishedAddressVersionId ?? undefined } }),
     ]);
-    expect(residues).toEqual([0, 0, 0, 0, 0, 0]);
+    expect(residues).toEqual([0, 0, 0, 0, 0, 0, 0]);
   }, 90_000);
 
   fullIt('serializes competing quota confirmations on two independent connections', async () => {
@@ -901,5 +1011,241 @@ databaseDescribe('B12 Store aftersale database integration', () => {
         expectedOrderVersion: 3,
       }),
     )).resolves.toMatchObject({ kind: 'created', orderVersion: 4 });
+  }, 120_000);
+
+  fullIt('serializes initial rejection against shipment without leaking or double-releasing quota', async () => {
+    const ids = fixtureIds();
+    await runSerializable(runtime, (transaction) => seedFixture(transaction, ids, new Date()));
+    const storeAftersales = new StoreAftersaleRepository(runtime.prisma);
+    const adminAftersales = new AdminAftersaleRepository(runtime.prisma, Buffer.alloc(32, 43));
+    const fulfillment = new FulfillmentRepository(runtime.prisma);
+    const created = await runSerializable(runtime, (transaction) =>
+      storeAftersales.confirmAftersaleInTransaction(
+        transaction,
+        previewInput(ids, 'first', []),
+        { verifyPreview: () => undefined },
+      ));
+    const shipment = shipmentInput(ids, 'first', 2);
+
+    const [rejection, shipping] = await raceOnIndependentConnections(
+      runtime,
+      (transaction) => adminAftersales.rejectInTransaction(transaction, {
+        actorAccountId: ids.adminAccountId,
+        aftersaleId: created.aftersale.aftersaleId,
+        expectedVersion: 1,
+        reason: 'fixture rejection after review',
+      }, {
+        verifyPreview: (impact) => {
+          expect(impact).toMatchObject({ releaseAmount: '25.00', releaseQuantity: 2, resourceVersion: 1 });
+        },
+      }),
+      (transaction) => fulfillment.createShipmentInTransaction(transaction, shipment),
+    );
+
+    expect(rejection.status).toBe('fulfilled');
+    expect(shipping.status).toBe('rejected');
+    expect(['ACTIVE_AFTERSALE_BLOCKS_SHIPMENT', 'RESOURCE_VERSION_CONFLICT'])
+      .toContain(errorCode(shipping));
+    await expect(runtime.prisma.aftersale.findUniqueOrThrow({ where: { id: created.aftersale.aftersaleId } }))
+      .resolves.toMatchObject({ status: 'REJECTED', version: 2 });
+    await expect(runtime.prisma.orderItem.findUniqueOrThrow({ where: { id: ids.orderItemId } }))
+      .resolves.toMatchObject({ aftersale_reserved_amount: new Prisma.Decimal('0.00'), aftersale_reserved_qty: 0 });
+    await expect(runtime.prisma.salesOrder.findUniqueOrThrow({ where: { id: ids.orderId } }))
+      .resolves.toMatchObject({ order_status: 'PENDING_SHIPMENT', version: 3 });
+    await expect(runtime.prisma.shipment.count({ where: { order_id: ids.orderId } })).resolves.toBe(0);
+  }, 120_000);
+
+  fullIt('converges competing return-shipment submission and cancellation to one winner', async () => {
+    const ids = fixtureIds();
+    const storeAftersales = new StoreAftersaleRepository(runtime.prisma);
+    const adminAftersales = new AdminAftersaleRepository(runtime.prisma, Buffer.alloc(32, 45));
+    const returnAddresses = new ReturnAddressRepository(runtime.prisma);
+    const setup = await runSerializable(runtime, async (transaction) => {
+      await seedFixture(transaction, ids, new Date());
+      await publishFixtureReturnAddress(transaction, returnAddresses, ids.adminAccountId, 'shipment');
+      const created = await storeAftersales.confirmAftersaleInTransaction(transaction, {
+        ...previewInput(ids, 'first', []),
+        type: 'RETURN_REFUND',
+      }, {
+        verifyPreview: (preview) => {
+          expect(preview.canSubmit).toBe(true);
+        },
+      });
+      const approved = await adminAftersales.approveInTransaction(transaction, {
+        actorAccountId: ids.adminAccountId,
+        aftersaleId: created.aftersale.aftersaleId,
+        expectedVersion: 1,
+        note: 'return shipment race approval',
+      }, {
+        protectReturnAddress: ({ source }) => ({
+          detailCiphertext: Buffer.from(`b122-shipment-snapshot-detail-${source.sourceVersionId}`),
+          encryptionKeyId: `b122-shipment-snapshot-key-${source.sourceVersionId}`,
+          phoneCiphertext: Buffer.from(`b122-shipment-snapshot-phone-${source.sourceVersionId}`),
+          phoneLast4: source.phoneLast4,
+        }),
+      });
+      expect(approved.aftersale).toMatchObject({ status: 'WAITING_RETURN', version: 2 });
+      return { aftersaleId: created.aftersale.aftersaleId };
+    });
+
+    const [submission, cancellation] = await raceOnIndependentConnections(
+      runtime,
+      (transaction) => storeAftersales.submitReturnShipmentInTransaction(transaction, {
+        accountId: ids.accountId,
+        aftersaleId: setup.aftersaleId,
+        carrierCode: 'B12_RACE',
+        carrierName: 'B12 Race Carrier',
+        customerId: ids.customerId,
+        expectedVersion: 2,
+        trackingNo: `B12/RACE/${setup.aftersaleId}`,
+      }),
+      (transaction) => storeAftersales.cancelOwnedAftersaleInTransaction(transaction, {
+        accountId: ids.accountId,
+        aftersaleId: setup.aftersaleId,
+        customerId: ids.customerId,
+        expectedVersion: 2,
+      }),
+    );
+
+    expect([submission, cancellation].filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
+    const rejected = [submission, cancellation].find(({ status }) => status === 'rejected');
+    expect(rejected).toBeDefined();
+    expect(['RESOURCE_VERSION_CONFLICT', 'STATE_CONFLICT']).toContain(errorCode(rejected!));
+    const [aftersale, orderItem, order, shipment] = await Promise.all([
+      runtime.prisma.aftersale.findUniqueOrThrow({ where: { id: setup.aftersaleId } }),
+      runtime.prisma.orderItem.findUniqueOrThrow({ where: { id: ids.orderItemId } }),
+      runtime.prisma.salesOrder.findUniqueOrThrow({ where: { id: ids.orderId } }),
+      runtime.prisma.returnShipment.findUnique({ where: { aftersale_id: setup.aftersaleId } }),
+    ]);
+    expect(aftersale.version).toBe(3);
+    expect(order.version).toBe(4);
+    if (aftersale.status === 'WAITING_RECEIPT') {
+      expect(submission.status).toBe('fulfilled');
+      expect(shipment).toMatchObject({
+        carrier_code: 'B12_RACE',
+        tracking_no: `B12/RACE/${setup.aftersaleId}`,
+      });
+      expect(orderItem).toMatchObject({
+        aftersale_reserved_amount: new Prisma.Decimal('25.00'),
+        aftersale_reserved_qty: 2,
+      });
+    } else {
+      expect(aftersale.status).toBe('CANCELLED');
+      expect(cancellation.status).toBe('fulfilled');
+      expect(shipment).toBeNull();
+      expect(orderItem).toMatchObject({
+        aftersale_reserved_amount: new Prisma.Decimal('0.00'),
+        aftersale_reserved_qty: 0,
+      });
+    }
+  }, 120_000);
+
+  fullIt('snapshots one complete address version while replacement publish races initial approval', async () => {
+    const ids = fixtureIds();
+    const replacementAdminAccountId = generateUlid();
+    registered.accountIds.add(replacementAdminAccountId);
+    const storeAftersales = new StoreAftersaleRepository(runtime.prisma);
+    const adminAftersales = new AdminAftersaleRepository(runtime.prisma, Buffer.alloc(32, 46));
+    const returnAddresses = new ReturnAddressRepository(runtime.prisma);
+    const setup = await runSerializable(runtime, async (transaction) => {
+      await seedFixture(transaction, ids, new Date());
+      await transaction.account.create({
+        data: {
+          created_at: new Date(),
+          id: replacementAdminAccountId,
+          login_name: `b122-replacement-admin-${replacementAdminAccountId}`,
+          password_hash: 'b122-replacement-admin-password-hash',
+          role: 'SUPER_ADMIN',
+          status: 'ACTIVE',
+          updated_at: new Date(),
+        },
+      });
+      const oldAddress = await publishFixtureReturnAddress(
+        transaction,
+        returnAddresses,
+        ids.adminAccountId,
+        'old',
+      );
+      const created = await storeAftersales.confirmAftersaleInTransaction(transaction, {
+        ...previewInput(ids, 'first', []),
+        type: 'RETURN_REFUND',
+      }, {
+        verifyPreview: (preview) => {
+          expect(preview.canSubmit).toBe(true);
+        },
+      });
+      return { aftersaleId: created.aftersale.aftersaleId, oldAddress };
+    });
+    const replacementPreview = await returnAddresses.previewPublish();
+    expect(replacementPreview.currentPublishedId).toBe(setup.oldAddress.versionId);
+
+    const [replacement, approval] = await raceOnIndependentConnections(
+      runtime,
+      (transaction) => returnAddresses.publishInTransaction(transaction, {
+        actorAccountId: replacementAdminAccountId,
+        city: 'B12 new City',
+        district: 'B12 new District',
+        expectedCurrentPublishedId: replacementPreview.currentPublishedId,
+        expectedMaxVersionNo: replacementPreview.maxVersionNo,
+        expectedVersion: replacementPreview.resourceVersion,
+        province: 'B12 new Province',
+        reason: 'B12 replacement publish race fixture',
+        recipientName: 'B12 new Recipient',
+      }, {
+        protectVersion: ({ versionId }) => ({
+          detailCiphertext: Buffer.from(`b122-new-detail-${versionId}`),
+          encryptionKeyId: 'b122-new-key',
+          phoneCiphertext: Buffer.from(`b122-new-phone-${versionId}`),
+          phoneLast4: '- 02',
+        }),
+        verifyPreview: (current) => expect(current).toEqual(replacementPreview),
+      }),
+      (transaction) => adminAftersales.approveInTransaction(transaction, {
+        actorAccountId: ids.adminAccountId,
+        aftersaleId: setup.aftersaleId,
+        expectedVersion: 1,
+        note: 'replacement race approval',
+      }, {
+        protectReturnAddress: ({ source }) => ({
+          detailCiphertext: Buffer.from(`b122-race-snapshot-detail-${source.sourceVersionId}`),
+          encryptionKeyId: `b122-race-snapshot-key-${source.sourceVersionId}`,
+          phoneCiphertext: Buffer.from(`b122-race-snapshot-phone-${source.sourceVersionId}`),
+          phoneLast4: source.phoneLast4,
+        }),
+      }),
+    );
+
+    expect(replacement.status).toBe('fulfilled');
+    expect(approval.status).toBe('fulfilled');
+    if (replacement.status !== 'fulfilled') throw replacement.reason;
+    registered.returnAddressVersionIds.add(replacement.value.address.versionId);
+    const [published, publishedCount, snapshot, aftersale, order] = await Promise.all([
+      runtime.prisma.returnAddressVersion.findFirstOrThrow({ where: { status: 'PUBLISHED' } }),
+      runtime.prisma.returnAddressVersion.count({ where: { status: 'PUBLISHED' } }),
+      runtime.prisma.returnAddressSnapshot.findUniqueOrThrow({
+        include: { source_version: true },
+        where: { aftersale_id: setup.aftersaleId },
+      }),
+      runtime.prisma.aftersale.findUniqueOrThrow({ where: { id: setup.aftersaleId } }),
+      runtime.prisma.salesOrder.findUniqueOrThrow({ where: { id: ids.orderId } }),
+    ]);
+    expect(publishedCount).toBe(1);
+    expect(published.id).toBe(replacement.value.address.versionId);
+    expect([setup.oldAddress.versionId, replacement.value.address.versionId])
+      .toContain(snapshot.source_version_id);
+    expect(snapshot).toMatchObject({
+      city: snapshot.source_version.city,
+      district: snapshot.source_version.district,
+      phone_last4: snapshot.source_version.phone_last4,
+      province: snapshot.source_version.province,
+      recipient_name: snapshot.source_version.recipient_name,
+    });
+    expect(snapshot.encryption_key_id).toBe(`b122-race-snapshot-key-${snapshot.source_version_id}`);
+    expect(Buffer.from(snapshot.detail_ciphertext).toString())
+      .toBe(`b122-race-snapshot-detail-${snapshot.source_version_id}`);
+    expect(Buffer.from(snapshot.phone_ciphertext).toString())
+      .toBe(`b122-race-snapshot-phone-${snapshot.source_version_id}`);
+    expect(aftersale).toMatchObject({ status: 'WAITING_RETURN', version: 2 });
+    expect(order.version).toBe(3);
   }, 120_000);
 });

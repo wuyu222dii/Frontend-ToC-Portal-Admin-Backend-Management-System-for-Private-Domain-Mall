@@ -25,6 +25,7 @@ describe('application errors', () => {
     expect(getApplicationErrorHttpStatus('AFTERSALE_PREVIEW_MISMATCH')).toBe(409);
     expect(getApplicationErrorHttpStatus('AFTERSALE_REQUOTE_REQUIRED')).toBe(409);
     expect(getApplicationErrorHttpStatus('SOFT_DELETED_KEY_RESERVED')).toBe(409);
+    expect(getApplicationErrorHttpStatus('RETURN_ADDRESS_NOT_CONFIGURED')).toBe(422);
     expect(getApplicationErrorHttpStatus('ACTIVE_AFTERSALE_BLOCKS_SHIPMENT')).toBe(422);
     expect(getApplicationErrorHttpStatus('SHIPMENT_ITEMS_MISMATCH')).toBe(422);
     expect(getApplicationErrorHttpStatus('ACTIVE_PRODUCT_DEPENDENCY')).toBe(422);
@@ -55,6 +56,7 @@ describe('application errors', () => {
     ['AFTERSALE_PREVIEW_MISMATCH', 'The aftersale preview does not match this request'],
     ['AFTERSALE_REQUOTE_REQUIRED', 'The aftersale facts have changed; request a new preview'],
     ['SOFT_DELETED_KEY_RESERVED', 'The archived business key is reserved'],
+    ['RETURN_ADDRESS_NOT_CONFIGURED', 'A published return address is required'],
     ['ACTIVE_AFTERSALE_BLOCKS_SHIPMENT', 'Active aftersale activity blocks shipment'],
     ['SHIPMENT_ITEMS_MISMATCH', 'The shipment items do not match the current fulfillment facts'],
     ['ACTIVE_PRODUCT_DEPENDENCY', 'Active products must be deactivated or moved first'],

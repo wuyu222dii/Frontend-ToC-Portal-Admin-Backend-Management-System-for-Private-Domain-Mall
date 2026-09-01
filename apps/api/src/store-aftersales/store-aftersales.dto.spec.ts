@@ -5,6 +5,7 @@ import {
   parseStoreAftersaleCreateBody,
   parseStoreAftersaleId,
   parseStoreAftersaleListQuery,
+  parseStoreAftersaleReturnShipmentBody,
 } from './store-aftersales.dto';
 
 const ORDER_ID = '01J00000000000000000000001';
@@ -199,5 +200,29 @@ describe('B12.1 Store aftersale DTO', () => {
     { reason: 'valid reason', status: 'CANCELLED' },
   ])('rejects an invalid cancellation body', (value) => {
     expectInvalid(value, parseStoreAftersaleCancelBody);
+  });
+
+  it('normalizes the closed return shipment request', () => {
+    expect(parseStoreAftersaleReturnShipmentBody({
+      carrier_code: '  NZ-POST  ',
+      carrier_name: '  NZ Post  ',
+      tracking_no: '  TRACK/001  ',
+    })).toEqual({
+      carrierCode: 'NZ-POST',
+      carrierName: 'NZ Post',
+      trackingNo: 'TRACK/001',
+    });
+  });
+
+  it.each([
+    null,
+    {},
+    { carrier_code: 'NZ POST', carrier_name: 'NZ Post', tracking_no: 'TRACK1' },
+    { carrier_code: 'NZ', carrier_name: ' ', tracking_no: 'TRACK1' },
+    { carrier_code: 'NZ', carrier_name: 'NZ\nPost', tracking_no: 'TRACK1' },
+    { carrier_code: 'NZ', carrier_name: 'NZ Post', tracking_no: 'TRACK 1' },
+    { carrier_code: 'NZ', carrier_name: 'NZ Post', tracking_no: 'TRACK1', extra: true },
+  ])('rejects an invalid return shipment body', (value) => {
+    expectInvalid(value, parseStoreAftersaleReturnShipmentBody);
   });
 });

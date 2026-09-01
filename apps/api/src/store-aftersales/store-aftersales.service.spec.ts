@@ -27,6 +27,7 @@ const REFUND_ID = '01J0000000000000000000000A';
 const PREVIEW_KEY = '00000000-0000-4000-8000-000000000001';
 const CONFIRM_KEY = '00000000-0000-4000-8000-000000000002';
 const CANCEL_KEY = '00000000-0000-4000-8000-000000000003';
+const SHIPMENT_KEY = '00000000-0000-4000-8000-000000000004';
 const REQUEST_ID = 'req_00000000000000000000000000000001';
 const IP_ADDRESS = '127.0.0.1';
 const PREVIEW_TOKEN = 'signed-aftersale-preview-token'.padEnd(64, 'x');
@@ -242,6 +243,26 @@ function harness() {
     previewInTransaction: vi.fn(async () => {
       sequence.push('preview');
       return snapshot;
+    }),
+    submitReturnShipmentInTransaction: vi.fn(async () => {
+      sequence.push('shipment');
+      return {
+        aftersale: detailSnapshot({
+          returnShipment: {
+            carrierCode: 'NZ-POST',
+            carrierName: 'NZ Post',
+            submittedAt: NOW,
+            trackingNo: 'TRACK/001',
+          },
+          status: 'WAITING_RECEIPT',
+          version: 2,
+        }),
+        audit: {
+          after: { status: 'WAITING_RECEIPT' as const, version: 2 },
+          before: { status: 'WAITING_RETURN' as const, version: 1 },
+        },
+        shipmentId: '01J0000000000000000000000D',
+      };
     }),
   };
   const audit = {
@@ -490,14 +511,14 @@ describe('B12.1 StoreAftersalesService', () => {
     await expect(current.service.listAftersales(session, { page: 1, pageSize: 20 })).resolves.toEqual({
       items: [expect.objectContaining({
         aftersale_id: AFTERSALE_ID,
-        available_actions: ['CANCEL', 'VIEW_ORDER'],
+        available_actions: ['CANCEL', 'SUBMIT_RETURN_SHIPMENT', 'VIEW_ORDER'],
         created_at: NOW.toISOString(),
       })],
       pagination: { page: 1, page_size: 20, total: 1 },
     });
     await expect(current.service.getAftersale(session, AFTERSALE_ID)).resolves.toMatchObject({
       aftersale_id: AFTERSALE_ID,
-      available_actions: ['CANCEL', 'VIEW_ORDER'],
+      available_actions: ['CANCEL', 'SUBMIT_RETURN_SHIPMENT', 'VIEW_ORDER'],
       errors: [{ error_code: 'PROVIDER_UNAVAILABLE', retryable: true }],
       order: { display_status: '待发货', order_id: ORDER_ID },
       timeline: [{
@@ -508,6 +529,50 @@ describe('B12.1 StoreAftersalesService', () => {
         to_status: 'PENDING_REVIEW',
       }],
     });
+  });
+
+  it('submits return shipment with replay-first HASH_ONLY semantics and no logistics in audit', async () => {
+    const current = harness();
+    const input = { carrierCode: 'NZ-POST', carrierName: 'NZ Post', trackingNo: 'TRACK/001' };
+    await expect(current.service.submitReturnShipment(
+      session,
+      AFTERSALE_ID,
+      input,
+      1,
+      SHIPMENT_KEY,
+      REQUEST_ID,
+      IP_ADDRESS,
+    )).resolves.toMatchObject({ aftersale_id: AFTERSALE_ID, status: 'WAITING_RECEIPT' });
+    expect(current.sequence).toEqual(['claim', 'shipment', 'audit', 'complete']);
+    expect(current.aftersales.submitReturnShipmentInTransaction).toHaveBeenCalledWith(
+      current.transaction,
+      {
+        accountId: ACCOUNT_ID,
+        aftersaleId: AFTERSALE_ID,
+        carrierCode: 'NZ-POST',
+        carrierName: 'NZ Post',
+        customerId: CUSTOMER_ID,
+        expectedVersion: 1,
+        trackingNo: 'TRACK/001',
+      },
+    );
+    expect(JSON.stringify(current.audit.append.mock.calls)).not.toContain('TRACK/001');
+
+    current.sequence.length = 0;
+    current.idempotency.claim.mockResolvedValueOnce({
+      kind: 'replay',
+      record: { resource_id: AFTERSALE_ID, response_body: null, response_status: 200 },
+    });
+    await current.service.submitReturnShipment(
+      session,
+      AFTERSALE_ID,
+      input,
+      1,
+      SHIPMENT_KEY,
+      REQUEST_ID,
+    );
+    expect(current.sequence).toEqual(['getReplay', 'assertHashOnlyReplay']);
+    expect(current.aftersales.submitReturnShipmentInTransaction).toHaveBeenCalledOnce();
   });
 
   it('fails closed instead of exposing an undecryptable return address snapshot', async () => {
@@ -523,6 +588,7 @@ describe('B12.1 StoreAftersalesService', () => {
         province: 'Auckland',
         recipientName: 'Returns',
         snapshotId: '01J0000000000000000000000D',
+        sourceVersionId: '01J0000000000000000000000E',
       },
     }));
 

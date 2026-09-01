@@ -285,6 +285,27 @@ describe('AuditRepository', () => {
     }));
   });
 
+  it('accepts the closed published return-address configuration audit', async () => {
+    const transaction = transactionStub();
+    await new AuditRepository(ipHashKey).append(transaction, {
+      ...baseInput,
+      action: 'PUBLISH',
+      after: { status: 'PUBLISHED', version: 1 },
+      module: 'config',
+      objectType: 'return_address',
+      summaryPolicy: 'STATUS_VERSION',
+    });
+
+    expect(transaction.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        after_json: { status: 'PUBLISHED', version: 1 },
+        before_json: expect.anything(),
+        module: 'config',
+        object_type: 'return_address',
+      }),
+    }));
+  });
+
   it.each([
     'PENDING_REVIEW',
     'REFUNDING',

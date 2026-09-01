@@ -73,12 +73,14 @@ function harness(initialNow = NOW) {
 
 describe('HighRiskPreviewRepository', () => {
   it.each([
+    { action: 'AFTERSALE.REJECT', requestAction: 'REJECT', targetType: 'AFTERSALE' },
     { action: 'PRODUCT.ACTIVATE', requestAction: 'ACTIVATE', targetType: 'PRODUCT' },
     { action: 'PRODUCT.DEACTIVATE', requestAction: 'DEACTIVATE', targetType: 'PRODUCT' },
     { action: 'PRODUCT.SOFT_DELETE', requestAction: 'SOFT_DELETE', targetType: 'PRODUCT' },
     { action: 'SKU.ACTIVATE', requestAction: 'ACTIVATE', targetType: 'SKU' },
     { action: 'SKU.DEACTIVATE', requestAction: 'DEACTIVATE', targetType: 'SKU' },
     { action: 'SKU.SOFT_DELETE', requestAction: 'SOFT_DELETE', targetType: 'SKU' },
+    { action: 'RETURN_ADDRESS.PUBLISH', requestAction: 'PUBLISH', targetType: 'RETURN_ADDRESS' },
   ] as const)('issues and consumes the closed $action preview binding', async ({
     action,
     requestAction,
@@ -119,7 +121,9 @@ describe('HighRiskPreviewRepository', () => {
     { action: 'PRODUCT.RESTORE', targetType: 'PRODUCT' },
     { action: 'INVENTORY.ADJUST', targetType: 'SKU' },
     { action: 'SKU.ACTIVATE', targetType: 'INVENTORY' },
+    { action: 'AFTERSALE.REJECT', targetType: 'RETURN_ADDRESS' },
     { action: 'PRODUCT.ACTIVATE', targetType: 'SKU' },
+    { action: 'RETURN_ADDRESS.PUBLISH', targetType: 'AFTERSALE' },
     { action: 'SKU.ACTIVATE', targetType: 'PRODUCT' },
   ])('rejects an unregistered or mismatched $action/$targetType preview binding', async ({
     action,

@@ -1591,7 +1591,10 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** HR-14 确认发布新的退货地址版本 */
+        /**
+         * HR-14 确认发布新的退货地址版本
+         * @description 必须使用 preview 返回的 resource_etag；首次配置时为"1"，后续为当前 PUBLISHED 地址的 version_no。confirm 会在串行化锁内重新校验当前版本 ID、最大版本号和 preview 事实。
+         */
         patch: operations["patchAdminSettingsReturnAddress"];
         trace?: never;
     };
@@ -5911,6 +5914,7 @@ export interface components {
                 detail_masked: string;
                 /** Format: date-time */
                 effective_at: string;
+                /** @description 与 version_no 相同，作为该不可变配置版本的乐观锁版本。 */
                 version: number;
             };
             request_id: string;
@@ -7252,6 +7256,8 @@ export interface components {
                 status: "PENDING_REVIEW" | "REJECTED" | "REFUNDING" | "WAITING_RETURN" | "WAITING_RECEIPT" | "RETURN_EXCEPTION" | "REFUNDING_AFTER_RETURN" | "REJECTED_AFTER_RETURN" | "REFUND_FAILED" | "COMPLETED" | "CANCELLED";
                 reason: string;
                 items: components["schemas"]["AftersaleItemDetailView"][];
+                /** @description 消费者申请阶段提交的受限证据文件 ID；SUPER_ADMIN 仍须通过文件下载签名接口逐次鉴权读取。 */
+                application_evidence_file_ids: string[];
                 return_address_snapshot: components["schemas"]["ReturnAddressSnapshotView"] | null;
                 return_shipment: components["schemas"]["ReturnShipmentDetailView"] | null;
                 inspection: components["schemas"]["ReturnInspectionDetailView"] | null;
@@ -11290,6 +11296,9 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    /** @description 包含总部退货地址配置摘要，不得缓存 */
+                    "Cache-Control": "no-store, private";
+                    Pragma: "no-cache";
                     [name: string]: unknown;
                 };
                 content: {
@@ -11325,6 +11334,9 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    /** @description 包含总部退货地址配置摘要，不得缓存 */
+                    "Cache-Control": "no-store, private";
+                    Pragma: "no-cache";
                     [name: string]: unknown;
                 };
                 content: {
@@ -11359,8 +11371,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
-                    "Cache-Control": components["headers"]["CacheControlNoStore"];
-                    Pragma: components["headers"]["PragmaNoCache"];
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -12973,6 +12985,9 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    /** @description 包含受限售后处理事实，不得缓存 */
+                    "Cache-Control": "no-store, private";
+                    Pragma: "no-cache";
                     [name: string]: unknown;
                 };
                 content: {
@@ -13043,6 +13058,9 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    /** @description 包含受限售后处理事实，不得缓存 */
+                    "Cache-Control": "no-store, private";
+                    Pragma: "no-cache";
                     [name: string]: unknown;
                 };
                 content: {
@@ -13122,6 +13140,9 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    /** @description 包含受限售后处理事实，不得缓存 */
+                    "Cache-Control": "no-store, private";
+                    Pragma: "no-cache";
                     [name: string]: unknown;
                 };
                 content: {

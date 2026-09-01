@@ -724,4 +724,185 @@ describe('StoreAftersaleRepository', () => {
     expect(aftersaleItemLock).toBeGreaterThan(aftersaleLock);
     expect(orderVersion).toBe(9);
   });
+
+  it('submits return shipment after the fixed Order envelope locks and increments aftersale and Order versions', async () => {
+    const events: string[] = [];
+    let status = 'WAITING_RETURN';
+    let version = 2;
+    let orderVersion = 8;
+    let shipment: Record<string, unknown> | null = null;
+    const transaction = {
+      $queryRawUnsafe: vi.fn(async (_query: string, namespace: string) => {
+        events.push(`advisory:${namespace}`);
+        return [{ acquired: 1 }];
+      }),
+      $queryRaw: vi.fn(async (query: unknown) => {
+        const text = sqlText(query);
+        if (text.includes('transaction_timestamp')) return [{ transaction_time: NOW }];
+        if (text.includes('FROM public.sales_order')) { events.push('row-lock:order'); return [{ id: orderId }]; }
+        if (text.includes('FROM public.order_item')) { events.push('row-lock:items'); return [{ id: orderItemId }]; }
+        if (text.includes('FROM public.aftersale_item')) {
+          events.push('row-lock:aftersale-items'); return [{ id: aftersaleItemId }];
+        }
+        if (text.includes('FROM public.aftersale')) {
+          events.push('row-lock:aftersales'); return [{ id: aftersaleId }];
+        }
+        throw new Error(`Unexpected SQL: ${text}`);
+      }),
+      account: { findUnique: vi.fn(async () => activeAccount()) },
+      aftersale: {
+        findFirst: vi.fn(async (args: { include?: unknown; select?: Record<string, unknown> }) => {
+          if (args.include) {
+            return detailRecord(aftersaleId, {}, {
+              return_address: {
+                city: 'Fixture City',
+                detail_ciphertext: Buffer.from('fixture-detail'),
+                district: 'Fixture District',
+                encryption_key_id: 'fixture-key',
+                id: id(-18_000),
+                phone_ciphertext: Buffer.from('fixture-phone'),
+                phone_last4: '+ -1',
+                province: 'Fixture Province',
+                recipient_name: 'Fixture Recipient',
+                source_version_id: id(-17_000),
+              },
+              return_shipment: shipment,
+              status,
+              type: 'RETURN_REFUND',
+              version,
+            }, orderVersion);
+          }
+          if (args.select && Object.keys(args.select).length === 1 && args.select.order_id === true) {
+            return { order_id: orderId };
+          }
+          return {
+            id: aftersaleId,
+            order_id: orderId,
+            refunds: [],
+            return_address: { id: id(-18_000) },
+            return_inspection: null,
+            return_shipment: shipment === null ? null : { id: shipment.id },
+            status,
+            type: 'RETURN_REFUND',
+            version,
+          };
+        }),
+        updateMany: vi.fn(async ({ where }: { where: { status: string; version: number } }) => {
+          events.push('write:aftersale');
+          if (where.status !== status || where.version !== version) return { count: 0 };
+          status = 'WAITING_RECEIPT';
+          version += 1;
+          return { count: 1 };
+        }),
+      },
+      auditLog: { findMany: vi.fn(async () => []) },
+      returnShipment: {
+        create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          events.push('write:return-shipment');
+          shipment = {
+            carrier_code: data.carrier_code,
+            carrier_name: data.carrier_name,
+            id: data.id,
+            submitted_at: data.submitted_at,
+            tracking_no: data.tracking_no,
+          };
+          return { id: data.id };
+        }),
+      },
+      salesOrder: {
+        findUnique: vi.fn(async () => ({ customer_id: customerId, id: orderId, version: orderVersion })),
+        updateMany: vi.fn(async ({ where }: { where: { version: number } }) => {
+          events.push('write:order');
+          if (where.version !== orderVersion) return { count: 0 };
+          orderVersion += 1;
+          return { count: 1 };
+        }),
+      },
+    };
+    const repository = new StoreAftersaleRepository({} as PrismaClient);
+
+    const result = await repository.submitReturnShipmentInTransaction(
+      transaction as unknown as DatabaseTransaction,
+      {
+        accountId,
+        aftersaleId,
+        carrierCode: ' SF_EXPRESS ',
+        carrierName: ' Fixture Carrier ',
+        customerId,
+        expectedVersion: 2,
+        trackingNo: ' SF/123-456 ',
+      },
+    );
+
+    expect(result).toMatchObject({
+      aftersale: {
+        order: { version: 9 },
+        returnAddress: { phoneLast4: '+ -1' },
+        returnShipment: {
+          carrierCode: 'SF_EXPRESS',
+          carrierName: 'Fixture Carrier',
+          trackingNo: 'SF/123-456',
+        },
+        status: 'WAITING_RECEIPT',
+        version: 3,
+      },
+      audit: {
+        after: { status: 'WAITING_RECEIPT', version: 3 },
+        before: { status: 'WAITING_RETURN', version: 2 },
+      },
+      shipmentId: expect.any(String),
+    });
+    expect(events.indexOf('row-lock:items')).toBeGreaterThan(events.indexOf('row-lock:order'));
+    expect(events.indexOf('row-lock:aftersales')).toBeGreaterThan(events.indexOf('row-lock:items'));
+    expect(events.indexOf('row-lock:aftersale-items')).toBeGreaterThan(events.indexOf('row-lock:aftersales'));
+    expect(events.indexOf('write:return-shipment')).toBeGreaterThan(events.indexOf('row-lock:aftersale-items'));
+    expect(events.indexOf('write:order')).toBeGreaterThan(events.indexOf('write:aftersale'));
+  });
+
+  it('rejects stale return shipment submission before creating a shipment', async () => {
+    const transaction = {
+      $queryRawUnsafe: vi.fn(async () => [{ acquired: 1 }]),
+      $queryRaw: vi.fn(async (query: unknown) => {
+        const text = sqlText(query);
+        if (text.includes('FROM public.sales_order')) return [{ id: orderId }];
+        if (text.includes('FROM public.order_item')) return [{ id: orderItemId }];
+        if (text.includes('FROM public.aftersale_item')) return [{ id: aftersaleItemId }];
+        if (text.includes('FROM public.aftersale')) return [{ id: aftersaleId }];
+        return [];
+      }),
+      account: { findUnique: vi.fn(async () => activeAccount()) },
+      aftersale: {
+        findFirst: vi.fn(async (args: { select?: Record<string, unknown> }) =>
+          args.select && Object.keys(args.select).length === 1
+            ? { order_id: orderId }
+            : {
+              id: aftersaleId,
+              order_id: orderId,
+              refunds: [],
+              return_address: { id: id(-18_000) },
+              return_inspection: null,
+              return_shipment: null,
+              status: 'WAITING_RETURN',
+              type: 'RETURN_REFUND',
+              version: 3,
+            }),
+      },
+      returnShipment: { create: vi.fn() },
+    };
+    const repository = new StoreAftersaleRepository({} as PrismaClient);
+
+    await expect(repository.submitReturnShipmentInTransaction(
+      transaction as unknown as DatabaseTransaction,
+      {
+        accountId,
+        aftersaleId,
+        carrierCode: 'SF',
+        carrierName: 'Fixture Carrier',
+        customerId,
+        expectedVersion: 2,
+        trackingNo: 'SF123',
+      },
+    )).rejects.toMatchObject({ code: 'RESOURCE_VERSION_CONFLICT' });
+    expect(transaction.returnShipment.create).not.toHaveBeenCalled();
+  });
 });

@@ -105,14 +105,25 @@ BEGIN
       application_function
     );
     EXECUTE format(
+      'REVOKE GRANT OPTION FOR EXECUTE ON FUNCTION %s FROM mall_runtime',
+      application_function
+    );
+    EXECUTE format(
       'GRANT EXECUTE ON FUNCTION %s TO mall_runtime',
       application_function
     );
   END LOOP;
 END $$;
 
+-- Function EXECUTE is granted to PUBLIC by PostgreSQL's global defaults. A
+-- schema-local REVOKE cannot subtract that global grant, so deny it globally
+-- before adding the application runtime grant for public functions.
+ALTER DEFAULT PRIVILEGES FOR ROLE mall_migrator
+  REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, mall_runtime, authenticator, anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE mall_migrator IN SCHEMA public
   REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, authenticator, anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE mall_migrator IN SCHEMA public
+  REVOKE GRANT OPTION FOR EXECUTE ON FUNCTIONS FROM mall_runtime;
 ALTER DEFAULT PRIVILEGES FOR ROLE mall_migrator IN SCHEMA public
   GRANT EXECUTE ON FUNCTIONS TO mall_runtime;
 ALTER DEFAULT PRIVILEGES FOR ROLE mall_migrator IN SCHEMA public

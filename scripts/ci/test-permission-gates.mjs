@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { postgresEnvironment, readConnection } from "../db/lib/connection.mjs";
 
 const verifyArgs = ["-X", "-v", "ON_ERROR_STOP=1", "-At", "-f", "scripts/db/sql/verify.sql"];
@@ -29,6 +30,21 @@ function query(connection, sql) {
 }
 
 try {
+  const deploymentSource = readFileSync("scripts/db/deploy-development.mjs", "utf8");
+  const reconciliationCall =
+    'runPsql(migrator, ["-f", "scripts/db/sql/post-bootstrap.sql"]);';
+  const verificationCall =
+    'runPsql(migrator, ["-At", "-f", "scripts/db/sql/verify.sql"]);';
+  const reconciliationPosition = deploymentSource.indexOf(reconciliationCall);
+  const verificationPosition = deploymentSource.indexOf(verificationCall);
+  if (
+    reconciliationPosition < 0 ||
+    verificationPosition < 0 ||
+    reconciliationPosition >= verificationPosition
+  ) {
+    throw new Error("development deploy must reconcile privileges before verification");
+  }
+
   const connection = readConnection("REPLAY_DATABASE_URL", "ci-replay");
   const faults = [
     {
@@ -82,6 +98,16 @@ try {
       revoke: "REVOKE EXECUTE ON FUNCTION public.is_valid_ulid(text) FROM service_role",
     },
     {
+      label: "PUBLIC B12 application function EXECUTE",
+      grant: "GRANT EXECUTE ON FUNCTION public.enforce_refund_envelope() TO PUBLIC",
+      revoke: "REVOKE EXECUTE ON FUNCTION public.enforce_refund_envelope() FROM PUBLIC",
+    },
+    {
+      label: "runtime application function EXECUTE grant option",
+      grant: "GRANT EXECUTE ON FUNCTION public.enforce_refund_envelope() TO mall_runtime WITH GRANT OPTION",
+      revoke: "REVOKE GRANT OPTION FOR EXECUTE ON FUNCTION public.enforce_refund_envelope() FROM mall_runtime",
+    },
+    {
       label: "authenticator SET ROLE mall_runtime",
       grant: "GRANT mall_runtime TO authenticator WITH INHERIT FALSE, SET TRUE",
       revoke: "REVOKE mall_runtime FROM authenticator",
@@ -119,6 +145,77 @@ try {
     execute(connection, "DROP SEQUENCE public.permission_gate_test");
   }
   run(connection, verifyArgs);
+
+  execute(
+    connection,
+    "ALTER DEFAULT PRIVILEGES FOR ROLE mall_migrator GRANT EXECUTE ON FUNCTIONS TO mall_runtime WITH GRANT OPTION",
+  );
+  try {
+    if (run(connection, verifyArgs, { expectSuccess: false })) {
+      throw new Error("permission verifier accepted global runtime function default EXECUTE");
+    }
+    console.log("permission fault rejected: global runtime function default EXECUTE");
+  } finally {
+    execute(
+      connection,
+      "ALTER DEFAULT PRIVILEGES FOR ROLE mall_migrator REVOKE EXECUTE ON FUNCTIONS FROM mall_runtime",
+    );
+  }
+  run(connection, verifyArgs);
+
+  execute(
+    connection,
+    "ALTER DEFAULT PRIVILEGES FOR ROLE mall_migrator GRANT EXECUTE ON FUNCTIONS TO PUBLIC",
+  );
+  try {
+    if (run(connection, verifyArgs, { expectSuccess: false })) {
+      throw new Error("permission verifier accepted PUBLIC function default EXECUTE");
+    }
+    console.log("permission fault rejected: PUBLIC function default EXECUTE");
+  } finally {
+    execute(
+      connection,
+      "ALTER DEFAULT PRIVILEGES FOR ROLE mall_migrator REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC",
+    );
+  }
+  run(connection, verifyArgs);
+
+  execute(
+    connection,
+    "ALTER DEFAULT PRIVILEGES FOR ROLE mall_migrator IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon",
+  );
+  try {
+    if (run(connection, verifyArgs, { expectSuccess: false })) {
+      throw new Error("permission verifier accepted anon schema function default EXECUTE");
+    }
+    console.log("permission fault rejected: anon schema function default EXECUTE");
+  } finally {
+    execute(
+      connection,
+      "ALTER DEFAULT PRIVILEGES FOR ROLE mall_migrator IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM anon",
+    );
+  }
+  run(connection, verifyArgs);
+
+  execute(
+    connection,
+    "ALTER DEFAULT PRIVILEGES FOR ROLE mall_migrator IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO mall_runtime WITH GRANT OPTION",
+  );
+  try {
+    if (run(connection, verifyArgs, { expectSuccess: false })) {
+      throw new Error("permission verifier accepted runtime function default grant option");
+    }
+    console.log("permission fault rejected: runtime function default grant option");
+  } finally {
+    execute(
+      connection,
+      "ALTER DEFAULT PRIVILEGES FOR ROLE mall_migrator IN SCHEMA public REVOKE GRANT OPTION FOR EXECUTE ON FUNCTIONS FROM mall_runtime",
+    );
+  }
+  run(connection, verifyArgs);
+
+  console.log("development deploy privilege reconciliation order passed");
+
   const originalFunction = query(
     connection,
     "SELECT pg_get_functiondef('public.is_valid_ulid(text)'::regprocedure)",

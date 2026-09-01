@@ -339,6 +339,66 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'a Data API role can execute an application function';
   END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_default_acl d
+    JOIN pg_roles owner_role ON owner_role.oid = d.defaclrole
+    WHERE owner_role.rolname = 'mall_migrator'
+      AND d.defaclnamespace = 0
+      AND d.defaclobjtype = 'f'
+  ) OR EXISTS (
+    SELECT 1
+    FROM pg_default_acl d
+    JOIN pg_roles owner_role ON owner_role.oid = d.defaclrole
+    LEFT JOIN pg_namespace n ON n.oid = d.defaclnamespace
+    CROSS JOIN LATERAL aclexplode(d.defaclacl) privilege
+    LEFT JOIN pg_roles grantee_role ON grantee_role.oid = privilege.grantee
+    WHERE owner_role.rolname = 'mall_migrator'
+      AND d.defaclobjtype = 'f'
+      AND (d.defaclnamespace = 0 OR n.nspname = 'public')
+      AND privilege.privilege_type = 'EXECUTE'
+      AND (
+        privilege.grantee = 0
+        OR grantee_role.rolname IN ('authenticator', 'anon', 'authenticated', 'service_role')
+        OR (d.defaclnamespace = 0 AND grantee_role.rolname = 'mall_runtime')
+      )
+  ) THEN
+    RAISE EXCEPTION 'mall_migrator global function defaults expose Data API execution';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_default_acl d
+    JOIN pg_roles owner_role ON owner_role.oid = d.defaclrole
+    JOIN pg_namespace n ON n.oid = d.defaclnamespace
+    CROSS JOIN LATERAL aclexplode(d.defaclacl) privilege
+    JOIN pg_roles grantee_role ON grantee_role.oid = privilege.grantee
+    WHERE owner_role.rolname = 'mall_migrator'
+      AND n.nspname = 'public'
+      AND d.defaclobjtype = 'f'
+      AND grantee_role.rolname = 'mall_runtime'
+      AND privilege.privilege_type = 'EXECUTE'
+      AND NOT privilege.is_grantable
+  ) THEN
+    RAISE EXCEPTION 'mall_migrator public function defaults omit mall_runtime execution';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    CROSS JOIN LATERAL aclexplode(p.proacl) privilege
+    JOIN pg_roles grantee_role ON grantee_role.oid = privilege.grantee
+    WHERE n.nspname = 'public'
+      AND pg_get_userbyid(p.proowner) = 'mall_migrator'
+      AND grantee_role.rolname = 'mall_runtime'
+      AND privilege.privilege_type = 'EXECUTE'
+      AND privilege.is_grantable
+  ) THEN
+    RAISE EXCEPTION 'mall_runtime can grant execution on an application function';
+  END IF;
+
   SELECT count(*) INTO actual
   FROM pg_proc p
   JOIN pg_namespace n ON n.oid = p.pronamespace

@@ -224,6 +224,9 @@ try {
     throw new Error(`migration history did not converge to the B12 target: ${after || "empty"}`);
   }
 
+  // Migrations can create functions after the initial database bootstrap.
+  // Reconcile their effective and default privileges before verification.
+  runPsql(migrator, ["-f", "scripts/db/sql/post-bootstrap.sql"]);
   runPsql(migrator, ["-At", "-f", "scripts/db/sql/verify.sql"]);
   runPrisma(
     migrator,

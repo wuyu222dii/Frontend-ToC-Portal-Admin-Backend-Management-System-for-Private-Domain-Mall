@@ -21,6 +21,9 @@ describe('application errors', () => {
     expect(getApplicationErrorHttpStatus('RESOURCE_VERSION_CONFLICT')).toBe(409);
     expect(getApplicationErrorHttpStatus('SHIPMENT_STATE_CONFLICT')).toBe(409);
     expect(getApplicationErrorHttpStatus('ORDER_NOT_RECEIVABLE')).toBe(409);
+    expect(getApplicationErrorHttpStatus('AFTERSALE_PREVIEW_EXPIRED')).toBe(409);
+    expect(getApplicationErrorHttpStatus('AFTERSALE_PREVIEW_MISMATCH')).toBe(409);
+    expect(getApplicationErrorHttpStatus('AFTERSALE_REQUOTE_REQUIRED')).toBe(409);
     expect(getApplicationErrorHttpStatus('SOFT_DELETED_KEY_RESERVED')).toBe(409);
     expect(getApplicationErrorHttpStatus('ACTIVE_AFTERSALE_BLOCKS_SHIPMENT')).toBe(422);
     expect(getApplicationErrorHttpStatus('SHIPMENT_ITEMS_MISMATCH')).toBe(422);
@@ -48,6 +51,9 @@ describe('application errors', () => {
   it.each([
     ['SHIPMENT_STATE_CONFLICT', 'The shipment state conflicts with this request'],
     ['ORDER_NOT_RECEIVABLE', 'The order cannot be confirmed as received'],
+    ['AFTERSALE_PREVIEW_EXPIRED', 'The aftersale preview has expired'],
+    ['AFTERSALE_PREVIEW_MISMATCH', 'The aftersale preview does not match this request'],
+    ['AFTERSALE_REQUOTE_REQUIRED', 'The aftersale facts have changed; request a new preview'],
     ['SOFT_DELETED_KEY_RESERVED', 'The archived business key is reserved'],
     ['ACTIVE_AFTERSALE_BLOCKS_SHIPMENT', 'Active aftersale activity blocks shipment'],
     ['SHIPMENT_ITEMS_MISMATCH', 'The shipment items do not match the current fulfillment facts'],

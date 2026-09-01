@@ -1,4 +1,6 @@
 import { ApplicationError } from '@qingxu/platform-core';
+import { REQUIRED_ROLES } from '../platform/access/rbac.metadata';
+import { CUSTOMER_OR_SUPER_ADMIN } from '../platform/auth/customer-or-super-admin.metadata';
 import { describe, expect, it, vi } from 'vitest';
 
 import { FilesController } from './files.controller';
@@ -23,6 +25,11 @@ function context(): FilesRequestContext {
 }
 
 describe('FilesController', () => {
+  it('admits only headquarters administrators and CUSTOMER evidence actors at the route boundary', () => {
+    expect(Reflect.getMetadata(REQUIRED_ROLES, FilesController)).toEqual(['CUSTOMER', 'SUPER_ADMIN']);
+    expect(Reflect.getMetadata(CUSTOMER_OR_SUPER_ADMIN, FilesController)).toBe(true);
+  });
+
   it('binds the authenticated request actor and parsed path without accepting owner input', () => {
     const service = { completeUpload: vi.fn().mockResolvedValue({}) } as unknown as FileAssetsService;
     const controller = new FilesController(service);

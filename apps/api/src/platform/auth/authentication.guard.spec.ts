@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { PrincipalRequest } from '../access/principal';
 import { Public, RequireRoles } from '../access/rbac.metadata';
 import { AuthenticationGuard } from './authentication.guard';
+import { RequireCustomerOrSuperAdmin } from './customer-or-super-admin.metadata';
 import { OptionalStoreAuthentication } from './optional-store-authentication.metadata';
 
 const ACCOUNT_ID = '01J00000000000000000000000';
@@ -44,6 +45,9 @@ class RealmFixture {
 
   @RequireRoles('CUSTOMER', 'SUPER_ADMIN')
   mixedRealmRoute(): void {}
+
+  @RequireCustomerOrSuperAdmin()
+  customerOrSuperAdminRoute(): void {}
 
   @Public()
   @OptionalStoreAuthentication()
@@ -86,7 +90,38 @@ function storeSessionRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function runtimeWithSession(session: ReturnType<typeof storeSessionRow> | null) {
+function adminSessionRow(overrides: Record<string, unknown> = {}) {
+  const now = new Date();
+  return {
+    id: SESSION_ID,
+    account_id: ACCOUNT_ID,
+    access_jti: ACCESS_JTI,
+    assurance: 'MFA',
+    restriction: 'NONE',
+    mfa_factor_id: '01J00000000000000000000005',
+    mfa_verified_at: now,
+    session_family: SESSION_FAMILY,
+    expires_at: new Date(now.getTime() + 60 * 60 * 1_000),
+    revoked_at: null,
+    account: {
+      role: 'SUPER_ADMIN',
+      status: 'ACTIVE',
+      deleted_at: null,
+      version: 3,
+    },
+    mfa_factor: {
+      id: '01J00000000000000000000005',
+      account_id: ACCOUNT_ID,
+      encryption_key_id: 'auth-test-v1',
+      last_used_timestep: null,
+      secret_ciphertext: new Uint8Array([1]),
+      status: 'ACTIVE',
+    },
+    ...overrides,
+  };
+}
+
+function runtimeWithSession(session: Record<string, unknown> | null) {
   const findUnique = vi.fn().mockResolvedValue(session);
   const database = {
     prisma: { authSession: { findUnique } },
@@ -207,6 +242,28 @@ describe('AuthenticationGuard Store and Admin realm isolation', () => {
     await expect(guard.canActivate(context)).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
     expect(findUnique).not.toHaveBeenCalled();
     expect(request.principal).toBeUndefined();
+  });
+
+  it('accepts a Store token on an explicit customer-or-super-admin route', async () => {
+    const { findUnique, guard } = runtimeWithSession(storeSessionRow());
+    const { context, request } = contextFor('customerOrSuperAdminRoute', storeToken());
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(findUnique).toHaveBeenCalledOnce();
+    expect(request.principal?.role).toBe('CUSTOMER');
+    expect(request.storeSession).toBeDefined();
+    expect(request.accessSession).toBeUndefined();
+  });
+
+  it('accepts an Admin token on an explicit customer-or-super-admin route', async () => {
+    const { findUnique, guard } = runtimeWithSession(adminSessionRow());
+    const { context, request } = contextFor('customerOrSuperAdminRoute', adminToken());
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(findUnique).toHaveBeenCalledOnce();
+    expect(request.principal?.role).toBe('SUPER_ADMIN');
+    expect(request.accessSession).toBeDefined();
+    expect(request.storeSession).toBeUndefined();
   });
 
   it.each([

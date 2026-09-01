@@ -16,6 +16,7 @@ import { API_DATABASE_RUNTIME } from '../database/api-database-runtime';
 import { REQUIRED_PRE_AUTH_ACTION, type PreAuthAction } from './pre-auth.metadata';
 import { OPTIONAL_STORE_AUTHENTICATION } from './optional-store-authentication.metadata';
 import { NO_STORE_RESPONSE } from '../http/no-store.decorator';
+import { CUSTOMER_OR_SUPER_ADMIN } from './customer-or-super-admin.metadata';
 
 interface AuthenticationRequest extends PrincipalRequest {
   headers: Record<string, string | string[] | undefined>;
@@ -82,6 +83,10 @@ export class AuthenticationGuard implements CanActivate {
       OPTIONAL_STORE_AUTHENTICATION,
       [handler, controller],
     ) === true;
+    const customerOrSuperAdmin = this.reflector.getAllAndOverride<boolean | undefined>(
+      CUSTOMER_OR_SUPER_ADMIN,
+      [handler, controller],
+    ) === true;
     if (this.reflector.getAllAndOverride<boolean | undefined>(NO_STORE_RESPONSE, [handler, controller]) === true) {
       const response = context.switchToHttp().getResponse<{ setHeader(name: string, value: string): void }>();
       response.setHeader('Cache-Control', 'no-store, private');
@@ -89,6 +94,11 @@ export class AuthenticationGuard implements CanActivate {
     }
     if (optionalStoreAuthentication && (!isPublic || requiredPreAuth !== undefined || requiredRoles !== undefined)) {
       throw new ApplicationError('PERMISSION_DENIED', 'Optional Store authentication policy is invalid');
+    }
+    if (customerOrSuperAdmin && (isPublic || requiredPreAuth !== undefined || optionalStoreAuthentication ||
+      requiredRoles?.length !== 2 || !requiredRoles.includes('CUSTOMER') ||
+      !requiredRoles.includes('SUPER_ADMIN'))) {
+      throw new ApplicationError('PERMISSION_DENIED', 'Customer or administrator authentication policy is invalid');
     }
 
     const request = context.switchToHttp().getRequest<AuthenticationRequest>();
@@ -123,6 +133,10 @@ export class AuthenticationGuard implements CanActivate {
     }
 
 
+    if (customerOrSuperAdmin) {
+      return this.authenticateCustomerOrSuperAdmin(request, token);
+    }
+
     if (requiredRoles?.includes('CUSTOMER')) {
       if (requiredRoles.some((role) => role !== 'CUSTOMER')) {
         throw new ApplicationError('PERMISSION_DENIED', 'Mixed authentication realms are forbidden');
@@ -130,6 +144,14 @@ export class AuthenticationGuard implements CanActivate {
       return this.authenticateStoreBearer(request, token);
     }
 
+    return this.authenticateAdminBearer(request, token);
+  }
+
+  private async authenticateAdminBearer(request: AuthenticationRequest, token = bearerToken(request)): Promise<true> {
+    if (!this.config || !this.database || !this.repository) {
+      throw new ApplicationError('AUTH_REQUIRED', 'Authentication is required');
+    }
+    request.authorizationToken = token;
     const claims = this.verifyAccess(token);
     const session = await this.repository.getCurrentSession({
       sessionId: claims.sessionId,
@@ -148,6 +170,18 @@ export class AuthenticationGuard implements CanActivate {
       sessionId: session.sessionId,
     };
     return true;
+  }
+
+  private async authenticateCustomerOrSuperAdmin(
+    request: AuthenticationRequest,
+    token: string,
+  ): Promise<true> {
+    try {
+      verifyStoreAccessToken(this.storeTokenConfig, token);
+    } catch {
+      return this.authenticateAdminBearer(request, token);
+    }
+    return this.authenticateStoreBearer(request, token);
   }
 
   private async authenticateStoreBearer(request: AuthenticationRequest, token = bearerToken(request)): Promise<true> {

@@ -15,7 +15,17 @@ const requestId = 'req_0123456789abcdef0123456789abcdef';
 const idempotencyKey = '00000000-0000-4000-8000-000000000000';
 const sha256 = 'a'.repeat(64);
 
-function request(): FilesRequestContext {
+function request(role: 'CUSTOMER' | 'SUPER_ADMIN' = 'SUPER_ADMIN'): FilesRequestContext {
+  if (role === 'CUSTOMER') {
+    return {
+      principal: { accountId, assurance: 'WECHAT', permissions: [], restriction: 'NONE', role, sessionId },
+      requestId,
+      storeSession: {
+        accountId, accountVersion: 1, accessJti: 'access-jti', customerId: accountId,
+        customerVersion: 1, expiresAt: new Date(), sessionFamily: '01J00000000000000000000004', sessionId,
+      },
+    };
+  }
   return {
     accessSession: {
       accountId, accountVersion: 1, accessJti: 'access-jti', expiresAt: new Date(),
@@ -23,7 +33,7 @@ function request(): FilesRequestContext {
       factorSecretCiphertext: new Uint8Array(), mfaVerifiedAt: new Date(),
       sessionFamily: '01J00000000000000000000004', sessionId,
     },
-    principal: { accountId, assurance: 'MFA', permissions: [], restriction: 'NONE', role: 'SUPER_ADMIN', sessionId },
+    principal: { accountId, assurance: 'MFA', permissions: [], restriction: 'NONE', role, sessionId },
     requestId,
   };
 }
@@ -141,6 +151,44 @@ describe('FileAssetsService orchestration', () => {
     expect(f.internals.audit.append).toHaveBeenCalledOnce();
     expect(f.internals.idempotency.complete).toHaveBeenCalledWith(expect.anything(), expect.anything(),
       expect.objectContaining({ storage: 'HASH_ONLY' }));
+  });
+
+  it('allows CUSTOMER actors only for their own AFTERSALE_EVIDENCE lifecycle', async () => {
+    const allowed = fixture();
+    await expect(allowed.service.createUploadIntent(request('CUSTOMER'), {
+      filename: 'evidence.png', mimeType: 'image/png', purpose: 'AFTERSALE_EVIDENCE', sha256, size: 12,
+    }, idempotencyKey)).resolves.toMatchObject({ purpose: 'AFTERSALE_EVIDENCE', status: 'PENDING' });
+
+    const deniedIntent = fixture();
+    await expect(deniedIntent.service.createUploadIntent(request('CUSTOMER'), {
+      filename: 'logo.png', mimeType: 'image/png', purpose: 'BRAND_LOGO', sha256, size: 12,
+    }, idempotencyKey)).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+    expect(deniedIntent.storage.presignPut).not.toHaveBeenCalled();
+    expect(deniedIntent.internals.assets.createPendingInTransaction).not.toHaveBeenCalled();
+
+    const deniedComplete = fixture([{ kind: 'execute' }]);
+    await expect(deniedComplete.service.completeUpload(
+      request('CUSTOMER'), fileId, { sha256, size: 12 }, idempotencyKey,
+    )).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+    expect(deniedComplete.leases.acquire).not.toHaveBeenCalled();
+    expect(deniedComplete.storage.inspectAndHash).not.toHaveBeenCalled();
+
+    const deniedDownload = fixture();
+    deniedDownload.internals.assets.getOwned.mockResolvedValue(asset({
+      objectKey: `private/${fileId}`, purpose: 'WITHDRAWAL_PROOF', status: 'READY', visibility: 'PRIVATE',
+    }));
+    await expect(deniedDownload.service.downloadUrl(request('CUSTOMER'), fileId))
+      .rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+    expect(deniedDownload.storage.presignGet).not.toHaveBeenCalled();
+  });
+
+  it('reauthorizes CUSTOMER purpose before returning an exact cached completion replay', async () => {
+    const denied = fixture([{ kind: 'replay', record: {} }]);
+    denied.internals.idempotency.fileUploadCompleteReplay.mockReturnValue(envelope());
+    await expect(denied.service.completeUpload(
+      request('CUSTOMER'), fileId, { sha256, size: 12 }, idempotencyKey,
+    )).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+    expect(denied.leases.acquire).not.toHaveBeenCalled();
   });
 
   it('replays exact cached completion without acquiring a lease or touching storage', async () => {

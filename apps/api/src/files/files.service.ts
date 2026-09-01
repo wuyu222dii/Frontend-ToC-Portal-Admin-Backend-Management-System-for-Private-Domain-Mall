@@ -77,6 +77,7 @@ export class FileAssetsService {
     input: UploadIntentInput,
     idempotencyKey: string,
   ) {
+    this.authorizePurpose(request, input.purpose);
     const { config, database, storage } = this.runtime();
     const fileId = generateUlid();
     const objectKey = buildStagingObjectKey(fileId);
@@ -162,9 +163,13 @@ export class FileAssetsService {
       const result = await this.idempotency.claim(transaction, claim);
       return result.kind === 'replay' ? this.idempotency.fileUploadCompleteReplay(result.record) : null;
     });
-    if (replay) return preEnvelopedResponse(replay);
+    if (replay) {
+      this.authorizePurpose(request, replay.data.purpose);
+      return preEnvelopedResponse(replay);
+    }
 
     const initialAsset = await this.assets.getOwned({ actorId: request.principal.accountId, fileId });
+    this.authorizePurpose(request, initialAsset.purpose);
     if (initialAsset.status !== 'PENDING') {
       throw new ApplicationError('STATE_CONFLICT', 'File asset has already left the pending state');
     }
@@ -175,6 +180,7 @@ export class FileAssetsService {
     let stagingKey: string | undefined;
     try {
       const asset = await this.assets.getOwned({ actorId: request.principal.accountId, fileId });
+      this.authorizePurpose(request, asset.purpose);
       if (asset.status !== 'PENDING') {
         throw new ApplicationError('STATE_CONFLICT', 'File asset has already left the pending state');
       }
@@ -296,6 +302,7 @@ export class FileAssetsService {
   async downloadUrl(request: FilesRequestContext, fileId: string) {
     const { config, database, storage } = this.runtime();
     const asset = await this.assets.getOwned({ actorId: request.principal.accountId, fileId });
+    this.authorizePurpose(request, asset.purpose);
     if (asset.status !== 'READY') {
       throw new ApplicationError('STATE_CONFLICT', 'Only ready file assets can be downloaded');
     }
@@ -343,6 +350,12 @@ export class FileAssetsService {
       idempotencyKey,
       request: { body, method: 'POST', pathParameters, route },
     };
+  }
+
+  private authorizePurpose(request: FilesRequestContext, purpose: string): void {
+    if (request.principal.role === 'SUPER_ADMIN' ||
+      (request.principal.role === 'CUSTOMER' && purpose === 'AFTERSALE_EVIDENCE')) return;
+    throw new ApplicationError('PERMISSION_DENIED', 'File purpose is not available to this role');
   }
 
   private leaseManager(): FileObjectLeaseManager {

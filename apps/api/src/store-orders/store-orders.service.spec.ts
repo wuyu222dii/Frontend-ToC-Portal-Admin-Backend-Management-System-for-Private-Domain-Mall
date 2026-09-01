@@ -41,6 +41,7 @@ const ADDRESS_SNAPSHOT_ID = '01J0000000000000000000000J';
 const SHIPMENT_ID = '01J0000000000000000000000N';
 const SHIPMENT_ITEM_ID = '01J0000000000000000000000P';
 const LOGISTICS_EVENT_ID = '01J0000000000000000000000Q';
+const AFTERSALE_ID = '01J0000000000000000000000R';
 const IDEMPOTENCY_KEY = '00000000-0000-4000-8000-000000000001';
 const REQUEST_ID = 'req_00000000000000000000000000000001';
 const IP_ADDRESS = '127.0.0.1';
@@ -249,6 +250,7 @@ function listItemSnapshot(overrides: Partial<StoreOrderListItemSnapshot> = {}): 
       latestStatus: null,
       refundedAmount: '0.00',
     },
+    canApplyAftersale: false,
     canCancel: true,
     canPay: true,
     itemImages: [{ objectKey: `public/${FILE_ID}`, orderItemId: ORDER_ITEM_ID }],
@@ -275,6 +277,8 @@ function detailSnapshot(overrides: Partial<StoreOrderDetailSnapshot> = {}): Stor
       recipientName: RECIPIENT,
       snapshotId: ADDRESS_SNAPSHOT_ID,
     },
+    aftersales: [],
+    canApplyAftersale: false,
     canCancel: true,
     canPay: true,
     closedAt: null,
@@ -689,9 +693,16 @@ describe('B9.2-B9.3 StoreOrdersService', () => {
     current.fulfillment.listOwnedFulfillmentProjectionsInTransaction.mockResolvedValueOnce(new Map([
       [ORDER_ID, fulfillmentProjection({ canViewLogistics: true })],
     ]));
+    current.orders.listOwnedOrdersInTransaction.mockResolvedValueOnce({
+      items: [listItemSnapshot({ canApplyAftersale: true })],
+      total: 1,
+    });
 
     await expect(current.service.listOrders(session, query)).resolves.toMatchObject({
-      items: [{ available_actions: ['PAY', 'CANCEL', 'VIEW_LOGISTICS'], order_id: ORDER_ID }],
+      items: [{
+        available_actions: ['PAY', 'CANCEL', 'VIEW_LOGISTICS', 'APPLY_AFTERSALE'],
+        order_id: ORDER_ID,
+      }],
     });
 
     current.fulfillment.listOwnedFulfillmentProjectionsInTransaction.mockResolvedValueOnce(new Map());
@@ -741,6 +752,34 @@ describe('B9.2-B9.3 StoreOrdersService', () => {
       current.transaction,
       { customerId: CUSTOMER_ID, orderId: ORDER_ID },
     );
+  });
+
+  it('projects current aftersales and only exposes APPLY_AFTERSALE from the repository eligibility result', async () => {
+    const current = harness();
+    const createdAt = new Date('2026-08-28T03:00:00.000Z');
+    current.orders.getOwnedOrderDetailInTransaction.mockResolvedValueOnce(detailSnapshot({
+      aftersales: [{
+        aftersaleId: AFTERSALE_ID,
+        aftersaleNo: `AS${AFTERSALE_ID}`,
+        createdAt,
+        requestedAmount: '19.90',
+        status: 'PENDING_REVIEW',
+        type: 'REFUND_ONLY',
+      }],
+      canApplyAftersale: true,
+    }));
+
+    await expect(current.service.getOrder(session, ORDER_ID)).resolves.toMatchObject({
+      aftersales: [{
+        aftersale_id: AFTERSALE_ID,
+        aftersale_no: `AS${AFTERSALE_ID}`,
+        created_at: createdAt.toISOString(),
+        requested_amount: '19.90',
+        status: 'PENDING_REVIEW',
+        type: 'REFUND_ONLY',
+      }],
+      available_actions: ['PAY', 'CANCEL', 'APPLY_AFTERSALE'],
+    });
   });
 
   it('returns the owned logistics projection with a nullable shipment and stable event order', async () => {

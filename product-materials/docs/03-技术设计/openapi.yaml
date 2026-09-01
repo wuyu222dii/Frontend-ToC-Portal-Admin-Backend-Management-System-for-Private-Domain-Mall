@@ -2303,6 +2303,7 @@ paths:
           schema:
             type: "string"
             minLength: 1
+            maxLength: 32
           description: "售后单号"
         -
           name: "order_id"
@@ -7465,6 +7466,7 @@ paths:
           schema:
             type: "string"
             minLength: 1
+            maxLength: 32
           description: "售后单号"
         -
           name: "order_id"
@@ -14933,6 +14935,7 @@ components:
               pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
             aftersale_no:
               type: "string"
+              maxLength: 32
             type:
               type: "string"
               enum:
@@ -15055,6 +15058,7 @@ components:
               pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
             aftersale_no:
               type: "string"
+              maxLength: 32
             order_id:
               type: "string"
               pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
@@ -17894,6 +17898,7 @@ components:
           pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         aftersale_no:
           type: "string"
+          maxLength: 32
         order_id:
           type: "string"
           pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
@@ -20862,6 +20867,7 @@ components:
           pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         aftersale_no:
           type: "string"
+          maxLength: 32
         order_id:
           type: "string"
           pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
@@ -21296,6 +21302,7 @@ components:
           pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
         aftersale_no:
           type: "string"
+          maxLength: 32
         type:
           type: "string"
           enum: ["REFUND_ONLY", "RETURN_REFUND"]
@@ -21792,6 +21799,7 @@ components:
               pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
             aftersale_no:
               type: "string"
+              maxLength: 32
             order:
               "$ref": "#/components/schemas/CustomerOrderSummaryView"
             type:
@@ -21875,6 +21883,7 @@ components:
               pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
             aftersale_no:
               type: "string"
+              maxLength: 32
             order:
               type: "object"
               additionalProperties: false

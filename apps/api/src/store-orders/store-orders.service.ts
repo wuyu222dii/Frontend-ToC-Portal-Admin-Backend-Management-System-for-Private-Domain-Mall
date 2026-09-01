@@ -430,13 +430,15 @@ export class StoreOrdersService {
   private availableActions(
     canPay: boolean,
     canCancel: boolean,
+    canApplyAftersale: boolean,
     fulfillment?: OwnedFulfillmentProjection,
-  ): Array<'PAY' | 'CANCEL' | 'VIEW_LOGISTICS' | 'CONFIRM_RECEIPT'> {
+  ): Array<'PAY' | 'CANCEL' | 'VIEW_LOGISTICS' | 'CONFIRM_RECEIPT' | 'APPLY_AFTERSALE'> {
     return [
       ...(canPay ? ['PAY' as const] : []),
       ...(canCancel ? ['CANCEL' as const] : []),
       ...(fulfillment?.canViewLogistics === true ? ['VIEW_LOGISTICS' as const] : []),
       ...(fulfillment?.canConfirmReceipt === true ? ['CONFIRM_RECEIPT' as const] : []),
+      ...(canApplyAftersale ? ['APPLY_AFTERSALE' as const] : []),
     ];
   }
 
@@ -452,7 +454,12 @@ export class StoreOrdersService {
         latest_status: resource.aftersaleSummary.latestStatus,
         refunded_amount: resource.aftersaleSummary.refundedAmount,
       },
-      available_actions: this.availableActions(resource.canPay, resource.canCancel, fulfillment),
+      available_actions: this.availableActions(
+        resource.canPay,
+        resource.canCancel,
+        resource.canApplyAftersale,
+        fulfillment,
+      ),
       close_reason: resource.order.closeReason,
       completion_reason: resource.order.completionReason,
       created_at: resource.order.createdAt.toISOString(),
@@ -590,8 +597,20 @@ export class StoreOrdersService {
     ].filter((error): error is NonNullable<typeof error> => error !== null);
     return {
       ...this.orderView(resource.order),
-      aftersales: [],
-      available_actions: this.availableActions(resource.canPay, resource.canCancel, fulfillment),
+      aftersales: resource.aftersales.map((aftersale) => ({
+        aftersale_id: aftersale.aftersaleId,
+        aftersale_no: aftersale.aftersaleNo,
+        created_at: aftersale.createdAt.toISOString(),
+        requested_amount: aftersale.requestedAmount,
+        status: aftersale.status,
+        type: aftersale.type,
+      })),
+      available_actions: this.availableActions(
+        resource.canPay,
+        resource.canCancel,
+        resource.canApplyAftersale,
+        fulfillment,
+      ),
       errors,
       packages: fulfillment.shipment === null ? [] : [{
         carrier_name: fulfillment.shipment.carrierName,

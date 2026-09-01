@@ -30,7 +30,15 @@ const fulfillmentStatuses = new Set(['NOT_STARTED', 'READY_TO_SHIP', 'SHIPPED', 
 const closeReasons = new Set(['USER_CANCELLED', 'PAYMENT_TIMEOUT', 'FULL_REFUND_BEFORE_SHIPMENT']);
 const completionReasons = new Set(['CUSTOMER_CONFIRMED', 'ADMIN_FORCED', 'FULL_REFUND_AFTER_SHIPMENT']);
 const paymentResolutions = new Set(['NORMAL', 'LATE_SUCCESS_REFUND_PENDING', 'LATE_SUCCESS_REFUNDED', 'MANUAL_REQUIRED']);
-const orderActions = new Set(['PAY', 'CANCEL', 'VIEW_LOGISTICS', 'CONFIRM_RECEIPT']);
+const orderActions = new Set([
+  'PAY', 'CANCEL', 'VIEW_LOGISTICS', 'CONFIRM_RECEIPT', 'APPLY_AFTERSALE',
+]);
+const aftersaleTypes = new Set(['REFUND_ONLY', 'RETURN_REFUND']);
+const aftersaleStatuses = new Set([
+  'PENDING_REVIEW', 'REJECTED', 'REFUNDING', 'WAITING_RETURN', 'WAITING_RECEIPT',
+  'RETURN_EXCEPTION', 'REFUNDING_AFTER_RETURN', 'REJECTED_AFTER_RETURN', 'REFUND_FAILED',
+  'COMPLETED', 'CANCELLED',
+]);
 const shipmentStatuses = new Set(['SHIPPED', 'IN_TRANSIT', 'DELIVERED']);
 const logisticsEventTypes = new Set(['STATUS', 'TRACKING_CORRECTION']);
 const commandDisplayStatuses = new Set([
@@ -370,6 +378,23 @@ function safeDomainError(value: unknown): StoreOrderDetail['errors'][number] {
   };
 }
 
+function orderAftersale(value: unknown): StoreOrderDetail['aftersales'][number] {
+  const current = record(value, [
+    'aftersale_id', 'aftersale_no', 'type', 'status', 'requested_amount', 'created_at',
+  ]);
+  const aftersaleId = ulid(current.aftersale_id);
+  const aftersaleNo = text(current.aftersale_no, 28, 28);
+  if (aftersaleNo !== `AS${aftersaleId}`) invalid();
+  return {
+    aftersale_id: aftersaleId,
+    aftersale_no: aftersaleNo,
+    type: enumValue(current.type, aftersaleTypes),
+    status: enumValue(current.status, aftersaleStatuses),
+    requested_amount: money(current.requested_amount),
+    created_at: dateTime(current.created_at),
+  } as StoreOrderDetail['aftersales'][number];
+}
+
 function paymentAttempt(value: unknown): StoreOrderDetail['payment_attempts'][number] {
   const current = record(value, [
     'payment_attempt_id', 'intent_no', 'status', 'amount', 'provider_transaction_id_masked',
@@ -546,8 +571,10 @@ export function decodeStoreOrderDetail(value: unknown): StoreOrderDetail {
     new Set(current.available_actions).size !== current.available_actions.length ||
     !Array.isArray(current.timeline) || !Array.isArray(current.errors) ||
     !Array.isArray(current.packages) || current.packages.length > 1 ||
-    !Array.isArray(current.aftersales) || current.aftersales.length !== 0 ||
+    !Array.isArray(current.aftersales) ||
     !Array.isArray(current.payment_attempts) || !Array.isArray(current.refund_attempts)) invalid();
+  const aftersales = current.aftersales.map(orderAftersale);
+  if (new Set(aftersales.map(({ aftersale_id }) => aftersale_id)).size !== aftersales.length) invalid();
   const base = decodeStoreOrderProjection(Object.fromEntries(Object.entries(current).filter(([key]) => [
     'order_id', 'order_no', 'order_status', 'payment_status', 'refund_progress_status',
     'refund_processing_status', 'fulfillment_status', 'close_reason', 'completion_reason',
@@ -573,7 +600,7 @@ export function decodeStoreOrderDetail(value: unknown): StoreOrderDetail {
         to_status: text(event.to_status), occurred_at: dateTime(event.occurred_at),
       } as StoreOrderDetail['timeline'][number];
     }),
-    packages: current.packages.map(orderPackage), aftersales: [],
+    packages: current.packages.map(orderPackage), aftersales,
     payment_attempts: current.payment_attempts.map(paymentAttempt),
     refund_attempts: current.refund_attempts.map(refundAttempt),
     errors: current.errors.map(safeDomainError),

@@ -250,6 +250,39 @@ function closeOrderRecord(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function paidOwnedOrderDetailRecord(overrides: Record<string, unknown> = {}) {
+  const aftersaleId = id(-4_500);
+  const addressSnapshotId = id(-4_400);
+  const record = closeOrderRecord({
+    address_snapshot: {
+      city: 'Auckland',
+      detail_ciphertext: Buffer.from('protected-detail'),
+      district: 'Central',
+      encryption_key_id: 'field-current',
+      id: addressSnapshotId,
+      phone_ciphertext: Buffer.from('protected-phone'),
+      phone_last4: '6789',
+      province: 'Auckland',
+      recipient_name: 'Order Recipient',
+    },
+    aftersales: [{
+      aftersale_no: `AS${aftersaleId}`,
+      created_at: new Date(NOW.getTime() - 30_000),
+      id: aftersaleId,
+      items: [{ requested_amount: new Prisma.Decimal('9.95') }],
+      status: 'PENDING_REVIEW',
+      type: 'REFUND_ONLY',
+    }],
+    fulfillment_status: 'READY_TO_SHIP',
+    order_status: 'PENDING_SHIPMENT',
+    paid_amount: new Prisma.Decimal('19.90'),
+    paid_at: new Date(NOW.getTime() - 60_000),
+    payment_status: 'PAID',
+    refunds: [],
+  });
+  return { ...record, ...overrides };
+}
+
 function closeIntentRecord(orderId: string, overrides: Record<string, unknown> = {}) {
   const intentId = id(-5_000);
   return {
@@ -402,6 +435,108 @@ function hooks() {
 afterEach(() => vi.restoreAllMocks());
 
 describe('StoreOrderRepository', () => {
+  it.each([
+    ['PENDING_SHIPMENT before completion', {}, true],
+    ['SHIPPING before completion', { fulfillment_status: 'SHIPPED', order_status: 'SHIPPING' }, true],
+    ['COMPLETED inside aftersale window', {
+      aftersale_expires_at: new Date(NOW.getTime() + 1_000),
+      completed_at: new Date(NOW.getTime() - 1_000),
+      fulfillment_status: 'DELIVERED',
+      order_status: 'COMPLETED',
+    }, true],
+    ['COMPLETED after aftersale window', {
+      aftersale_expires_at: new Date(NOW.getTime() - 1),
+      completed_at: new Date(NOW.getTime() - 2_000),
+      fulfillment_status: 'DELIVERED',
+      order_status: 'COMPLETED',
+    }, false],
+    ['PENDING_SHIPMENT with a completion timestamp', { completed_at: NOW }, false],
+    ['SHIPPING with a completion timestamp', {
+      completed_at: NOW,
+      fulfillment_status: 'SHIPPED',
+      order_status: 'SHIPPING',
+    }, false],
+    ['COMPLETED without a completion timestamp', {
+      aftersale_expires_at: new Date(NOW.getTime() + 1_000),
+      fulfillment_status: 'DELIVERED',
+      order_status: 'COMPLETED',
+    }, false],
+    ['CLOSED order', { order_status: 'CLOSED' }, false],
+    ['non-normal payment resolution', { payment_resolution: 'MANUAL_REQUIRED' }, false],
+  ] as const)('projects APPLY_AFTERSALE eligibility for %s', async (_label, overrides, expected) => {
+    const record = paidOwnedOrderDetailRecord(overrides);
+    const transaction = {
+      $queryRaw: vi.fn().mockResolvedValue([{ transaction_time: NOW }]),
+      salesOrder: { findFirst: vi.fn().mockResolvedValue(record) },
+    } as unknown as DatabaseTransaction;
+    const repository = new StoreOrderRepository({} as PrismaClient);
+
+    await expect(repository.getOwnedOrderDetailInTransaction(transaction, {
+      customerId,
+      orderId: record.id,
+    })).resolves.toMatchObject({
+      aftersales: [{
+        aftersaleId: record.aftersales[0]!.id,
+        requestedAmount: '9.95',
+        status: 'PENDING_REVIEW',
+        type: 'REFUND_ONLY',
+      }],
+      canApplyAftersale: expected,
+    });
+  });
+
+  it('does not expose APPLY_AFTERSALE when every order item has exhausted quantity or amount', async () => {
+    const base = paidOwnedOrderDetailRecord();
+    const record = paidOwnedOrderDetailRecord({
+      items: base.items.map((item) => ({
+        ...item,
+        aftersale_reserved_amount: item.line_paid_amount,
+        aftersale_reserved_qty: item.quantity,
+      })),
+    });
+    const transaction = {
+      $queryRaw: vi.fn().mockResolvedValue([{ transaction_time: NOW }]),
+      salesOrder: { findFirst: vi.fn().mockResolvedValue(record) },
+    } as unknown as DatabaseTransaction;
+    const repository = new StoreOrderRepository({} as PrismaClient);
+
+    await expect(repository.getOwnedOrderDetailInTransaction(transaction, {
+      customerId,
+      orderId: record.id,
+    })).resolves.toMatchObject({ canApplyAftersale: false });
+  });
+
+  it('queries only customer aftersales in the frozen detail order and excludes all terminal states from active count',
+    async () => {
+      const record = paidOwnedOrderDetailRecord();
+      const findFirst = vi.fn().mockResolvedValue(record);
+      const transaction = {
+        $queryRaw: vi.fn().mockResolvedValue([{ transaction_time: NOW }]),
+        salesOrder: { findFirst },
+      } as unknown as DatabaseTransaction;
+      const repository = new StoreOrderRepository({} as PrismaClient);
+
+      await repository.getOwnedOrderDetailInTransaction(transaction, {
+        customerId,
+        orderId: record.id,
+      });
+
+      const query = findFirst.mock.calls[0]?.[0] as {
+        include: {
+          _count: { select: { aftersales: { where: unknown } } };
+          aftersales: { orderBy: unknown; where: unknown };
+        };
+      };
+      expect(query.include.aftersales).toMatchObject({
+        orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
+        where: { type: { in: ['REFUND_ONLY', 'RETURN_REFUND'] } },
+      });
+      expect(query.include._count.select.aftersales.where).toEqual({
+        status: { notIn: ['CANCELLED', 'COMPLETED', 'REJECTED', 'REJECTED_AFTER_RETURN'] },
+        type: { in: ['REFUND_ONLY', 'RETURN_REFUND'] },
+      });
+    });
+
   it('finds timeout integrity violations with one bounded read-only statement', async () => {
     const orderId = id(-14_000);
     const secondOrderId = id(-13_000);

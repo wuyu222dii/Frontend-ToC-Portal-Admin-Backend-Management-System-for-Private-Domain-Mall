@@ -285,6 +285,29 @@ describe('AuditRepository', () => {
     }));
   });
 
+  it.each([
+    'PENDING_REVIEW',
+    'REFUNDING',
+    'WAITING_RETURN',
+    'WAITING_RECEIPT',
+    'RETURN_EXCEPTION',
+    'REFUNDING_AFTER_RETURN',
+    'REJECTED_AFTER_RETURN',
+    'REFUND_FAILED',
+  ])('accepts the closed aftersale lifecycle status %s', async (status) => {
+    const transaction = transactionStub();
+    await new AuditRepository(ipHashKey).append(transaction, {
+      ...baseInput,
+      after: { status, version: 2 },
+      before: { status: 'PENDING_REVIEW', version: 1 },
+      module: 'aftersale',
+      objectType: 'aftersale',
+      summaryPolicy: 'STATUS_VERSION',
+    });
+
+    expect(transaction.auditLog.create).toHaveBeenCalledOnce();
+  });
+
   it('NONE policy rejects caller-defined summary keys', async () => {
     await expect(new AuditRepository(ipHashKey).append(transactionStub(), {
       ...baseInput,

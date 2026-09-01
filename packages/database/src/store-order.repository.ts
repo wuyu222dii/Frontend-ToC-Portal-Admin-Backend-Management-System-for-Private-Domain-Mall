@@ -89,6 +89,7 @@ export interface StoreOrderListItemSnapshot {
       | null;
     refundedAmount: string;
   };
+  canApplyAftersale: boolean;
   canCancel: boolean;
   canPay: boolean;
   itemImages: Array<{ objectKey: string | null; orderItemId: string }>;
@@ -114,12 +115,34 @@ export interface StoreOrderAddressSnapshot {
 
 export interface StoreOrderDetailSnapshot {
   address: StoreOrderAddressSnapshot;
+  aftersales: StoreOrderAftersaleSnapshot[];
+  canApplyAftersale: boolean;
   canCancel: boolean;
   canPay: boolean;
   closedAt: Date | null;
   order: StoreOrderSnapshot;
   paymentAttempts: StoreOrderPaymentAttemptSnapshot[];
   refundAttempts: StoreOrderRefundAttemptSnapshot[];
+}
+
+export interface StoreOrderAftersaleSnapshot {
+  aftersaleId: string;
+  aftersaleNo: string;
+  createdAt: Date;
+  requestedAmount: string;
+  status:
+    | 'CANCELLED'
+    | 'COMPLETED'
+    | 'PENDING_REVIEW'
+    | 'REFUND_FAILED'
+    | 'REFUNDING'
+    | 'REFUNDING_AFTER_RETURN'
+    | 'REJECTED'
+    | 'REJECTED_AFTER_RETURN'
+    | 'RETURN_EXCEPTION'
+    | 'WAITING_RECEIPT'
+    | 'WAITING_RETURN';
+  type: 'REFUND_ONLY' | 'RETURN_REFUND';
 }
 
 export interface StoreOrderPaymentAttemptSnapshot {
@@ -410,7 +433,12 @@ type StoreOrderRecord = Prisma.SalesOrderGetPayload<{ include: typeof ORDER_WITH
 const ORDER_READ_INCLUDE = {
   _count: {
     select: {
-      aftersales: { where: { status: { notIn: ['CANCELLED', 'COMPLETED'] } } },
+      aftersales: {
+        where: {
+          status: { notIn: ['CANCELLED', 'COMPLETED', 'REJECTED', 'REJECTED_AFTER_RETURN'] },
+          type: { in: ['REFUND_ONLY', 'RETURN_REFUND'] },
+        },
+      },
     },
   },
   aftersales: {
@@ -420,6 +448,7 @@ const ORDER_READ_INCLUDE = {
     ] satisfies Prisma.AftersaleOrderByWithRelationInput[],
     select: { id: true, status: true },
     take: 1,
+    where: { type: { in: ['REFUND_ONLY', 'RETURN_REFUND'] } },
   },
   inventory_reservation: { select: { id: true, status: true } },
   items: ORDER_WITH_ITEMS.items,
@@ -450,6 +479,23 @@ const ORDER_DETAIL_INCLUDE = {
       province: true,
       recipient_name: true,
     },
+  },
+  aftersales: {
+    orderBy: [
+      { created_at: 'asc' },
+      { id: 'asc' },
+    ] satisfies Prisma.AftersaleOrderByWithRelationInput[],
+    select: {
+      aftersale_no: true,
+      created_at: true,
+      id: true,
+      items: {
+        select: { requested_amount: true },
+      },
+      status: true,
+      type: true,
+    },
+    where: { type: { in: ['REFUND_ONLY', 'RETURN_REFUND'] } },
   },
   payment_intents: {
     orderBy: [
@@ -1062,6 +1108,19 @@ function canPayOrder(record: StoreOrderActionRecord, serverTime: Date): boolean 
   return record.payment_status === 'UNPAID';
 }
 
+function canApplyAftersale(record: StoreOrderActionRecord, serverTime: Date): boolean {
+  if (record.payment_status !== 'PAID' || record.payment_resolution !== 'NORMAL') return false;
+  const withinWindow = ((record.order_status === 'PENDING_SHIPMENT' || record.order_status === 'SHIPPING') &&
+      record.completed_at === null) ||
+    (record.order_status === 'COMPLETED' && record.completed_at !== null &&
+      record.aftersale_expires_at !== null &&
+      record.aftersale_expires_at.getTime() >= serverTime.getTime());
+  if (!withinWindow) return false;
+  return record.items.some((item) =>
+    item.quantity - item.refunded_qty - item.aftersale_reserved_qty > 0 &&
+    item.line_paid_amount.minus(item.refunded_amount).minus(item.aftersale_reserved_amount).greaterThan(0));
+}
+
 function paymentAttemptSnapshots(record: StoreOrderDetailRecord): StoreOrderPaymentAttemptSnapshot[] {
   return record.payment_intents.flatMap((intent) => {
     requireUlid(intent.id, 'Stored payment intent ID');
@@ -1126,6 +1185,30 @@ function aftersaleSummary(record: StoreOrderReadRecord): StoreOrderListItemSnaps
     latestStatus: latest?.status ?? null,
     refundedAmount: safeMoney(record.refunded_amount, 'Stored order refunded amount'),
   };
+}
+
+function aftersaleSnapshots(record: StoreOrderDetailRecord): StoreOrderAftersaleSnapshot[] {
+  return record.aftersales.map((aftersale) => {
+    requireUlid(aftersale.id, 'Stored aftersale ID');
+    if (aftersale.type !== 'REFUND_ONLY' && aftersale.type !== 'RETURN_REFUND') {
+      throw internalError('Stored customer aftersale type is invalid');
+    }
+    return {
+      aftersaleId: aftersale.id,
+      aftersaleNo: safeStoredText(aftersale.aftersale_no, 32, 'Stored aftersale number'),
+      createdAt: safeDate(aftersale.created_at, 'Stored aftersale creation time'),
+      requestedAmount: safeMoney(
+        aftersale.items.reduce(
+          (total, item) => total.plus(item.requested_amount),
+          new Prisma.Decimal(0),
+        ),
+        'Stored aftersale requested amount',
+        true,
+      ),
+      status: aftersale.status,
+      type: aftersale.type,
+    };
+  });
 }
 
 function addressSnapshot(record: NonNullable<StoreOrderDetailRecord['address_snapshot']>): StoreOrderAddressSnapshot {
@@ -1478,6 +1561,7 @@ export class StoreOrderRepository {
         const order = orderSnapshot(record, serverTime);
         return {
           aftersaleSummary: aftersaleSummary(record),
+          canApplyAftersale: canApplyAftersale(record, serverTime),
           canCancel: canCancelOrder(record, serverTime),
           canPay: canPayOrder(record, serverTime),
           itemImages: order.items.map((item) => ({
@@ -1505,6 +1589,8 @@ export class StoreOrderRepository {
     if (!record.address_snapshot) throw internalError('Stored order address snapshot is missing');
     return {
       address: addressSnapshot(record.address_snapshot),
+      aftersales: aftersaleSnapshots(record),
+      canApplyAftersale: canApplyAftersale(record, serverTime),
       canCancel: canCancelOrder(record, serverTime),
       canPay: canPayOrder(record, serverTime),
       closedAt: record.closed_at === null ? null : safeDate(record.closed_at, 'Stored order closure time'),

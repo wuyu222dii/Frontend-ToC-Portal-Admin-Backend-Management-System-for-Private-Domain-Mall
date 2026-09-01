@@ -197,6 +197,17 @@ function orderDetail() {
   };
 }
 
+function aftersaleSummary() {
+  return {
+    aftersale_id: AFTERSALE_ID,
+    aftersale_no: `AS${AFTERSALE_ID}`,
+    type: 'REFUND_ONLY',
+    status: 'PENDING_REVIEW',
+    requested_amount: '39.00',
+    created_at: '2026-08-29T01:04:00.000Z',
+  };
+}
+
 function firstLogisticsEvent() {
   return {
     event_id: FIRST_EVENT_ID,
@@ -336,6 +347,10 @@ describe('B9 order response decoders', () => {
       }],
       pagination: { page: 1, page_size: 20, total: 1 },
     }).items[0]?.available_actions).toEqual(['PAY', 'VIEW_LOGISTICS', 'CONFIRM_RECEIPT']);
+    expect(decodeStoreOrderList({
+      items: [{ ...listItem(), available_actions: ['APPLY_AFTERSALE'] }],
+      pagination: { page: 1, page_size: 20, total: 1 },
+    }).items[0]?.available_actions).toEqual(['APPLY_AFTERSALE']);
     expect(() => decodeStoreOrderList({
       items: [{ ...listItem(), available_actions: ['SHIP'] }],
       pagination: { page: 1, page_size: 20, total: 1 },
@@ -351,6 +366,23 @@ describe('B9 order response decoders', () => {
     expect(() => decodeStoreOrderDetail({
       ...orderDetail(),
       timeline: [{ ...orderDetail().timeline[0], extra: true }],
+    })).toThrow(StoreEnvelopeFormatError);
+  });
+
+  it('accepts exact B12 order aftersale summaries and rejects malformed or duplicate entries', () => {
+    const detail = {
+      ...orderDetail(),
+      available_actions: ['APPLY_AFTERSALE'],
+      aftersales: [aftersaleSummary()],
+    };
+    expect(decodeStoreOrderDetail(detail)).toEqual(detail);
+    expect(() => decodeStoreOrderDetail({
+      ...detail,
+      aftersales: [{ ...aftersaleSummary(), status: 'UNKNOWN' }],
+    })).toThrow(StoreEnvelopeFormatError);
+    expect(() => decodeStoreOrderDetail({
+      ...detail,
+      aftersales: [aftersaleSummary(), aftersaleSummary()],
     })).toThrow(StoreEnvelopeFormatError);
   });
 

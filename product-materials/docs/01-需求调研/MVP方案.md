@@ -10,7 +10,7 @@
 | 目标用户 | 终端消费者、一级代理、总部商城经营人员 |
 | 人员角色 | `SUPER_ADMIN`、`AGENT_ADMIN`、`CUSTOMER` |
 | 更新日期 | 2026-09-01 |
-| 文档状态 | B0 至 B11 development 已完成并维持 `GO`；B11 最终 SHA `c8e42c44a6a31099c00070294a85f628913165df` 的普通 CI Run `33379627199` 与 Supabase development rollback-only smoke Run `33385726528` 同 SHA 双绿，CH-025 已自动失效。当前产品/API 基线为 `v2.4.10 / 2.4.10-ch026`；B12.0 治理、契约与 `0005_b12_aftersale_refund_guards` 本地实施及 P0/P1 复核已完成，B12 普通售后业务尚未实现。B12.1 在精确 SHA 三项远端门禁和实际独立 reviewer 或另行批准 CH-027 前保持阻塞；真实客户数据、真实微信支付/退款、真实物流、staging/production 均为 `NO-GO` |
+| 文档状态 | B0 至 B11 development 已完成并维持 `GO`；B11 最终同 SHA 双绿已闭合，CH-025 已自动失效。当前产品/API 基线为 `v2.4.10 / 2.4.10-ch026`；B12.0 精确 SHA 的普通 CI、Supabase development migration 与 rollback-only smoke 已全部成功，CH-027 已批准。B12.1 Store 售后申请/查询/取消、额度占用、订单投影与 CUSTOMER 证据权限已实现并在 `P0=0/P1=0` 后暂停；B12.2-B12.6 尚未开始。真实客户数据、真实微信支付/退款、真实物流、staging/production 均为 `NO-GO` |
 
 ## 1. MVP 概述
 
@@ -507,7 +507,7 @@ B0-B11 development 已完成并维持 `GO`，历史证据保留。B11 最终同 
 
 - 尚无真实用户访谈、历史订单、代理规模、佣金预算、商品规模和并发数据；指标阈值需试运行后校准。
 - 尚无微信正式参数、物流合同、隐私文本、线下打款财务制度和法律审核结论。
-- 当前交付物仍不是完整可用商城业务系统。B0-B11 development 已完成，B11 最终同 SHA 双绿已闭合，CH-025 已自动失效。B12.0 仅处于治理、契约和 `0005` 准入阶段，普通售后、退货验货与普通退款业务尚未实现；真实微信支付/退款、第三方物流、staging 和 production 继续排除。
+- 当前交付物仍不是完整可用商城业务系统。B0-B11 development 已完成，B11 最终同 SHA 双绿已闭合，CH-025 已自动失效。B12.0 已完成，B12.1 仅交付 Store 售后申请/查询/取消和额度占用；Admin 审核、退货地址/物流、验货、普通退款、金额补偿及工程前端仍未实现。真实微信支付/退款、第三方物流、staging 和 production 继续排除。
 
 ## 13. 后续建议
 
@@ -517,8 +517,8 @@ B0-B11 development 已完成并维持 `GO`，历史证据保留。B11 最终同 
 4. B10.6 最终 SHA `f5e59169b53a97704711c3aae3049e5b5d16a930` 已取得普通 CI 与 Supabase rollback-only 同 SHA 双绿，B10 development `GO`；不得扩大 runtime 权限或修改冻结迁移。
 5. CH-021 已在 B10 development 最终门禁通过后自动失效；第一次进入 staging 前仍须外部独立复核。
 6. B11.0-B11.5 与最终远端同 SHA 双绿均已完成；B11 development `GO`，CH-025 已自动失效，且不得用静态原型替代工程证据。
-7. B12.0 必须在精确 SHA 上依次取得普通 CI、Supabase development migration 与 rollback-only smoke 成功证据；B12.1 还须完成独立 reviewer，或另行批准尚未获批的 CH-027，不能把 CH-026 视为单人 reviewer 例外。
+7. B12.0 已在精确 SHA 上取得普通 CI、Supabase development migration 与 rollback-only smoke 成功证据；CH-027 已另行批准并仅补偿 B12.1-B12.6 脱敏 development 第二 reviewer 缺失。B12.1 已以 `P0=0/P1=0` 完成并暂停，CH-026 本身仍不构成单人 reviewer 例外。
 
 ---
 
-项目状态：三端 MVP 产品/API 基线为 `v2.4.10 / 2.4.10-ch026`。B0 至 B11 development 已完成并保留远端证据；B11 最终同 SHA 双绿已闭合，CH-025 已自动失效。B12.0 治理、契约和 `0005` 本地实施及 P0/P1 复核已完成，普通售后业务尚未实现，B12.1 仍受精确 SHA 三项远端门禁与 reviewer 门禁阻塞。真实客户数据、真实支付/退款、真实物流、staging/production 仍为 `NO-GO`，进入 staging 前须外部独立复核。
+项目状态：三端 MVP 产品/API 基线为 `v2.4.10 / 2.4.10-ch026`。B0 至 B11 development 已完成并保留远端证据；B12.0 三项远端门禁已闭合，CH-027 已批准。B12.1 Store 售后最小后端闭环已完成并暂停，B12.2 尚未开始，B12 整体仍非 development `GO`。真实客户数据、真实支付/退款、真实物流、staging/production 仍为 `NO-GO`，进入 staging 前须外部独立复核。

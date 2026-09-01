@@ -14,6 +14,7 @@ export * from './payment-reconciliation.repository';
 export * from './product-catalog.repository';
 export * from './store-attribution.repository';
 export * from './store-address.repository';
+export * from './store-aftersale.repository';
 export * from './store-catalog.repository';
 export * from './store-auth.repository';
 export * from './store-cart.repository';

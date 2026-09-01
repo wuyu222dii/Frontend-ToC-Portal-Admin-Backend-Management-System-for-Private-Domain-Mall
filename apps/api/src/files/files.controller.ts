@@ -1,15 +1,28 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Inject, Param, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Inject,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 
 import { NoStore } from '../admin-auth/no-store.decorator';
-import { RequireRoles } from '../platform/access/rbac.metadata';
+import { RequireCustomerOrSuperAdmin } from '../platform/auth/customer-or-super-admin.metadata';
 import { IdempotencyKey } from '../platform/http/idempotency-key.decorator';
 import type { PrincipalRequest } from '../platform/access/principal';
+import { FilesCustomerRateLimitGuard } from './files-customer-rate-limit.guard';
 import { FileAssetsService } from './files.service';
 import { parseFileId, parseUploadCompleteBody, parseUploadIntentBody } from './files.dto';
 import { requireFilesRequest } from './files.request';
 
 @Controller('files')
-@RequireRoles('SUPER_ADMIN')
+@RequireCustomerOrSuperAdmin()
+@UseGuards(FilesCustomerRateLimitGuard)
 export class FilesController {
   constructor(@Inject(FileAssetsService) private readonly files: FileAssetsService) {}
 

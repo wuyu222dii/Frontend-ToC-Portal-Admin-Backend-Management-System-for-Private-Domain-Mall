@@ -195,3 +195,9 @@ jobs:
           B11_FULFILLMENT_DATABASE_TEST_MODE: rollback
           DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
         run: pnpm db:test-b11-fulfillment
+
+      - name: Run rollback-only B12 aftersales, return inspection and ordinary refund smoke
+        env:
+          B12_STORE_AFTERSALE_DATABASE_TEST_MODE: rollback
+          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
+        run: pnpm db:test-b12-aftersales

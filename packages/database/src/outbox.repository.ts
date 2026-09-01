@@ -30,6 +30,7 @@ export interface PublishOutboxOptions {
   maxRetries: number;
   initialDelayMs: number;
   maximumDelayMs?: number;
+  retryAfterExhaustion?: boolean;
 }
 
 export type OutboxHandler = (event: OutboxEvent) => Promise<void>;
@@ -125,6 +126,9 @@ function validatePublishOptions(options: PublishOutboxOptions): void {
   )) {
     throw new TypeError('Outbox maximum retry delay must be between the initial delay and 86400000 ms');
   }
+  if (options.retryAfterExhaustion !== undefined && typeof options.retryAfterExhaustion !== 'boolean') {
+    throw new TypeError('Outbox retry-after-exhaustion flag must be boolean');
+  }
 }
 
 function errorCode(): string {
@@ -210,20 +214,23 @@ export class OutboxRepository {
       try {
         await handler(current);
       } catch {
-        const retryCount = current.retry_count + 1;
-        const terminal = retryCount >= options.maxRetries;
+        const nextRetryCount = current.retry_count + 1;
+        const terminal = nextRetryCount >= options.maxRetries && options.retryAfterExhaustion !== true;
+        const storedRetryCount = options.retryAfterExhaustion === true
+          ? Math.min(nextRetryCount, options.maxRetries)
+          : nextRetryCount;
         const backoffOptions = options.maximumDelayMs === undefined
           ? { initialDelayMs: options.initialDelayMs }
           : { initialDelayMs: options.initialDelayMs, maximumDelayMs: options.maximumDelayMs };
         const nextRetryAt = terminal ? null : new Date(this.currentTime().getTime() + calculateOutboxBackoffMs(
-          current.retry_count,
+          Math.min(current.retry_count, options.maxRetries - 1),
           backoffOptions,
         ));
         await client.query(
           `UPDATE public.outbox_event
              SET status = 'FAILED', retry_count = $2, next_retry_at = $3, error_message = $4
            WHERE id = $1 AND status <> 'PUBLISHED'`,
-          [eventId, retryCount, nextRetryAt, errorCode()],
+          [eventId, storedRetryCount, nextRetryAt, errorCode()],
         );
         return terminal ? 'terminal' as const : 'retry_scheduled' as const;
       }

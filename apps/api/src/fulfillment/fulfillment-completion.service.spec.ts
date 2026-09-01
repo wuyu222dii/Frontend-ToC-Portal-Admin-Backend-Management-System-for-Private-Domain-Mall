@@ -204,6 +204,52 @@ describe('B11.3 FulfillmentCompletionService', () => {
     expect(current.idempotency.complete).not.toHaveBeenCalled();
   });
 
+  it('keeps the original completion HASH_ONLY fact after a shipped full refund changes the current reason', async () => {
+    const current = harness();
+    const record = { resource_id: ORDER_ID, response_body: null, response_status: 200 };
+    current.idempotency.claim.mockImplementationOnce(async () => {
+      current.sequence.push('claim');
+      return { kind: 'replay' as const, record };
+    });
+    current.fulfillment.getCompletedOrderForReplayInTransaction.mockImplementationOnce(async () => {
+      current.sequence.push('getReplay');
+      return {
+        ...result(),
+        completionReason: 'FULL_REFUND_AFTER_SHIPMENT' as const,
+        orderVersion: 6,
+        shipmentStatus: 'DELIVERED' as const,
+        shipmentVersion: 3,
+      };
+    });
+
+    await expect(current.service.completeAdmin({
+      actorAccountId: ADMIN_ACCOUNT_ID,
+      expectedOrderVersion: 4,
+      idempotencyKey: IDEMPOTENCY_KEY,
+      orderId: ORDER_ID,
+      reason: 'Delivery evidence verified',
+      requestId: REQUEST_ID,
+    })).resolves.toMatchObject({
+      completionReason: 'FULL_REFUND_AFTER_SHIPMENT',
+      orderId: ORDER_ID,
+      orderVersion: 6,
+    });
+
+    expect(current.sequence).toEqual(['claim', 'getReplay', 'assertReplay']);
+    expect(current.idempotency.assertHashOnlyReplay).toHaveBeenCalledWith(record, {
+      resourceId: ORDER_ID,
+      responseForHash: {
+        order_completed: { completion_reason: 'ADMIN_FORCED', order_id: ORDER_ID },
+      },
+      responseStatus: 200,
+      storage: 'HASH_ONLY',
+    });
+    expect(current.fulfillment.completeOrderInTransaction).not.toHaveBeenCalled();
+    expect(current.audit.append).not.toHaveBeenCalled();
+    expect(current.outbox.append).not.toHaveBeenCalled();
+    expect(current.idempotency.complete).not.toHaveBeenCalled();
+  });
+
   it('does not append metadata or complete idempotency when domain completion fails', async () => {
     const current = harness();
     current.fulfillment.completeOrderInTransaction.mockImplementationOnce(async () => {

@@ -1822,9 +1822,12 @@ export class FulfillmentRepository {
       select: { delivered_at: true, id: true, status: true, version: true },
       where: { id: shipmentId },
     });
+    const replayCompletionReason = order.completion_reason;
+    const compatibleCompletionReason = replayCompletionReason === input.completionReason ||
+      replayCompletionReason === 'FULL_REFUND_AFTER_SHIPMENT';
     if (shipment === null || shipment.status !== 'DELIVERED' || shipment.delivered_at === null ||
       order.order_status !== 'COMPLETED' || order.fulfillment_status !== 'DELIVERED' ||
-      order.completion_reason !== input.completionReason || order.completed_at === null ||
+      replayCompletionReason === null || !compatibleCompletionReason || order.completed_at === null ||
       order.aftersale_expires_at === null || order.business_rule_version_id === null ||
       order.close_reason !== null || order.closed_at !== null) {
       throw internal('HASH_ONLY completion replay facts are inconsistent');
@@ -1833,7 +1836,7 @@ export class FulfillmentRepository {
       aftersaleExpiresAt: safeDate(order.aftersale_expires_at, 'Stored replay aftersale expiry'),
       businessRuleVersionId: safeUlid(order.business_rule_version_id, 'Stored replay business rule ID'),
       completedAt: safeDate(order.completed_at, 'Stored replay completion time'),
-      completionReason: order.completion_reason,
+      completionReason: replayCompletionReason,
       orderId: safeUlid(order.id, 'Stored replay order ID'),
       orderVersion: safeCount(order.version, 'Stored replay order version', 1),
       shipmentId: safeUlid(shipment.id, 'Stored replay shipment ID'),
@@ -1930,19 +1933,6 @@ export class FulfillmentRepository {
       throw internal('Paid completion order must have exactly one successful payment attempt');
     }
 
-    const refunds = await transaction.$queryRaw<LockedRefundRow[]>(Prisma.sql`
-      SELECT id, status
-      FROM public.refund
-      WHERE order_id = ${input.orderId}
-      ORDER BY id ASC
-      FOR UPDATE
-    `);
-    for (const refund of refunds) {
-      safeUlid(refund.id, 'Stored completion refund ID');
-      if (!REFUND_STATUSES.has(refund.status)) throw internal('Stored completion refund status is invalid');
-    }
-    if (refunds.some(({ status }) => ACTIVE_REFUND_STATUSES.has(status))) throw orderNotReceivable();
-
     const aftersales = await transaction.$queryRaw<LockedAftersaleRow[]>(Prisma.sql`
       SELECT id, status
       FROM public.aftersale
@@ -1959,6 +1949,19 @@ export class FulfillmentRepository {
     if (aftersales.some(({ status }) => ACTIVE_AFTERSALE_STATUSES.has(status as AftersaleStatus))) {
       throw orderNotReceivable();
     }
+
+    const refunds = await transaction.$queryRaw<LockedRefundRow[]>(Prisma.sql`
+      SELECT id, status
+      FROM public.refund
+      WHERE order_id = ${input.orderId}
+      ORDER BY id ASC
+      FOR UPDATE
+    `);
+    for (const refund of refunds) {
+      safeUlid(refund.id, 'Stored completion refund ID');
+      if (!REFUND_STATUSES.has(refund.status)) throw internal('Stored completion refund status is invalid');
+    }
+    if (refunds.some(({ status }) => ACTIVE_REFUND_STATUSES.has(status))) throw orderNotReceivable();
 
     const lockedShipments = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       SELECT id

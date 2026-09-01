@@ -2,17 +2,24 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 import {
   MOCK_PAYMENT_STATE_TTL_SECONDS,
+  type CreateMockRefundCallbackInput,
   type CreatePaymentIntentInput,
   type LocatePaymentIntentInput,
+  type LocatePaymentRefundInput,
   type MockPaymentCallback,
   type MockPaymentCallbackPayload,
   type MockPaymentProviderConfig,
+  type MockRefundCallback,
+  type MockRefundCallbackOutcome,
+  type MockRefundCallbackPayload,
   type MockPaymentResultPort,
   type PaymentProviderFailureCode,
   type PaymentProviderIntentResult,
   type PaymentProviderOutcome,
   type PaymentProviderPort,
+  type PaymentProviderRefundQueryResult,
   type PaymentProviderRefundResult,
+  type PaymentRefundQueryPort,
   type PaymentRedisEvalPort,
   type RefundPaymentInput,
   type SubmitMockPaymentResult,
@@ -93,7 +100,7 @@ redis.call('SET', KEYS[1], current, 'EX', ARGV[5])
 return {'UPDATED', current}
 `;
 
-const REFUND_SCRIPT = `-- qingxu:payment-mock:refund:v1
+const REFUND_SCRIPT = `-- qingxu:payment-mock:refund:v2
 local current = redis.call('GET', KEYS[1])
 if current then
   local ok, state = pcall(cjson.decode, current)
@@ -101,21 +108,60 @@ if current then
   if state.kind ~= 'REFUND' or state.request_digest ~= ARGV[1] then
     return {'CONFLICT', current}
   end
-  redis.call('EXPIRE', KEYS[1], ARGV[3])
-  return {'EXISTING', current}
+  if state.version == 1 then
+    if ARGV[4] ~= '1' then return {'CONFLICT', current} end
+    redis.call('EXPIRE', KEYS[1], ARGV[5])
+    return {'EXISTING', current}
+  end
+  if state.version ~= 2 or state.attempt_digest == nil then return {'INVALID', current} end
+  if state.attempt_digest == ARGV[2] then
+    redis.call('EXPIRE', KEYS[1], ARGV[5])
+    return {'EXISTING', current}
+  end
+  if state.state ~= 'FAILED' then return {'CONFLICT', current} end
+  local replacement = cjson.decode(ARGV[3])
+  if replacement.kind ~= 'REFUND' or replacement.version ~= 2 or
+     replacement.state ~= 'SUCCEEDED' or replacement.attempt_digest ~= ARGV[2] or
+     replacement.request_digest ~= state.request_digest or
+     replacement.provider_refund_id ~= state.provider_refund_id or
+     replacement.amount ~= state.amount then
+    return {'CONFLICT', current}
+  end
+  local redis_time = redis.call('TIME')
+  replacement.occurred_at_ms = tonumber(redis_time[1]) * 1000 + math.floor(tonumber(redis_time[2]) / 1000)
+  current = cjson.encode(replacement)
+  redis.call('SET', KEYS[1], current, 'EX', ARGV[5])
+  return {'UPDATED', current}
 end
-local state = cjson.decode(ARGV[2])
+local state = cjson.decode(ARGV[3])
 local redis_time = redis.call('TIME')
 state.occurred_at_ms = tonumber(redis_time[1]) * 1000 + math.floor(tonumber(redis_time[2]) / 1000)
 current = cjson.encode(state)
-redis.call('SET', KEYS[1], current, 'EX', ARGV[3])
+redis.call('SET', KEYS[1], current, 'EX', ARGV[5])
 return {'CREATED', current}
+`;
+
+const QUERY_REFUND_SCRIPT = `-- qingxu:payment-mock:query-refund:v1
+local current = redis.call('GET', KEYS[1])
+if not current then return {'NOT_FOUND', ''} end
+local ok, state = pcall(cjson.decode, current)
+if not ok or state.kind ~= 'REFUND' then return {'INVALID', current} end
+if ARGV[1] ~= '' and state.provider_refund_id ~= ARGV[1] then
+  return {'CONFLICT', current}
+end
+redis.call('EXPIRE', KEYS[1], ARGV[2])
+return {'FOUND', current}
 `;
 
 const EVAL_FAILURE = Symbol('payment-provider-eval-failure');
 const SAFE_REFERENCE = /^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/;
 const SAFE_MONEY = /^(?:0|[1-9][0-9]{0,15})\.[0-9]{2}$/;
 const HEX_64 = /^[a-f0-9]{64}$/;
+const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
+const REFUND_NO = /^RF[0-9A-HJKMNP-TV-Z]{26}$/;
+const BASE64_SHA256 = /^[A-Za-z0-9+/]{43}=$/;
+const DECIMAL_MILLISECONDS = /^(?:0|[1-9][0-9]{0,15})$/;
+const MAX_REFUND_CALLBACK_BYTES = 2_048;
 const PAYMENT_STATES = new Set<PaymentProviderOutcome>([
   'OPEN', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'CLOSED',
 ]);
@@ -133,7 +179,7 @@ interface StoredPaymentState {
   occurred_at_ms: number | null;
 }
 
-interface StoredRefundState {
+interface StoredRefundStateV1 {
   kind: 'REFUND';
   version: 1;
   request_digest: string;
@@ -143,6 +189,20 @@ interface StoredRefundState {
   provider_event_id: string;
   occurred_at_ms: number | null;
 }
+
+interface StoredRefundStateV2 {
+  kind: 'REFUND';
+  version: 2;
+  request_digest: string;
+  attempt_digest: string;
+  provider_refund_id: string;
+  state: 'FAILED' | 'SUCCEEDED';
+  amount: string;
+  provider_event_id: string;
+  occurred_at_ms: number | null;
+}
+
+type StoredRefundState = StoredRefundStateV1 | StoredRefundStateV2;
 
 function exactRecord(value: unknown, fields: readonly string[]): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value) &&
@@ -202,19 +262,25 @@ function parseRefundState(body: string): StoredRefundState | undefined {
   } catch {
     return undefined;
   }
-  const fields = [
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const commonFields = [
     'kind', 'version', 'request_digest', 'provider_refund_id', 'state', 'amount',
     'provider_event_id', 'occurred_at_ms',
   ];
-  if (!exactRecord(value, fields) || value.kind !== 'REFUND' || value.version !== 1 ||
-    typeof value.request_digest !== 'string' || !HEX_64.test(value.request_digest) ||
-    typeof value.provider_refund_id !== 'string' || !SAFE_REFERENCE.test(value.provider_refund_id) ||
-    value.state !== 'SUCCEEDED' || typeof value.amount !== 'string' || !SAFE_MONEY.test(value.amount) ||
-    typeof value.provider_event_id !== 'string' || !SAFE_REFERENCE.test(value.provider_event_id) ||
-    !validMilliseconds(value.occurred_at_ms, true)) {
+  const v1 = exactRecord(record, commonFields) && record.version === 1;
+  const v2 = exactRecord(record, [...commonFields, 'attempt_digest']) && record.version === 2;
+  if ((!v1 && !v2) || record.kind !== 'REFUND' ||
+    typeof record.request_digest !== 'string' || !HEX_64.test(record.request_digest) ||
+    (v2 && (typeof record.attempt_digest !== 'string' || !HEX_64.test(record.attempt_digest))) ||
+    typeof record.provider_refund_id !== 'string' || !SAFE_REFERENCE.test(record.provider_refund_id) ||
+    (record.state !== 'SUCCEEDED' && (!v2 || record.state !== 'FAILED')) ||
+    typeof record.amount !== 'string' || !SAFE_MONEY.test(record.amount) ||
+    typeof record.provider_event_id !== 'string' || !SAFE_REFERENCE.test(record.provider_event_id) ||
+    !validMilliseconds(record.occurred_at_ms, true)) {
     return undefined;
   }
-  return value as unknown as StoredRefundState;
+  return record as unknown as StoredRefundState;
 }
 
 function keyBuffer(key: Uint8Array): Buffer {
@@ -282,13 +348,23 @@ function paymentResult(state: StoredPaymentState): PaymentProviderIntentResult {
   };
 }
 
-function refundResult(state: StoredRefundState): PaymentProviderRefundResult {
+function refundResult(state: StoredRefundState): PaymentProviderRefundQueryResult {
   return {
     outcome: state.state,
     providerRefundId: state.provider_refund_id,
     providerEventId: state.provider_event_id,
     occurredAt: state.occurred_at_ms === null ? null : new Date(state.occurred_at_ms),
     failureCode: null,
+  };
+}
+
+function unknownRefundQuery(failureCode: PaymentProviderFailureCode): PaymentProviderRefundQueryResult {
+  return { outcome: 'UNKNOWN', providerRefundId: null, providerEventId: null, occurredAt: null, failureCode };
+}
+
+function notFoundRefund(): PaymentProviderRefundQueryResult {
+  return {
+    outcome: 'NOT_FOUND', providerRefundId: null, providerEventId: null, occurredAt: null, failureCode: null,
   };
 }
 
@@ -306,6 +382,19 @@ function callbackSignature(key: Uint8Array, timestamp: string, rawBody: Uint8Arr
     .update('\0', 'utf8')
     .update(rawBody)
     .digest();
+}
+
+function refundCallbackSignature(key: Uint8Array, timestamp: string, rawBody: Uint8Array): Buffer {
+  return createHmac('sha256', keyBuffer(key))
+    .update('qingxu:payment-mock:refund-event-signature:v1\0', 'utf8')
+    .update(timestamp, 'ascii')
+    .update('\0', 'utf8')
+    .update(rawBody)
+    .digest();
+}
+
+function refundCallbackEventType(outcome: MockRefundCallbackOutcome): MockRefundCallback['eventType'] {
+  return outcome === 'SUCCEEDED' ? 'refund.succeeded' : 'refund.failed';
 }
 
 function callbackFor(state: StoredPaymentState): MockPaymentCallback | undefined {
@@ -388,7 +477,134 @@ export function verifyMockPaymentCallback(callback: MockPaymentCallback, signing
   }
 }
 
-export class RedisMockPaymentProvider implements PaymentProviderPort, MockPaymentResultPort {
+/**
+ * Build the minimum signed refund fact needed for deterministic Inbox routing.
+ * Raw Provider responses and unrelated business identifiers are absent.
+ */
+export function createSignedMockRefundCallback(
+  signingKey: Uint8Array,
+  input: CreateMockRefundCallbackInput,
+  result: PaymentProviderRefundResult,
+): MockRefundCallback {
+  if ((result.outcome !== 'SUCCEEDED' && result.outcome !== 'FAILED') || result.providerRefundId === null ||
+    result.providerEventId === null || result.occurredAt === null || result.failureCode !== null) {
+    throw new TypeError('Mock refund terminal facts are incomplete');
+  }
+  const occurredAt = validDate(result.occurredAt, 'Refund occurrence');
+  if (!REFUND_NO.test(input.refundNo)) throw new TypeError('Refund number must be RF followed by a ULID');
+  if (!ULID.test(input.refundAttemptId)) throw new TypeError('Refund attempt ID must be a ULID');
+  if (!Number.isSafeInteger(input.attemptNo) || input.attemptNo < 1) {
+    throw new TypeError('Refund attempt number must be a positive safe integer');
+  }
+  const payload: MockRefundCallbackPayload = {
+    version: 1,
+    refund_no: input.refundNo,
+    refund_attempt_id: input.refundAttemptId,
+    attempt_no: input.attemptNo,
+    provider_event_id: reference(result.providerEventId, 'Provider event ID'),
+    provider_refund_id: reference(result.providerRefundId, 'Provider refund ID'),
+    outcome: result.outcome,
+    amount: money(input.amount),
+    occurred_at: occurredAt.toISOString(),
+  };
+  const rawBody = Buffer.from(JSON.stringify(payload), 'utf8');
+  const timestamp = String(occurredAt.getTime());
+  return {
+    eventType: refundCallbackEventType(payload.outcome),
+    providerEventId: payload.provider_event_id,
+    rawBody,
+    headers: {
+      mock_signature: refundCallbackSignature(signingKey, timestamp, rawBody).toString('base64'),
+      mock_timestamp: timestamp,
+    },
+    payload,
+  };
+}
+
+export function decodeMockRefundCallback(callback: unknown, signingKey: Uint8Array): MockRefundCallbackPayload {
+  if (!exactRecord(callback, ['eventType', 'providerEventId', 'rawBody', 'headers', 'payload']) ||
+    !(callback.rawBody instanceof Uint8Array) || callback.rawBody.byteLength === 0 ||
+    callback.rawBody.byteLength > MAX_REFUND_CALLBACK_BYTES ||
+    !exactRecord(callback.headers, ['mock_signature', 'mock_timestamp']) ||
+    typeof callback.headers.mock_signature !== 'string' || !BASE64_SHA256.test(callback.headers.mock_signature) ||
+    typeof callback.headers.mock_timestamp !== 'string' ||
+    !DECIMAL_MILLISECONDS.test(callback.headers.mock_timestamp)) {
+    throw new TypeError('Mock refund callback envelope is invalid');
+  }
+
+  let decoded: string;
+  let value: unknown;
+  try {
+    decoded = new TextDecoder('utf-8', { fatal: true }).decode(callback.rawBody);
+    value = JSON.parse(decoded);
+  } catch {
+    throw new TypeError('Mock refund callback body is invalid');
+  }
+  const fields = [
+    'version', 'refund_no', 'refund_attempt_id', 'attempt_no', 'provider_event_id',
+    'provider_refund_id', 'outcome', 'amount', 'occurred_at',
+  ] as const;
+  if (!exactRecord(value, fields) || value.version !== 1 ||
+    typeof value.refund_no !== 'string' || !REFUND_NO.test(value.refund_no) ||
+    typeof value.refund_attempt_id !== 'string' || !ULID.test(value.refund_attempt_id) ||
+    typeof value.attempt_no !== 'number' || !Number.isSafeInteger(value.attempt_no) || value.attempt_no < 1 ||
+    typeof value.provider_event_id !== 'string' || !SAFE_REFERENCE.test(value.provider_event_id) ||
+    typeof value.provider_refund_id !== 'string' || !SAFE_REFERENCE.test(value.provider_refund_id) ||
+    (value.outcome !== 'SUCCEEDED' && value.outcome !== 'FAILED') ||
+    typeof value.amount !== 'string' || !SAFE_MONEY.test(value.amount) ||
+    BigInt(value.amount.replace('.', '')) < 1n || typeof value.occurred_at !== 'string') {
+    throw new TypeError('Mock refund callback payload is invalid');
+  }
+  const occurredAtMs = Date.parse(value.occurred_at);
+  if (!Number.isSafeInteger(occurredAtMs) || new Date(occurredAtMs).toISOString() !== value.occurred_at ||
+    callback.headers.mock_timestamp !== String(occurredAtMs)) {
+    throw new TypeError('Mock refund callback timestamp is invalid');
+  }
+
+  const payload: MockRefundCallbackPayload = {
+    version: 1,
+    refund_no: value.refund_no,
+    refund_attempt_id: value.refund_attempt_id,
+    attempt_no: value.attempt_no,
+    provider_event_id: value.provider_event_id,
+    provider_refund_id: value.provider_refund_id,
+    outcome: value.outcome,
+    amount: value.amount,
+    occurred_at: value.occurred_at,
+  };
+  if (decoded !== JSON.stringify(payload) || !exactRecord(callback.payload, fields) ||
+    callback.payload.version !== payload.version ||
+    callback.payload.refund_no !== payload.refund_no ||
+    callback.payload.refund_attempt_id !== payload.refund_attempt_id ||
+    callback.payload.attempt_no !== payload.attempt_no ||
+    callback.payload.provider_event_id !== payload.provider_event_id ||
+    callback.payload.provider_refund_id !== payload.provider_refund_id ||
+    callback.payload.outcome !== payload.outcome || callback.payload.amount !== payload.amount ||
+    callback.payload.occurred_at !== payload.occurred_at ||
+    callback.providerEventId !== payload.provider_event_id ||
+    callback.eventType !== refundCallbackEventType(payload.outcome)) {
+    throw new TypeError('Mock refund callback facts do not match');
+  }
+
+  const actual = Buffer.from(callback.headers.mock_signature, 'base64');
+  const expected = refundCallbackSignature(signingKey, callback.headers.mock_timestamp, callback.rawBody);
+  if (actual.toString('base64') !== callback.headers.mock_signature || actual.length !== expected.length ||
+    !timingSafeEqual(actual, expected)) {
+    throw new TypeError('Mock refund callback signature is invalid');
+  }
+  return payload;
+}
+
+export function verifyMockRefundCallback(callback: unknown, signingKey: Uint8Array): boolean {
+  try {
+    decodeMockRefundCallback(callback, signingKey);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export class RedisMockPaymentProvider implements PaymentProviderPort, PaymentRefundQueryPort, MockPaymentResultPort {
   private readonly signingKey: Buffer;
   private readonly timeoutMs: number;
 
@@ -458,30 +674,67 @@ export class RedisMockPaymentProvider implements PaymentProviderPort, MockPaymen
     const providerIntentId = reference(input.providerIntentId, 'Provider intent ID');
     const providerTransactionId = reference(input.providerTransactionId, 'Provider transaction ID');
     const amount = money(input.amount);
+    const providerRequestId = input.providerRequestId === undefined
+      ? null
+      : reference(input.providerRequestId, 'Provider request ID');
     const requestDigest = hmacHex(
       this.signingKey, 'refund-request', refundNo, providerIntentId, providerTransactionId, amount,
     );
-    const proposed: StoredRefundState = {
+    const attemptDigest = providerRequestId === null
+      ? requestDigest
+      : hmacHex(this.signingKey, 'refund-attempt-request', refundNo, providerRequestId);
+    const providerEventId = providerRequestId === null
+      ? providerReference(this.signingKey, 'mock_re_', 'refund-event-id', refundNo)
+      : `mock_re_${hmacHex(this.signingKey, 'refund-event-id', refundNo, providerRequestId)}`;
+    const proposed: StoredRefundStateV2 = {
       kind: 'REFUND',
-      version: 1,
+      version: 2,
       request_digest: requestDigest,
+      attempt_digest: attemptDigest,
       provider_refund_id: providerReference(this.signingKey, 'mock_rf_', 'provider-refund-id', refundNo),
       state: 'SUCCEEDED',
       amount,
-      provider_event_id: providerReference(this.signingKey, 'mock_re_', 'refund-event-id', refundNo),
+      provider_event_id: providerEventId,
       occurred_at_ms: null,
     };
     const evaluated = await this.evaluate(REFUND_SCRIPT, {
       keys: [mockPaymentRefundStateKey(this.signingKey, refundNo)],
-      arguments: [requestDigest, JSON.stringify(proposed), String(MOCK_PAYMENT_STATE_TTL_SECONDS)],
+      arguments: [
+        requestDigest,
+        attemptDigest,
+        JSON.stringify(proposed),
+        providerRequestId === null ? '1' : '0',
+        String(MOCK_PAYMENT_STATE_TTL_SECONDS),
+      ],
     });
     if (evaluated === EVAL_FAILURE) return unknownRefund('PROVIDER_UNAVAILABLE');
     const tuple = redisTuple(evaluated);
     if (!tuple) return unknownRefund('INVALID_PROVIDER_STATE');
     if (tuple.tag === 'CONFLICT') return unknownRefund('REQUEST_MISMATCH');
-    if (tuple.tag !== 'CREATED' && tuple.tag !== 'EXISTING') return unknownRefund('INVALID_PROVIDER_STATE');
+    if (tuple.tag !== 'CREATED' && tuple.tag !== 'EXISTING' && tuple.tag !== 'UPDATED') {
+      return unknownRefund('INVALID_PROVIDER_STATE');
+    }
     const state = parseRefundState(tuple.body);
     return state ? refundResult(state) : unknownRefund('INVALID_PROVIDER_STATE');
+  }
+
+  async queryRefund(input: LocatePaymentRefundInput): Promise<PaymentProviderRefundQueryResult> {
+    const refundNo = reference(input.refundNo, 'Refund number');
+    const providerRefundId = input.providerRefundId === undefined || input.providerRefundId === null
+      ? null
+      : reference(input.providerRefundId, 'Provider refund ID');
+    const evaluated = await this.evaluate(QUERY_REFUND_SCRIPT, {
+      keys: [mockPaymentRefundStateKey(this.signingKey, refundNo)],
+      arguments: [providerRefundId ?? '', String(MOCK_PAYMENT_STATE_TTL_SECONDS)],
+    });
+    if (evaluated === EVAL_FAILURE) return unknownRefundQuery('PROVIDER_UNAVAILABLE');
+    const tuple = redisTuple(evaluated);
+    if (!tuple) return unknownRefundQuery('INVALID_PROVIDER_STATE');
+    if (tuple.tag === 'NOT_FOUND') return notFoundRefund();
+    if (tuple.tag === 'CONFLICT') return unknownRefundQuery('REQUEST_MISMATCH');
+    if (tuple.tag !== 'FOUND') return unknownRefundQuery('INVALID_PROVIDER_STATE');
+    const state = parseRefundState(tuple.body);
+    return state ? refundResult(state) : unknownRefundQuery('INVALID_PROVIDER_STATE');
   }
 
   async submitResult(input: SubmitMockPaymentResultInput): Promise<SubmitMockPaymentResult> {

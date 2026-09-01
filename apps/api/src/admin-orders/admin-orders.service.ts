@@ -517,6 +517,7 @@ export class AdminOrdersService {
     const actions: Array<
       | 'ADD_LOGISTICS_EVENT'
       | 'COMPLETE'
+      | 'MANUAL_COMPENSATION'
       | 'READ_FULFILLMENT_ADDRESS'
       | 'RECONCILE_PAYMENT'
       | 'RETRY_REFUND'
@@ -528,10 +529,34 @@ export class AdminOrdersService {
     if (detail.eligibility.hasUnresolvedPayment || detail.order.paymentStatus === 'PROCESSING') {
       actions.push('RECONCILE_PAYMENT');
     }
-    if (detail.refundAttempts.some(({ status }) => status === 'FAILED') ||
-      detail.order.refundProcessingStatus === 'FAILED') actions.push('RETRY_REFUND');
+    const latestOrdinaryRefundAttempts = new Map<string, (typeof detail.refundAttempts)[number]>();
+    for (const attempt of detail.refundAttempts) {
+      if (attempt.originType === 'LATE_PAYMENT') continue;
+      const current = latestOrdinaryRefundAttempts.get(attempt.refundId);
+      if (current === undefined || attempt.attemptNo > current.attemptNo) {
+        latestOrdinaryRefundAttempts.set(attempt.refundId, attempt);
+      }
+    }
+    if (detail.order.refundProcessingStatus === 'FAILED' &&
+      [...latestOrdinaryRefundAttempts.values()].some(({ status }) => status === 'FAILED')) {
+      actions.push('RETRY_REFUND');
+    }
+    if (detail.order.paymentStatus === 'PAID' && detail.order.paymentResolution === 'NORMAL' &&
+      detail.order.refundProcessingStatus === 'IDLE' && detail.order.items.some((item) =>
+        this.moneyCents(item.lineAmount) - this.moneyCents(item.refundedAmount) -
+          this.moneyCents(item.reservedAftersaleAmount) > 0n)) {
+      actions.push('MANUAL_COMPENSATION');
+    }
     if (detail.eligibility.canReadFulfillmentAddress) actions.push('READ_FULFILLMENT_ADDRESS');
     return actions;
+  }
+
+  private moneyCents(value: string): bigint {
+    if (!/^(?:0|[1-9][0-9]{0,15})\.[0-9]{2}$/.test(value)) {
+      throw internal('Stored order item money is invalid');
+    }
+    const [whole, fraction] = value.split('.') as [string, string];
+    return BigInt(whole) * 100n + BigInt(fraction);
   }
 
   private timeline(detail: AdminFulfillmentOrderDetail) {

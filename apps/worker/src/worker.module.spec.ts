@@ -5,9 +5,11 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { WorkerHandlerRegistry } from './outbox-dispatcher.service';
 import type { PaymentCallbackService } from './payment-callback.service';
+import type { RefundProcessingService } from './refund-processing.service';
 import {
   WorkerModule,
   mergePaymentCallbackHandlers,
+  mergeRefundProcessingHandlers,
   workerRedisReconnectDelay,
 } from './worker.module';
 
@@ -40,6 +42,46 @@ describe('WorkerModule', () => {
     expect(mergePaymentCallbackHandlers(development, registry, payments).callbacks).toEqual(registrations);
     expect(mergePaymentCallbackHandlers(production, registry, payments).callbacks).toEqual([]);
     expect(payments.registrations).toHaveBeenCalledOnce();
+  });
+
+  it('preserves existing handlers while merging payment and refund processors in order', () => {
+    const existingCallback = { provider: 'WECHAT', eventType: 'payment.succeeded', handle: vi.fn() } as const;
+    const existingOutbox = { eventType: 'existing.event', handle: vi.fn() } as const;
+    const paymentCallback = { provider: 'MOCK', eventType: 'payment.succeeded', handle: vi.fn() } as const;
+    const refundCallbacks = [
+      { provider: 'MOCK', eventType: 'refund.succeeded', handle: vi.fn() },
+      { provider: 'MOCK', eventType: 'refund.failed', handle: vi.fn() },
+    ] as const;
+    const refundOutbox = { eventType: 'refund.execution.requested', handle: vi.fn() } as const;
+    const registry: WorkerHandlerRegistry = {
+      callbacks: [existingCallback],
+      outbox: [existingOutbox],
+    };
+    const payments = {
+      registrations: vi.fn(() => [paymentCallback]),
+    } as unknown as PaymentCallbackService;
+    const refunds = {
+      registrations: vi.fn(() => ({ callbacks: refundCallbacks, outbox: [refundOutbox] })),
+    } as unknown as RefundProcessingService;
+    const development = {
+      environment: 'development',
+      payment: { mockSigningKey: Buffer.alloc(32), provider: 'MOCK' },
+    } as PlatformRuntimeConfig;
+    const production = {
+      environment: 'production',
+      payment: { mockSigningKey: undefined, provider: 'WECHAT' },
+    } as PlatformRuntimeConfig;
+
+    const merged = mergeRefundProcessingHandlers(
+      development,
+      mergePaymentCallbackHandlers(development, registry, payments),
+      refunds,
+    );
+    expect(merged.callbacks).toEqual([existingCallback, paymentCallback, ...refundCallbacks]);
+    expect(merged.outbox).toEqual([existingOutbox, refundOutbox]);
+    expect(mergeRefundProcessingHandlers(production, registry, refunds)).toBe(registry);
+    expect(payments.registrations).toHaveBeenCalledOnce();
+    expect(refunds.registrations).toHaveBeenCalledOnce();
   });
 
   it('compiles without reading runtime environment or connecting to a database', async () => {

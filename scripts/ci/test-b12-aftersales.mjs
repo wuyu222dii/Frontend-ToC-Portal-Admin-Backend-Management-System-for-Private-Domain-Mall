@@ -92,11 +92,13 @@ run(['--filter', '@qingxu/database', 'build']);
 const tests = [
   'src/store-aftersale.integration.spec.ts',
   'src/admin-aftersale-return.integration.spec.ts',
+  'src/admin-refund.integration.spec.ts',
 ];
 if (mode === 'full') {
   tests.unshift(
     'src/store-aftersale.repository.spec.ts',
     'src/admin-aftersale.repository.spec.ts',
+    'src/admin-refund.repository.spec.ts',
   );
 }
 run(['--filter', '@qingxu/database', 'exec', 'vitest', 'run', '--no-file-parallelism', ...tests]);

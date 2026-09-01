@@ -176,6 +176,29 @@ describe('OutboxDispatcherService', () => {
     expect(handler).toHaveBeenCalledWith(outboxEvent);
   });
 
+  it('passes durable retry policy only for an explicitly registered outbox handler', async () => {
+    const mocks = createMocks();
+    vi.mocked(mocks.outbox.findDue).mockResolvedValue([outboxEvent]);
+    vi.mocked(mocks.outbox.publishOne).mockResolvedValue('retry_scheduled');
+    const service = createService({
+      outbox: [{ eventType: outboxEvent.event_type, handle: vi.fn(), retryAfterExhaustion: true }],
+      callbacks: [],
+    }, mocks);
+
+    await service.pollOnce();
+
+    expect(mocks.outbox.publishOne).toHaveBeenCalledWith(
+      outboxEvent.id,
+      expect.any(Function),
+      {
+        initialDelayMs: config.worker.baseRetryDelayMs,
+        maximumDelayMs: 86_400_000,
+        maxRetries: config.worker.maxRetries,
+        retryAfterExhaustion: true,
+      },
+    );
+  });
+
   it('does not consume an outbox event outside the registry even if a repository returns it', async () => {
     const mocks = createMocks();
     vi.mocked(mocks.outbox.findDue).mockResolvedValue([outboxEvent]);
@@ -210,6 +233,40 @@ describe('OutboxDispatcherService', () => {
     }));
     expect(mocks.callbacks.processOne).toHaveBeenCalledOnce();
     expect(handler).toHaveBeenCalledWith(callbackEvent);
+  });
+
+  it('passes durable retry policy through callback selection and processing', async () => {
+    const mocks = createMocks();
+    vi.mocked(mocks.callbacks.findDue).mockResolvedValue([callbackEvent]);
+    vi.mocked(mocks.callbacks.processOne).mockResolvedValue('retry_scheduled');
+    const service = createService({
+      outbox: [],
+      callbacks: [{
+        provider: 'MOCK',
+        eventType: callbackEvent.event_type,
+        handle: vi.fn(),
+        retryAfterExhaustion: true,
+      }],
+    }, mocks);
+
+    await service.pollOnce();
+
+    expect(mocks.callbacks.findDue).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      handlers: [{
+        provider: 'MOCK',
+        eventType: callbackEvent.event_type,
+        retryAfterExhaustion: true,
+      }],
+    }));
+    expect(mocks.callbacks.processOne).toHaveBeenCalledWith(
+      callbackEvent.id,
+      expect.any(Function),
+      {
+        baseDelayMs: config.worker.baseRetryDelayMs,
+        maxRetries: config.worker.maxRetries,
+        retryAfterExhaustion: true,
+      },
+    );
   });
 
   it('does not consume a callback outside the registry even if a repository returns it', async () => {

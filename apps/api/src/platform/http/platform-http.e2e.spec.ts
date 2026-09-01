@@ -320,6 +320,16 @@ describe('API platform HTTP pipeline (e2e)', () => {
     expect(response.headers.pragma).toBe('no-cache');
   });
 
+  it('marks Admin refund errors as private and non-cacheable', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/v1/admin/refunds/01J00000000000000000000001/retry')
+      .expect(404);
+
+    expect(response.body.code).toBe('RESOURCE_NOT_FOUND');
+    expect(response.headers['cache-control']).toBe('no-store, private');
+    expect(response.headers.pragma).toBe('no-cache');
+  });
+
   it('does not treat a middleware-injected permission as authentication', async () => {
     testPrincipal = {
       accountId: 'admin_1',

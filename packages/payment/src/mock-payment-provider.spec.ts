@@ -1,17 +1,23 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  createSignedMockRefundCallback,
   createSignedMockPaymentSuccessCallback,
+  decodeMockRefundCallback,
   mockPaymentIntentStateKey,
   mockPaymentRefundStateKey,
   RedisMockPaymentProvider,
   verifyMockPaymentCallback,
+  verifyMockRefundCallback,
 } from './mock-payment-provider';
 import { MOCK_PAYMENT_STATE_TTL_SECONDS, type PaymentRedisEvalPort } from './types';
 
 const SIGNING_KEY = Buffer.alloc(32, 37);
 const INTENT_NO = 'PI01K00000000000000000000000';
 const REFUND_NO = 'RF01K00000000000000000000000';
+const REFUND_ATTEMPT_ID = '01K00000000000000000000000';
+const REFUND_RETRY_ATTEMPT_ID = '01K00000000000000000000001';
+const REFUND_OTHER_ATTEMPT_ID = '01K00000000000000000000002';
 const EXPIRES_AT = new Date('2026-08-29T12:30:00.000Z');
 const NOW_MS = Date.parse('2026-08-29T12:00:00.000Z');
 
@@ -96,16 +102,50 @@ class FakeRedis implements PaymentRedisEvalPort {
       return ['UPDATED', encoded];
     }
 
-    if (script.includes('refund:v1')) {
-      if (current) {
-        const state = JSON.parse(current) as { request_digest: string };
-        return [state.request_digest === options.arguments[0] ? 'EXISTING' : 'CONFLICT', current];
+    if (script.includes('query-refund:v1')) {
+      if (!current) return ['NOT_FOUND', ''];
+      const state = JSON.parse(current) as { provider_refund_id: string };
+      if (options.arguments[0] && state.provider_refund_id !== options.arguments[0]) {
+        return ['CONFLICT', current];
       }
-      const state = JSON.parse(options.arguments[1]!) as { occurred_at_ms: number | null };
+      this.ttls.set(key, Number(options.arguments[1]));
+      return ['FOUND', current];
+    }
+
+    if (script.includes('refund:v2')) {
+      if (current) {
+        const state = JSON.parse(current) as {
+          amount: string;
+          attempt_digest?: string;
+          provider_refund_id: string;
+          request_digest: string;
+          state: string;
+          version: number;
+        };
+        if (state.request_digest !== options.arguments[0]) return ['CONFLICT', current];
+        if (state.version === 1) {
+          return [options.arguments[3] === '1' ? 'EXISTING' : 'CONFLICT', current];
+        }
+        if (state.version !== 2 || state.attempt_digest === undefined) return ['INVALID', current];
+        if (state.attempt_digest === options.arguments[1]) return ['EXISTING', current];
+        if (state.state !== 'FAILED') return ['CONFLICT', current];
+        const replacement = JSON.parse(options.arguments[2]!) as typeof state & { occurred_at_ms: number | null };
+        if (replacement.version !== 2 || replacement.state !== 'SUCCEEDED' ||
+          replacement.attempt_digest !== options.arguments[1] || replacement.request_digest !== state.request_digest ||
+          replacement.provider_refund_id !== state.provider_refund_id || replacement.amount !== state.amount) {
+          return ['CONFLICT', current];
+        }
+        replacement.occurred_at_ms = NOW_MS;
+        const encoded = JSON.stringify(replacement);
+        this.values.set(key, encoded);
+        this.ttls.set(key, Number(options.arguments[4]));
+        return ['UPDATED', encoded];
+      }
+      const state = JSON.parse(options.arguments[2]!) as { occurred_at_ms: number | null };
       state.occurred_at_ms = NOW_MS;
       const encoded = JSON.stringify(state);
       this.values.set(key, encoded);
-      this.ttls.set(key, Number(options.arguments[2]));
+      this.ttls.set(key, Number(options.arguments[4]));
       return ['CREATED', encoded];
     }
 
@@ -127,6 +167,7 @@ describe('RedisMockPaymentProvider', () => {
       providerIntentId: 'mock_pi_provider_reference',
       providerTransactionId: 'mock_tx_provider_reference',
       amount: '39.80',
+      providerRequestId: REFUND_ATTEMPT_ID,
     });
 
     const intentKey = mockPaymentIntentStateKey(SIGNING_KEY, INTENT_NO);
@@ -137,6 +178,7 @@ describe('RedisMockPaymentProvider', () => {
     expect(refundKey).not.toContain(REFUND_NO);
     expect(redis.values.get(intentKey)).not.toContain(INTENT_NO);
     expect(redis.values.get(refundKey)).not.toContain(REFUND_NO);
+    expect(redis.values.get(refundKey)).not.toContain(REFUND_ATTEMPT_ID);
     expect([...redis.values.values()].join('\n')).not.toMatch(/customer|order_id|capability|pay_sign/i);
     expect([...redis.ttls.values()]).toEqual([
       MOCK_PAYMENT_STATE_TTL_SECONDS,
@@ -274,6 +316,212 @@ describe('RedisMockPaymentProvider', () => {
     await expect(payments.refund({ ...input, amount: '39.79' })).resolves.toMatchObject({
       outcome: 'UNKNOWN', failureCode: 'REQUEST_MISMATCH',
     });
+  });
+
+  it('replays a failed attempt exactly and permits only a new attempt to retry it', async () => {
+    const redis = new FakeRedis();
+    const payments = provider(redis);
+    const immutable = {
+      amount: '39.80',
+      providerIntentId: 'mock_pi_provider_reference',
+      providerTransactionId: 'mock_tx_provider_reference',
+      refundNo: REFUND_NO,
+    };
+    const firstInput = { ...immutable, providerRequestId: REFUND_ATTEMPT_ID };
+    const first = await payments.refund(firstInput);
+    const key = mockPaymentRefundStateKey(SIGNING_KEY, REFUND_NO);
+    const failedState = JSON.parse(redis.values.get(key)!) as { state: string };
+    failedState.state = 'FAILED';
+    redis.values.set(key, JSON.stringify(failedState));
+
+    const sameAttempt = await payments.refund(firstInput);
+    expect(sameAttempt).toMatchObject({
+      outcome: 'FAILED',
+      providerEventId: first.providerEventId,
+      providerRefundId: first.providerRefundId,
+    });
+    await expect(payments.queryRefund({ refundNo: REFUND_NO })).resolves.toEqual(sameAttempt);
+    await expect(payments.refund({
+      ...immutable,
+      amount: '39.79',
+      providerRequestId: REFUND_OTHER_ATTEMPT_ID,
+    })).resolves.toMatchObject({ outcome: 'UNKNOWN', failureCode: 'REQUEST_MISMATCH' });
+
+    const retry = await payments.refund({ ...immutable, providerRequestId: REFUND_RETRY_ATTEMPT_ID });
+    expect(retry).toMatchObject({
+      outcome: 'SUCCEEDED',
+      providerRefundId: first.providerRefundId,
+    });
+    expect(retry.providerEventId).not.toBe(first.providerEventId);
+    await expect(payments.refund({
+      ...immutable,
+      providerRequestId: REFUND_OTHER_ATTEMPT_ID,
+    })).resolves.toMatchObject({ outcome: 'UNKNOWN', failureCode: 'REQUEST_MISMATCH' });
+
+    const persisted = redis.values.get(key)!;
+    expect(persisted).not.toContain(REFUND_NO);
+    expect(persisted).not.toContain(REFUND_ATTEMPT_ID);
+    expect(persisted).not.toContain(REFUND_RETRY_ATTEMPT_ID);
+  });
+
+  it('replays a legacy successful refund only for the B10-compatible request shape', async () => {
+    const redis = new FakeRedis();
+    const payments = provider(redis);
+    const input = {
+      amount: '39.80',
+      providerIntentId: 'mock_pi_provider_reference',
+      providerTransactionId: 'mock_tx_provider_reference',
+      refundNo: REFUND_NO,
+    };
+    const created = await payments.refund(input);
+    const key = mockPaymentRefundStateKey(SIGNING_KEY, REFUND_NO);
+    const legacy = JSON.parse(redis.values.get(key)!) as Record<string, unknown>;
+    legacy.version = 1;
+    delete legacy.attempt_digest;
+    redis.values.set(key, JSON.stringify(legacy));
+
+    await expect(payments.refund(input)).resolves.toEqual(created);
+    await expect(payments.refund({ ...input, providerRequestId: REFUND_ATTEMPT_ID }))
+      .resolves.toMatchObject({ outcome: 'UNKNOWN', failureCode: 'REQUEST_MISMATCH' });
+  });
+
+  it('queries the same opaque refund state after a lost response and refreshes its TTL', async () => {
+    const redis = new FakeRedis();
+    const payments = provider(redis);
+    await expect(payments.queryRefund({ refundNo: REFUND_NO })).resolves.toMatchObject({
+      outcome: 'NOT_FOUND', failureCode: null,
+    });
+    const created = await payments.refund({
+      refundNo: REFUND_NO,
+      providerIntentId: 'mock_pi_provider_reference',
+      providerTransactionId: 'mock_tx_provider_reference',
+      amount: '39.80',
+    });
+    expect(created.providerRefundId).not.toBeNull();
+    const key = mockPaymentRefundStateKey(SIGNING_KEY, REFUND_NO);
+    redis.ttls.set(key, 1);
+
+    const recovered = await payments.queryRefund({
+      refundNo: REFUND_NO,
+      providerRefundId: created.providerRefundId,
+    });
+    expect(recovered).toEqual(created);
+    expect(redis.ttls.get(key)).toBe(MOCK_PAYMENT_STATE_TTL_SECONDS);
+    await expect(payments.queryRefund({
+      refundNo: REFUND_NO,
+      providerRefundId: 'mock_rf_wrong_reference',
+    })).resolves.toMatchObject({ outcome: 'UNKNOWN', failureCode: 'REQUEST_MISMATCH' });
+    expect(JSON.stringify(redis.calls)).not.toContain(REFUND_NO);
+  });
+
+  it('creates and strictly decodes a minimal attempt-bound signed refund callback', () => {
+    const callback = createSignedMockRefundCallback(SIGNING_KEY, {
+      refundNo: REFUND_NO,
+      refundAttemptId: REFUND_ATTEMPT_ID,
+      attemptNo: 2,
+      amount: '39.80',
+    }, {
+      failureCode: null,
+      occurredAt: new Date(NOW_MS),
+      outcome: 'SUCCEEDED',
+      providerEventId: 'mock_re_refund_success',
+      providerRefundId: 'mock_rf_refund_success',
+    });
+
+    expect(decodeMockRefundCallback(callback, SIGNING_KEY)).toEqual(callback.payload);
+    expect(verifyMockRefundCallback(callback, SIGNING_KEY)).toBe(true);
+    expect(callback).toMatchObject({
+      eventType: 'refund.succeeded',
+      payload: {
+        refund_no: REFUND_NO,
+        refund_attempt_id: REFUND_ATTEMPT_ID,
+        attempt_no: 2,
+        amount: '39.80',
+        outcome: 'SUCCEEDED',
+      },
+    });
+    expect(Object.keys(callback.payload).sort()).toEqual([
+      'amount', 'attempt_no', 'occurred_at', 'outcome', 'provider_event_id', 'provider_refund_id',
+      'refund_attempt_id', 'refund_no', 'version',
+    ]);
+    expect(Buffer.from(callback.rawBody).toString('utf8')).not.toMatch(
+      /customer|order_id|aftersale_id|provider_payload|provider_response/i,
+    );
+  });
+
+  it('supports a closed failed refund callback and rejects incomplete routing facts', () => {
+    const callback = createSignedMockRefundCallback(SIGNING_KEY, {
+      refundNo: REFUND_NO,
+      refundAttemptId: REFUND_ATTEMPT_ID,
+      attemptNo: 1,
+      amount: '39.80',
+    }, {
+      failureCode: null,
+      occurredAt: new Date(NOW_MS),
+      outcome: 'FAILED',
+      providerEventId: 'mock_re_refund_failure',
+      providerRefundId: 'mock_rf_refund_failure',
+    });
+    expect(callback.eventType).toBe('refund.failed');
+    expect(verifyMockRefundCallback(callback, SIGNING_KEY)).toBe(true);
+
+    expect(() => createSignedMockRefundCallback(SIGNING_KEY, {
+      refundNo: REFUND_NO,
+      refundAttemptId: 'not-an-ulid',
+      attemptNo: 1,
+      amount: '39.80',
+    }, {
+      failureCode: null,
+      occurredAt: new Date(NOW_MS),
+      outcome: 'FAILED',
+      providerEventId: 'mock_re_refund_failure',
+      providerRefundId: 'mock_rf_refund_failure',
+    })).toThrow('Refund attempt ID must be a ULID');
+    expect(() => createSignedMockRefundCallback(SIGNING_KEY, {
+      refundNo: REFUND_NO,
+      refundAttemptId: REFUND_ATTEMPT_ID,
+      attemptNo: 0,
+      amount: '39.80',
+    }, {
+      failureCode: null,
+      occurredAt: new Date(NOW_MS),
+      outcome: 'FAILED',
+      providerEventId: 'mock_re_refund_failure',
+      providerRefundId: 'mock_rf_refund_failure',
+    })).toThrow('positive safe integer');
+  });
+
+  it('rejects refund callback signature, body, projection and envelope tampering', () => {
+    const callback = createSignedMockRefundCallback(SIGNING_KEY, {
+      refundNo: REFUND_NO,
+      refundAttemptId: REFUND_ATTEMPT_ID,
+      attemptNo: 1,
+      amount: '39.80',
+    }, {
+      failureCode: null,
+      occurredAt: new Date(NOW_MS),
+      outcome: 'SUCCEEDED',
+      providerEventId: 'mock_re_refund_success',
+      providerRefundId: 'mock_rf_refund_success',
+    });
+
+    const wrongSignature = {
+      ...callback,
+      headers: { ...callback.headers, mock_signature: Buffer.alloc(32, 1).toString('base64') },
+    };
+    expect(() => decodeMockRefundCallback(wrongSignature, SIGNING_KEY)).toThrow('signature is invalid');
+    const bodyWithUnknownFact = {
+      ...callback,
+      rawBody: Buffer.from(`${Buffer.from(callback.rawBody).toString('utf8').slice(0, -1)},"order_id":"hidden"}`),
+    };
+    expect(verifyMockRefundCallback(bodyWithUnknownFact, SIGNING_KEY)).toBe(false);
+    const mismatchedProjection = {
+      ...callback,
+      payload: { ...callback.payload, attempt_no: 2 },
+    };
+    expect(() => decodeMockRefundCallback(mismatchedProjection, SIGNING_KEY)).toThrow('facts do not match');
+    expect(verifyMockRefundCallback({ ...callback, eventType: 'refund.failed' }, SIGNING_KEY)).toBe(false);
+    expect(verifyMockRefundCallback({ ...callback, extra: true }, SIGNING_KEY)).toBe(false);
   });
 
   it('maps Redis unavailability, exceptions, malformed data and timeouts to UNKNOWN', async () => {

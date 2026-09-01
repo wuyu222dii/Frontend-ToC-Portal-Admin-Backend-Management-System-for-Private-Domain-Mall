@@ -146,11 +146,13 @@ export type CallbackInboxHandler = (inbox: CallbackInbox) => Promise<void>;
 export interface ProcessCallbackOptions {
   maxRetries: number;
   baseDelayMs: number;
+  retryAfterExhaustion?: boolean;
 }
 
 export interface CallbackHandlerSelector {
   provider: PaymentProvider;
   eventType: string;
+  retryAfterExhaustion?: boolean;
 }
 
 export interface FindDueCallbackOptions {
@@ -175,7 +177,7 @@ export function calculateCallbackDueAt(
   if (retryCount === 0) return receivedAt;
   const anchor = processedAt ?? receivedAt;
   const delay = baseDelayMs * 2 ** Math.min(retryCount - 1, 52);
-  return new Date(anchor.getTime() + Math.min(delay, Number.MAX_SAFE_INTEGER));
+  return new Date(anchor.getTime() + Math.min(delay, 86_400_000));
 }
 
 function validateProcessingOptions(options: ProcessCallbackOptions): void {
@@ -184,6 +186,9 @@ function validateProcessingOptions(options: ProcessCallbackOptions): void {
   }
   if (!Number.isSafeInteger(options.baseDelayMs) || options.baseDelayMs < 1 || options.baseDelayMs > 60_000) {
     throw new TypeError('Callback retry delay must be between 1 and 60000 ms');
+  }
+  if (options.retryAfterExhaustion !== undefined && typeof options.retryAfterExhaustion !== 'boolean') {
+    throw new TypeError('Callback retry-after-exhaustion flag must be boolean');
   }
 }
 
@@ -324,19 +329,30 @@ export class CallbackInboxRepository {
     const handlers = options.handlers.map(({ provider, eventType }) => Prisma.sql`
       (${provider}::public."PaymentProvider", ${eventType}::text)
     `);
+    const durableHandlers = options.handlers
+      .filter(({ retryAfterExhaustion }) => retryAfterExhaustion === true)
+      .map(({ provider, eventType }) => Prisma.sql`
+        (${provider}::public."PaymentProvider", ${eventType}::text)
+      `);
+    const retryBoundary = durableHandlers.length === 0
+      ? Prisma.sql`retry_count < ${options.maxRetries}`
+      : Prisma.sql`(
+          retry_count < ${options.maxRetries}
+          OR (provider, event_type) IN (${Prisma.join(durableHandlers)})
+        )`;
     return transaction.$queryRaw<CallbackInbox[]>(Prisma.sql`
       SELECT *
       FROM public.callback_inbox
       WHERE signature_valid = TRUE
         AND status = 'RECEIVED'::public."CallbackStatus"
-        AND retry_count < ${options.maxRetries}
+        AND ${retryBoundary}
         AND (provider, event_type) IN (${Prisma.join(handlers)})
         AND (
           retry_count = 0
           OR COALESCE(processed_at, received_at)
             + LEAST(
                 ${options.baseDelayMs}::numeric * power(2::numeric, LEAST(retry_count - 1, 52)),
-                9007199254740991::numeric
+                86400000::numeric
               ) * INTERVAL '1 millisecond'
             <= ${now}
         )
@@ -375,13 +391,16 @@ export class CallbackInboxRepository {
         await handler(current);
       } catch {
         const nextRetryCount = current.retry_count + 1;
-        const terminal = nextRetryCount >= options.maxRetries;
+        const terminal = nextRetryCount >= options.maxRetries && options.retryAfterExhaustion !== true;
+        const storedRetryCount = options.retryAfterExhaustion === true
+          ? Math.min(nextRetryCount, options.maxRetries)
+          : nextRetryCount;
         const code = callbackErrorCode();
         await client.query(
           `UPDATE public.callback_inbox
              SET status = $2, retry_count = $3, processed_at = $4, error_message = $5
            WHERE id = $1 AND status <> 'PROCESSED'`,
-          [id, terminal ? 'FAILED' : 'RECEIVED', nextRetryCount, this.currentTime(), code],
+          [id, terminal ? 'FAILED' : 'RECEIVED', storedRetryCount, this.currentTime(), code],
         );
         return terminal ? 'terminal' as const : 'retry_scheduled' as const;
       }

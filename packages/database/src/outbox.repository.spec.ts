@@ -1,5 +1,8 @@
 import { generateUlid } from '@qingxu/platform-core';
+import { EventEmitter } from 'node:events';
+
 import { describe, expect, it, vi } from 'vitest';
+import type { PoolClient } from 'pg';
 
 import type { DatabaseTransaction } from './idempotency.repository';
 import { OutboxRepository, type ResourceOutboxPayloadV1 } from './outbox.repository';
@@ -168,5 +171,48 @@ describe('OutboxRepository due boundary', () => {
         ],
       },
     });
+  });
+
+  it('keeps an explicitly durable financial event retryable after the ordinary limit', async () => {
+    const now = new Date('2026-09-01T12:00:00.000Z');
+    const current = {
+      aggregate_id: generateUlid(),
+      aggregate_type: 'refund',
+      created_at: new Date(now.getTime() - 10_000),
+      error_message: 'OUTBOX_HANDLER_FAILED',
+      event_type: 'refund.execution.requested',
+      id: generateUlid(),
+      next_retry_at: new Date(now.getTime() - 1),
+      payload: {},
+      published_at: null,
+      retry_count: 2,
+      status: 'FAILED',
+    };
+    const queries: Array<{ sql: string; values?: unknown[] }> = [];
+    const client = Object.assign(new EventEmitter(), {
+      query: vi.fn(async (sql: string, values?: unknown[]) => {
+        queries.push({ sql, values });
+        if (sql.includes('pg_try_advisory_lock')) return { rows: [{ acquired: true }] };
+        if (sql.includes('SELECT * FROM public.outbox_event')) return { rows: [current] };
+        return { rows: [] };
+      }),
+      release: vi.fn(),
+    }) as unknown as PoolClient;
+    const runtime = { pool: { connect: vi.fn(async () => client) } } as unknown as DatabaseRuntime;
+    const repository = new OutboxRepository(runtime, () => now);
+
+    await expect(repository.publishOne(current.id, async () => {
+      throw new Error('provider remains unknown');
+    }, {
+      initialDelayMs: 100,
+      maximumDelayMs: 86_400_000,
+      maxRetries: 2,
+      retryAfterExhaustion: true,
+    })).resolves.toBe('retry_scheduled');
+
+    const update = queries.find(({ sql }) => sql.includes('UPDATE public.outbox_event'));
+    expect(update?.values?.[1]).toBe(2);
+    expect(update?.values?.[2]).toEqual(new Date(now.getTime() + 200));
+    expect(client.release).toHaveBeenCalledWith(false);
   });
 });

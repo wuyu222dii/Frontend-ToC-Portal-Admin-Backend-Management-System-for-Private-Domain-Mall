@@ -17,12 +17,14 @@ export type WorkerCallbackHandler = (event: CallbackInboxModel) => Promise<void>
 export interface OutboxHandlerRegistration {
   eventType: string;
   handle: WorkerOutboxHandler;
+  retryAfterExhaustion?: boolean;
 }
 
 export interface CallbackHandlerRegistration {
   provider: 'MOCK' | 'WECHAT';
   eventType: string;
   handle: WorkerCallbackHandler;
+  retryAfterExhaustion?: boolean;
 }
 
 export interface WorkerHandlerRegistry {
@@ -62,8 +64,8 @@ function assertUniqueHandlers(registry: WorkerHandlerRegistry): void {
 @Injectable()
 export class OutboxDispatcherService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(OutboxDispatcherService.name);
-  private readonly outboxHandlers = new Map<string, WorkerOutboxHandler>();
-  private readonly callbackHandlers = new Map<string, WorkerCallbackHandler>();
+  private readonly outboxHandlers = new Map<string, OutboxHandlerRegistration>();
+  private readonly callbackHandlers = new Map<string, CallbackHandlerRegistration>();
   private timer: ReturnType<typeof setTimeout> | undefined;
   private running = false;
   private stopping = false;
@@ -77,12 +79,12 @@ export class OutboxDispatcherService implements OnModuleInit, OnApplicationShutd
   ) {
     assertUniqueHandlers(registry);
     for (const registration of registry.outbox) {
-      this.outboxHandlers.set(registration.eventType, registration.handle);
+      this.outboxHandlers.set(registration.eventType, registration);
     }
     for (const registration of registry.callbacks) {
       this.callbackHandlers.set(
         callbackHandlerKey(registration.provider, registration.eventType),
-        registration.handle,
+        registration,
       );
     }
   }
@@ -118,11 +120,14 @@ export class OutboxDispatcherService implements OnModuleInit, OnApplicationShutd
         eventTypes,
       });
       for (const event of events) {
-        const handler = this.outboxHandlers.get(event.event_type);
-        if (!handler) continue;
-        const result = await this.outbox.publishOne(event.id, handler, {
+        const registration = this.outboxHandlers.get(event.event_type);
+        if (!registration) continue;
+        const result = await this.outbox.publishOne(event.id, registration.handle, {
           maxRetries: this.config.worker.maxRetries,
           initialDelayMs: this.config.worker.baseRetryDelayMs,
+          ...(registration.retryAfterExhaustion === true
+            ? { maximumDelayMs: 86_400_000, retryAfterExhaustion: true }
+            : {}),
         });
         if (result === 'terminal') {
           this.logger.error({
@@ -147,15 +152,20 @@ export class OutboxDispatcherService implements OnModuleInit, OnApplicationShutd
           limit: this.config.worker.batchSize,
           maxRetries: this.config.worker.maxRetries,
           baseDelayMs: this.config.worker.baseRetryDelayMs,
-          handlers: this.registry.callbacks.map(({ provider, eventType }) => ({ provider, eventType })),
+          handlers: this.registry.callbacks.map(({ provider, eventType, retryAfterExhaustion }) => ({
+            provider,
+            eventType,
+            ...(retryAfterExhaustion === true ? { retryAfterExhaustion: true } : {}),
+          })),
         },
       ));
       for (const event of events) {
-        const handler = this.callbackHandlers.get(callbackHandlerKey(event.provider, event.event_type));
-        if (!handler) continue;
-        const result = await this.callbacks.processOne(event.id, handler, {
+        const registration = this.callbackHandlers.get(callbackHandlerKey(event.provider, event.event_type));
+        if (!registration) continue;
+        const result = await this.callbacks.processOne(event.id, registration.handle, {
           maxRetries: this.config.worker.maxRetries,
           baseDelayMs: this.config.worker.baseRetryDelayMs,
+          ...(registration.retryAfterExhaustion === true ? { retryAfterExhaustion: true } : {}),
         });
         if (result === 'terminal') {
           this.logger.error({

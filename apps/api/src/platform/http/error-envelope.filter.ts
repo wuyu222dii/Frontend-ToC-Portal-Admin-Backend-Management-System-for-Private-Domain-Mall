@@ -65,6 +65,7 @@ const SENSITIVE_EXACT_PATHS = new Set([
 const SENSITIVE_PATH_PREFIXES = [
   '/api/v1/admin/aftersales/',
   '/api/v1/admin/orders/',
+  '/api/v1/admin/refunds/',
   '/api/v1/admin/settings/return-address/',
   '/api/v1/admin/shipments/',
   '/api/v1/store/addresses/',

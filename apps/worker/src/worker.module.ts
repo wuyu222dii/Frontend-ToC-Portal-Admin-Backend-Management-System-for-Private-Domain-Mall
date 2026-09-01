@@ -1,6 +1,7 @@
 import { type DynamicModule, Module } from '@nestjs/common';
 import type { PlatformRuntimeConfig } from '@qingxu/config';
 import {
+  AdminRefundRepository,
   AuditRepository,
   CallbackInboxRepository,
   FILE_STAGING_CLEANUP_EVENT_TYPE,
@@ -12,6 +13,7 @@ import {
 import {
   RedisMockPaymentProvider,
   type PaymentProviderPort,
+  type PaymentRefundQueryPort,
 } from '@qingxu/payment';
 import { createS3ObjectStorage } from '@qingxu/storage';
 import { createClient } from 'redis';
@@ -44,6 +46,12 @@ import {
   PaymentCallbackService,
 } from './payment-callback.service';
 import {
+  REFUND_PROCESSING_AUDIT_REPOSITORY,
+  REFUND_PROCESSING_PAYMENT_PROVIDER,
+  REFUND_PROCESSING_REPOSITORY,
+  RefundProcessingService,
+} from './refund-processing.service';
+import {
   ORDER_TIMEOUT_AUDIT_REPOSITORY,
   ORDER_TIMEOUT_PAYMENT_PROVIDER,
   ORDER_TIMEOUT_REPOSITORY,
@@ -55,7 +63,7 @@ export function workerRedisReconnectDelay(retries: number): number {
   return Math.min(100 * 2 ** Math.min(retries, 5), 5_000);
 }
 
-function unavailablePaymentProvider(): PaymentProviderPort {
+function unavailablePaymentProvider(): PaymentProviderPort & PaymentRefundQueryPort {
   return {
     close: async () => ({
       capability: null,
@@ -84,6 +92,13 @@ function unavailablePaymentProvider(): PaymentProviderPort {
       providerIntentId: null,
       providerTransactionId: null,
     }),
+    queryRefund: async () => ({
+      failureCode: 'PROVIDER_UNAVAILABLE' as const,
+      occurredAt: null,
+      outcome: 'UNKNOWN' as const,
+      providerEventId: null,
+      providerRefundId: null,
+    }),
     refund: async () => ({
       failureCode: 'PROVIDER_UNAVAILABLE' as const,
       occurredAt: null,
@@ -97,7 +112,7 @@ function unavailablePaymentProvider(): PaymentProviderPort {
 export function createWorkerPaymentProvider(
   config: PlatformRuntimeConfig,
   redis: WorkerRedisClient,
-): PaymentProviderPort {
+): PaymentProviderPort & PaymentRefundQueryPort {
   if ((config.environment === 'development' || config.environment === 'test') &&
     config.payment.provider === 'MOCK' && config.payment.mockSigningKey !== undefined) {
     return new RedisMockPaymentProvider({
@@ -109,6 +124,21 @@ export function createWorkerPaymentProvider(
   // Production/WECHAT is deliberately fail-closed until the dedicated
   // provider implementation and credentials are introduced in staging.
   return unavailablePaymentProvider();
+}
+
+export function mergeRefundProcessingHandlers(
+  config: PlatformRuntimeConfig,
+  registry: WorkerHandlerRegistry,
+  refunds: RefundProcessingService,
+): WorkerHandlerRegistry {
+  const enabled = (config.environment === 'development' || config.environment === 'test') &&
+    config.payment.provider === 'MOCK' && config.payment.mockSigningKey !== undefined;
+  if (!enabled) return registry;
+  const registrations = refunds.registrations();
+  return {
+    callbacks: [...registry.callbacks, ...registrations.callbacks],
+    outbox: [...registry.outbox, ...registrations.outbox],
+  };
 }
 
 export function mergePaymentCallbackHandlers(
@@ -179,12 +209,34 @@ export class WorkerModule {
         },
         PaymentCallbackService,
         {
+          provide: REFUND_PROCESSING_REPOSITORY,
+          inject: [DATABASE_RUNTIME],
+          useFactory: (database: ReturnType<typeof createWorkerDatabaseRuntime>) =>
+            new AdminRefundRepository(database.prisma),
+        },
+        {
+          provide: REFUND_PROCESSING_AUDIT_REPOSITORY,
+          inject: [WORKER_CONFIG],
+          useFactory: (runtimeConfig: PlatformRuntimeConfig) =>
+            new AuditRepository(runtimeConfig.encryption.ipHashKey),
+        },
+        {
+          provide: REFUND_PROCESSING_PAYMENT_PROVIDER,
+          useExisting: ORDER_TIMEOUT_PAYMENT_PROVIDER,
+        },
+        RefundProcessingService,
+        {
           provide: WORKER_HANDLER_REGISTRY,
-          inject: [WORKER_CONFIG, PaymentCallbackService],
+          inject: [WORKER_CONFIG, PaymentCallbackService, RefundProcessingService],
           useFactory: (
             runtimeConfig: PlatformRuntimeConfig,
             paymentCallbacks: PaymentCallbackService,
-          ) => mergePaymentCallbackHandlers(runtimeConfig, registry, paymentCallbacks),
+            refundProcessing: RefundProcessingService,
+          ) => mergeRefundProcessingHandlers(
+            runtimeConfig,
+            mergePaymentCallbackHandlers(runtimeConfig, registry, paymentCallbacks),
+            refundProcessing,
+          ),
         },
         {
           provide: ORDER_TIMEOUT_REPOSITORY,

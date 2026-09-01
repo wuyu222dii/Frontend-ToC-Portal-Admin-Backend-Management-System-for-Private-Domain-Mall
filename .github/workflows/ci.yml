@@ -309,6 +309,11 @@ jobs:
           B11_FULFILLMENT_DATABASE_TEST_MODE: full
         run: pnpm db:test-b11-fulfillment
 
+      - name: Test B12 aftersales, return inspection and ordinary refunds with PostgreSQL
+        env:
+          B12_STORE_AFTERSALE_DATABASE_TEST_MODE: full
+        run: pnpm db:test-b12-aftersales
+
       - name: Verify Prisma migration drift
         run: pnpm db:diff
 

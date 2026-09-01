@@ -497,6 +497,37 @@ databaseDescribe('B1 database runtime integration', () => {
     expect(results.some((result) => result === 'busy' || result === 'stale')).toBe(true);
   });
 
+  fullIt('keeps an explicitly durable callback eligible after the ordinary retry limit', async () => {
+    const eventType = uniqueLabel('b1.durable-callback', 80);
+    const received = await runtime.withPrismaTransaction((transaction) => callbacks.receive(transaction, {
+      eventType,
+      headers: { ...mockHeaders, mock_signature: 'mock-signature-durable-callback' },
+      provider: 'MOCK',
+      providerEventId: uniqueLabel('durable-callback', 128),
+      rawBody: Buffer.from('DURABLE_CALLBACK'),
+      signatureValid: true,
+    }));
+    const options = { baseDelayMs: 1, maxRetries: 1, retryAfterExhaustion: true };
+
+    await expect(callbacks.processOne(received.inbox.id, async () => {
+      throw new Error('temporary callback failure');
+    }, options)).resolves.toBe('retry_scheduled');
+    await runtime.prisma.callbackInbox.update({
+      data: { processed_at: new Date(Date.now() - 10) },
+      where: { id: received.inbox.id },
+    });
+    const due = await runtime.withPrismaTransaction((transaction) => callbacks.findDue(transaction, {
+      ...options,
+      handlers: [{ eventType, provider: 'MOCK', retryAfterExhaustion: true }],
+      limit: 10,
+    }));
+    expect(due.map(({ id }) => id)).toContain(received.inbox.id);
+    await expect(callbacks.processOne(received.inbox.id, async () => undefined, options))
+      .resolves.toBe('processed');
+    await expect(runtime.prisma.callbackInbox.findUniqueOrThrow({ where: { id: received.inbox.id } }))
+      .resolves.toMatchObject({ retry_count: 1, status: 'PROCESSED' });
+  });
+
   fullIt('publishes an outbox event once without keeping a database transaction open during the handler', async () => {
     const aggregateId = generateUlid();
     const event = await runtime.withPrismaTransaction((transaction) => outbox.append(transaction, {
@@ -552,6 +583,32 @@ databaseDescribe('B1 database runtime integration', () => {
       retry_count: 2,
       status: 'FAILED',
     });
+  });
+
+  fullIt('keeps an explicitly durable outbox event retryable after the ordinary limit', async () => {
+    const aggregateId = generateUlid();
+    const event = await runtime.withPrismaTransaction((transaction) => outbox.append(transaction, {
+      aggregateId,
+      aggregateType: 'integration_fixture',
+      eventType: 'b1.durable-retry.v1',
+      payload: outboxPayload(aggregateId),
+    }));
+    const options = {
+      initialDelayMs: 1,
+      maximumDelayMs: 86_400_000,
+      maxRetries: 1,
+      retryAfterExhaustion: true,
+    };
+    await expect(outbox.publishOne(event.id, async () => {
+      throw new Error('temporary outbox failure');
+    }, options)).resolves.toBe('retry_scheduled');
+    await runtime.prisma.outboxEvent.update({
+      data: { next_retry_at: new Date(Date.now() - 1) },
+      where: { id: event.id },
+    });
+    await expect(outbox.publishOne(event.id, async () => undefined, options)).resolves.toBe('published');
+    await expect(runtime.prisma.outboxEvent.findUniqueOrThrow({ where: { id: event.id } }))
+      .resolves.toMatchObject({ next_retry_at: null, retry_count: 1, status: 'PUBLISHED' });
   });
 
   fullIt('enforces append-only audit facts for the runtime role', async () => {

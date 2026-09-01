@@ -73,6 +73,7 @@ function harness(initialNow = NOW) {
 
 describe('HighRiskPreviewRepository', () => {
   it.each([
+    { action: 'AFTERSALE.REFUND', requestAction: 'REFUND', targetType: 'AFTERSALE' },
     { action: 'AFTERSALE.REJECT', requestAction: 'REJECT', targetType: 'AFTERSALE' },
     {
       action: 'AFTERSALE.REJECT_AFTER_RETURN',
@@ -85,6 +86,12 @@ describe('HighRiskPreviewRepository', () => {
     { action: 'SKU.ACTIVATE', requestAction: 'ACTIVATE', targetType: 'SKU' },
     { action: 'SKU.DEACTIVATE', requestAction: 'DEACTIVATE', targetType: 'SKU' },
     { action: 'SKU.SOFT_DELETE', requestAction: 'SOFT_DELETE', targetType: 'SKU' },
+    {
+      action: 'ORDER.MANUAL_COMPENSATION',
+      requestAction: 'MANUAL_COMPENSATION',
+      targetType: 'ORDER',
+    },
+    { action: 'REFUND.RETRY', requestAction: 'RETRY', targetType: 'REFUND' },
     { action: 'RETURN_ADDRESS.PUBLISH', requestAction: 'PUBLISH', targetType: 'RETURN_ADDRESS' },
   ] as const)('issues and consumes the closed $action preview binding', async ({
     action,
@@ -127,7 +134,10 @@ describe('HighRiskPreviewRepository', () => {
     { action: 'INVENTORY.ADJUST', targetType: 'SKU' },
     { action: 'SKU.ACTIVATE', targetType: 'INVENTORY' },
     { action: 'AFTERSALE.REJECT', targetType: 'RETURN_ADDRESS' },
+    { action: 'AFTERSALE.REFUND', targetType: 'REFUND' },
+    { action: 'ORDER.MANUAL_COMPENSATION', targetType: 'REFUND' },
     { action: 'PRODUCT.ACTIVATE', targetType: 'SKU' },
+    { action: 'REFUND.RETRY', targetType: 'AFTERSALE' },
     { action: 'RETURN_ADDRESS.PUBLISH', targetType: 'AFTERSALE' },
     { action: 'SKU.ACTIVATE', targetType: 'PRODUCT' },
   ])('rejects an unregistered or mismatched $action/$targetType preview binding', async ({

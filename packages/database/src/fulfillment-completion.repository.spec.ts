@@ -254,7 +254,7 @@ describe('FulfillmentRepository completion commands', () => {
       if (sql.includes('public.order_item_commission_position')) return 'positions';
       return 'wallets';
     })).toEqual([
-      'actor', 'order', 'items', 'payment', 'attempts', 'refunds', 'aftersales', 'shipment', 'rule', 'positions',
+      'actor', 'order', 'items', 'payment', 'attempts', 'aftersales', 'refunds', 'shipment', 'rule', 'positions',
       'wallets',
     ]);
     expect(lockSql.find((sql) => sql.includes('order_item_commission_snapshot')))
@@ -325,6 +325,32 @@ describe('FulfillmentRepository completion commands', () => {
       JSON.stringify([customerId]),
     );
     expect(tx.salesOrder.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('keeps completion replay valid after a shipped full refund changes the completion reason', async () => {
+    const completedAt = new Date(DATABASE_TIME.getTime() - 1_000);
+    const tx = transaction({
+      order: orderRecord({
+        aftersale_expires_at: new Date(DATABASE_TIME.getTime() + 7 * 86_400_000),
+        business_rule_version_id: ruleId,
+        completed_at: completedAt,
+        completion_reason: 'FULL_REFUND_AFTER_SHIPMENT',
+        fulfillment_status: 'DELIVERED',
+        order_status: 'COMPLETED',
+        version: 10,
+      }),
+      shipment: shipmentRecord({ delivered_at: completedAt, status: 'DELIVERED', version: 4 }),
+    });
+
+    await expect(repository().getCompletedOrderForReplayInTransaction(tx, {
+      actor: { accountId, customerId, kind: 'CUSTOMER' },
+      completionReason: 'CUSTOMER_CONFIRMED',
+      orderId,
+    })).resolves.toMatchObject({
+      completionReason: 'FULL_REFUND_AFTER_SHIPMENT',
+      orderId,
+      orderVersion: 10,
+    });
   });
 
   it('fails before commission writes for an active refund, stale version, or missing frozen wallet', async () => {

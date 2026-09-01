@@ -48,11 +48,12 @@ function reconciliationHarness(
   initialStatus: 'FAILED' | 'PROCESSED' | 'PROCESSING' | 'RECEIVED',
   options: {
     created?: boolean;
+    initialRetryCount?: number;
     lockAcquisition?: Promise<void>;
     onLockWait?: () => void;
   } = {},
 ) {
-  let state = callbackInbox(initialStatus);
+  let state = { ...callbackInbox(initialStatus), retry_count: options.initialRetryCount ?? callbackInbox(initialStatus).retry_count };
   const createMany = vi.fn(async () => ({ count: options.created === true ? 1 : 0 }));
   const findUniqueOrThrow = vi.fn(async () => ({ ...state }));
   const transaction = {
@@ -167,6 +168,28 @@ describe('callback inbox retry scheduling', () => {
     expect(sql).not.toContain('payment.succeeded');
   });
 
+  it('keeps only explicitly durable callback types eligible after the ordinary retry limit', async () => {
+    const queryRaw = vi.fn(async () => []);
+    const transaction = { $queryRaw: queryRaw } as unknown as DatabaseTransaction;
+
+    await new CallbackInboxRepository().findDue(transaction, {
+      baseDelayMs: 1_000,
+      handlers: [
+        { provider: 'MOCK', eventType: 'payment.succeeded' },
+        { provider: 'MOCK', eventType: 'refund.succeeded', retryAfterExhaustion: true },
+      ],
+      limit: 10,
+      maxRetries: 8,
+    });
+
+    const query = queryRaw.mock.calls[0]?.[0] as { strings?: readonly string[]; values?: readonly unknown[] };
+    const sql = query.strings?.join('?') ?? '';
+    expect(sql).toContain('retry_count <');
+    expect(sql).toContain('OR (provider, event_type) IN');
+    expect(query.values?.filter((value) => value === 'refund.succeeded')).toHaveLength(2);
+    expect(query.values?.filter((value) => value === 'payment.succeeded')).toHaveLength(1);
+  });
+
   it('uses an internal receipt clock and rejects caller-controlled time', async () => {
     const receivedAt = new Date('2026-08-01T01:00:00.000Z');
     const createMany = vi.fn(async () => ({ count: 1 }));
@@ -258,6 +281,22 @@ describe('callback inbox retry scheduling', () => {
     expect(handler).toHaveBeenCalledOnce();
     expect(current.coordinationPool.connect).toHaveBeenCalledOnce();
     expect(current.pool.connect).not.toHaveBeenCalled();
+  });
+
+  it('keeps an explicitly durable callback retryable with a capped retry count', async () => {
+    const current = reconciliationHarness('RECEIVED', { initialRetryCount: 8 });
+
+    await expect(current.repository.processOne(callbackInbox('RECEIVED').id, async () => {
+      throw new Error('database remains unavailable');
+    }, {
+      baseDelayMs: 1,
+      maxRetries: 8,
+      retryAfterExhaustion: true,
+    })).resolves.toBe('retry_scheduled');
+
+    const update = current.client.query.mock.calls.find(([query]) =>
+      String(query).includes('SET status = $2'));
+    expect(update?.[1]?.slice(1, 4)).toEqual(['RECEIVED', 8, expect.any(Date)]);
   });
 
   it('keeps an existing RECEIVED callback queued without rewriting its retry facts', async () => {

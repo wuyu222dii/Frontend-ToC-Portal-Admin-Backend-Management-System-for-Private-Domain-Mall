@@ -10,7 +10,7 @@
 | 目标用户 | 终端消费者、一级代理、总部商城经营人员 |
 | 人员角色 | `SUPER_ADMIN`、`AGENT_ADMIN`、`CUSTOMER` |
 | 更新日期 | 2026-09-01 |
-| 文档状态 | B0 至 B11 development 已完成并维持 `GO`；B11 最终同 SHA 双绿已闭合，CH-025 已自动失效。当前产品/API 基线为 `v2.4.10 / 2.4.10-ch026`；B12.0 精确 SHA 的普通 CI、Supabase development migration 与 rollback-only smoke 已全部成功，CH-027 已批准。B12.1 Store 售后后端、B12.2 Admin 初审/退货地址/消费者退货物流及 B12.3 实收验货与异常处置已依次实现并在 `P0=0/P1=0` 后暂停；B12.4-B12.6 尚未开始。真实客户数据、真实微信支付/退款、真实物流、staging/production 均为 `NO-GO` |
+| 文档状态 | B0 至 B11 development 已完成并维持 `GO`；B11 最终同 SHA 双绿已闭合，CH-025 已自动失效。当前产品/API 基线为 `v2.4.10 / 2.4.10-ch026`；B12.0 精确 SHA 的普通 CI、Supabase development migration 与 rollback-only smoke 已全部成功，CH-027 已批准。B12.1 Store 售后后端、B12.2 Admin 初审/退货地址/消费者退货物流、B12.3 实收验货与异常处置及 B12.4 普通退款/金额补偿后端已依次实现并在 `P0=0/P1=0` 后暂停；B12.5-B12.6 尚未开始，B12 整体仍非 development `GO`。真实客户数据、真实微信支付/退款、真实物流、staging/production 均为 `NO-GO` |
 
 ## 1. MVP 概述
 
@@ -507,7 +507,7 @@ B0-B11 development 已完成并维持 `GO`，历史证据保留。B11 最终同 
 
 - 尚无真实用户访谈、历史订单、代理规模、佣金预算、商品规模和并发数据；指标阈值需试运行后校准。
 - 尚无微信正式参数、物流合同、隐私文本、线下打款财务制度和法律审核结论。
-- 当前交付物仍不是完整可用商城业务系统。B0-B11 development 已完成，B11 最终同 SHA 双绿已闭合，CH-025 已自动失效。B12.0 已完成，B12.1 仅交付 Store 售后申请/查询/取消和额度占用；Admin 审核、退货地址/物流、验货、普通退款、金额补偿及工程前端仍未实现。真实微信支付/退款、第三方物流、staging 和 production 继续排除。
+- 当前交付物仍不是完整可用商城业务系统。B0-B11 development 已完成，B11 最终同 SHA 双绿已闭合，CH-025 已自动失效。B12.0-B12.4 后端已完成，包括本人售后、Admin 审核/验货、普通退款/重试、金额补偿及库存/订单/佣金收敛；B12.5 工程前端和 B12.6 总验收仍未实现。真实微信支付/退款、第三方物流、staging 和 production 继续排除。
 
 ## 13. 后续建议
 
@@ -521,4 +521,4 @@ B0-B11 development 已完成并维持 `GO`，历史证据保留。B11 最终同 
 
 ---
 
-项目状态：三端 MVP 产品/API 基线为 `v2.4.10 / 2.4.10-ch026`。B0 至 B11 development 已完成并保留远端证据；B12.0 三项远端门禁已闭合，CH-027 已批准。B12.1-B12.3 后端已完成并逐批暂停，B12.4 尚未开始，B12 整体仍非 development `GO`。真实客户数据、真实支付/退款、真实物流、staging/production 仍为 `NO-GO`，进入 staging 前须外部独立复核。
+项目状态：三端 MVP 产品/API 基线为 `v2.4.10 / 2.4.10-ch026`。B0 至 B11 development 已完成并保留远端证据；B12.0 三项远端门禁已闭合，CH-027 已批准。B12.1-B12.4 后端已完成并逐批暂停，B12.5-B12.6 尚未开始，B12 整体仍非 development `GO`。真实客户数据、真实支付/退款、真实物流、staging/production 仍为 `NO-GO`，进入 staging 前须外部独立复核。

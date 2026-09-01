@@ -354,7 +354,7 @@ describe('AdminOrdersService', () => {
       pagination: { page: 1, page_size: 20, total: 1 },
     });
     expect(order).toMatchObject({
-      available_actions: ['ADD_LOGISTICS_EVENT', 'READ_FULFILLMENT_ADDRESS'],
+      available_actions: ['ADD_LOGISTICS_EVENT', 'MANUAL_COMPENSATION', 'READ_FULFILLMENT_ADDRESS'],
       display_status: '运输中',
       packages: [{
         events: [{ event_key: 'carrier-event-1', status_code: 'IN_TRANSIT' }],
@@ -372,6 +372,85 @@ describe('AdminOrdersService', () => {
     expect(ordinaryProjection).not.toContain(RECIPIENT_NAME);
     expect(ordinaryProjection).not.toContain('phoneCiphertext');
     expect(ordinaryProjection).not.toContain('detailCiphertext');
+  });
+
+  it('only offers ordinary refund retry and requires real remaining money for compensation', async () => {
+    const { mocks, service } = harness();
+    mocks.fulfillment.getAdminOrderDetail.mockResolvedValue(detail({
+      refundAttempts: [{
+        amount: '39.80',
+        attemptNo: 1,
+        createdAt: CREATED_AT,
+        failureCode: 'PROVIDER_FAILED',
+        originType: 'LATE_PAYMENT',
+        refundId: '01J0000000000000000000000F',
+        refundNo: 'RF01J0000000000000000000000F',
+        status: 'FAILED',
+        updatedAt: UPDATED_AT,
+      }],
+      order: {
+        ...detail().order,
+        items: detail().order.items.map((item) => ({
+          ...item,
+          refundedAmount: item.lineAmount,
+        })),
+        refundProcessingStatus: 'FAILED',
+      },
+    }));
+
+    const lateOnly = await service.getOrder(ORDER_ID);
+    expect(lateOnly.available_actions).not.toContain('RETRY_REFUND');
+    expect(lateOnly.available_actions).not.toContain('MANUAL_COMPENSATION');
+
+    mocks.fulfillment.getAdminOrderDetail.mockResolvedValue(detail({
+      refundAttempts: [{
+        amount: '10.00',
+        attemptNo: 2,
+        createdAt: CREATED_AT,
+        failureCode: 'PROVIDER_FAILED',
+        originType: 'AFTERSALE',
+        refundId: '01J0000000000000000000000G',
+        refundNo: 'RF01J0000000000000000000000G',
+        status: 'FAILED',
+        updatedAt: UPDATED_AT,
+      }],
+      order: {
+        ...detail().order,
+        refundProcessingStatus: 'FAILED',
+      },
+    }));
+    const failedOrdinary = await service.getOrder(ORDER_ID);
+    expect(failedOrdinary.available_actions).toContain('RETRY_REFUND');
+    expect(failedOrdinary.available_actions).not.toContain('MANUAL_COMPENSATION');
+
+    mocks.fulfillment.getAdminOrderDetail.mockResolvedValue(detail({
+      refundAttempts: [
+        {
+          amount: '10.00',
+          attemptNo: 1,
+          createdAt: CREATED_AT,
+          failureCode: 'PROVIDER_FAILED',
+          originType: 'AFTERSALE',
+          refundId: '01J0000000000000000000000G',
+          refundNo: 'RF01J0000000000000000000000G',
+          status: 'FAILED',
+          updatedAt: CREATED_AT,
+        },
+        {
+          amount: '10.00',
+          attemptNo: 2,
+          createdAt: UPDATED_AT,
+          failureCode: null,
+          originType: 'AFTERSALE',
+          refundId: '01J0000000000000000000000G',
+          refundNo: 'RF01J0000000000000000000000G',
+          status: 'SUCCEEDED',
+          updatedAt: UPDATED_AT,
+        },
+      ],
+    }));
+    const recovered = await service.getOrder(ORDER_ID);
+    expect(recovered.available_actions).not.toContain('RETRY_REFUND');
   });
 
   it('completes through the shared transaction service and returns the exact Admin command projection', async () => {

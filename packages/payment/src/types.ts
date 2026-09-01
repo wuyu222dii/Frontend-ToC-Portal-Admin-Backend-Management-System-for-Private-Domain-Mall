@@ -42,6 +42,16 @@ export interface PaymentProviderRefundResult {
   failureCode: PaymentProviderFailureCode | null;
 }
 
+export type PaymentProviderRefundQueryOutcome =
+  | 'SUCCEEDED'
+  | 'FAILED'
+  | 'NOT_FOUND'
+  | 'UNKNOWN';
+
+export interface PaymentProviderRefundQueryResult extends PaymentProviderRefundResult {
+  outcome: PaymentProviderRefundQueryOutcome;
+}
+
 export interface CreatePaymentIntentInput {
   intentNo: string;
   amount: string;
@@ -58,6 +68,13 @@ export interface RefundPaymentInput {
   providerIntentId: string;
   providerTransactionId: string;
   amount: string;
+  /** Stable local attempt identity; never persisted by Provider adapters in plaintext. */
+  providerRequestId?: string;
+}
+
+export interface LocatePaymentRefundInput {
+  refundNo: string;
+  providerRefundId?: string | null;
 }
 
 export interface PaymentProviderPort {
@@ -65,6 +82,11 @@ export interface PaymentProviderPort {
   query(input: LocatePaymentIntentInput): Promise<PaymentProviderIntentResult>;
   close(input: LocatePaymentIntentInput): Promise<PaymentProviderIntentResult>;
   refund(input: RefundPaymentInput): Promise<PaymentProviderRefundResult>;
+}
+
+/** Optional refund recovery capability kept separate from the B10 Provider port. */
+export interface PaymentRefundQueryPort {
+  queryRefund(input: LocatePaymentRefundInput): Promise<PaymentProviderRefundQueryResult>;
 }
 
 export type MockPaymentResult = 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
@@ -92,6 +114,38 @@ export interface MockPaymentCallback {
     mock_timestamp: string;
   };
   payload: MockPaymentCallbackPayload;
+}
+
+export type MockRefundCallbackOutcome = 'SUCCEEDED' | 'FAILED';
+
+export interface CreateMockRefundCallbackInput {
+  refundNo: string;
+  refundAttemptId: string;
+  attemptNo: number;
+  amount: string;
+}
+
+export interface MockRefundCallbackPayload {
+  version: 1;
+  refund_no: string;
+  refund_attempt_id: string;
+  attempt_no: number;
+  provider_event_id: string;
+  provider_refund_id: string;
+  outcome: MockRefundCallbackOutcome;
+  amount: string;
+  occurred_at: string;
+}
+
+export interface MockRefundCallback {
+  eventType: 'refund.failed' | 'refund.succeeded';
+  providerEventId: string;
+  rawBody: Uint8Array;
+  headers: {
+    mock_signature: string;
+    mock_timestamp: string;
+  };
+  payload: MockRefundCallbackPayload;
 }
 
 export type SubmitMockPaymentResult =

@@ -3283,7 +3283,7 @@ export interface paths {
         };
         /**
          * 按角色和业务对象返回短时签名 URL
-         * @description 仅 READY 且通过角色和业务归属校验的文件可下载。private/ 对象返回有效期 5 分钟的签名 URL；公开素材的稳定地址由 FileUploadCompleteResponse.public_url 提供。本 GET operation 不接受 Idempotency-Key、不创建幂等记录；响应必须 no-store/private，且不得持久化或记录签名 URL。存储桶默认私有，仅 public/* 允许匿名 GET，private/* 始终禁止匿名访问。PENDING 或 staging/ 满 24 小时仅进入清理候选，删除前必须再次确认没有 READY 引用。
+         * @description 仅 READY 且通过角色和业务归属校验的文件可下载：CUSTOMER 只能读取由本账户创建的 AFTERSALE_EVIDENCE；SUPER_ADMIN 可读取本人创建且 purpose 通过角色校验的私有文件，跨创建者读取仅限已绑定至任一 aftersale_evidence 且实测为 READY/PRIVATE/AFTERSALE_EVIDENCE、对象键精确为 private/{file_id} 的文件，不得因 SUPER_ADMIN 角色放宽其他跨账户私有文件。private/ 对象返回有效期 5 分钟的签名 URL；公开素材的稳定地址由 FileUploadCompleteResponse.public_url 提供。本 GET operation 不接受 Idempotency-Key、不创建幂等记录；响应必须 no-store/private，且不得持久化或记录签名 URL。存储桶默认私有，仅 public/* 允许匿名 GET，private/* 始终禁止匿名访问。PENDING 或 staging/ 满 24 小时仅进入清理候选，删除前必须再次确认没有 READY 引用。
          */
         get: operations["getFilesByFileIdDownloadUrl"];
         put?: never;
@@ -13180,6 +13180,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -13217,6 +13219,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -13292,6 +13296,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {

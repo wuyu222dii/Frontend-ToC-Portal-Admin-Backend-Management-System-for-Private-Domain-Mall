@@ -18,6 +18,10 @@ const secondOrderItemId = id(-26_000);
 const fileId = id(-25_000);
 const aftersaleId = id(-24_000);
 const aftersaleItemId = id(-23_000);
+const inspectionFileId = id(-22_500);
+const inspectionId = id(-22_000);
+const otherAftersaleId = id(-21_000);
+const otherInspectionId = id(-20_500);
 
 function activeAccount() {
   return {
@@ -132,7 +136,7 @@ function detailRecord(
     completed_at: null,
     created_at: NOW,
     customer_id: customerId,
-    evidence: [{ file_id: fileId, purpose: 'APPLICATION', return_inspection_id: null }],
+    evidence: [{ aftersale_id: idValue, file_id: fileId, purpose: 'APPLICATION', return_inspection_id: null }],
     id: idValue,
     items: [{
       id: id(-20_000),
@@ -173,6 +177,38 @@ function detailRecord(
     updated_at: NOW,
     version: 1,
     ...overrides,
+  };
+}
+
+function inspectionEvidence(overrides: Record<string, unknown> = {}) {
+  return {
+    aftersale_id: aftersaleId,
+    file_id: inspectionFileId,
+    purpose: 'INSPECTION',
+    return_inspection_id: inspectionId,
+    ...overrides,
+  };
+}
+
+function inspectionRecord(evidence = inspectionEvidence()) {
+  return {
+    abnormal_reason: null,
+    evidence: [evidence],
+    id: inspectionId,
+    inspected_at: NOW,
+    items: [{
+      approved_refund_qty: 2,
+      damaged_qty: 0,
+      order_item_id: orderItemId,
+      received_qty: 2,
+      restock_qty: 2,
+      return_to_customer_qty: 0,
+      scrap_qty: 0,
+    }],
+    resolution: null,
+    resolution_note: null,
+    resolved_at: null,
+    status: 'PASS',
   };
 }
 
@@ -498,6 +534,79 @@ describe('StoreAftersaleRepository', () => {
           occurred_at: NOW,
         }]),
       },
+    };
+    const repository = new StoreAftersaleRepository({} as PrismaClient);
+
+    await expect(repository.getOwnedAftersaleDetailInTransaction(
+      transaction as unknown as DatabaseTransaction,
+      { accountId, aftersaleId, customerId },
+    )).rejects.toMatchObject({ code: 'INTERNAL_ERROR' });
+  });
+
+  it('returns inspection evidence only when it is bound to the current aftersale and inspection', async () => {
+    const transaction = {
+      account: { findUnique: vi.fn(async () => activeAccount()) },
+      aftersale: {
+        findFirst: vi.fn(async () => detailRecord(aftersaleId, {}, {
+          evidence: [inspectionEvidence()],
+          return_inspection: inspectionRecord(),
+        })),
+      },
+      auditLog: { findMany: vi.fn(async () => []) },
+    };
+    const repository = new StoreAftersaleRepository({} as PrismaClient);
+
+    const result = await repository.getOwnedAftersaleDetailInTransaction(
+      transaction as unknown as DatabaseTransaction,
+      { accountId, aftersaleId, customerId },
+    );
+
+    expect(result.evidenceFileIds).toEqual([]);
+    expect(result.inspection).toMatchObject({
+      evidenceFileIds: [inspectionFileId],
+      inspectionId,
+      result: 'PASS',
+    });
+  });
+
+  it.each([
+    {
+      evidence: {
+        aftersale_id: aftersaleId,
+        file_id: inspectionFileId,
+        purpose: 'APPLICATION',
+        return_inspection_id: inspectionId,
+      },
+      label: 'purpose',
+    },
+    {
+      evidence: {
+        aftersale_id: otherAftersaleId,
+        file_id: inspectionFileId,
+        purpose: 'INSPECTION',
+        return_inspection_id: inspectionId,
+      },
+      label: 'aftersale binding',
+    },
+    {
+      evidence: {
+        aftersale_id: aftersaleId,
+        file_id: inspectionFileId,
+        purpose: 'INSPECTION',
+        return_inspection_id: otherInspectionId,
+      },
+      label: 'inspection binding',
+    },
+  ])('fails closed when stored inspection evidence has a damaged $label', async ({ evidence }) => {
+    const transaction = {
+      account: { findUnique: vi.fn(async () => activeAccount()) },
+      aftersale: {
+        findFirst: vi.fn(async () => detailRecord(aftersaleId, {}, {
+          evidence: [inspectionEvidence()],
+          return_inspection: inspectionRecord(evidence),
+        })),
+      },
+      auditLog: { findMany: vi.fn(async () => []) },
     };
     const repository = new StoreAftersaleRepository({} as PrismaClient);
 

@@ -6,6 +6,7 @@ import {
   AdminAftersaleRepository,
   type AdminAftersaleCommandSnapshot,
   type AdminAftersaleDetailSnapshot,
+  type AdminAftersaleRejectAfterReturnImpactSnapshot,
   type AdminAftersaleRejectImpactSnapshot,
   AuditRepository,
   type DatabaseRuntime,
@@ -42,18 +43,33 @@ import type {
   AdminAftersaleListQuery,
   AdminAftersaleRejectConfirmationRequest,
   AdminAftersaleRejectRequest,
+  AdminContinueRefundRequest,
+  AdminRejectAfterReturnConfirmationRequest,
+  AdminRejectAfterReturnRequest,
   AdminReturnAddressAction,
   AdminReturnAddressConfirmation,
+  AdminReturnInspectionRequest,
 } from './admin-aftersales.dto';
 
 const RETURN_ADDRESS_SINGLETON_ID = '00000000000000000000000000';
 const ROUTES = {
   approve: '/admin/aftersales/{aftersale_id}/approve',
+  continueRefundAfterReturn: '/admin/aftersales/{aftersale_id}/return-resolution/continue-refund',
   reject: '/admin/aftersales/{aftersale_id}/reject',
+  rejectAfterReturn: '/admin/aftersales/{aftersale_id}/return-resolution/reject',
+  rejectAfterReturnPreview: '/admin/aftersales/{aftersale_id}/return-resolution/reject-preview',
   rejectPreview: '/admin/aftersales/{aftersale_id}/reject-preview',
   returnAddress: '/admin/settings/return-address',
   returnAddressPreview: '/admin/settings/return-address/preview',
+  returnInspection: '/admin/aftersales/{aftersale_id}/return-inspections',
 } as const;
+
+type AftersaleCommand =
+  | 'approve'
+  | 'continue-refund-after-return'
+  | 'record-return-inspection'
+  | 'reject'
+  | 'reject-after-return';
 
 function internal(message: string, cause?: unknown): ApplicationError {
   return new ApplicationError(
@@ -106,6 +122,57 @@ function addressPreviewRequest(
     ...addressAction(input),
     current_published_id: snapshot.currentPublishedId,
     max_version_no: snapshot.maxVersionNo,
+  };
+}
+
+function inspectionRequest(input: AdminReturnInspectionRequest) {
+  return {
+    ...(input.abnormalReason === null ? {} : { abnormal_reason: input.abnormalReason }),
+    evidence_file_ids: input.evidenceFileIds,
+    items: input.items.map((item) => ({
+      approved_refund_qty: item.approvedRefundQuantity,
+      damaged_qty: item.damagedQuantity,
+      note: item.note,
+      order_item_id: item.orderItemId,
+      received_qty: item.receivedQuantity,
+      restock_qty: item.restockQuantity,
+      return_to_customer_qty: item.returnToCustomerQuantity,
+      scrap_qty: item.scrapQuantity,
+    })),
+    result: input.result,
+  };
+}
+
+function rejectAfterReturnRequest(
+  input: AdminRejectAfterReturnRequest,
+  impact: AdminAftersaleRejectAfterReturnImpactSnapshot,
+) {
+  return {
+    aftersale_id: impact.aftersaleId,
+    evidence_file_ids: impact.inspectionEvidenceFileIds,
+    inspection_id: impact.inspectionId,
+    inspection_items: impact.inspectionItems.map((item) => ({
+      approved_refund_qty: item.approvedRefundQuantity,
+      damaged_qty: item.damagedQuantity,
+      note: item.note,
+      order_item_id: item.orderItemId,
+      received_qty: item.receivedQuantity,
+      restock_qty: item.restockQuantity,
+      return_to_customer_qty: item.returnToCustomerQuantity,
+      scrap_qty: item.scrapQuantity,
+    })),
+    inspection_version: impact.inspectionVersion,
+    items: impact.items.map((item) => ({
+      aftersale_item_id: item.aftersaleItemId,
+      order_item_id: item.orderItemId,
+      release_amount: item.releaseAmount,
+      release_quantity: item.releaseQuantity,
+    })),
+    order_id: impact.orderId,
+    reason: input.reason,
+    release_amount: impact.releaseAmount,
+    release_quantity: impact.releaseQuantity,
+    resolution: input.resolution,
   };
 }
 
@@ -335,6 +402,244 @@ export class AdminAftersalesService {
     });
   }
 
+  recordReturnInspection(
+    request: AdminCatalogRequestContext,
+    aftersaleId: string,
+    input: AdminReturnInspectionRequest,
+    expectedVersion: number,
+    idempotencyKey: string,
+  ) {
+    const claim = this.claim(
+      request,
+      idempotencyKey,
+      'POST',
+      ROUTES.returnInspection,
+      { aftersale_id: aftersaleId },
+      { ...inspectionRequest(input), expected_version: expectedVersion },
+    );
+    return runSerializableTransaction(this.runtime().database.prisma, async (transaction) => {
+      const claimed = await this.repositories().idempotency.claim(transaction, claim);
+      if (claimed.kind === 'replay') {
+        return this.aftersaleReplay(
+          transaction,
+          request,
+          claimed.record,
+          aftersaleId,
+          'record-return-inspection',
+        );
+      }
+      const result = await this.repositories().aftersales.recordReturnInspectionInTransaction(
+        transaction,
+        {
+          abnormalReason: input.abnormalReason,
+          actorAccountId: request.principal.accountId,
+          aftersaleId,
+          evidenceFileIds: input.evidenceFileIds,
+          expectedVersion,
+          items: input.items,
+          result: input.result,
+        },
+      );
+      await this.appendAftersaleAudit(
+        transaction,
+        request,
+        idempotencyKey,
+        'RECORD_INSPECTION',
+        result.audit,
+        result.aftersale.aftersaleId,
+        input.abnormalReason ?? undefined,
+      );
+      await this.completeAftersaleCommand(
+        transaction,
+        claim,
+        result.aftersale.aftersaleId,
+        'record-return-inspection',
+      );
+      return this.commandView(result.aftersale);
+    });
+  }
+
+  continueRefundAfterReturn(
+    request: AdminCatalogRequestContext,
+    aftersaleId: string,
+    input: AdminContinueRefundRequest,
+    expectedVersion: number,
+    idempotencyKey: string,
+  ) {
+    const claim = this.claim(
+      request,
+      idempotencyKey,
+      'POST',
+      ROUTES.continueRefundAfterReturn,
+      { aftersale_id: aftersaleId },
+      { expected_version: expectedVersion, reason: input.reason, resolution: input.resolution },
+    );
+    return runSerializableTransaction(this.runtime().database.prisma, async (transaction) => {
+      const claimed = await this.repositories().idempotency.claim(transaction, claim);
+      if (claimed.kind === 'replay') {
+        return this.aftersaleReplay(
+          transaction,
+          request,
+          claimed.record,
+          aftersaleId,
+          'continue-refund-after-return',
+        );
+      }
+      const result = await this.repositories().aftersales.continueRefundAfterReturnInTransaction(
+        transaction,
+        {
+          actorAccountId: request.principal.accountId,
+          aftersaleId,
+          expectedVersion,
+          reason: input.reason,
+        },
+      );
+      await this.appendAftersaleAudit(
+        transaction,
+        request,
+        idempotencyKey,
+        'CONTINUE_REFUND',
+        result.audit,
+        result.aftersale.aftersaleId,
+        input.reason,
+      );
+      await this.completeAftersaleCommand(
+        transaction,
+        claim,
+        result.aftersale.aftersaleId,
+        'continue-refund-after-return',
+      );
+      return this.commandView(result.aftersale);
+    });
+  }
+
+  previewRejectAfterReturn(
+    request: AdminCatalogRequestContext,
+    aftersaleId: string,
+    input: AdminRejectAfterReturnRequest,
+    idempotencyKey: string,
+  ) {
+    const claim = this.claim(
+      request,
+      idempotencyKey,
+      'POST',
+      ROUTES.rejectAfterReturnPreview,
+      { aftersale_id: aftersaleId },
+      { reason: input.reason, resolution: input.resolution },
+    );
+    return runSerializableTransaction(this.runtime().database.prisma, async (transaction) => {
+      if ((await this.repositories().idempotency.claim(transaction, claim)).kind === 'replay') {
+        throw sensitivePreviewReplay('Aftersale return rejection');
+      }
+      const impact = await this.repositories().aftersales.previewRejectAfterReturnInTransaction(
+        transaction,
+        { aftersaleId },
+      );
+      const previewToken = `pvw_${randomBytes(32).toString('base64url')}`;
+      const issued = await this.repositories().previews.issueInTransaction(transaction, {
+        action: 'AFTERSALE.REJECT_AFTER_RETURN',
+        actorId: request.principal.accountId,
+        previewToken,
+        request: rejectAfterReturnRequest(input, impact),
+        resourceVersion: impact.resourceVersion,
+        sessionId: request.accessSession.sessionId,
+        targetId: aftersaleId,
+        targetType: 'AFTERSALE',
+      });
+      const response = {
+        confirmation_hash: issued.confirmationHash,
+        expires_at: issued.expiresAt.toISOString(),
+        impact: this.rejectAfterReturnImpactView(impact),
+        preview_token: previewToken,
+        resource_etag: formatVersionEtag(impact.resourceVersion),
+      };
+      await this.repositories().idempotency.complete(transaction, claim, {
+        resourceId: aftersaleId,
+        responseForHash: { impact: response.impact, resource_etag: response.resource_etag },
+        responseStatus: 200,
+        storage: 'HASH_ONLY',
+      });
+      return response;
+    });
+  }
+
+  rejectAfterReturn(
+    request: AdminCatalogRequestContext,
+    aftersaleId: string,
+    input: AdminRejectAfterReturnConfirmationRequest,
+    expectedVersion: number,
+    idempotencyKey: string,
+  ) {
+    const claim = this.claim(
+      request,
+      idempotencyKey,
+      'POST',
+      ROUTES.rejectAfterReturn,
+      { aftersale_id: aftersaleId },
+      {
+        confirmation_hash: input.confirmationHash,
+        expected_version: expectedVersion,
+        preview_token: input.previewToken,
+        reason: input.reason,
+        resolution: input.resolution,
+      },
+    );
+    return runSerializableTransaction(this.runtime().database.prisma, async (transaction) => {
+      const claimed = await this.repositories().idempotency.claim(transaction, claim);
+      if (claimed.kind === 'replay') {
+        return this.aftersaleReplay(
+          transaction,
+          request,
+          claimed.record,
+          aftersaleId,
+          'reject-after-return',
+        );
+      }
+      await this.repositories().idempotency.assertKeyNotUsedForRequest(transaction, claim, {
+        method: 'POST',
+        route: ROUTES.rejectAfterReturnPreview,
+      });
+      const result = await this.repositories().aftersales.rejectAfterReturnInTransaction(
+        transaction,
+        {
+          actorAccountId: request.principal.accountId,
+          aftersaleId,
+          expectedVersion,
+          reason: input.reason,
+        },
+        {
+          verifyPreview: (impact) => this.repositories().previews.consumeInTransaction(transaction, {
+            action: 'AFTERSALE.REJECT_AFTER_RETURN',
+            actorId: request.principal.accountId,
+            confirmationHash: input.confirmationHash,
+            previewToken: input.previewToken,
+            request: rejectAfterReturnRequest(input, impact),
+            resourceVersion: impact.resourceVersion,
+            sessionId: request.accessSession.sessionId,
+            targetId: aftersaleId,
+            targetType: 'AFTERSALE',
+          }),
+        },
+      );
+      await this.appendAftersaleAudit(
+        transaction,
+        request,
+        idempotencyKey,
+        'REJECT_AFTER_RETURN',
+        result.audit,
+        result.aftersale.aftersaleId,
+        input.reason,
+      );
+      await this.completeAftersaleCommand(
+        transaction,
+        claim,
+        result.aftersale.aftersaleId,
+        'reject-after-return',
+      );
+      return this.commandView(result.aftersale);
+    });
+  }
+
   async getReturnAddress() {
     return this.returnAddressView(await this.repositories().returnAddresses.readCurrent());
   }
@@ -503,7 +808,7 @@ export class AdminAftersalesService {
     request: AdminCatalogRequestContext,
     record: Extract<IdempotencyClaimResult, { kind: 'replay' }>['record'],
     aftersaleId: string,
-    command: 'approve' | 'reject',
+    command: AftersaleCommand,
   ) {
     if (record.resource_id !== aftersaleId) throw internal('Admin aftersale replay resource is invalid');
     const current = await this.repositories().aftersales.getForReplayInTransaction(transaction, {
@@ -519,10 +824,34 @@ export class AdminAftersalesService {
     return this.commandView(current);
   }
 
-  private aftersaleCommandHash(aftersaleId: string, command: 'approve' | 'reject') {
-    return command === 'approve'
-      ? { aftersale_approved: { aftersale_id: aftersaleId } }
-      : { aftersale_rejected: { aftersale_id: aftersaleId } };
+  private aftersaleCommandHash(aftersaleId: string, command: AftersaleCommand) {
+    if (command === 'approve') return { aftersale_approved: { aftersale_id: aftersaleId } };
+    if (command === 'reject') return { aftersale_rejected: { aftersale_id: aftersaleId } };
+    if (command === 'record-return-inspection') {
+      return { return_inspection_recorded: { aftersale_id: aftersaleId } };
+    }
+    return {
+      aftersale_return_resolved: {
+        aftersale_id: aftersaleId,
+        resolution: command === 'continue-refund-after-return'
+          ? 'CONTINUE_REFUND'
+          : 'REJECT_AFTER_RETURN',
+      },
+    };
+  }
+
+  private completeAftersaleCommand(
+    transaction: DatabaseTransaction,
+    claim: IdempotencyClaim,
+    aftersaleId: string,
+    command: AftersaleCommand,
+  ) {
+    return this.repositories().idempotency.complete(transaction, claim, {
+      resourceId: aftersaleId,
+      responseForHash: this.aftersaleCommandHash(aftersaleId, command),
+      responseStatus: 200,
+      storage: 'HASH_ONLY',
+    });
   }
 
   private returnAddressCommandHash(versionId: string) {
@@ -548,6 +877,36 @@ export class AdminAftersalesService {
         },
       ],
       warnings: ['Reserved aftersale quantity and amount will be released'],
+    };
+  }
+
+  private rejectAfterReturnImpactView(impact: AdminAftersaleRejectAfterReturnImpactSnapshot) {
+    return {
+      affected_count: impact.affectedCount,
+      metrics: [
+        {
+          after: 'REJECTED_AFTER_RETURN',
+          before: 'RETURN_EXCEPTION',
+          key: 'status',
+          label: 'Status',
+        },
+        {
+          after: '0',
+          before: String(impact.releaseQuantity),
+          key: 'reserved_quantity',
+          label: 'Reserved quantity released',
+        },
+        {
+          after: '0.00',
+          before: impact.releaseAmount,
+          key: 'reserved_amount',
+          label: 'Reserved amount released',
+        },
+      ],
+      warnings: [
+        'The sealed return inspection remains immutable',
+        'Remaining aftersale quantity and amount reservations will be released',
+      ],
     };
   }
 
@@ -787,7 +1146,7 @@ export class AdminAftersalesService {
     transaction: DatabaseTransaction,
     request: AdminCatalogRequestContext,
     idempotencyKey: string,
-    action: 'APPROVE' | 'REJECT',
+    action: 'APPROVE' | 'CONTINUE_REFUND' | 'RECORD_INSPECTION' | 'REJECT' | 'REJECT_AFTER_RETURN',
     audit: { after: { status: string; version: number }; before: { status: string; version: number } },
     aftersaleId: string,
     reason?: string,

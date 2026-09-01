@@ -301,7 +301,9 @@ export class FileAssetsService {
 
   async downloadUrl(request: FilesRequestContext, fileId: string) {
     const { config, database, storage } = this.runtime();
-    const asset = await this.assets.getOwned({ actorId: request.principal.accountId, fileId });
+    const asset = request.principal.role === 'SUPER_ADMIN'
+      ? await this.assets.getAdminDownloadable({ actorId: request.principal.accountId, fileId })
+      : await this.assets.getOwned({ actorId: request.principal.accountId, fileId });
     this.authorizePurpose(request, asset.purpose);
     if (asset.status !== 'READY') {
       throw new ApplicationError('STATE_CONFLICT', 'Only ready file assets can be downloaded');

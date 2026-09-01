@@ -42,6 +42,11 @@ export interface OwnedFileAssetInput {
   actorId: string;
 }
 
+export interface AdminDownloadableFileInput {
+  actorId: string;
+  fileId: string;
+}
+
 export interface MarkFileAssetReadyInput extends OwnedFileAssetInput {
   expectedSha256: string;
   expectedByteSize: bigint;
@@ -109,6 +114,7 @@ const CREATE_FIELDS = new Set([
   'sha256',
 ]);
 const OWNED_FIELDS = new Set(['actorId', 'fileId']);
+const ADMIN_DOWNLOADABLE_FIELDS = new Set(['actorId', 'fileId']);
 const MARK_READY_FIELDS = new Set([
   'actorId',
   'expectedByteSize',
@@ -319,6 +325,34 @@ export class FileAssetRepository {
         created_by_id: input.actorId,
         deleted_at: null,
         id: input.fileId,
+      },
+    });
+    if (!asset) throw notFound();
+    return snapshot(asset);
+  }
+
+  async getAdminDownloadable(
+    input: AdminDownloadableFileInput,
+  ): Promise<FileAssetSnapshot> {
+    if (!isExactPlainObject(input, ADMIN_DOWNLOADABLE_FIELDS)) {
+      throw new TypeError('Admin downloadable file input contains unsupported fields');
+    }
+    requireFileId(input.actorId, 'Admin actor ID');
+    requireFileId(input.fileId, 'File ID');
+    const asset = await this.prisma.fileAsset.findFirst({
+      where: {
+        deleted_at: null,
+        id: input.fileId,
+        OR: [
+          { created_by_id: input.actorId },
+          {
+            aftersale_evidence: { some: {} },
+            object_key: buildFinalObjectKey(input.fileId, 'AFTERSALE_EVIDENCE'),
+            purpose: 'AFTERSALE_EVIDENCE',
+            status: 'READY',
+            visibility: 'PRIVATE',
+          },
+        ],
       },
     });
     if (!asset) throw notFound();

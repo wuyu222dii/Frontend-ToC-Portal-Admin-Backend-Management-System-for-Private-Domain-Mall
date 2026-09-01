@@ -2,6 +2,7 @@ import type { PlatformRuntimeConfig } from '@qingxu/config';
 import type {
   AdminAftersaleCommandSnapshot,
   AdminAftersaleDetailSnapshot,
+  AdminAftersaleRejectAfterReturnImpactSnapshot,
   AdminAftersaleRejectImpactSnapshot,
   DatabaseRuntime,
   ReturnAddressPublishPreviewSnapshot,
@@ -19,8 +20,10 @@ import {
 } from '../platform/security/return-address-security';
 import type {
   AdminAftersaleRejectConfirmationRequest,
+  AdminRejectAfterReturnConfirmationRequest,
   AdminReturnAddressAction,
   AdminReturnAddressConfirmation,
+  AdminReturnInspectionRequest,
 } from './admin-aftersales.dto';
 import { AdminAftersalesService } from './admin-aftersales.service';
 
@@ -89,6 +92,22 @@ const addressInput: AdminReturnAddressAction = {
   recipientName: 'Returns team',
 };
 
+const inspectionInput: AdminReturnInspectionRequest = {
+  abnormalReason: 'Package was incomplete',
+  evidenceFileIds: [EVIDENCE_ID],
+  items: [{
+    approvedRefundQuantity: 1,
+    damagedQuantity: 0,
+    note: 'Sealed note',
+    orderItemId: ORDER_ITEM_ID,
+    receivedQuantity: 2,
+    restockQuantity: 1,
+    returnToCustomerQuantity: 1,
+    scrapQuantity: 0,
+  }],
+  result: 'ABNORMAL',
+};
+
 function impact(): AdminAftersaleRejectImpactSnapshot {
   return {
     affectedCount: 1,
@@ -103,6 +122,36 @@ function impact(): AdminAftersaleRejectImpactSnapshot {
     releaseAmount: '19.90',
     releaseQuantity: 1,
     resourceVersion: 3,
+  };
+}
+
+function returnImpact(): AdminAftersaleRejectAfterReturnImpactSnapshot {
+  return {
+    affectedCount: 1,
+    aftersaleId: AFTERSALE_ID,
+    inspectionEvidenceFileIds: [EVIDENCE_ID],
+    inspectionId: SNAPSHOT_ID,
+    inspectionItems: [{
+      approvedRefundQuantity: 1,
+      damagedQuantity: 0,
+      note: 'Sealed note',
+      orderItemId: ORDER_ITEM_ID,
+      receivedQuantity: 2,
+      restockQuantity: 1,
+      returnToCustomerQuantity: 1,
+      scrapQuantity: 0,
+    }],
+    inspectionVersion: 1,
+    items: [{
+      aftersaleItemId: AFTERSALE_ITEM_ID,
+      orderItemId: ORDER_ITEM_ID,
+      releaseAmount: '19.90',
+      releaseQuantity: 1,
+    }],
+    orderId: ORDER_ID,
+    releaseAmount: '19.90',
+    releaseQuantity: 1,
+    resourceVersion: 4,
   };
 }
 
@@ -130,10 +179,25 @@ function inspection(): NonNullable<AdminAftersaleDetailSnapshot['inspection']> {
   };
 }
 
+function abnormalInspection(
+  resolution: 'CONTINUE_REFUND' | 'REJECT_AFTER_RETURN' | null = null,
+): NonNullable<AdminAftersaleDetailSnapshot['inspection']> {
+  return {
+    ...inspection(),
+    abnormalReason: 'Package was incomplete',
+    items: returnImpact().inspectionItems,
+    resolution,
+    resolutionReason: resolution === null ? null : 'Resolve the sealed inspection',
+    resolvedAt: resolution === null ? null : NOW,
+    result: 'ABNORMAL',
+  };
+}
+
 function command(
-  status: 'PENDING_REVIEW' | 'REFUNDING' | 'REJECTED' = 'REJECTED',
+  status: AdminAftersaleCommandSnapshot['status'] = 'REJECTED',
   currentInspection: AdminAftersaleDetailSnapshot['inspection'] = null,
 ): AdminAftersaleCommandSnapshot {
+  const released = status === 'REJECTED' || status === 'REJECTED_AFTER_RETURN';
   return {
     aftersaleId: AFTERSALE_ID,
     aftersaleNo: `AS${AFTERSALE_ID}`,
@@ -141,17 +205,18 @@ function command(
     items: [{
       aftersaleItemId: AFTERSALE_ITEM_ID,
       allocatedAmount: '19.90',
-      approvedRefundQuantity: null,
+      approvedRefundQuantity: currentInspection?.items[0]?.approvedRefundQuantity ?? null,
       orderItemId: ORDER_ITEM_ID,
       quantity: 1,
-      reservedAmount: status === 'REJECTED' ? '0.00' : '19.90',
-      reservedQuantity: status === 'REJECTED' ? 0 : 1,
+      reservedAmount: released ? '0.00' : '19.90',
+      reservedQuantity: released ? 0 : 1,
     }],
     orderId: ORDER_ID,
     refundId: null,
     status,
-    type: 'REFUND_ONLY',
-    version: status === 'PENDING_REVIEW' ? 3 : 4,
+    type: currentInspection === null ? 'REFUND_ONLY' : 'RETURN_REFUND',
+    version: status === 'PENDING_REVIEW' ? 3 :
+      status === 'REFUNDING_AFTER_RETURN' || status === 'REJECTED_AFTER_RETURN' ? 5 : 4,
   };
 }
 
@@ -231,6 +296,41 @@ function harness() {
     previewRejectInTransaction: vi.fn(async () => {
       sequence.push('previewReject');
       return impact();
+    }),
+    previewRejectAfterReturnInTransaction: vi.fn(async () => {
+      sequence.push('previewRejectAfterReturn');
+      return returnImpact();
+    }),
+    recordReturnInspectionInTransaction: vi.fn(async () => {
+      sequence.push('recordInspection');
+      return {
+        aftersale: command('RETURN_EXCEPTION', abnormalInspection()),
+        audit: {
+          after: { status: 'RETURN_EXCEPTION' as const, version: 4 },
+          before: { status: 'WAITING_RECEIPT' as const, version: 3 },
+        },
+      };
+    }),
+    continueRefundAfterReturnInTransaction: vi.fn(async () => {
+      sequence.push('continueRefundAfterReturn');
+      return {
+        aftersale: command('REFUNDING_AFTER_RETURN', abnormalInspection('CONTINUE_REFUND')),
+        audit: {
+          after: { status: 'REFUNDING_AFTER_RETURN' as const, version: 5 },
+          before: { status: 'RETURN_EXCEPTION' as const, version: 4 },
+        },
+      };
+    }),
+    rejectAfterReturnInTransaction: vi.fn(async (_transaction, _input, hooks) => {
+      sequence.push('rejectAfterReturn');
+      await hooks.verifyPreview(returnImpact());
+      return {
+        aftersale: command('REJECTED_AFTER_RETURN', abnormalInspection('REJECT_AFTER_RETURN')),
+        audit: {
+          after: { status: 'REJECTED_AFTER_RETURN' as const, version: 5 },
+          before: { status: 'RETURN_EXCEPTION' as const, version: 4 },
+        },
+      };
     }),
     rejectInTransaction: vi.fn(async (_transaction, _input, hooks) => {
       sequence.push('reject');
@@ -321,7 +421,7 @@ function harness() {
   };
 }
 
-describe('B12.2 AdminAftersalesService', () => {
+describe('B12 AdminAftersalesService', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('persists a safe reject-preview hash projection and binds all current impact facts', async () => {
@@ -426,6 +526,10 @@ describe('B12.2 AdminAftersalesService', () => {
     }, 999, CONFIRM_KEY);
 
     expect(current.sequence).toEqual(['getAftersaleReplay', 'assertReplay']);
+    expect(current.aftersales.getForReplayInTransaction).toHaveBeenCalledWith(
+      current.transaction,
+      { actorAccountId: ACCOUNT_ID, aftersaleId: AFTERSALE_ID },
+    );
     expect(current.idempotency.assertHashOnlyReplay).toHaveBeenCalledWith(record, {
       resourceId: AFTERSALE_ID,
       responseForHash: { aftersale_rejected: { aftersale_id: AFTERSALE_ID } },
@@ -433,6 +537,280 @@ describe('B12.2 AdminAftersalesService', () => {
       storage: 'HASH_ONLY',
     });
     expect(current.idempotency.assertKeyNotUsedForRequest).not.toHaveBeenCalled();
+    expect(current.previews.consumeInTransaction).not.toHaveBeenCalled();
+  });
+
+  it('records a canonical immutable inspection with HASH_ONLY replay material and a minimal audit', async () => {
+    const current = harness();
+
+    await current.service.recordReturnInspection(
+      request,
+      AFTERSALE_ID,
+      inspectionInput,
+      3,
+      CONFIRM_KEY,
+    );
+
+    expect(current.sequence).toEqual(['claim', 'recordInspection', 'audit', 'complete']);
+    expect(current.aftersales.recordReturnInspectionInTransaction).toHaveBeenCalledWith(
+      current.transaction,
+      {
+        abnormalReason: inspectionInput.abnormalReason,
+        actorAccountId: ACCOUNT_ID,
+        aftersaleId: AFTERSALE_ID,
+        evidenceFileIds: [EVIDENCE_ID],
+        expectedVersion: 3,
+        items: inspectionInput.items,
+        result: 'ABNORMAL',
+      },
+    );
+    expect(current.audit.append).toHaveBeenCalledWith(current.transaction, expect.objectContaining({
+      action: 'RECORD_INSPECTION',
+      after: { status: 'RETURN_EXCEPTION', version: 4 },
+      before: { status: 'WAITING_RECEIPT', version: 3 },
+      reason: inspectionInput.abnormalReason,
+      summaryPolicy: 'STATUS_VERSION',
+    }));
+    const persisted = JSON.stringify(current.idempotency.complete.mock.calls[0]?.[2]);
+    expect(persisted).toContain('return_inspection_recorded');
+    expect(persisted).not.toContain(EVIDENCE_ID);
+    expect(persisted).not.toContain('Sealed note');
+  });
+
+  it('replays an inspection before If-Match and repository validation', async () => {
+    const current = harness();
+    const record = { resource_id: AFTERSALE_ID, response_body: null, response_status: 200 };
+    current.idempotency.claim.mockResolvedValueOnce({ kind: 'replay', record });
+    current.aftersales.getForReplayInTransaction.mockResolvedValueOnce(
+      command('RETURN_EXCEPTION', abnormalInspection()),
+    );
+
+    await current.service.recordReturnInspection(
+      request,
+      AFTERSALE_ID,
+      inspectionInput,
+      999,
+      CONFIRM_KEY,
+    );
+
+    expect(current.aftersales.recordReturnInspectionInTransaction).not.toHaveBeenCalled();
+    expect(current.idempotency.assertHashOnlyReplay).toHaveBeenCalledWith(record, {
+      resourceId: AFTERSALE_ID,
+      responseForHash: { return_inspection_recorded: { aftersale_id: AFTERSALE_ID } },
+      responseStatus: 200,
+      storage: 'HASH_ONLY',
+    });
+  });
+
+  it('continues an abnormal return exactly once using the frozen inspection quantities', async () => {
+    const current = harness();
+    const input = {
+      reason: 'Continue with the accepted units',
+      resolution: 'CONTINUE_REFUND' as const,
+    };
+
+    await current.service.continueRefundAfterReturn(
+      request,
+      AFTERSALE_ID,
+      input,
+      4,
+      CONFIRM_KEY,
+    );
+
+    expect(current.sequence).toEqual(['claim', 'continueRefundAfterReturn', 'audit', 'complete']);
+    expect(current.aftersales.continueRefundAfterReturnInTransaction).toHaveBeenCalledWith(
+      current.transaction,
+      {
+        actorAccountId: ACCOUNT_ID,
+        aftersaleId: AFTERSALE_ID,
+        expectedVersion: 4,
+        reason: input.reason,
+      },
+    );
+    expect(current.audit.append).toHaveBeenCalledWith(current.transaction, expect.objectContaining({
+      action: 'CONTINUE_REFUND',
+      after: { status: 'REFUNDING_AFTER_RETURN', version: 5 },
+      before: { status: 'RETURN_EXCEPTION', version: 4 },
+      reason: input.reason,
+    }));
+    expect(current.idempotency.complete.mock.calls[0]?.[2]).toMatchObject({
+      responseForHash: {
+        aftersale_return_resolved: {
+          aftersale_id: AFTERSALE_ID,
+          resolution: 'CONTINUE_REFUND',
+        },
+      },
+      storage: 'HASH_ONLY',
+    });
+  });
+
+  it('binds reject-after-return preview to the sealed inspection and current release impact', async () => {
+    const current = harness();
+
+    await current.service.previewRejectAfterReturn(
+      request,
+      AFTERSALE_ID,
+      { reason: 'Reject after sealed inspection', resolution: 'REJECT_AFTER_RETURN' },
+      PREVIEW_KEY,
+    );
+
+    expect(current.sequence).toEqual([
+      'claim', 'previewRejectAfterReturn', 'issuePreview', 'complete',
+    ]);
+    expect(current.previews.issueInTransaction).toHaveBeenCalledWith(
+      current.transaction,
+      expect.objectContaining({
+        action: 'AFTERSALE.REJECT_AFTER_RETURN',
+        actorId: ACCOUNT_ID,
+        request: expect.objectContaining({
+          evidence_file_ids: [EVIDENCE_ID],
+          inspection_id: SNAPSHOT_ID,
+          inspection_items: [expect.objectContaining({
+            approved_refund_qty: 1,
+            order_item_id: ORDER_ITEM_ID,
+            received_qty: 2,
+            return_to_customer_qty: 1,
+          })],
+          inspection_version: 1,
+          reason: 'Reject after sealed inspection',
+          release_amount: '19.90',
+          release_quantity: 1,
+          resolution: 'REJECT_AFTER_RETURN',
+        }),
+        resourceVersion: 4,
+        sessionId: SESSION_ID,
+        targetId: AFTERSALE_ID,
+        targetType: 'AFTERSALE',
+      }),
+    );
+    const completed = JSON.stringify(current.idempotency.complete.mock.calls[0]?.[2]);
+    expect(completed).not.toContain(PREVIEW_TOKEN);
+    expect(completed).not.toContain(CONFIRMATION_HASH);
+    expect(completed).not.toContain(EVIDENCE_ID);
+  });
+
+  it('rejects a reject-after-return preview replay without issuing another capability', async () => {
+    const current = harness();
+    current.idempotency.claim.mockResolvedValueOnce({
+      kind: 'replay',
+      record: { resource_id: AFTERSALE_ID, response_body: null, response_status: 200 },
+    });
+
+    await expect(current.service.previewRejectAfterReturn(
+      request,
+      AFTERSALE_ID,
+      { reason: 'Reject after sealed inspection', resolution: 'REJECT_AFTER_RETURN' },
+      PREVIEW_KEY,
+    )).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
+
+    expect(current.aftersales.previewRejectAfterReturnInTransaction).not.toHaveBeenCalled();
+    expect(current.previews.issueInTransaction).not.toHaveBeenCalled();
+    expect(current.idempotency.complete).not.toHaveBeenCalled();
+  });
+
+  it('separates reject-after-return confirmation keys and consumes the bound preview before audit', async () => {
+    const current = harness();
+    const input: AdminRejectAfterReturnConfirmationRequest = {
+      confirmationHash: CONFIRMATION_HASH,
+      previewToken: PREVIEW_TOKEN,
+      reason: 'Reject after sealed inspection',
+      resolution: 'REJECT_AFTER_RETURN',
+    };
+
+    await current.service.rejectAfterReturn(request, AFTERSALE_ID, input, 4, CONFIRM_KEY);
+
+    expect(current.sequence).toEqual([
+      'claim',
+      'assertDifferentKey',
+      'rejectAfterReturn',
+      'consumePreview',
+      'audit',
+      'complete',
+    ]);
+    expect(current.idempotency.assertKeyNotUsedForRequest).toHaveBeenCalledWith(
+      current.transaction,
+      expect.objectContaining({ idempotencyKey: CONFIRM_KEY }),
+      {
+        method: 'POST',
+        route: '/admin/aftersales/{aftersale_id}/return-resolution/reject-preview',
+      },
+    );
+    expect(current.previews.consumeInTransaction).toHaveBeenCalledWith(
+      current.transaction,
+      expect.objectContaining({
+        action: 'AFTERSALE.REJECT_AFTER_RETURN',
+        actorId: ACCOUNT_ID,
+        resourceVersion: 4,
+        sessionId: SESSION_ID,
+      }),
+    );
+    expect(current.audit.append).toHaveBeenCalledWith(current.transaction, expect.objectContaining({
+      action: 'REJECT_AFTER_RETURN',
+      after: { status: 'REJECTED_AFTER_RETURN', version: 5 },
+      before: { status: 'RETURN_EXCEPTION', version: 4 },
+      reason: input.reason,
+    }));
+    const persisted = JSON.stringify([
+      current.audit.append.mock.calls,
+      current.idempotency.complete.mock.calls.map((call) => call[2]),
+    ]);
+    expect(persisted).not.toContain(PREVIEW_TOKEN);
+    expect(persisted).not.toContain(CONFIRMATION_HASH);
+    expect(persisted).not.toContain(EVIDENCE_ID);
+  });
+
+  it('rejects a reject-after-return confirm key used by preview before repository mutation', async () => {
+    const current = harness();
+    current.idempotency.assertKeyNotUsedForRequest.mockRejectedValueOnce(
+      new ApplicationError('STATE_CONFLICT', 'The confirm key was used by preview'),
+    );
+
+    await expect(current.service.rejectAfterReturn(request, AFTERSALE_ID, {
+      confirmationHash: CONFIRMATION_HASH,
+      previewToken: PREVIEW_TOKEN,
+      reason: 'Reject after sealed inspection',
+      resolution: 'REJECT_AFTER_RETURN',
+    }, 4, PREVIEW_KEY)).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
+
+    expect(current.aftersales.rejectAfterReturnInTransaction).not.toHaveBeenCalled();
+    expect(current.previews.consumeInTransaction).not.toHaveBeenCalled();
+    expect(current.audit.append).not.toHaveBeenCalled();
+    expect(current.idempotency.complete).not.toHaveBeenCalled();
+  });
+
+  it('replays reject-after-return before version and preview checks', async () => {
+    const current = harness();
+    const record = { resource_id: AFTERSALE_ID, response_body: null, response_status: 200 };
+    current.idempotency.claim.mockResolvedValueOnce({ kind: 'replay', record });
+    current.aftersales.getForReplayInTransaction.mockResolvedValueOnce(
+      command('REJECTED_AFTER_RETURN', abnormalInspection('REJECT_AFTER_RETURN')),
+    );
+
+    await current.service.rejectAfterReturn(request, AFTERSALE_ID, {
+      confirmationHash: CONFIRMATION_HASH,
+      previewToken: PREVIEW_TOKEN,
+      reason: 'Reject after sealed inspection',
+      resolution: 'REJECT_AFTER_RETURN',
+    }, 999, CONFIRM_KEY);
+
+    expect(current.sequence).toEqual(['assertReplay']);
+    expect(current.aftersales.getForReplayInTransaction).toHaveBeenCalledWith(
+      current.transaction,
+      { actorAccountId: ACCOUNT_ID, aftersaleId: AFTERSALE_ID },
+    );
+    expect(current.idempotency.assertHashOnlyReplay).toHaveBeenCalledWith(record, {
+      resourceId: AFTERSALE_ID,
+      responseForHash: {
+        aftersale_return_resolved: {
+          aftersale_id: AFTERSALE_ID,
+          resolution: 'REJECT_AFTER_RETURN',
+        },
+      },
+      responseStatus: 200,
+      storage: 'HASH_ONLY',
+    });
+    expect(current.idempotency.assertKeyNotUsedForRequest).not.toHaveBeenCalled();
+    expect(current.aftersales.rejectAfterReturnInTransaction).not.toHaveBeenCalled();
     expect(current.previews.consumeInTransaction).not.toHaveBeenCalled();
   });
 

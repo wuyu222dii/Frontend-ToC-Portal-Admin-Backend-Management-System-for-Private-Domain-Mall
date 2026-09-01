@@ -49,6 +49,39 @@ export interface AdminAftersaleRejectConfirmationRequest extends AdminAftersaleR
   previewToken: string;
 }
 
+export interface AdminReturnInspectionLine {
+  approvedRefundQuantity: number;
+  damagedQuantity: number;
+  note: string | null;
+  orderItemId: string;
+  receivedQuantity: number;
+  restockQuantity: number;
+  returnToCustomerQuantity: number;
+  scrapQuantity: number;
+}
+
+export interface AdminReturnInspectionRequest {
+  abnormalReason: string | null;
+  evidenceFileIds: string[];
+  items: AdminReturnInspectionLine[];
+  result: 'ABNORMAL' | 'PASS';
+}
+
+export interface AdminContinueRefundRequest {
+  reason: string;
+  resolution: 'CONTINUE_REFUND';
+}
+
+export interface AdminRejectAfterReturnRequest {
+  reason: string;
+  resolution: 'REJECT_AFTER_RETURN';
+}
+
+export interface AdminRejectAfterReturnConfirmationRequest extends AdminRejectAfterReturnRequest {
+  confirmationHash: string;
+  previewToken: string;
+}
+
 export interface AdminReturnAddressAction {
   city: string;
   detail: string;
@@ -116,6 +149,70 @@ function positiveInteger(value: unknown, fallback: number, maximum: number, fiel
   if (typeof value !== 'string' || !/^[1-9][0-9]*$/.test(value)) return invalid(`${field} is invalid`);
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed > maximum) return invalid(`${field} is invalid`);
+  return parsed;
+}
+
+function boundedCounter(value: unknown, field: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > 99) {
+    return invalid(`${field} is invalid`);
+  }
+  return value as number;
+}
+
+function ulidArray(value: unknown, maximum: number, field: string): string[] {
+  if (!Array.isArray(value) || value.length > maximum ||
+    value.some((entry) => typeof entry !== 'string' || !isValidUlid(entry))) {
+    return invalid(`${field} is invalid`);
+  }
+  const values = value as string[];
+  if (new Set(values).size !== values.length) return invalid(`${field} contains duplicates`);
+  return [...values].sort((left, right) => left.localeCompare(right));
+}
+
+function inspectionNote(value: unknown, field: string): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string' || /\p{Cc}/u.test(value)) return invalid(`${field} is invalid`);
+  const normalized = value.trim();
+  if (Array.from(normalized).length > 500) return invalid(`${field} is invalid`);
+  return normalized.length === 0 ? null : normalized;
+}
+
+function inspectionLine(value: unknown, index: number): AdminReturnInspectionLine {
+  const line = plainRecord(value, `items[${index}]`);
+  const required = [
+    'order_item_id',
+    'received_qty',
+    'approved_refund_qty',
+    'restock_qty',
+    'damaged_qty',
+    'scrap_qty',
+    'return_to_customer_qty',
+  ];
+  exactFields(line, [...required, 'note'], required, `items[${index}]`);
+  if (typeof line.order_item_id !== 'string' || !isValidUlid(line.order_item_id)) {
+    return invalid(`items[${index}].order_item_id is invalid`);
+  }
+  const parsed: AdminReturnInspectionLine = {
+    approvedRefundQuantity: boundedCounter(
+      line.approved_refund_qty,
+      `items[${index}].approved_refund_qty`,
+    ),
+    damagedQuantity: boundedCounter(line.damaged_qty, `items[${index}].damaged_qty`),
+    note: inspectionNote(line.note, `items[${index}].note`),
+    orderItemId: line.order_item_id,
+    receivedQuantity: boundedCounter(line.received_qty, `items[${index}].received_qty`),
+    restockQuantity: boundedCounter(line.restock_qty, `items[${index}].restock_qty`),
+    returnToCustomerQuantity: boundedCounter(
+      line.return_to_customer_qty,
+      `items[${index}].return_to_customer_qty`,
+    ),
+    scrapQuantity: boundedCounter(line.scrap_qty, `items[${index}].scrap_qty`),
+  };
+  if (parsed.approvedRefundQuantity + parsed.returnToCustomerQuantity !== parsed.receivedQuantity ||
+    parsed.approvedRefundQuantity !== parsed.restockQuantity + parsed.damagedQuantity +
+      parsed.scrapQuantity) {
+    return invalid(`items[${index}] quantities are inconsistent`);
+  }
   return parsed;
 }
 
@@ -231,6 +328,73 @@ export function parseAdminAftersaleRejectConfirmationBody(
   return {
     reason: text(body.reason, 'reason', 2, 500),
     ...confirmationFields(body),
+  };
+}
+
+export function parseAdminReturnInspectionBody(value: unknown): AdminReturnInspectionRequest {
+  const body = plainRecord(value, 'Request body');
+  if (body.result !== 'PASS' && body.result !== 'ABNORMAL') {
+    return invalid('result is invalid');
+  }
+  const fields = body.result === 'PASS'
+    ? ['result', 'items', 'evidence_file_ids']
+    : ['result', 'abnormal_reason', 'items', 'evidence_file_ids'];
+  exactFields(body, fields, fields, 'Request body');
+  if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > 100) {
+    return invalid('items is invalid');
+  }
+  const items = body.items.map((item, index) => inspectionLine(item, index));
+  if (new Set(items.map(({ orderItemId }) => orderItemId)).size !== items.length) {
+    return invalid('items contains duplicate order_item_id values');
+  }
+  if (body.result === 'PASS' && items.some((item) =>
+    item.approvedRefundQuantity !== item.receivedQuantity || item.returnToCustomerQuantity !== 0)) {
+    return invalid('PASS items must approve every received unit');
+  }
+  items.sort((left, right) => left.orderItemId.localeCompare(right.orderItemId));
+  const evidenceFileIds = ulidArray(body.evidence_file_ids, 9, 'evidence_file_ids');
+  if (body.result === 'ABNORMAL' && evidenceFileIds.length < 1) {
+    return invalid('evidence_file_ids is required for an abnormal inspection');
+  }
+  return {
+    abnormalReason: body.result === 'ABNORMAL'
+      ? text(body.abnormal_reason, 'abnormal_reason', 2, 500)
+      : null,
+    evidenceFileIds,
+    items,
+    result: body.result,
+  };
+}
+
+export function parseAdminContinueRefundBody(value: unknown): AdminContinueRefundRequest {
+  const body = plainRecord(value, 'Request body');
+  exactFields(body, ['resolution', 'reason'], ['resolution', 'reason'], 'Request body');
+  if (body.resolution !== 'CONTINUE_REFUND') return invalid('resolution is invalid');
+  return { reason: text(body.reason, 'reason', 2, 500), resolution: 'CONTINUE_REFUND' };
+}
+
+export function parseAdminRejectAfterReturnBody(value: unknown): AdminRejectAfterReturnRequest {
+  const body = plainRecord(value, 'Request body');
+  exactFields(body, ['resolution', 'reason'], ['resolution', 'reason'], 'Request body');
+  if (body.resolution !== 'REJECT_AFTER_RETURN') return invalid('resolution is invalid');
+  return { reason: text(body.reason, 'reason', 2, 500), resolution: 'REJECT_AFTER_RETURN' };
+}
+
+export function parseAdminRejectAfterReturnConfirmationBody(
+  value: unknown,
+): AdminRejectAfterReturnConfirmationRequest {
+  const body = plainRecord(value, 'Request body');
+  exactFields(
+    body,
+    ['resolution', 'reason', 'preview_token', 'confirmation_hash'],
+    ['resolution', 'reason', 'preview_token', 'confirmation_hash'],
+    'Request body',
+  );
+  if (body.resolution !== 'REJECT_AFTER_RETURN') return invalid('resolution is invalid');
+  return {
+    ...confirmationFields(body),
+    reason: text(body.reason, 'reason', 2, 500),
+    resolution: 'REJECT_AFTER_RETURN',
   };
 }
 

@@ -72,7 +72,9 @@ function config(): PlatformRuntimeConfig {
 }
 
 interface ServiceInternals {
-  assets: { createPendingInTransaction: ReturnType<typeof vi.fn>; getOwned: ReturnType<typeof vi.fn>;
+  assets: { createPendingInTransaction: ReturnType<typeof vi.fn>;
+    getAdminDownloadable: ReturnType<typeof vi.fn>;
+    getOwned: ReturnType<typeof vi.fn>;
     markReadyInTransaction: ReturnType<typeof vi.fn> };
   audit: { append: ReturnType<typeof vi.fn> };
   idempotency: { claim: ReturnType<typeof vi.fn>; complete: ReturnType<typeof vi.fn>;
@@ -112,6 +114,12 @@ function fixture(claimResults: unknown[] = [{ kind: 'execute' }]) {
   internals.assets = {
     createPendingInTransaction: vi.fn().mockImplementation((_transaction, input: { id: string }) =>
       Promise.resolve(asset({ id: input.id, objectKey: `staging/${input.id}` }))),
+    getAdminDownloadable: vi.fn().mockResolvedValue(asset({
+      objectKey: `private/${fileId}`,
+      purpose: 'AFTERSALE_EVIDENCE',
+      status: 'READY',
+      visibility: 'PRIVATE',
+    })),
     getOwned: vi.fn().mockResolvedValue(asset()),
     markReadyInTransaction: vi.fn().mockResolvedValue({
       asset: asset({ objectKey: `public/${fileId}`, status: 'READY', visibility: 'PUBLIC' }),
@@ -313,12 +321,12 @@ describe('FileAssetsService orchestration', () => {
 
   it('signs only private READY downloads and directs public assets to their stable URL', async () => {
     const privateFixture = fixture();
-    privateFixture.internals.assets.getOwned.mockResolvedValue(asset({
-      objectKey: `private/${fileId}`, purpose: 'AFTERSALE_EVIDENCE', status: 'READY', visibility: 'PRIVATE',
-    }));
     await expect(privateFixture.service.downloadUrl(request(), fileId)).resolves.toEqual({
       download_url: 'https://storage.test/private/file', expires_at: '2026-08-14T00:05:00.000Z', file_id: fileId,
     });
+    expect(privateFixture.internals.assets.getAdminDownloadable)
+      .toHaveBeenCalledWith({ actorId: accountId, fileId });
+    expect(privateFixture.internals.assets.getOwned).not.toHaveBeenCalled();
     expect(privateFixture.storage.presignGet).toHaveBeenCalledWith(`private/${fileId}`, 300);
     expect(privateFixture.internals.audit.append).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       action: 'READ_SENSITIVE',
@@ -328,12 +336,37 @@ describe('FileAssetsService orchestration', () => {
     expect(JSON.stringify(privateFixture.internals.audit.append.mock.calls)).not.toContain('storage.test');
 
     const publicFixture = fixture();
-    publicFixture.internals.assets.getOwned.mockResolvedValue(asset({
+    publicFixture.internals.assets.getAdminDownloadable.mockResolvedValue(asset({
       objectKey: `public/${fileId}`, status: 'READY', visibility: 'PUBLIC',
     }));
     await expect(publicFixture.service.downloadUrl(request(), fileId)).rejects.toMatchObject(
       { code: 'STATE_CONFLICT' } satisfies Partial<ApplicationError>,
     );
     expect(publicFixture.storage.presignGet).not.toHaveBeenCalled();
+  });
+
+  it('keeps CUSTOMER downloads owner-scoped and never uses the Admin evidence lookup', async () => {
+    const f = fixture();
+    f.internals.assets.getOwned.mockResolvedValue(asset({
+      objectKey: `private/${fileId}`,
+      purpose: 'AFTERSALE_EVIDENCE',
+      status: 'READY',
+      visibility: 'PRIVATE',
+    }));
+    await expect(f.service.downloadUrl(request('CUSTOMER'), fileId)).resolves.toMatchObject({ file_id: fileId });
+    expect(f.internals.assets.getOwned).toHaveBeenCalledWith({ actorId: accountId, fileId });
+    expect(f.internals.assets.getAdminDownloadable).not.toHaveBeenCalled();
+  });
+
+  it('does not sign an Admin download when the file is neither owned nor bound as aftersale evidence', async () => {
+    const f = fixture();
+    f.internals.assets.getAdminDownloadable.mockRejectedValue(
+      new ApplicationError('RESOURCE_NOT_FOUND', 'File asset is not authorized'),
+    );
+    await expect(f.service.downloadUrl(request(), fileId))
+      .rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND' });
+    expect(f.internals.assets.getOwned).not.toHaveBeenCalled();
+    expect(f.storage.presignGet).not.toHaveBeenCalled();
+    expect(f.internals.audit.append).not.toHaveBeenCalled();
   });
 });

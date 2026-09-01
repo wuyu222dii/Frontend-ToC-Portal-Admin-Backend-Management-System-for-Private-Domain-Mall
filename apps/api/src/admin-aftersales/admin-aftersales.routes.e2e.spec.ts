@@ -36,17 +36,25 @@ const getAftersale = vi.fn();
 const approveAftersale = vi.fn();
 const previewReject = vi.fn();
 const rejectAftersale = vi.fn();
+const recordReturnInspection = vi.fn();
+const continueRefundAfterReturn = vi.fn();
+const previewRejectAfterReturn = vi.fn();
+const rejectAfterReturn = vi.fn();
 const getReturnAddress = vi.fn();
 const previewReturnAddress = vi.fn();
 const publishReturnAddress = vi.fn();
 const service = {
   approveAftersale,
+  continueRefundAfterReturn,
   getAftersale,
   getReturnAddress,
   listAftersales,
   previewReject,
+  previewRejectAfterReturn,
   previewReturnAddress,
   publishReturnAddress,
+  recordReturnInspection,
+  rejectAfterReturn,
   rejectAftersale,
 };
 
@@ -134,7 +142,7 @@ function expectNoStore(response: { headers: Record<string, string | string[] | u
   expect(response.headers.pragma).toBe('no-cache');
 }
 
-describe('B12.2 Admin aftersales protected HTTP surface', () => {
+describe('B12 Admin aftersales protected HTTP surface', () => {
   let app: INestApplication;
   let customerApp: INestApplication;
 
@@ -156,6 +164,16 @@ describe('B12.2 Admin aftersales protected HTTP surface', () => {
     approveAftersale.mockResolvedValue({ aftersale_id: AFTERSALE_ID, status: 'REFUNDING' });
     previewReject.mockResolvedValue({ preview_token: TOKEN });
     rejectAftersale.mockResolvedValue({ aftersale_id: AFTERSALE_ID, status: 'REJECTED' });
+    recordReturnInspection.mockResolvedValue({
+      aftersale_id: AFTERSALE_ID, status: 'RETURN_EXCEPTION', version: 4,
+    });
+    continueRefundAfterReturn.mockResolvedValue({
+      aftersale_id: AFTERSALE_ID, status: 'REFUNDING_AFTER_RETURN', version: 5,
+    });
+    previewRejectAfterReturn.mockResolvedValue({ preview_token: TOKEN });
+    rejectAfterReturn.mockResolvedValue({
+      aftersale_id: AFTERSALE_ID, status: 'REJECTED_AFTER_RETURN', version: 5,
+    });
     getReturnAddress.mockResolvedValue({ version_id: AFTERSALE_ID });
     previewReturnAddress.mockResolvedValue({ preview_token: TOKEN });
     publishReturnAddress.mockResolvedValue({ version_id: AFTERSALE_ID });
@@ -257,6 +275,104 @@ describe('B12.2 Admin aftersales protected HTTP surface', () => {
     expectNoStore(published);
   });
 
+  it('maps inspection and typed abnormal resolution routes with strong headers and no-store', async () => {
+    const inspection = await request(app.getHttpServer())
+      .post(`/api/v1/admin/aftersales/${AFTERSALE_ID}/return-inspections`)
+      .set('Idempotency-Key', KEY)
+      .set('If-Match', '"3"')
+      .send({
+        abnormal_reason: '  Package was incomplete  ',
+        evidence_file_ids: [FACTOR_ID],
+        items: [{
+          approved_refund_qty: 1,
+          damaged_qty: 0,
+          note: '  Accepted unit  ',
+          order_item_id: FACTOR_ID,
+          received_qty: 2,
+          restock_qty: 1,
+          return_to_customer_qty: 1,
+          scrap_qty: 0,
+        }],
+        result: 'ABNORMAL',
+      })
+      .expect(200);
+    expect(recordReturnInspection).toHaveBeenCalledWith(
+      expect.objectContaining({ principal: superAdmin }),
+      AFTERSALE_ID,
+      {
+        abnormalReason: 'Package was incomplete',
+        evidenceFileIds: [FACTOR_ID],
+        items: [{
+          approvedRefundQuantity: 1,
+          damagedQuantity: 0,
+          note: 'Accepted unit',
+          orderItemId: FACTOR_ID,
+          receivedQuantity: 2,
+          restockQuantity: 1,
+          returnToCustomerQuantity: 1,
+          scrapQuantity: 0,
+        }],
+        result: 'ABNORMAL',
+      },
+      3,
+      KEY,
+    );
+    expectNoStore(inspection);
+
+    const continued = await request(app.getHttpServer())
+      .post(`/api/v1/admin/aftersales/${AFTERSALE_ID}/return-resolution/continue-refund`)
+      .set('Idempotency-Key', KEY)
+      .set('If-Match', '"4"')
+      .send({ reason: '  Continue accepted quantity  ', resolution: 'CONTINUE_REFUND' })
+      .expect(200);
+    expect(continueRefundAfterReturn).toHaveBeenCalledWith(
+      expect.objectContaining({ principal: superAdmin }),
+      AFTERSALE_ID,
+      { reason: 'Continue accepted quantity', resolution: 'CONTINUE_REFUND' },
+      4,
+      KEY,
+    );
+    expectNoStore(continued);
+
+    const preview = await request(app.getHttpServer())
+      .post(`/api/v1/admin/aftersales/${AFTERSALE_ID}/return-resolution/reject-preview`)
+      .set('Idempotency-Key', KEY)
+      .send({ reason: '  Reject sealed inspection  ', resolution: 'REJECT_AFTER_RETURN' })
+      .expect(200);
+    expect(previewRejectAfterReturn).toHaveBeenCalledWith(
+      expect.objectContaining({ principal: superAdmin }),
+      AFTERSALE_ID,
+      { reason: 'Reject sealed inspection', resolution: 'REJECT_AFTER_RETURN' },
+      KEY,
+    );
+    expectNoStore(preview);
+
+    const rejected = await request(app.getHttpServer())
+      .post(`/api/v1/admin/aftersales/${AFTERSALE_ID}/return-resolution/reject`)
+      .set('Idempotency-Key', KEY)
+      .set('If-Match', '"4"')
+      .send({
+        confirmation_hash: HASH,
+        preview_token: TOKEN,
+        reason: 'Reject sealed inspection',
+        resolution: 'REJECT_AFTER_RETURN',
+      })
+      .expect(200);
+    expect(rejectAfterReturn).toHaveBeenCalledWith(
+      expect.objectContaining({ principal: superAdmin }),
+      AFTERSALE_ID,
+      {
+        confirmationHash: HASH,
+        previewToken: TOKEN,
+        reason: 'Reject sealed inspection',
+        resolution: 'REJECT_AFTER_RETURN',
+      },
+      4,
+      KEY,
+    );
+    expectNoStore(rejected);
+  });
+
   it('rejects CUSTOMER access before parsing and dispatch, while retaining no-store', async () => {
     const response = await request(customerApp.getHttpServer())
       .post('/api/v1/admin/settings/return-address/preview')
@@ -265,6 +381,13 @@ describe('B12.2 Admin aftersales protected HTTP surface', () => {
     expect(response.body.code).toBe('PERMISSION_DENIED');
     expect(previewReturnAddress).not.toHaveBeenCalled();
     expectNoStore(response);
+    const inspectionResponse = await request(customerApp.getHttpServer())
+      .post(`/api/v1/admin/aftersales/${AFTERSALE_ID}/return-inspections`)
+      .send({ invalid: true })
+      .expect(403);
+    expect(inspectionResponse.body.code).toBe('PERMISSION_DENIED');
+    expect(recordReturnInspection).not.toHaveBeenCalled();
+    expectNoStore(inspectionResponse);
   });
 
   it('rejects missing strong headers and open bodies before service dispatch', async () => {
@@ -277,9 +400,18 @@ describe('B12.2 Admin aftersales protected HTTP surface', () => {
       .set('Idempotency-Key', KEY)
       .send({ ...addressBody(), extra: true })
       .expect(400);
+    const openResolution = await request(app.getHttpServer())
+      .post(`/api/v1/admin/aftersales/${AFTERSALE_ID}/return-resolution/reject-preview`)
+      .set('Idempotency-Key', KEY)
+      .send({
+        evidence_file_ids: [], reason: 'Rejected', resolution: 'REJECT_AFTER_RETURN',
+      })
+      .expect(400);
     expectNoStore(missingHeaders);
     expectNoStore(openBody);
+    expectNoStore(openResolution);
     expect(approveAftersale).not.toHaveBeenCalled();
     expect(previewReturnAddress).not.toHaveBeenCalled();
+    expect(previewRejectAfterReturn).not.toHaveBeenCalled();
   });
 });

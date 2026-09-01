@@ -25,8 +25,12 @@ import {
   parseAdminAftersaleListQuery,
   parseAdminAftersaleRejectBody,
   parseAdminAftersaleRejectConfirmationBody,
+  parseAdminContinueRefundBody,
+  parseAdminRejectAfterReturnBody,
+  parseAdminRejectAfterReturnConfirmationBody,
   parseAdminReturnAddressAction,
   parseAdminReturnAddressConfirmation,
+  parseAdminReturnInspectionBody,
 } from './admin-aftersales.dto';
 import { AdminAftersalesService } from './admin-aftersales.service';
 
@@ -107,6 +111,88 @@ export class AdminAftersalesController {
       requireAdminCatalogRequest(rawRequest),
       parseAdminAftersaleId(aftersaleIdValue),
       parseAdminAftersaleRejectConfirmationBody(body),
+      expectedVersion,
+      idempotencyKey,
+    );
+  }
+
+  @Post(':aftersale_id/return-inspections')
+  @HttpCode(HttpStatus.OK)
+  @NoStore()
+  recordReturnInspection(
+    @Param('aftersale_id') aftersaleIdValue: string,
+    @Query() query: unknown,
+    @Body() body: unknown,
+    @IfMatchVersion() expectedVersion: number,
+    @IdempotencyKey() idempotencyKey: string,
+    @Req() rawRequest: PrincipalRequest,
+  ) {
+    parseAdminAftersaleEmptyQuery(query);
+    return this.aftersales.recordReturnInspection(
+      requireAdminCatalogRequest(rawRequest),
+      parseAdminAftersaleId(aftersaleIdValue),
+      parseAdminReturnInspectionBody(body),
+      expectedVersion,
+      idempotencyKey,
+    );
+  }
+
+  @Post(':aftersale_id/return-resolution/continue-refund')
+  @HttpCode(HttpStatus.OK)
+  @NoStore()
+  continueRefundAfterReturn(
+    @Param('aftersale_id') aftersaleIdValue: string,
+    @Query() query: unknown,
+    @Body() body: unknown,
+    @IfMatchVersion() expectedVersion: number,
+    @IdempotencyKey() idempotencyKey: string,
+    @Req() rawRequest: PrincipalRequest,
+  ) {
+    parseAdminAftersaleEmptyQuery(query);
+    return this.aftersales.continueRefundAfterReturn(
+      requireAdminCatalogRequest(rawRequest),
+      parseAdminAftersaleId(aftersaleIdValue),
+      parseAdminContinueRefundBody(body),
+      expectedVersion,
+      idempotencyKey,
+    );
+  }
+
+  @Post(':aftersale_id/return-resolution/reject-preview')
+  @HttpCode(HttpStatus.OK)
+  @NoStore()
+  previewRejectAfterReturn(
+    @Param('aftersale_id') aftersaleIdValue: string,
+    @Query() query: unknown,
+    @Body() body: unknown,
+    @IdempotencyKey() idempotencyKey: string,
+    @Req() rawRequest: PrincipalRequest,
+  ) {
+    parseAdminAftersaleEmptyQuery(query);
+    return this.aftersales.previewRejectAfterReturn(
+      requireAdminCatalogRequest(rawRequest),
+      parseAdminAftersaleId(aftersaleIdValue),
+      parseAdminRejectAfterReturnBody(body),
+      idempotencyKey,
+    );
+  }
+
+  @Post(':aftersale_id/return-resolution/reject')
+  @HttpCode(HttpStatus.OK)
+  @NoStore()
+  rejectAfterReturn(
+    @Param('aftersale_id') aftersaleIdValue: string,
+    @Query() query: unknown,
+    @Body() body: unknown,
+    @IfMatchVersion() expectedVersion: number,
+    @IdempotencyKey() idempotencyKey: string,
+    @Req() rawRequest: PrincipalRequest,
+  ) {
+    parseAdminAftersaleEmptyQuery(query);
+    return this.aftersales.rejectAfterReturn(
+      requireAdminCatalogRequest(rawRequest),
+      parseAdminAftersaleId(aftersaleIdValue),
+      parseAdminRejectAfterReturnConfirmationBody(body),
       expectedVersion,
       idempotencyKey,
     );

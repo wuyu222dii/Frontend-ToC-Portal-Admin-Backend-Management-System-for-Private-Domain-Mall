@@ -14,6 +14,9 @@ import type { DatabaseTransaction } from './idempotency.repository';
 
 const MAX_POSTGRES_INTEGER = 2_147_483_647;
 const MAX_MONEY = new Prisma.Decimal('9999999999999999.99');
+const MAX_INSPECTION_ITEMS = 100;
+const MAX_INSPECTION_EVIDENCE = 9;
+const INSPECTION_EVIDENCE_PURPOSE = 'INSPECTION';
 const CUSTOMER_ALIAS_DOMAIN = 'qingxu:admin-aftersale-customer-alias:v1\0';
 const AFTERSALE_STATUSES = new Set<AftersaleStatus>([
   'CANCELLED', 'COMPLETED', 'PENDING_REVIEW', 'REFUND_FAILED', 'REFUNDING',
@@ -262,6 +265,68 @@ export interface AdminAftersaleRejectHooks {
   verifyPreview(snapshot: AdminAftersaleRejectImpactSnapshot): Promise<void> | void;
 }
 
+export interface AdminReturnInspectionLineInput {
+  approvedRefundQuantity: number;
+  damagedQuantity: number;
+  note?: string | null;
+  orderItemId: string;
+  receivedQuantity: number;
+  restockQuantity: number;
+  returnToCustomerQuantity: number;
+  scrapQuantity: number;
+}
+
+export interface AdminReturnInspectionInput {
+  abnormalReason?: string | null;
+  actorAccountId: string;
+  aftersaleId: string;
+  evidenceFileIds: readonly string[];
+  expectedVersion: number;
+  items: readonly AdminReturnInspectionLineInput[];
+  result: 'ABNORMAL' | 'PASS';
+}
+
+export interface AdminReturnResolutionInput {
+  actorAccountId: string;
+  aftersaleId: string;
+  expectedVersion: number;
+  reason: string;
+}
+
+export interface AdminAftersaleRejectAfterReturnImpactItem {
+  aftersaleItemId: string;
+  orderItemId: string;
+  releaseAmount: string;
+  releaseQuantity: number;
+}
+
+export interface AdminAftersaleRejectAfterReturnImpactSnapshot {
+  affectedCount: number;
+  aftersaleId: string;
+  inspectionId: string;
+  inspectionEvidenceFileIds: string[];
+  inspectionItems: Array<{
+    approvedRefundQuantity: number;
+    damagedQuantity: number;
+    note: string | null;
+    orderItemId: string;
+    receivedQuantity: number;
+    restockQuantity: number;
+    returnToCustomerQuantity: number;
+    scrapQuantity: number;
+  }>;
+  inspectionVersion: number;
+  items: AdminAftersaleRejectAfterReturnImpactItem[];
+  orderId: string;
+  releaseAmount: string;
+  releaseQuantity: number;
+  resourceVersion: number;
+}
+
+export interface AdminAftersaleRejectAfterReturnHooks {
+  verifyPreview(snapshot: AdminAftersaleRejectAfterReturnImpactSnapshot): Promise<void> | void;
+}
+
 export interface AdminAftersaleCommandResult {
   aftersale: AdminAftersaleCommandSnapshot;
   audit: { after: AdminAftersaleAuditState; before: AdminAftersaleAuditState };
@@ -337,7 +402,7 @@ const DETAIL_INCLUDE = {
       abnormal_reason: true,
       evidence: {
         orderBy: [{ file_id: 'asc' as const }],
-        select: { file_id: true },
+        select: { aftersale_id: true, file_id: true, purpose: true, return_inspection_id: true },
       },
       id: true,
       inspected_at: true,
@@ -359,6 +424,7 @@ const DETAIL_INCLUDE = {
       resolution_note: true,
       resolved_at: true,
       status: true,
+      version: true,
     },
   },
   return_shipment: {
@@ -366,14 +432,73 @@ const DETAIL_INCLUDE = {
       carrier_code: true,
       carrier_name: true,
       id: true,
+      received_at: true,
       submitted_at: true,
       tracking_no: true,
     },
   },
 } satisfies Prisma.AftersaleInclude;
 
+const RETURN_COMMAND_SELECT = {
+  id: true,
+  items: {
+    orderBy: [{ order_item_id: 'asc' as const }, { id: 'asc' as const }],
+    select: {
+      id: true,
+      order_item: {
+        select: {
+          aftersale_reserved_amount: true,
+          aftersale_reserved_qty: true,
+          id: true,
+          order_id: true,
+          unit_price: true,
+          version: true,
+        },
+      },
+      order_item_id: true,
+      refunded_amount: true,
+      refunded_qty: true,
+      reserved_amount: true,
+      reserved_qty: true,
+    },
+  },
+  order_id: true,
+  refunds: { select: { id: true } },
+  return_address: { select: { id: true } },
+  return_inspection: {
+    select: {
+      evidence: {
+        orderBy: [{ file_id: 'asc' as const }],
+        select: { aftersale_id: true, file_id: true, purpose: true, return_inspection_id: true },
+      },
+      id: true,
+      items: {
+        orderBy: [{ order_item_id: 'asc' as const }, { id: 'asc' as const }],
+        select: {
+          approved_refund_qty: true,
+          damaged_qty: true,
+          note: true,
+          order_item_id: true,
+          received_qty: true,
+          restock_qty: true,
+          return_to_customer_qty: true,
+          scrap_qty: true,
+        },
+      },
+      resolution: true,
+      status: true,
+      version: true,
+    },
+  },
+  return_shipment: { select: { id: true, received_at: true } },
+  status: true,
+  type: true,
+  version: true,
+} satisfies Prisma.AftersaleSelect;
+
 type ListRecord = Prisma.AftersaleGetPayload<{ include: typeof LIST_INCLUDE }>;
 type DetailRecord = Prisma.AftersaleGetPayload<{ include: typeof DETAIL_INCLUDE }>;
+type ReturnCommandRecord = Prisma.AftersaleGetPayload<{ select: typeof RETURN_COMMAND_SELECT }>;
 
 function internal(message: string): ApplicationError {
   return new ApplicationError('INTERNAL_ERROR', message);
@@ -558,6 +683,105 @@ function validateReject(input: AdminAftersaleRejectInput): AdminAftersaleRejectI
   return { ...input, reason: normalizeReason(input.reason, false)! };
 }
 
+function requireInspectionQuantity(value: unknown, label: string): asserts value is number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > 99) {
+    throw new TypeError(`${label} must be an integer from 0 to 99`);
+  }
+}
+
+function normalizeInspectionNote(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') throw new TypeError('Inspection item note must be a string or null');
+  const normalized = value.trim();
+  if (Array.from(normalized).length > 500 || hasControlCharacters(normalized)) {
+    throw new TypeError('Inspection item note must contain at most 500 characters without controls');
+  }
+  return normalized.length === 0 ? null : normalized;
+}
+
+type NormalizedReturnInspectionInput = Omit<AdminReturnInspectionInput, 'abnormalReason' | 'evidenceFileIds' | 'items'> & {
+  abnormalReason: string | null;
+  evidenceFileIds: string[];
+  items: Array<AdminReturnInspectionLineInput & { note: string | null }>;
+};
+
+function validateReturnInspection(input: AdminReturnInspectionInput): NormalizedReturnInspectionInput {
+  exactObject(
+    input,
+    ['abnormalReason', 'actorAccountId', 'aftersaleId', 'evidenceFileIds', 'expectedVersion', 'items', 'result'],
+    ['actorAccountId', 'aftersaleId', 'evidenceFileIds', 'expectedVersion', 'items', 'result'],
+    'Admin return inspection input',
+  );
+  requireUlid(input.actorAccountId, 'Admin return inspection actor ID');
+  requireUlid(input.aftersaleId, 'Admin return inspection aftersale ID');
+  requireVersion(input.expectedVersion, 'Admin return inspection expected version');
+  if (input.result !== 'PASS' && input.result !== 'ABNORMAL') {
+    throw new TypeError('Admin return inspection result is invalid');
+  }
+  if (!Array.isArray(input.items) || input.items.length < 1 || input.items.length > MAX_INSPECTION_ITEMS) {
+    throw new TypeError('Admin return inspection must contain 1 to 100 items');
+  }
+  const items = input.items.map((item, index) => {
+    exactObject(item, [
+      'approvedRefundQuantity', 'damagedQuantity', 'note', 'orderItemId', 'receivedQuantity',
+      'restockQuantity', 'returnToCustomerQuantity', 'scrapQuantity',
+    ], [
+      'approvedRefundQuantity', 'damagedQuantity', 'orderItemId', 'receivedQuantity',
+      'restockQuantity', 'returnToCustomerQuantity', 'scrapQuantity',
+    ], `Admin return inspection item ${index + 1}`);
+    const line = item as unknown as AdminReturnInspectionLineInput;
+    requireUlid(line.orderItemId, `Admin return inspection item ${index + 1} Order Item ID`);
+    requireInspectionQuantity(line.receivedQuantity, 'Inspection received quantity');
+    requireInspectionQuantity(line.approvedRefundQuantity, 'Inspection approved refund quantity');
+    requireInspectionQuantity(line.restockQuantity, 'Inspection restock quantity');
+    requireInspectionQuantity(line.damagedQuantity, 'Inspection damaged quantity');
+    requireInspectionQuantity(line.scrapQuantity, 'Inspection scrap quantity');
+    requireInspectionQuantity(line.returnToCustomerQuantity, 'Inspection return-to-customer quantity');
+    if (line.approvedRefundQuantity + line.returnToCustomerQuantity !== line.receivedQuantity ||
+      line.approvedRefundQuantity !== line.restockQuantity + line.damagedQuantity + line.scrapQuantity) {
+      throw new TypeError('Inspection item quantities do not satisfy the frozen disposition equations');
+    }
+    return { ...line, note: normalizeInspectionNote(line.note) };
+  }).sort((left, right) => left.orderItemId.localeCompare(right.orderItemId));
+  if (new Set(items.map(({ orderItemId }) => orderItemId)).size !== items.length) {
+    throw new TypeError('Admin return inspection Order Items must be unique');
+  }
+  if (!Array.isArray(input.evidenceFileIds) || input.evidenceFileIds.length > MAX_INSPECTION_EVIDENCE) {
+    throw new TypeError('Admin return inspection evidence must contain at most 9 files');
+  }
+  const evidenceFileIds = input.evidenceFileIds.map((fileId) => {
+    requireUlid(fileId, 'Admin return inspection evidence file ID');
+    return fileId;
+  });
+  if (new Set(evidenceFileIds).size !== evidenceFileIds.length) {
+    throw new TypeError('Admin return inspection evidence files must be unique');
+  }
+  evidenceFileIds.sort((left, right) => left.localeCompare(right));
+  let abnormalReason: string | null = null;
+  if (input.result === 'ABNORMAL') {
+    abnormalReason = normalizeReason(input.abnormalReason, false);
+    if (evidenceFileIds.length < 1) {
+      throw new TypeError('ABNORMAL inspection requires at least one evidence file');
+    }
+  } else if (input.abnormalReason !== undefined && input.abnormalReason !== null) {
+    throw new TypeError('PASS inspection cannot contain an abnormal reason');
+  }
+  return { ...input, abnormalReason, evidenceFileIds, items };
+}
+
+function validateReturnResolution(input: AdminReturnResolutionInput): AdminReturnResolutionInput {
+  exactObject(
+    input,
+    ['actorAccountId', 'aftersaleId', 'expectedVersion', 'reason'],
+    ['actorAccountId', 'aftersaleId', 'expectedVersion', 'reason'],
+    'Admin return resolution input',
+  );
+  requireUlid(input.actorAccountId, 'Admin return resolution actor ID');
+  requireUlid(input.aftersaleId, 'Admin return resolution aftersale ID');
+  requireVersion(input.expectedVersion, 'Admin return resolution expected version');
+  return { ...input, reason: normalizeReason(input.reason, false)! };
+}
+
 function typeOf(value: AftersaleType): 'REFUND_ONLY' | 'RETURN_REFUND' {
   if (!CUSTOMER_AFTERSALE_TYPES.has(value)) throw internal('Stored aftersale type is invalid');
   return value as 'REFUND_ONLY' | 'RETURN_REFUND';
@@ -588,8 +812,11 @@ function auditState(status: AftersaleStatus, version: number): AdminAftersaleAud
 
 function inspectionSnapshot(
   inspection: DetailRecord['return_inspection'],
+  aftersaleId: string,
 ): AdminAftersaleDetailSnapshot['inspection'] {
   if (inspection === null) return null;
+  const storedAftersaleId = safeUlid(aftersaleId, 'Stored aftersale ID');
+  const inspectionId = safeUlid(inspection.id, 'Stored inspection ID');
   const itemIds = inspection.items.map(({ order_item_id }) =>
     safeUlid(order_item_id, 'Stored inspection Order Item ID'));
   if (new Set(itemIds).size !== itemIds.length) {
@@ -597,14 +824,19 @@ function inspectionSnapshot(
   }
   return {
     abnormalReason: inspection.abnormal_reason,
-    evidenceFileIds: inspection.evidence.map(({ file_id }) =>
-      safeUlid(file_id, 'Stored inspection evidence ID')),
+    evidenceFileIds: inspection.evidence.map((evidence) => {
+      if (evidence.aftersale_id !== storedAftersaleId || evidence.return_inspection_id !== inspectionId ||
+        evidence.purpose !== INSPECTION_EVIDENCE_PURPOSE) {
+        throw internal('Stored inspection evidence envelope is invalid');
+      }
+      return safeUlid(evidence.file_id, 'Stored inspection evidence ID');
+    }),
     inspectedAt: safeDate(inspection.inspected_at, 'Stored inspection time'),
     inspectedBy: {
       accountId: safeUlid(inspection.inspected_by.id, 'Stored inspection operator ID'),
       displayName: inspectionOperatorDisplayName(inspection.inspected_by.role),
     },
-    inspectionId: safeUlid(inspection.id, 'Stored inspection ID'),
+    inspectionId,
     items: inspection.items.map((item) => ({
       approvedRefundQuantity: safeCounter(item.approved_refund_qty, 'Stored inspection approved refund'),
       damagedQuantity: safeCounter(item.damaged_qty, 'Stored inspection damaged quantity'),
@@ -628,7 +860,7 @@ function inspectionSnapshot(
 function commandSnapshot(record: DetailRecord): AdminAftersaleCommandSnapshot {
   const refundIds = record.refunds.map(({ id }) => safeUlid(id, 'Stored aftersale Refund ID'));
   if (refundIds.length > 1) throw internal('Stored aftersale has multiple refund lifecycles');
-  const inspection = inspectionSnapshot(record.return_inspection);
+  const inspection = inspectionSnapshot(record.return_inspection, record.id);
   const inspectedItems = new Map(inspection?.items.map((item) => [item.orderItemId, item]) ?? []);
   return {
     aftersaleId: safeUlid(record.id, 'Stored aftersale ID'),
@@ -640,7 +872,7 @@ function commandSnapshot(record: DetailRecord): AdminAftersaleCommandSnapshot {
       approvedRefundQuantity: inspectedItems.get(item.order_item_id)?.approvedRefundQuantity ?? null,
       orderItemId: safeUlid(item.order_item_id, 'Stored Order Item ID'),
       quantity: safeCounter(item.requested_qty, 'Stored requested quantity'),
-      reservedAmount: safeMoney(item.reserved_amount, 'Stored aftersale reserved amount', true),
+      reservedAmount: safeMoney(item.reserved_amount, 'Stored aftersale reserved amount'),
       reservedQuantity: safeCounter(item.reserved_qty, 'Stored reserved quantity'),
     })),
     orderId: safeUlid(record.order_id, 'Stored aftersale Order ID'),
@@ -656,7 +888,12 @@ function availableActions(record: DetailRecord): AdminAftersaleAvailableAction[]
   if (record.status === 'PENDING_REVIEW') actions.push('APPROVE', 'REJECT');
   if (record.status === 'WAITING_RECEIPT' && record.return_inspection === null) actions.push('RECORD_INSPECTION');
   if (record.status === 'RETURN_EXCEPTION' && record.return_inspection?.resolution === null) {
-    actions.push('CONTINUE_REFUND', 'REJECT_AFTER_RETURN');
+    const approvedQuantity = record.return_inspection.items.reduce(
+      (sum, item) => sum + safeCounter(item.approved_refund_qty, 'Stored inspection approved refund quantity'),
+      0,
+    );
+    if (approvedQuantity > 0) actions.push('CONTINUE_REFUND');
+    actions.push('REJECT_AFTER_RETURN');
   }
   if ((record.status === 'REFUNDING' || record.status === 'REFUNDING_AFTER_RETURN') && record.refunds.length === 0) {
     actions.push('CREATE_REFUND');
@@ -712,6 +949,94 @@ function rejectImpact(record: {
   return {
     aftersaleId: safeUlid(record.id, 'Stored aftersale ID'),
     affectedCount: items.length,
+    items,
+    orderId: safeUlid(record.order_id, 'Stored Order ID'),
+    releaseAmount: items.reduce((sum, item) => sum.plus(item.releaseAmount), new Prisma.Decimal(0)).toFixed(2),
+    releaseQuantity: items.reduce((sum, item) => sum + item.releaseQuantity, 0),
+    resourceVersion: safeVersion(record.version, 'Stored aftersale version'),
+  };
+}
+
+function resolvableReturnInspection(record: ReturnCommandRecord) {
+  if (record.type !== 'RETURN_REFUND' || record.status !== 'RETURN_EXCEPTION' ||
+    record.return_address === null || record.return_shipment === null ||
+    record.return_shipment.received_at === null || record.refunds.length > 0 ||
+    record.return_inspection === null || record.return_inspection.status !== 'ABNORMAL' ||
+    record.return_inspection.resolution !== null) {
+    throw stateConflict('Aftersale return exception cannot be resolved in its current state');
+  }
+  if (record.items.length < 1 || record.return_inspection.items.length !== record.items.length) {
+    throw internal('Stored return inspection coverage is invalid');
+  }
+  const inspectedByOrderItem = new Map(record.return_inspection.items.map((item) => [item.order_item_id, item]));
+  if (inspectedByOrderItem.size !== record.return_inspection.items.length ||
+    record.items.some((item) => !inspectedByOrderItem.has(item.order_item_id))) {
+    throw internal('Stored return inspection coverage is invalid');
+  }
+  const evidenceFileIds = record.return_inspection.evidence.map((evidence) => {
+    if (evidence.aftersale_id !== record.id || evidence.return_inspection_id !== record.return_inspection?.id ||
+      evidence.purpose !== INSPECTION_EVIDENCE_PURPOSE) {
+      throw internal('Stored return inspection evidence envelope is invalid');
+    }
+    return safeUlid(evidence.file_id, 'Stored return inspection evidence ID');
+  });
+  if (new Set(evidenceFileIds).size !== evidenceFileIds.length) {
+    throw internal('Stored return inspection evidence is duplicated');
+  }
+  return { evidenceFileIds, inspectedByOrderItem, inspection: record.return_inspection };
+}
+
+function rejectAfterReturnImpact(record: ReturnCommandRecord): AdminAftersaleRejectAfterReturnImpactSnapshot {
+  const { evidenceFileIds, inspection } = resolvableReturnInspection(record);
+  const items = record.items.map((item): AdminAftersaleRejectAfterReturnImpactItem => {
+    const releaseQuantity = safeCounter(item.reserved_qty, 'Stored aftersale reserved quantity') -
+      safeCounter(item.refunded_qty, 'Stored aftersale refunded quantity');
+    const releaseAmount = new Prisma.Decimal(safeMoney(item.reserved_amount, 'Stored aftersale reserved amount', true))
+      .minus(safeMoney(item.refunded_amount, 'Stored aftersale refunded amount'));
+    if (releaseQuantity < 1 || !releaseAmount.greaterThan(0)) {
+      throw internal('Return exception has no releasable quota');
+    }
+    return {
+      aftersaleItemId: safeUlid(item.id, 'Stored aftersale item ID'),
+      orderItemId: safeUlid(item.order_item_id, 'Stored Order Item ID'),
+      releaseAmount: releaseAmount.toFixed(2),
+      releaseQuantity,
+    };
+  });
+  return {
+    affectedCount: items.length,
+    aftersaleId: safeUlid(record.id, 'Stored aftersale ID'),
+    inspectionEvidenceFileIds: evidenceFileIds,
+    inspectionId: safeUlid(inspection.id, 'Stored return inspection ID'),
+    inspectionItems: inspection.items.map((item) => {
+      const approvedRefundQuantity = safeCounter(
+        item.approved_refund_qty,
+        'Stored inspection approved refund quantity',
+      );
+      const damagedQuantity = safeCounter(item.damaged_qty, 'Stored inspection damaged quantity');
+      const receivedQuantity = safeCounter(item.received_qty, 'Stored inspection received quantity');
+      const restockQuantity = safeCounter(item.restock_qty, 'Stored inspection restock quantity');
+      const returnToCustomerQuantity = safeCounter(
+        item.return_to_customer_qty,
+        'Stored inspection return-to-customer quantity',
+      );
+      const scrapQuantity = safeCounter(item.scrap_qty, 'Stored inspection scrap quantity');
+      if (approvedRefundQuantity + returnToCustomerQuantity !== receivedQuantity ||
+        approvedRefundQuantity !== restockQuantity + damagedQuantity + scrapQuantity) {
+        throw internal('Stored inspection item quantities are invalid');
+      }
+      return {
+        approvedRefundQuantity,
+        damagedQuantity,
+        note: item.note === null ? null : safeText(item.note, 500, 'Stored inspection note'),
+        orderItemId: safeUlid(item.order_item_id, 'Stored inspection Order Item ID'),
+        receivedQuantity,
+        restockQuantity,
+        returnToCustomerQuantity,
+        scrapQuantity,
+      };
+    }),
+    inspectionVersion: safeVersion(inspection.version, 'Stored return inspection version'),
     items,
     orderId: safeUlid(record.order_id, 'Stored Order ID'),
     releaseAmount: items.reduce((sum, item) => sum.plus(item.releaseAmount), new Prisma.Decimal(0)).toFixed(2),
@@ -778,6 +1103,68 @@ export class AdminAftersaleRepository {
       ORDER BY ai.id ASC
       FOR UPDATE OF ai
     `);
+  }
+
+  private async lockReturnFacts(transaction: DatabaseTransaction, aftersaleId: string): Promise<void> {
+    await transaction.$queryRaw(Prisma.sql`
+      SELECT id
+      FROM public.return_shipment
+      WHERE aftersale_id = ${aftersaleId}
+      ORDER BY id ASC
+      FOR UPDATE
+    `);
+    await transaction.$queryRaw(Prisma.sql`
+      SELECT id
+      FROM public.return_inspection
+      WHERE aftersale_id = ${aftersaleId}
+      ORDER BY id ASC
+      FOR UPDATE
+    `);
+  }
+
+  private async lockAndValidateInspectionEvidence(
+    transaction: DatabaseTransaction,
+    actorAccountId: string,
+    fileIds: readonly string[],
+  ): Promise<void> {
+    if (fileIds.length === 0) return;
+    await transaction.$queryRaw(Prisma.sql`
+      SELECT id
+      FROM public.file_asset
+      WHERE id IN (${Prisma.join(fileIds)})
+      ORDER BY id ASC
+      FOR UPDATE
+    `);
+    const files = await transaction.fileAsset.findMany({
+      orderBy: [{ id: 'asc' }],
+      select: {
+        aftersale_evidence: { select: { aftersale_id: true }, orderBy: [{ aftersale_id: 'asc' }] },
+        created_by_id: true,
+        deleted_at: true,
+        id: true,
+        object_key: true,
+        purpose: true,
+        status: true,
+        visibility: true,
+      },
+      where: { id: { in: [...fileIds] } },
+    });
+    const fileById = new Map(files.map((file) => [file.id, file]));
+    for (const fileId of fileIds) {
+      const file = fileById.get(fileId);
+      if (!file || file.created_by_id !== actorAccountId || file.deleted_at !== null || file.status !== 'READY' ||
+        file.visibility !== 'PRIVATE' || file.purpose !== 'AFTERSALE_EVIDENCE' ||
+        file.object_key !== `private/${fileId}` || file.aftersale_evidence.length !== 0) {
+        throw new ApplicationError('STATE_CONFLICT', 'Inspection evidence is unavailable');
+      }
+    }
+  }
+
+  private returnCommandRecord(transaction: DatabaseTransaction, aftersaleId: string) {
+    return transaction.aftersale.findUnique({
+      select: RETURN_COMMAND_SELECT,
+      where: { id: aftersaleId },
+    });
   }
 
   private async locateAndLock(
@@ -897,7 +1284,16 @@ export class AdminAftersaleRepository {
       } satisfies AdminAftersaleTimelineFact;
     }).sort((left, right) => left.version - right.version ||
       left.occurredAt.getTime() - right.occurredAt.getTime() || left.auditId.localeCompare(right.auditId));
-    const inspection = inspectionSnapshot(record.return_inspection);
+    for (const evidence of record.evidence) {
+      const applicationEvidence = evidence.return_inspection_id === null && evidence.purpose === 'APPLICATION';
+      const inspectionEvidence = record.return_inspection !== null &&
+        evidence.return_inspection_id === record.return_inspection.id &&
+        evidence.purpose === INSPECTION_EVIDENCE_PURPOSE;
+      if (!applicationEvidence && !inspectionEvidence) {
+        throw internal('Stored aftersale evidence envelope is invalid');
+      }
+    }
+    const inspection = inspectionSnapshot(record.return_inspection, record.id);
     const inspectionItems = new Map(inspection?.items.map((item) => [item.orderItemId, item]) ?? []);
     const items: AdminAftersaleItemSnapshot[] = record.items.map((item) => ({
       aftersaleItemId: safeUlid(item.id, 'Stored aftersale item ID'),
@@ -907,7 +1303,7 @@ export class AdminAftersaleRepository {
       productName: safeText(item.order_item.product_name_snapshot, 200, 'Stored Product name'),
       refundedQuantity: safeCounter(item.refunded_qty, 'Stored refunded quantity'),
       requestedQuantity: safeCounter(item.requested_qty, 'Stored requested quantity'),
-      reservedAmount: safeMoney(item.reserved_amount, 'Stored reserved amount', true),
+      reservedAmount: safeMoney(item.reserved_amount, 'Stored reserved amount'),
       reservedQuantity: safeCounter(item.reserved_qty, 'Stored reserved quantity'),
       skuId: safeUlid(item.order_item.sku_id, 'Stored SKU ID'),
       skuName: safeText(item.order_item.sku_name_snapshot, 160, 'Stored SKU name'),
@@ -1039,6 +1435,273 @@ export class AdminAftersaleRepository {
     requireUlid(input.aftersaleId, 'Admin aftersale ID');
     await this.locateAndLock(transaction, input.actorAccountId, input.aftersaleId);
     return commandSnapshot(await this.currentForCommand(transaction, input.aftersaleId));
+  }
+
+  async recordReturnInspectionInTransaction(
+    transaction: DatabaseTransaction,
+    input: AdminReturnInspectionInput,
+  ): Promise<AdminAftersaleCommandResult> {
+    const normalized = validateReturnInspection(input);
+    const orderId = await this.locateAndLock(transaction, normalized.actorAccountId, normalized.aftersaleId);
+    await this.lockReturnFacts(transaction, normalized.aftersaleId);
+    const current = await this.returnCommandRecord(transaction, normalized.aftersaleId);
+    if (!current || current.type !== 'RETURN_REFUND') throw notFound();
+    const before = auditState(current.status, current.version);
+    if (before.version !== normalized.expectedVersion) throw versionConflict();
+    if (current.status !== 'WAITING_RECEIPT' || current.return_address === null ||
+      current.return_shipment === null || current.return_shipment.received_at !== null ||
+      current.return_inspection !== null || current.refunds.length > 0) {
+      throw stateConflict('Aftersale cannot accept a return inspection in its current state');
+    }
+    if (current.items.length < 1 || current.items.length !== normalized.items.length) {
+      throw stateConflict('Return inspection must exactly cover every aftersale item');
+    }
+    const requestedByOrderItem = new Map(normalized.items.map((item) => [item.orderItemId, item]));
+    if (requestedByOrderItem.size !== current.items.length ||
+      current.items.some((item) => !requestedByOrderItem.has(item.order_item_id))) {
+      throw stateConflict('Return inspection must exactly cover every aftersale item');
+    }
+    let hasQuantityException = false;
+    for (const item of current.items) {
+      const requested = requestedByOrderItem.get(item.order_item_id)!;
+      const reservedQuantity = safeCounter(item.reserved_qty, 'Stored aftersale reserved quantity');
+      if (item.order_item.id !== item.order_item_id || item.order_item.order_id !== orderId ||
+        safeCounter(item.refunded_qty, 'Stored aftersale refunded quantity') !== 0 ||
+        !item.refunded_amount.equals(0)) {
+        throw internal('Stored aftersale item envelope is invalid for inspection');
+      }
+      if (requested.receivedQuantity > reservedQuantity) {
+        throw stateConflict('Received quantity exceeds the reserved return quantity');
+      }
+      const quantityException = requested.receivedQuantity !== reservedQuantity ||
+        requested.approvedRefundQuantity !== reservedQuantity || requested.returnToCustomerQuantity !== 0;
+      hasQuantityException ||= quantityException;
+      if (normalized.result === 'PASS' && quantityException) {
+        throw stateConflict('PASS requires full receipt, full refund approval, and no returned quantity');
+      }
+    }
+    if (normalized.result === 'ABNORMAL' && !hasQuantityException) {
+      throw stateConflict('ABNORMAL requires at least one item with a return quantity exception');
+    }
+    await this.lockAndValidateInspectionEvidence(
+      transaction,
+      normalized.actorAccountId,
+      normalized.evidenceFileIds,
+    );
+    const order = await transaction.salesOrder.findUnique({ where: { id: orderId }, select: { version: true } });
+    if (!order) throw internal('Stored aftersale Order is missing');
+    const orderVersion = safeVersion(order.version, 'Stored Order version');
+    const occurredAt = await this.transactionTime(transaction);
+    const inspectionId = generateUlid(occurredAt.getTime());
+    await transaction.returnInspection.create({
+      data: {
+        abnormal_reason: normalized.abnormalReason,
+        aftersale_id: current.id,
+        created_at: occurredAt,
+        evidence_count: normalized.evidenceFileIds.length,
+        evidence_manifest: normalized.evidenceFileIds,
+        id: inspectionId,
+        inspected_at: occurredAt,
+        inspected_by_id: normalized.actorAccountId,
+        resolution: null,
+        resolution_note: null,
+        resolved_at: null,
+        status: normalized.result,
+        updated_at: occurredAt,
+        version: 1,
+      },
+      select: { id: true },
+    });
+    const itemWrites = normalized.items.map((item) => ({
+      approved_refund_qty: item.approvedRefundQuantity,
+      created_at: occurredAt,
+      damaged_qty: item.damagedQuantity,
+      id: generateUlid(occurredAt.getTime()),
+      inspection_id: inspectionId,
+      note: item.note,
+      order_item_id: item.orderItemId,
+      received_qty: item.receivedQuantity,
+      restock_qty: item.restockQuantity,
+      return_to_customer_qty: item.returnToCustomerQuantity,
+      scrap_qty: item.scrapQuantity,
+    }));
+    if ((await transaction.returnInspectionItem.createMany({ data: itemWrites })).count !== itemWrites.length) {
+      throw internal('Return inspection item insert count is invalid');
+    }
+    if (normalized.evidenceFileIds.length > 0) {
+      const evidenceWrites = normalized.evidenceFileIds.map((fileId) => ({
+        aftersale_id: current.id,
+        created_at: occurredAt,
+        file_id: fileId,
+        id: generateUlid(occurredAt.getTime()),
+        purpose: INSPECTION_EVIDENCE_PURPOSE,
+        return_inspection_id: inspectionId,
+      }));
+      if ((await transaction.aftersaleEvidence.createMany({ data: evidenceWrites })).count !== evidenceWrites.length) {
+        throw internal('Return inspection evidence insert count is invalid');
+      }
+    }
+    const shipmentChanged = await transaction.returnShipment.updateMany({
+      data: { received_at: occurredAt },
+      where: { aftersale_id: current.id, id: current.return_shipment.id, received_at: null },
+    });
+    if (shipmentChanged.count !== 1) throw stateConflict('Return shipment receipt changed during inspection');
+    const nextStatus = normalized.result === 'PASS' ? 'REFUNDING_AFTER_RETURN' : 'RETURN_EXCEPTION';
+    const changed = await transaction.aftersale.updateMany({
+      data: { status: nextStatus, updated_at: occurredAt, version: { increment: 1 } },
+      where: { id: current.id, status: 'WAITING_RECEIPT', version: current.version },
+    });
+    if (changed.count !== 1) throw stateConflict('Aftersale changed during return inspection');
+    const orderChanged = await transaction.salesOrder.updateMany({
+      data: { updated_at: occurredAt, version: { increment: 1 } },
+      where: { id: orderId, version: orderVersion },
+    });
+    if (orderChanged.count !== 1) throw stateConflict('Aftersale Order changed during return inspection');
+    const aftersale = commandSnapshot(await this.currentForCommand(transaction, current.id));
+    return { aftersale, audit: { after: auditState(aftersale.status, aftersale.version), before } };
+  }
+
+  async previewRejectAfterReturnInTransaction(
+    transaction: DatabaseTransaction,
+    input: AdminAftersaleReadInput,
+  ): Promise<AdminAftersaleRejectAfterReturnImpactSnapshot> {
+    validateRead(input);
+    const current = await this.returnCommandRecord(transaction, input.aftersaleId);
+    if (!current || current.type !== 'RETURN_REFUND') throw notFound();
+    return rejectAfterReturnImpact(current);
+  }
+
+  private async releaseReturnQuota(
+    transaction: DatabaseTransaction,
+    record: ReturnCommandRecord,
+    keepApprovedQuantity: boolean,
+  ): Promise<void> {
+    const { inspectedByOrderItem } = resolvableReturnInspection(record);
+    const plans = record.items.map((item) => {
+      const inspectionItem = inspectedByOrderItem.get(item.order_item_id)!;
+      const reservedQuantity = safeCounter(item.reserved_qty, 'Stored aftersale reserved quantity');
+      const refundedQuantity = safeCounter(item.refunded_qty, 'Stored aftersale refunded quantity');
+      const reservedAmount = new Prisma.Decimal(safeMoney(item.reserved_amount, 'Stored aftersale reserved amount', true));
+      const refundedAmount = new Prisma.Decimal(safeMoney(item.refunded_amount, 'Stored aftersale refunded amount'));
+      if (refundedQuantity !== 0 || !refundedAmount.equals(0)) {
+        throw internal('Unresolved return inspection cannot contain refunded facts');
+      }
+      const remainingQuantity = reservedQuantity - refundedQuantity;
+      const remainingAmount = reservedAmount.minus(refundedAmount);
+      const keepQuantity = keepApprovedQuantity
+        ? safeCounter(inspectionItem.approved_refund_qty, 'Stored inspection approved refund quantity')
+        : 0;
+      if (keepQuantity > remainingQuantity) throw internal('Inspection approval exceeds remaining aftersale quota');
+      const unitPrice = new Prisma.Decimal(safeMoney(item.order_item.unit_price, 'Stored Order Item unit price', true));
+      const keepAmount = keepQuantity === remainingQuantity ? remainingAmount : unitPrice.mul(keepQuantity);
+      if (keepAmount.isNegative() || keepAmount.greaterThan(remainingAmount) || keepAmount.greaterThan(MAX_MONEY)) {
+        throw internal('Inspection approved refund amount is invalid');
+      }
+      const releaseQuantity = remainingQuantity - keepQuantity;
+      const releaseAmount = remainingAmount.minus(keepAmount);
+      if ((releaseQuantity === 0) !== releaseAmount.equals(0)) {
+        throw internal('Inspection quota quantity and amount are inconsistent');
+      }
+      return { item, keepQuantity, releaseAmount, releaseQuantity };
+    });
+    if (keepApprovedQuantity && plans.reduce((sum, plan) => sum + plan.keepQuantity, 0) === 0) {
+      throw stateConflict('Return inspection has no approved quantity to refund');
+    }
+    for (const plan of plans) {
+      if (plan.releaseQuantity === 0) continue;
+      const orderItem = plan.item.order_item;
+      if (orderItem.id !== plan.item.order_item_id || orderItem.order_id !== record.order_id) {
+        throw internal('Stored inspection Order Item envelope is invalid');
+      }
+      const quantityAfter = safeCounter(orderItem.aftersale_reserved_qty, 'Stored Order Item reserved quantity') -
+        plan.releaseQuantity;
+      const amountAfter = new Prisma.Decimal(safeMoney(
+        orderItem.aftersale_reserved_amount,
+        'Stored Order Item reserved amount',
+      )).minus(plan.releaseAmount);
+      if (quantityAfter < 0 || amountAfter.isNegative()) throw internal('Inspection quota cannot be released');
+      const updated = await transaction.orderItem.updateMany({
+        data: {
+          aftersale_reserved_amount: amountAfter,
+          aftersale_reserved_qty: quantityAfter,
+          version: { increment: 1 },
+        },
+        where: {
+          aftersale_reserved_amount: orderItem.aftersale_reserved_amount,
+          aftersale_reserved_qty: orderItem.aftersale_reserved_qty,
+          id: orderItem.id,
+          order_id: record.order_id,
+          version: orderItem.version,
+        },
+      });
+      if (updated.count !== 1) throw stateConflict('Aftersale quota changed during return resolution');
+    }
+  }
+
+  private async resolveReturnInTransaction(
+    transaction: DatabaseTransaction,
+    input: AdminReturnResolutionInput,
+    resolution: 'CONTINUE_REFUND' | 'REJECT_AFTER_RETURN',
+    hooks?: AdminAftersaleRejectAfterReturnHooks,
+  ): Promise<AdminAftersaleCommandResult> {
+    const normalized = validateReturnResolution(input);
+    const orderId = await this.locateAndLock(transaction, normalized.actorAccountId, normalized.aftersaleId);
+    await this.lockReturnFacts(transaction, normalized.aftersaleId);
+    const current = await this.returnCommandRecord(transaction, normalized.aftersaleId);
+    if (!current || current.type !== 'RETURN_REFUND') throw notFound();
+    const before = auditState(current.status, current.version);
+    if (before.version !== normalized.expectedVersion) throw versionConflict();
+    const { inspection } = resolvableReturnInspection(current);
+    if (resolution === 'REJECT_AFTER_RETURN') {
+      if (!hooks || typeof hooks.verifyPreview !== 'function') {
+        throw new TypeError('Reject-after-return preview verifier is required');
+      }
+      await hooks.verifyPreview(rejectAfterReturnImpact(current));
+    }
+    const order = await transaction.salesOrder.findUnique({ where: { id: orderId }, select: { version: true } });
+    if (!order) throw internal('Stored aftersale Order is missing');
+    const orderVersion = safeVersion(order.version, 'Stored Order version');
+    await this.releaseReturnQuota(transaction, current, resolution === 'CONTINUE_REFUND');
+    const occurredAt = await this.transactionTime(transaction);
+    const inspectionChanged = await transaction.returnInspection.updateMany({
+      data: {
+        resolution,
+        resolution_note: normalized.reason,
+        resolved_at: occurredAt,
+        updated_at: occurredAt,
+        version: { increment: 1 },
+      },
+      where: { id: inspection.id, resolution: null, status: 'ABNORMAL', version: inspection.version },
+    });
+    if (inspectionChanged.count !== 1) throw stateConflict('Return inspection changed during resolution');
+    const nextStatus = resolution === 'CONTINUE_REFUND' ? 'REFUNDING_AFTER_RETURN' : 'REJECTED_AFTER_RETURN';
+    const changed = await transaction.aftersale.updateMany({
+      data: { status: nextStatus, updated_at: occurredAt, version: { increment: 1 } },
+      where: { id: current.id, status: 'RETURN_EXCEPTION', version: current.version },
+    });
+    if (changed.count !== 1) throw stateConflict('Aftersale changed during return resolution');
+    const orderChanged = await transaction.salesOrder.updateMany({
+      data: { updated_at: occurredAt, version: { increment: 1 } },
+      where: { id: orderId, version: orderVersion },
+    });
+    if (orderChanged.count !== 1) throw stateConflict('Aftersale Order changed during return resolution');
+    const aftersale = commandSnapshot(await this.currentForCommand(transaction, current.id));
+    return { aftersale, audit: { after: auditState(aftersale.status, aftersale.version), before } };
+  }
+
+  continueRefundAfterReturnInTransaction(
+    transaction: DatabaseTransaction,
+    input: AdminReturnResolutionInput,
+  ): Promise<AdminAftersaleCommandResult> {
+    return this.resolveReturnInTransaction(transaction, input, 'CONTINUE_REFUND');
+  }
+
+  rejectAfterReturnInTransaction(
+    transaction: DatabaseTransaction,
+    input: AdminReturnResolutionInput,
+    hooks: AdminAftersaleRejectAfterReturnHooks,
+  ): Promise<AdminAftersaleCommandResult> {
+    return this.resolveReturnInTransaction(transaction, input, 'REJECT_AFTER_RETURN', hooks);
   }
 
   async approveInTransaction(

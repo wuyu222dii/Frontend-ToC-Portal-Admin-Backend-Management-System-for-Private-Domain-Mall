@@ -74,6 +74,11 @@ function harness(initialNow = NOW) {
 describe('HighRiskPreviewRepository', () => {
   it.each([
     { action: 'AFTERSALE.REJECT', requestAction: 'REJECT', targetType: 'AFTERSALE' },
+    {
+      action: 'AFTERSALE.REJECT_AFTER_RETURN',
+      requestAction: 'REJECT_AFTER_RETURN',
+      targetType: 'AFTERSALE',
+    },
     { action: 'PRODUCT.ACTIVATE', requestAction: 'ACTIVATE', targetType: 'PRODUCT' },
     { action: 'PRODUCT.DEACTIVATE', requestAction: 'DEACTIVATE', targetType: 'PRODUCT' },
     { action: 'PRODUCT.SOFT_DELETE', requestAction: 'SOFT_DELETE', targetType: 'PRODUCT' },
@@ -212,6 +217,23 @@ describe('HighRiskPreviewRepository', () => {
     const issued = await previews.issueInTransaction(transaction, input());
     await expect(previews.consumeInTransaction(transaction, {
       ...input(override),
+      confirmationHash: issued.confirmationHash,
+    })).rejects.toMatchObject({ code: 'CONFIRMATION_MISMATCH' });
+  });
+
+  it('does not accept an initial-review rejection preview for rejection after return', async () => {
+    const { repository, transaction } = harness();
+    const previews = repository();
+    const initialReviewInput = input({
+      action: 'AFTERSALE.REJECT',
+      request: { action: 'REJECT', reason: 'Initial review rejection' },
+      targetType: 'AFTERSALE',
+    });
+    const issued = await previews.issueInTransaction(transaction, initialReviewInput);
+    await expect(previews.consumeInTransaction(transaction, {
+      ...initialReviewInput,
+      action: 'AFTERSALE.REJECT_AFTER_RETURN',
+      request: { action: 'REJECT_AFTER_RETURN', reason: 'Rejected after return inspection' },
       confirmationHash: issued.confirmationHash,
     })).rejects.toMatchObject({ code: 'CONFIRMATION_MISMATCH' });
   });

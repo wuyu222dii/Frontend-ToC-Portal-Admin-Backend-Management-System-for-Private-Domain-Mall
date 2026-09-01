@@ -120,6 +120,41 @@ describe('FileAssetRepository', () => {
     await expect(repository.getOwned({ actorId, fileId })).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND' });
   });
 
+  it('allows the Admin lookup for an owned file or exact bound READY private aftersale evidence', async () => {
+    const { prisma, repository } = harness();
+    prisma.fileAsset.findFirst.mockResolvedValueOnce(asset({
+      object_key: `private/${fileId}`,
+      purpose: 'AFTERSALE_EVIDENCE',
+      status: 'READY',
+      visibility: 'PRIVATE',
+    }));
+    await expect(repository.getAdminDownloadable({ actorId, fileId }))
+      .resolves.toMatchObject({ id: fileId, purpose: 'AFTERSALE_EVIDENCE' });
+    expect(prisma.fileAsset.findFirst).toHaveBeenCalledWith({
+      where: {
+        deleted_at: null,
+        id: fileId,
+        OR: [
+          { created_by_id: actorId },
+          {
+            aftersale_evidence: { some: {} },
+            object_key: `private/${fileId}`,
+            purpose: 'AFTERSALE_EVIDENCE',
+            status: 'READY',
+            visibility: 'PRIVATE',
+          },
+        ],
+      },
+    });
+  });
+
+  it('hides unbound or otherwise ineligible evidence from the Admin lookup', async () => {
+    const { prisma, repository } = harness();
+    prisma.fileAsset.findFirst.mockResolvedValueOnce(null);
+    await expect(repository.getAdminDownloadable({ actorId, fileId }))
+      .rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND' });
+  });
+
   it('locks a pending asset and rejects a second completion using a new key', async () => {
     const { fileAsset, repository, transaction, transactionStub } = harness();
     await repository.getOwnedPendingInTransaction(transaction, { actorId, fileId });

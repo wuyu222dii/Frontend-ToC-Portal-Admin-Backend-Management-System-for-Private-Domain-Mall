@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 process.env.QINGXU_CONTRACT_EXPECTED_VERSION = '2.4.10-ch026';
 process.env.QINGXU_CONTRACT_EXPECTED_SCHEMA_REFERENCES = '706';
-process.env.QINGXU_CONTRACT_EXPECTED_LOCAL_REFERENCES = '2720';
+process.env.QINGXU_CONTRACT_EXPECTED_LOCAL_REFERENCES = '2726';
 process.env.QINGXU_CONTRACT_ORDINARY_AFTERSALES_ENABLED = '1';
 process.env.QINGXU_CONTRACT_RETURN_ADDRESS_IN_STORE_ERRORS = '0';
 
@@ -110,6 +110,12 @@ const B12_2_ADMIN_NO_STORE_SUCCESS_RESPONSES = [
   ['post', '/admin/aftersales/{aftersale_id}/reject-preview', '200'],
   ['post', '/admin/aftersales/{aftersale_id}/reject', '200'],
 ];
+const B12_3_ADMIN_NO_STORE_SUCCESS_RESPONSES = [
+  ['post', '/admin/aftersales/{aftersale_id}/return-inspections', '200'],
+  ['post', '/admin/aftersales/{aftersale_id}/return-resolution/continue-refund', '200'],
+  ['post', '/admin/aftersales/{aftersale_id}/return-resolution/reject-preview', '200'],
+  ['post', '/admin/aftersales/{aftersale_id}/return-resolution/reject', '200'],
+];
 const ADMIN_QUOTA_PATHS = [
   '/admin/aftersales/{aftersale_id}/refund-preview',
   '/admin/aftersales/{aftersale_id}/refunds',
@@ -171,6 +177,12 @@ try {
   const document = JSON.parse(readFileSync(bundledPath, 'utf8'));
   const generatedContract = readFileSync(generatedContractPath, 'utf8');
   const schemas = document.components.schemas;
+
+  const fileDownload = document.paths['/files/{file_id}/download-url'].get;
+  assert.match(fileDownload.description, /CUSTOMER.+本账户创建.+AFTERSALE_EVIDENCE/s);
+  assert.match(fileDownload.description,
+    /SUPER_ADMIN.+本人创建.+跨创建者.+aftersale_evidence.+READY\/PRIVATE\/AFTERSALE_EVIDENCE.+private\/\{file_id\}/s);
+  assert.match(fileDownload.description, /不得因 SUPER_ADMIN 角色放宽其他跨账户私有文件/);
 
   assert.equal(B12_OPERATIONS.length, 18);
   assert.equal(COMPENSATION_OPERATIONS.length, 2);
@@ -270,6 +282,15 @@ try {
     assert.equal(pragma?.schema?.const, 'no-cache',
       `${method.toUpperCase()} ${path} ${status} Pragma drifted`);
   }
+  for (const [method, path, status] of B12_3_ADMIN_NO_STORE_SUCCESS_RESPONSES) {
+    const headers = document.paths[path][method].responses[status].headers;
+    assert.equal(headers?.['Cache-Control']?.$ref,
+      '#/components/headers/AdminCacheControlNoStoreRequired',
+      `${method.toUpperCase()} ${path} ${status} must require no-store`);
+    assert.equal(headers?.Pragma?.$ref,
+      '#/components/headers/AdminPragmaNoCacheRequired',
+      `${method.toUpperCase()} ${path} ${status} must require no-cache`);
+  }
 
   for (const [method, path] of B12_OPERATIONS) {
     const match = path.match(/\{(aftersale_id|refund_id)\}/);
@@ -346,8 +367,8 @@ try {
     branch.properties.can_submit.const === false).properties.preview_token.const, null);
   assert.equal(createOperation.responses['201'].content['application/json'].schema.$ref,
     '#/components/schemas/StoreAftersaleResponse');
-  assert.deepEqual(document.components.responses.B12StoreAftersaleConflict.content
-    ['application/json'].schema.properties.code.enum,
+  assert.deepEqual(document.components.responses.B12StoreAftersaleConflict
+    .content['application/json'].schema.properties.code.enum,
   ['RESOURCE_VERSION_CONFLICT', 'STATE_CONFLICT', 'AFTERSALE_PREVIEW_EXPIRED',
     'AFTERSALE_PREVIEW_MISMATCH', 'AFTERSALE_REQUOTE_REQUIRED']);
 
@@ -380,6 +401,9 @@ try {
     ['ABNORMAL', abnormalInspection],
   ]) {
     assert.equal(branch.additionalProperties, false);
+    assert.deepEqual(branch.required, name === 'PASS'
+      ? ['result', 'items', 'evidence_file_ids']
+      : ['result', 'abnormal_reason', 'items', 'evidence_file_ids']);
     assertUniqueObjectArray(branch.properties.items, 'order_item_id', 100,
       `ReturnInspectionRequest.${name}.items`);
     assert.equal(branch.properties.evidence_file_ids.maxItems, 9);
@@ -399,6 +423,30 @@ try {
     'scrap_qty',
     'return_to_customer_qty',
   ]) assert.equal(schemas.ReturnInspectionLine.properties[quantity].maximum, 99);
+  assert.equal(schemas.ReturnInspectionLine.additionalProperties, false);
+  assert.deepEqual(schemas.ContinueRefundRequest.required, ['resolution', 'reason']);
+  assert.equal(schemas.ContinueRefundRequest.additionalProperties, false);
+  assert.equal(schemas.ContinueRefundRequest.properties.resolution.const, 'CONTINUE_REFUND');
+  assert.equal(schemas.ContinueRefundRequest.properties.reason.minLength, 2);
+  assert.equal(schemas.ContinueRefundRequest.properties.reason.maxLength, 500);
+  assert.equal(schemas.ContinueRefundRequest.properties.reason.pattern,
+    '^[^\\u0000-\\u001F\\u007F]*$');
+  const rejectAfterReturnPreview = schemas.RejectAfterReturnPreviewRequest;
+  assert.deepEqual(rejectAfterReturnPreview.required, ['resolution', 'reason']);
+  assert.equal(rejectAfterReturnPreview.additionalProperties, false);
+  assert.equal(rejectAfterReturnPreview.properties.resolution.const, 'REJECT_AFTER_RETURN');
+  assert.ok(!Object.hasOwn(rejectAfterReturnPreview.properties, 'preview_token'));
+  assert.ok(!Object.hasOwn(rejectAfterReturnPreview.properties, 'confirmation_hash'));
+  const rejectAfterReturnConfirm = schemas.RejectAfterReturnConfirmRequest;
+  assert.deepEqual(rejectAfterReturnConfirm.required,
+    ['resolution', 'reason', 'preview_token', 'confirmation_hash']);
+  assert.equal(rejectAfterReturnConfirm.additionalProperties, false);
+  assert.equal(rejectAfterReturnConfirm.properties.resolution.const, 'REJECT_AFTER_RETURN');
+  assert.equal(rejectAfterReturnConfirm.properties.confirmation_hash.pattern, '^[a-f0-9]{64}$');
+  for (const field of ['items', 'evidence_file_ids', 'note', 'abnormal_reason']) {
+    assert.ok(!Object.hasOwn(rejectAfterReturnPreview.properties, field));
+    assert.ok(!Object.hasOwn(rejectAfterReturnConfirm.properties, field));
+  }
   assertUniqueObjectArray(schemas.RefundItemsAction.properties.items,
     'aftersale_item_id', 100, 'RefundItemsAction.items');
   assertUlid(schemas.RefundItemQuantity.properties.aftersale_item_id,

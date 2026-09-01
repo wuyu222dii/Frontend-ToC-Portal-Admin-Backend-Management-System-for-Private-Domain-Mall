@@ -7,8 +7,12 @@ import {
   parseAdminAftersaleListQuery,
   parseAdminAftersaleRejectBody,
   parseAdminAftersaleRejectConfirmationBody,
+  parseAdminContinueRefundBody,
+  parseAdminRejectAfterReturnBody,
+  parseAdminRejectAfterReturnConfirmationBody,
   parseAdminReturnAddressAction,
   parseAdminReturnAddressConfirmation,
+  parseAdminReturnInspectionBody,
 } from './admin-aftersales.dto';
 
 const AFTERSALE_ID = '01J00000000000000000000001';
@@ -34,7 +38,21 @@ function expectInvalid(parser: () => unknown): void {
   expect(parser).toThrowError(expect.objectContaining({ code: 'INVALID_ARGUMENT' }));
 }
 
-describe('B12.2 Admin aftersales DTO boundary', () => {
+function inspectionLine(overrides: Record<string, unknown> = {}) {
+  return {
+    approved_refund_qty: 3,
+    damaged_qty: 1,
+    note: '  Checked package  ',
+    order_item_id: ORDER_ID,
+    received_qty: 3,
+    restock_qty: 2,
+    return_to_customer_qty: 0,
+    scrap_qty: 0,
+    ...overrides,
+  };
+}
+
+describe('B12 Admin aftersales DTO boundary', () => {
   it('parses a closed list query and Shanghai calendar boundaries', () => {
     expect(parseAdminAftersaleListQuery({
       aftersale_no: '  AS-1  ',
@@ -91,6 +109,87 @@ describe('B12.2 Admin aftersales DTO boundary', () => {
     }))).toEqual({ ...parsed, confirmationHash: HASH, previewToken: TOKEN });
   });
 
+  it('normalizes closed PASS and ABNORMAL return inspections into canonical order', () => {
+    const earlierOrderItemId = AFTERSALE_ID;
+    expect(parseAdminReturnInspectionBody({
+      evidence_file_ids: [],
+      items: [
+        inspectionLine(),
+        inspectionLine({
+          approved_refund_qty: 1,
+          damaged_qty: 0,
+          note: '   ',
+          order_item_id: earlierOrderItemId,
+          received_qty: 1,
+          restock_qty: 1,
+          return_to_customer_qty: 0,
+        }),
+      ],
+      result: 'PASS',
+    })).toEqual({
+      abnormalReason: null,
+      evidenceFileIds: [],
+      items: [
+        {
+          approvedRefundQuantity: 1,
+          damagedQuantity: 0,
+          note: null,
+          orderItemId: earlierOrderItemId,
+          receivedQuantity: 1,
+          restockQuantity: 1,
+          returnToCustomerQuantity: 0,
+          scrapQuantity: 0,
+        },
+        {
+          approvedRefundQuantity: 3,
+          damagedQuantity: 1,
+          note: 'Checked package',
+          orderItemId: ORDER_ID,
+          receivedQuantity: 3,
+          restockQuantity: 2,
+          returnToCustomerQuantity: 0,
+          scrapQuantity: 0,
+        },
+      ],
+      result: 'PASS',
+    });
+    expect(parseAdminReturnInspectionBody({
+      abnormal_reason: '  Package was incomplete  ',
+      evidence_file_ids: [CUSTOMER_ID, AFTERSALE_ID],
+      items: [inspectionLine({
+        approved_refund_qty: 2,
+        damaged_qty: 0,
+        restock_qty: 2,
+        return_to_customer_qty: 1,
+      })],
+      result: 'ABNORMAL',
+    })).toMatchObject({
+      abnormalReason: 'Package was incomplete',
+      evidenceFileIds: [AFTERSALE_ID, CUSTOMER_ID],
+      result: 'ABNORMAL',
+    });
+  });
+
+  it('parses the typed continue and reject-after-return request pair', () => {
+    expect(parseAdminContinueRefundBody({
+      reason: '  Continue with accepted units  ', resolution: 'CONTINUE_REFUND',
+    })).toEqual({ reason: 'Continue with accepted units', resolution: 'CONTINUE_REFUND' });
+    expect(parseAdminRejectAfterReturnBody({
+      reason: '  Reject after sealed inspection  ', resolution: 'REJECT_AFTER_RETURN',
+    })).toEqual({ reason: 'Reject after sealed inspection', resolution: 'REJECT_AFTER_RETURN' });
+    expect(parseAdminRejectAfterReturnConfirmationBody({
+      confirmation_hash: HASH,
+      preview_token: TOKEN,
+      reason: '  Reject after sealed inspection  ',
+      resolution: 'REJECT_AFTER_RETURN',
+    })).toEqual({
+      confirmationHash: HASH,
+      previewToken: TOKEN,
+      reason: 'Reject after sealed inspection',
+      resolution: 'REJECT_AFTER_RETURN',
+    });
+  });
+
   it.each([
     () => parseAdminAftersaleId('aftersale'),
     () => parseAdminAftersaleListQuery({ unknown: true }),
@@ -105,6 +204,31 @@ describe('B12.2 Admin aftersales DTO boundary', () => {
     () => parseAdminReturnAddressAction(address({ phone: '12345' })),
     () => parseAdminReturnAddressAction(address({ detail: 'bad\ndetail' })),
     () => parseAdminReturnAddressAction(address({ extra: true })),
+    () => parseAdminReturnInspectionBody({
+      abnormal_reason: 'Missing', evidence_file_ids: [], items: [inspectionLine()], result: 'PASS',
+    }),
+    () => parseAdminReturnInspectionBody({
+      evidence_file_ids: [], items: [inspectionLine()], result: 'ABNORMAL',
+    }),
+    () => parseAdminReturnInspectionBody({
+      abnormal_reason: 'Missing', evidence_file_ids: [], items: [inspectionLine()], result: 'ABNORMAL',
+    }),
+    () => parseAdminReturnInspectionBody({
+      evidence_file_ids: [], items: [inspectionLine(), inspectionLine()], result: 'PASS',
+    }),
+    () => parseAdminReturnInspectionBody({
+      evidence_file_ids: [], items: [inspectionLine({ received_qty: 4 })], result: 'PASS',
+    }),
+    () => parseAdminReturnInspectionBody({
+      evidence_file_ids: [], items: [inspectionLine({ approved_refund_qty: 100 })], result: 'PASS',
+    }),
+    () => parseAdminContinueRefundBody({ resolution: 'REJECT_AFTER_RETURN', reason: 'Wrong action' }),
+    () => parseAdminRejectAfterReturnBody({
+      evidence_file_ids: [], reason: 'Rejected', resolution: 'REJECT_AFTER_RETURN',
+    }),
+    () => parseAdminRejectAfterReturnConfirmationBody({
+      reason: 'Rejected', resolution: 'REJECT_AFTER_RETURN',
+    }),
     () => parseAdminAftersaleEmptyQuery({ extra: true }),
   ])('rejects an invalid or open request', (parse) => expectInvalid(parse));
 });

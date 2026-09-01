@@ -15,6 +15,7 @@ const AFTERSALE_EVIDENCE_LIMIT = 9;
 const MAX_POSTGRES_INTEGER = 2_147_483_647;
 const MAX_MONEY = new Prisma.Decimal('9999999999999999.99');
 const APPLICATION_EVIDENCE_PURPOSE = 'APPLICATION';
+const INSPECTION_EVIDENCE_PURPOSE = 'INSPECTION';
 
 const AFTERSALE_TYPES = new Set<StoreAftersaleType>(['REFUND_ONLY', 'RETURN_REFUND']);
 const AFTERSALE_REASON_CODES = new Set<StoreAftersaleReasonCode>([
@@ -350,7 +351,7 @@ const LIST_INCLUDE = {
 const DETAIL_INCLUDE = {
   evidence: {
     orderBy: [{ file_id: 'asc' as const }],
-    select: { file_id: true, purpose: true, return_inspection_id: true },
+    select: { aftersale_id: true, file_id: true, purpose: true, return_inspection_id: true },
   },
   items: {
     orderBy: [{ order_item_id: 'asc' as const }, { id: 'asc' as const }],
@@ -421,7 +422,7 @@ const DETAIL_INCLUDE = {
       abnormal_reason: true,
       evidence: {
         orderBy: [{ file_id: 'asc' as const }],
-        select: { file_id: true },
+        select: { aftersale_id: true, file_id: true, purpose: true, return_inspection_id: true },
       },
       id: true,
       inspected_at: true,
@@ -794,9 +795,18 @@ function detailSnapshot(record: StoreAftersaleDetailRecord): StoreAftersaleDetai
   const reasonCode = record.reason_code as StoreAftersaleReasonCode;
   if (!AFTERSALE_REASON_CODES.has(reasonCode)) throw internal('Stored aftersale reason code is invalid');
   if (record.reason_text !== null) safeStoredText(record.reason_text, 500, 'Stored aftersale reason text');
+  const storedAftersaleId = safeUlid(record.id, 'Stored aftersale');
+  const storedInspectionId = record.return_inspection === null
+    ? null
+    : safeUlid(record.return_inspection.id, 'Stored aftersale inspection');
   for (const evidence of record.evidence) {
-    if ((evidence.return_inspection_id === null && evidence.purpose !== APPLICATION_EVIDENCE_PURPOSE) ||
-      (evidence.return_inspection_id !== null && !isValidUlid(evidence.return_inspection_id))) {
+    const applicationEvidence = evidence.return_inspection_id === null &&
+      evidence.purpose === APPLICATION_EVIDENCE_PURPOSE;
+    const inspectionEvidence = storedInspectionId !== null &&
+      evidence.aftersale_id === storedAftersaleId &&
+      evidence.return_inspection_id === storedInspectionId &&
+      evidence.purpose === INSPECTION_EVIDENCE_PURPOSE;
+    if (!applicationEvidence && !inspectionEvidence) {
       throw internal('Stored aftersale evidence envelope is invalid');
     }
   }
@@ -871,8 +881,14 @@ function detailSnapshot(record: StoreAftersaleDetailRecord): StoreAftersaleDetai
   }
   const inspection = record.return_inspection === null ? null : {
     abnormalReason: record.return_inspection.abnormal_reason,
-    evidenceFileIds: record.return_inspection.evidence.map(({ file_id }) =>
-      safeUlid(file_id, 'Stored aftersale inspection evidence')),
+    evidenceFileIds: record.return_inspection.evidence.map((evidence) => {
+      if (evidence.aftersale_id !== storedAftersaleId ||
+        evidence.return_inspection_id !== storedInspectionId ||
+        evidence.purpose !== INSPECTION_EVIDENCE_PURPOSE) {
+        throw internal('Stored aftersale inspection evidence envelope is invalid');
+      }
+      return safeUlid(evidence.file_id, 'Stored aftersale inspection evidence');
+    }),
     inspectedAt: safeDate(record.return_inspection.inspected_at, 'Stored aftersale inspection time'),
     inspectionId: safeUlid(record.return_inspection.id, 'Stored aftersale inspection'),
     items: record.return_inspection.items.map((item) => ({

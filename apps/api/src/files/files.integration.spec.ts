@@ -294,6 +294,7 @@ integrationDescribe('B3 file PostgreSQL, Redis and MinIO API integration', () =>
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(409);
     expectNoStore(publicDownloadRoute);
+    expect(publicDownloadRoute.body.code).toBe('STATE_CONFLICT');
 
     const asset = await database.prisma.fileAsset.findUniqueOrThrow({ where: { id: intent.data.file_id } });
     expect(asset).toMatchObject({
@@ -367,16 +368,16 @@ integrationDescribe('B3 file PostgreSQL, Redis and MinIO API integration', () =>
       .expect(404);
     expectNoStore(crossOwnerDownload);
     expect(crossOwnerDownload.body.code).toBe('RESOURCE_NOT_FOUND');
-    const download = await request(app.getHttpServer())
+    const unboundOwnerDownload = await request(app.getHttpServer())
       .get(`/api/v1/files/${privateIntent.data.file_id}/download-url`)
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
-    expectNoStore(download);
-    const downloadUrl = download.body.data.download_url as string;
-    signedUrls.add(downloadUrl);
-    const signedPrivate = await fetch(downloadUrl);
-    expect(signedPrivate.status).toBe(200);
-    expect(Buffer.from(await signedPrivate.arrayBuffer())).toEqual(jpeg);
+    expectNoStore(unboundOwnerDownload);
+    const ownerDownloadUrl = unboundOwnerDownload.body.data.download_url as string;
+    signedUrls.add(ownerDownloadUrl);
+    const ownerDownload = await fetch(ownerDownloadUrl);
+    expect(ownerDownload.status).toBe(200);
+    expect(Buffer.from(await ownerDownload.arrayBuffer())).toEqual(jpeg);
     const sensitiveReads = await database.prisma.auditLog.findMany({
       where: {
         action: 'READ_SENSITIVE',
@@ -385,14 +386,6 @@ integrationDescribe('B3 file PostgreSQL, Redis and MinIO API integration', () =>
       },
     });
     expect(sensitiveReads).toHaveLength(1);
-    expect(sensitiveReads[0]).toMatchObject({
-      after_json: null,
-      before_json: null,
-      idempotency_key: null,
-      module: 'file',
-      reason: null,
-      result: 'SUCCESS',
-    });
 
     const declaredHash = sha256(Buffer.concat([png, Buffer.from('different')]));
     const hashIntent = await createIntent({

@@ -7,6 +7,7 @@ import {
   PictureFilled,
   PriceTag,
   Refresh,
+  Service,
   SwitchButton,
   Tickets,
   User,
@@ -105,6 +106,14 @@ async function endCurrentSession(): Promise<void> {
         >
           <el-icon><Refresh /></el-icon>
           <span>支付对账</span>
+        </RouterLink>
+        <RouterLink
+          to="/aftersales"
+          :class="{ active: ['aftersales', 'aftersale-detail'].includes(String(route.name)) }"
+          title="售后管理"
+        >
+          <el-icon><Service /></el-icon>
+          <span>售后管理</span>
         </RouterLink>
         <RouterLink
           to="/settings/account/security"

@@ -70,6 +70,14 @@ export function openOrderLogistics(orderId: string): void {
   void uni.navigateTo({ url: pageUrl('/pages/orders/logistics', { order_id: orderId }) });
 }
 
+export function openAftersaleApplication(orderId: string): void {
+  void uni.navigateTo({ url: pageUrl('/pages/aftersales/apply', { order_id: orderId }) });
+}
+
+export function openAftersaleDetail(aftersaleId: string): void {
+  void uni.navigateTo({ url: pageUrl('/pages/aftersales/detail', { aftersale_id: aftersaleId }) });
+}
+
 export function openPaymentResult(orderId: string): void {
   void uni.navigateTo({ url: pageUrl('/pages/payment/result', { order_id: orderId }) });
 }

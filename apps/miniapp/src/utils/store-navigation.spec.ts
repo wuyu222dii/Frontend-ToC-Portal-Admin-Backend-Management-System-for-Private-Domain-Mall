@@ -6,6 +6,8 @@ import {
   goBackOrHome,
   handleBottomNavigation,
   isSafeHttpsUrl,
+  openAftersaleApplication,
+  openAftersaleDetail,
   openOrderLogistics,
   openPaymentResult,
   showLoginPrompt,
@@ -109,6 +111,21 @@ describe('store navigation URL safety', () => {
     openOrderLogistics('01J00000000000000000000000');
     expect(navigateTo).toHaveBeenCalledWith({
       url: '/pages/orders/logistics?order_id=01J00000000000000000000000',
+    });
+  });
+
+  it('opens MP-13 and MP-14 with only the encoded business identifier', () => {
+    const navigateTo = vi.fn();
+    vi.stubGlobal('uni', { navigateTo });
+
+    openAftersaleApplication('01J00000000000000000000000');
+    openAftersaleDetail('01J00000000000000000000001');
+
+    expect(navigateTo).toHaveBeenNthCalledWith(1, {
+      url: '/pages/aftersales/apply?order_id=01J00000000000000000000000',
+    });
+    expect(navigateTo).toHaveBeenNthCalledWith(2, {
+      url: '/pages/aftersales/detail?aftersale_id=01J00000000000000000000001',
     });
   });
 });

@@ -25,7 +25,12 @@ import {
   type PaymentSubmitJournal,
 } from '../../utils/payment-submit-journal';
 import { replaceWithLoginForAction } from '../../utils/protected-action';
-import { openOrderLogistics, openPaymentResult } from '../../utils/store-navigation';
+import {
+  openAftersaleApplication,
+  openAftersaleDetail,
+  openOrderLogistics,
+  openPaymentResult,
+} from '../../utils/store-navigation';
 
 type PageState = 'loading' | 'ready' | 'invalid' | 'not-found' | 'auth-required' | 'error' | 'rate-limited';
 
@@ -65,7 +70,8 @@ const primaryPackage = computed(() => order.value?.packages[0] ?? null);
 const hasOrderActions = computed(() => order.value !== null && (
   order.value.available_actions.includes('PAY') ||
   order.value.available_actions.includes('CANCEL') ||
-  order.value.available_actions.includes('CONFIRM_RECEIPT') || hasPendingPayment.value
+  order.value.available_actions.includes('CONFIRM_RECEIPT') ||
+  order.value.available_actions.includes('APPLY_AFTERSALE') || hasPendingPayment.value
 ));
 const paymentButtonText = computed(() => {
   if (paymentPending.value) return '正在确认…';
@@ -79,6 +85,8 @@ const countdownText = computed(() => {
 });
 const actionHint = computed(() => order.value?.available_actions.includes('CONFIRM_RECEIPT') === true
   ? '请核对包裹信息后确认收货'
+  : order.value?.available_actions.includes('APPLY_AFTERSALE') === true
+    ? '退款金额由服务端按当前可退额度计算'
   : remainingSeconds.value > 0
     ? `付款剩余 ${countdownText.value}`
     : '付款期限已到，请刷新状态');
@@ -618,6 +626,30 @@ onUnload(() => {
         </section>
 
         <section
+          v-if="order.aftersales.length"
+          class="order-detail-panel order-aftersales"
+          aria-label="关联售后"
+          data-testid="order-aftersales-section"
+        >
+          <text class="order-detail-panel__title">
+            售后记录
+          </text>
+          <button
+            v-for="aftersale in order.aftersales"
+            :key="aftersale.aftersale_id"
+            class="order-aftersales__row"
+            :data-testid="`order-aftersale-${aftersale.aftersale_id}`"
+            @click="openAftersaleDetail(aftersale.aftersale_id)"
+          >
+            <view>
+              <text>{{ aftersale.aftersale_no }}</text>
+              <text>{{ aftersale.type === 'RETURN_REFUND' ? '退货退款' : '仅退款' }} · ¥{{ aftersale.requested_amount }}</text>
+            </view>
+            <text>{{ aftersale.status }} ›</text>
+          </button>
+        </section>
+
+        <section
           class="order-detail-panel"
           aria-label="订单进度"
         >
@@ -670,6 +702,15 @@ onUnload(() => {
             @click="openReceiptConfirmation"
           >
             {{ receiptPending ? '正在确认…' : '确认收货' }}
+          </button>
+          <button
+            v-if="order.available_actions.includes('APPLY_AFTERSALE')"
+            class="order-detail-actions__aftersale"
+            data-testid="apply-aftersale-button"
+            :disabled="commandPending"
+            @click="openAftersaleApplication(order.order_id)"
+          >
+            申请售后
           </button>
         </view>
       </view>
@@ -757,6 +798,13 @@ onUnload(() => {
 .payment-status-detail__summary { font-weight: 750; }
 .payment-status-detail__line { color: var(--qx-store-warning); }
 .payment-status-detail__error { color: var(--qx-store-danger); }
+.order-aftersales { display: grid; gap: 0; }
+.order-aftersales__row { display: flex; width: 100%; min-height: 82rpx; align-items: center; justify-content: space-between; gap: 18rpx; padding: 18rpx 0; border: 0; border-bottom: 1px solid var(--qx-store-line); border-radius: 0; background: transparent; text-align: left; }
+.order-aftersales__row:last-child { border-bottom: 0; }
+.order-aftersales__row view { display: grid; min-width: 0; gap: 5rpx; }
+.order-aftersales__row view text:first-child { font-size: 21rpx; font-weight: 750; overflow-wrap: anywhere; }
+.order-aftersales__row view text:last-child { color: var(--qx-store-muted); font-size: 18rpx; }
+.order-aftersales__row > text { flex: 0 0 auto; color: var(--qx-store-brand); font-size: 19rpx; }
 .order-timeline { display: grid; gap: 0; }
 .order-timeline__event { display: grid; min-width: 0; grid-template-columns: 24rpx minmax(0, 1fr); gap: 12rpx; padding-bottom: 20rpx; }
 .order-timeline__event:last-child { padding-bottom: 0; }
@@ -770,6 +818,7 @@ onUnload(() => {
 .order-detail-actions button { min-width: 0; min-height: 72rpx; padding: 0 20rpx; border-radius: 9rpx; font-size: 21rpx; font-weight: 750; white-space: nowrap; }
 .order-detail-actions__cancel { border: 1px solid var(--qx-store-danger) !important; color: var(--qx-store-danger); background: #ffffff; }
 .order-detail-actions__pay, .order-detail-actions__receipt { border: 1px solid var(--qx-store-brand-strong) !important; color: #ffffff; background: var(--qx-store-brand-strong); }
+.order-detail-actions__aftersale { border: 1px solid var(--qx-store-brand) !important; color: var(--qx-store-brand); background: #ffffff; }
 .order-detail-actions button[disabled] { color: var(--qx-store-muted); border-color: var(--qx-store-line) !important; }
 .receipt-confirmation { position: fixed; z-index: 60; inset: 0; display: flex; width: 100%; max-width: 414px; align-items: flex-end; margin: 0 auto; padding: 20rpx 20rpx calc(20rpx + env(safe-area-inset-bottom)); background: rgba(20, 29, 25, .48); }
 .receipt-confirmation__panel { width: 100%; min-width: 0; padding: 28rpx; border-radius: 12rpx; background: #ffffff; box-shadow: 0 18rpx 50rpx rgba(20, 29, 25, .18); }

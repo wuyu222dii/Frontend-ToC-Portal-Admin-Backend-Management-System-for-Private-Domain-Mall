@@ -19,6 +19,7 @@ interface StoredCustomerRefresh extends CustomerRefreshCredential {
 
 let memorySession: CustomerSession | null = null;
 let sessionRevision = 0;
+let sessionGeneration = 0;
 
 function runtimePlatform(): CustomerSessionPlatform {
   return process.env.UNI_PLATFORM === 'mp-weixin' ? 'mp-weixin' : 'h5';
@@ -97,6 +98,23 @@ export function saveCustomerSession(
 ): void {
   memorySession = session;
   sessionRevision += 1;
+  sessionGeneration += 1;
+  persistCustomerSession(session, platform);
+}
+
+export function acceptRotatedCustomerSession(
+  session: CustomerSession,
+  platform: CustomerSessionPlatform = runtimePlatform(),
+): void {
+  memorySession = session;
+  sessionRevision += 1;
+  persistCustomerSession(session, platform);
+}
+
+function persistCustomerSession(
+  session: CustomerSession,
+  platform: CustomerSessionPlatform,
+): void {
   if (platform === 'h5') {
     try {
       uni.removeStorageSync(CUSTOMER_SESSION_STORAGE_KEY);
@@ -116,6 +134,7 @@ export function saveCustomerSession(
 export function clearCustomerSession(): void {
   memorySession = null;
   sessionRevision += 1;
+  sessionGeneration += 1;
   try {
     uni.removeStorageSync(CUSTOMER_SESSION_STORAGE_KEY);
   } catch {
@@ -125,6 +144,10 @@ export function clearCustomerSession(): void {
 
 export function customerSessionRevision(): number {
   return sessionRevision;
+}
+
+export function customerSessionGeneration(): number {
+  return sessionGeneration;
 }
 
 export function hasRefreshableCustomerSession(now = Date.now()): boolean {

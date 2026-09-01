@@ -14,6 +14,10 @@ const pngBytes = Buffer.from(
   'base64',
 );
 
+function uploadFileId(sequence: number): string {
+  return `01J${String(sequence).padStart(23, '0')}`;
+}
+
 type CatalogStatus = 'DRAFT' | 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
 type LifecycleAction = 'ACTIVATE' | 'DEACTIVATE' | 'SOFT_DELETE';
 
@@ -168,7 +172,7 @@ class MockCatalogBackend {
         if (request.method() === 'OPTIONS') {
           await route.fulfill({
             headers: {
-              'access-control-allow-headers': 'content-type,x-upload-contract',
+              'access-control-allow-headers': 'content-type,x-amz-meta-sha256',
               'access-control-allow-methods': 'PUT,OPTIONS',
               'access-control-allow-origin': adminBaseUrl,
             },
@@ -177,8 +181,11 @@ class MockCatalogBackend {
           return;
         }
         expect(request.method()).toBe('PUT');
+        const fileId = decodeURIComponent(url.pathname.slice(1));
+        const intent = this.uploadIntents.get(fileId);
+        expect(intent).toBeDefined();
         expect(request.headers()['content-type']).toBe('image/png');
-        expect(request.headers()['x-upload-contract']).toBe('catalog-v1');
+        expect(request.headers()['x-amz-meta-sha256']).toBe(intent?.sha256);
         this.uploadedBodies.push(request.postDataBuffer() ?? Buffer.alloc(0));
         await route.fulfill({
           body: '',
@@ -450,7 +457,7 @@ class MockCatalogBackend {
     const body = route.request().postDataJSON() as Record<string, unknown>;
     this.record(route, 'files', null, body);
     this.fileSequence += 1;
-    const fileId = `catalog-file-${this.fileSequence}`;
+    const fileId = uploadFileId(this.fileSequence);
     this.uploadIntents.set(fileId, {
       mimeType: String(body.mime_type),
       purpose: String(body.purpose),
@@ -464,7 +471,7 @@ class MockCatalogBackend {
       status: 'PENDING',
       upload_headers: [
         { name: 'Content-Type', value: String(body.mime_type) },
-        { name: 'x-upload-contract', value: 'catalog-v1' },
+        { name: 'x-amz-meta-sha256', value: String(body.sha256) },
       ],
       upload_url: `https://uploads.example.test/${fileId}`,
     }));
@@ -630,7 +637,7 @@ test.describe('B3.3 admin brand and category management', () => {
     expect(brandCreates[0]?.body).toEqual({
       description: '低敏衣物清洁系列',
       initial_status: 'DRAFT',
-      logo_file_id: 'catalog-file-1',
+      logo_file_id: uploadFileId(1),
       name: '青柠净护',
       sort_order: 7,
     });
@@ -664,7 +671,7 @@ test.describe('B3.3 admin brand and category management', () => {
     const categoryCreates = backend.matching(/^\/api\/v1\/admin\/categories$/, 'POST');
     expect(categoryCreates).toHaveLength(1);
     expect(categoryCreates[0]?.body).toEqual({
-      icon_file_id: 'catalog-file-2',
+      icon_file_id: uploadFileId(2),
       initial_status: 'DRAFT',
       name: '厨房清洁',
       sort_order: 4,

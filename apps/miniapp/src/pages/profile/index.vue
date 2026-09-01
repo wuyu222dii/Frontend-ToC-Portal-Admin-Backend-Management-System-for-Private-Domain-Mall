@@ -75,7 +75,7 @@ function confirmLogout() {
         try {
           clearOrderSubmitJournal();
         } catch {
-          // Session removal still wins if local journal cleanup is unavailable.
+          // Session removal still wins if local order journal cleanup is unavailable.
         }
         logoutPending.value = false;
         void uni.reLaunch({ url: '/pages/index/index' });

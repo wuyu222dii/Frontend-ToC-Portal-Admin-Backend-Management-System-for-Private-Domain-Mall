@@ -17,7 +17,9 @@ import type {
   WechatLoginInput,
 } from '../types/store-identity';
 import {
+  acceptRotatedCustomerSession,
   clearCustomerSession,
+  customerSessionGeneration,
   customerSessionRevision,
   loadCustomerRefreshCredential,
   loadCustomerSession,
@@ -103,35 +105,51 @@ export function loginWithWechat(
   });
 }
 
-let refreshInFlight: Promise<CustomerSession> | null = null;
+const refreshInFlight = new Map<string, Promise<CustomerSession>>();
+
+function sessionChangedError(): StoreApiError {
+  return new StoreApiError('登录状态已经变化，请重新发起操作', {
+    status: 409,
+    code: 'SESSION_CHANGED',
+  });
+}
+
+function sessionGenerationIsCurrent(generation: number): boolean {
+  return customerSessionGeneration() === generation && loadCustomerSession() !== null;
+}
 
 function refreshCustomerSession(session: CustomerRefreshCredential): Promise<CustomerSession> {
+  const existing = refreshInFlight.get(session.refresh_token);
+  if (existing) return existing;
+  const startingGeneration = customerSessionGeneration();
   const startingRevision = customerSessionRevision();
-  refreshInFlight ??= storeApiRequest('/store/auth/refresh', {
+  const pending = storeApiRequest('/store/auth/refresh', {
     data: { refresh_token: session.refresh_token },
     decode: decodeCustomerSession,
     headers: { 'Idempotency-Key': createIdempotencyKey() },
     method: 'POST',
   }).promise.then((next) => {
+    if (customerSessionGeneration() !== startingGeneration) throw sessionChangedError();
     if (customerSessionRevision() !== startingRevision) {
       const latest = loadCustomerSession();
       if (latest !== null) return latest;
-      throw new StoreApiError('会话已经变化', { status: 401, code: 'SESSION_EXPIRED' });
+      throw sessionChangedError();
     }
-    saveCustomerSession(next);
+    acceptRotatedCustomerSession(next);
     return next;
   }).catch((error: unknown) => {
+    if (customerSessionGeneration() !== startingGeneration) throw sessionChangedError();
     if (customerSessionRevision() !== startingRevision) {
       const latest = loadCustomerSession();
       if (latest !== null) return latest;
-      throw error;
     }
     clearCustomerSession();
     throw error;
   }).finally(() => {
-    refreshInFlight = null;
+    refreshInFlight.delete(session.refresh_token);
   });
-  return refreshInFlight;
+  refreshInFlight.set(session.refresh_token, pending);
+  return pending;
 }
 
 function clearSessionIfCurrent(session: CustomerSession): void {
@@ -142,7 +160,9 @@ export async function authenticatedRequest<T>(
   path: string,
   options: StoreRequestOptions<T> = {},
 ): Promise<T> {
-  const session = loadCustomerSession() ?? await (async () => {
+  const currentSession = loadCustomerSession();
+  const startingGeneration = customerSessionGeneration();
+  const session = currentSession ?? await (async () => {
     const credential = loadCustomerRefreshCredential();
     if (credential === null || Date.parse(credential.refresh_expires_at) <= Date.now()) return null;
     return refreshCustomerSession(credential);
@@ -150,19 +170,26 @@ export async function authenticatedRequest<T>(
   if (session === null) {
     throw new StoreApiError('请先登录', { status: 401, code: 'AUTH_REQUIRED' });
   }
+  if (!sessionGenerationIsCurrent(startingGeneration)) throw sessionChangedError();
   const request = (current: CustomerSession) => storeApiRequest<T>(path, {
     ...options,
     headers: { ...options.headers, ...bearerHeader(current.access_token) },
   }).promise;
   try {
-    return await request(session);
+    const result = await request(session);
+    if (!sessionGenerationIsCurrent(startingGeneration)) throw sessionChangedError();
+    return result;
   } catch (error) {
     if (!(error instanceof StoreApiError) || error.status !== 401) throw error;
+    if (!sessionGenerationIsCurrent(startingGeneration)) throw sessionChangedError();
     const latest = loadCustomerSession();
     if (latest !== null && latest.refresh_token !== session.refresh_token) {
       try {
-        return await request(latest);
+        const result = await request(latest);
+        if (!sessionGenerationIsCurrent(startingGeneration)) throw sessionChangedError();
+        return result;
       } catch (retryError) {
+        if (!sessionGenerationIsCurrent(startingGeneration)) throw sessionChangedError();
         if (retryError instanceof StoreApiError && retryError.status === 401) {
           clearSessionIfCurrent(latest);
         }
@@ -170,9 +197,13 @@ export async function authenticatedRequest<T>(
       }
     }
     const refreshed = await refreshCustomerSession(session);
+    if (!sessionGenerationIsCurrent(startingGeneration)) throw sessionChangedError();
     try {
-      return await request(refreshed);
+      const result = await request(refreshed);
+      if (!sessionGenerationIsCurrent(startingGeneration)) throw sessionChangedError();
+      return result;
     } catch (retryError) {
+      if (!sessionGenerationIsCurrent(startingGeneration)) throw sessionChangedError();
       if (retryError instanceof StoreApiError && retryError.status === 401) {
         clearSessionIfCurrent(refreshed);
       }

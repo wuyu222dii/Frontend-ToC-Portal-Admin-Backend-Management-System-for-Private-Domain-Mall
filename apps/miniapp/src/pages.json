@@ -71,6 +71,20 @@
       }
     },
     {
+      "path": "pages/aftersales/apply",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "申请售后"
+      }
+    },
+    {
+      "path": "pages/aftersales/detail",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "售后详情"
+      }
+    },
+    {
       "path": "pages/favorites/index",
       "style": {
         "navigationStyle": "custom",

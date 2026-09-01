@@ -3,11 +3,12 @@
 import { onUnload } from '@dcloudio/uni-app';
 import { computed, onBeforeUnmount, ref } from 'vue';
 
-import { confirmAccountDeletion, previewAccountDeletion } from '../../api';
+import { confirmAccountDeletion, getCustomerProfile, previewAccountDeletion } from '../../api';
 import { StoreApiError } from '../../api/store-client';
 import QxAccountHeader from '../../components/storefront/QxAccountHeader.vue';
 import QxStoreShell from '../../components/storefront/QxStoreShell.vue';
 import type { DeletionPreview, DeletionResult } from '../../types/store-identity';
+import { clearAftersaleConfirmJournalForCustomer } from '../../utils/aftersale-confirm-journal';
 import { clearCustomerSession } from '../../utils/customer-session';
 import { clearOrderSubmitJournal } from '../../utils/order-submit-journal';
 import { openLoginForAction } from '../../utils/protected-action';
@@ -37,6 +38,7 @@ const pending = ref(false);
 const message = ref('');
 const retryAfterSeconds = ref(0);
 const uncertainResult = ref(false);
+const customerId = ref<string | null>(null);
 const now = ref(Date.now());
 let countdown: ReturnType<typeof setInterval> | undefined;
 
@@ -81,17 +83,22 @@ async function checkEligibility(afterBlock = false) {
   message.value = '';
   retryAfterSeconds.value = 0;
   try {
-    const nextPreview = await previewAccountDeletion();
+    const [nextProfile, nextPreview] = await Promise.all([
+      getCustomerProfile(),
+      previewAccountDeletion(),
+    ]);
     if (!acknowledged.value) {
       clearCapability();
       message.value = '已取消删除确认，请重新勾选并检查删除资格。';
       return;
     }
     preview.value = nextPreview;
+    customerId.value = nextProfile.customer_id;
     if (preview.value.eligible) startCountdown();
     else stopCountdown();
     if (afterBlock) message.value = '删除资格已变化，请先处理下列阻断事项。';
   } catch (error) {
+    customerId.value = null;
     preview.value = null;
     stopCountdown();
     if (error instanceof StoreApiError && error.status === 401) {
@@ -123,8 +130,9 @@ function askForConfirmation() {
 
 async function submitDeletion() {
   const current = preview.value;
+  const currentCustomerId = customerId.value;
   if (!acknowledged.value || current?.eligible !== true ||
-    remainingSeconds.value === 0 || pending.value) return;
+    currentCustomerId === null || remainingSeconds.value === 0 || pending.value) return;
   pending.value = true;
   message.value = '';
   try {
@@ -137,7 +145,12 @@ async function submitDeletion() {
     try {
       clearOrderSubmitJournal();
     } catch {
-      // The server-side deletion result remains authoritative if local cleanup is unavailable.
+      // The server-side deletion result remains authoritative if local order cleanup is unavailable.
+    }
+    try {
+      clearAftersaleConfirmJournalForCustomer(currentCustomerId);
+    } catch {
+      // Never clear another account's recovery entry when this customer's local cleanup is unavailable.
     }
     stopCountdown();
   } catch (error) {

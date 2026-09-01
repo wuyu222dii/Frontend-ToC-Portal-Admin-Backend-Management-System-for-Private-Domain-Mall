@@ -14,9 +14,13 @@ import { useRoute, useRouter } from 'vue-router';
 
 import FulfillmentAddressDialog from '../../components/orders/FulfillmentAddressDialog.vue';
 import OrderFulfillmentCommandDialog from '../../components/orders/OrderFulfillmentCommandDialog.vue';
+import OrderRefundCommandDialog, {
+  type OrderRefundCommandMode,
+} from '../../components/orders/OrderRefundCommandDialog.vue';
 import AdminShell from '../../layouts/AdminShell.vue';
 import { AdminApiError } from '../../services/admin-api';
 import { getAdminOrder } from '../../services/admin-orders';
+import { recoverAdminRefundCommandJournal } from '../../services/admin-refund-command-journal';
 import { authSession } from '../../stores/auth-session';
 import type { AdminOrderDetail } from '../../types/orders';
 import { formatChinaDateTime } from '../../utils/time';
@@ -31,6 +35,9 @@ const errorMessage = ref('');
 const addressOpen = ref(false);
 const commandOpen = ref(false);
 const commandMode = ref<CommandMode>('SHIP');
+const refundCommandOpen = ref(false);
+const refundCommandMode = ref<OrderRefundCommandMode>('MANUAL_COMPENSATION');
+const refundJournalBlocked = ref(false);
 let sequence = 0;
 let controller: AbortController | null = null;
 
@@ -62,6 +69,7 @@ async function handleSessionError(error: unknown): Promise<boolean> {
   controller?.abort();
   addressOpen.value = false;
   commandOpen.value = false;
+  refundCommandOpen.value = false;
   authSession.clearSession();
   await router.replace('/login');
   return true;
@@ -74,10 +82,28 @@ async function loadDetail(): Promise<void> {
   controller = current;
   loading.value = true;
   errorMessage.value = '';
+  refundJournalBlocked.value = false;
   try {
     const result = await getAdminOrder(orderId.value, current.signal);
     if (currentSequence !== sequence) return;
     detail.value = result;
+    try {
+      const journal = await recoverAdminRefundCommandJournal();
+      if (currentSequence === sequence && journal !== null) {
+        if (journal.order_id !== result.order_id) {
+          refundJournalBlocked.value = true;
+          await router.replace({ name: 'order-detail', params: { order_id: journal.order_id } });
+          return;
+        }
+        refundCommandMode.value = journal.mode;
+        refundCommandOpen.value = true;
+      }
+    } catch {
+      if (currentSequence === sequence) {
+        refundJournalBlocked.value = true;
+        errorMessage.value = '待确认资金操作的本机记录无法安全读取，确认操作已禁用。';
+      }
+    }
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') return;
     if (currentSequence !== sequence || await handleSessionError(error)) return;
@@ -96,6 +122,12 @@ function openCommand(mode: CommandMode): void {
   commandOpen.value = true;
 }
 
+function openRefundCommand(mode: OrderRefundCommandMode): void {
+  if (refundJournalBlocked.value) return;
+  refundCommandMode.value = mode;
+  refundCommandOpen.value = true;
+}
+
 async function commandCompleted(message: string): Promise<void> {
   ElMessage.success(message);
   await loadDetail();
@@ -104,6 +136,7 @@ async function commandCompleted(message: string): Promise<void> {
 async function commandConflict(): Promise<void> {
   addressOpen.value = false;
   commandOpen.value = false;
+  refundCommandOpen.value = false;
   await loadDetail();
   ElMessage.warning('订单或包裹版本已变化，已刷新最新投影，请重新确认后操作');
 }
@@ -126,6 +159,7 @@ function axisLabel(value: AdminOrderDetail['timeline'][number]['axis']): string 
 watch(orderId, () => {
   addressOpen.value = false;
   commandOpen.value = false;
+  refundCommandOpen.value = false;
   detail.value = null;
   void loadDetail();
 }, { immediate: true });
@@ -134,6 +168,7 @@ onBeforeUnmount(() => {
   controller?.abort();
   addressOpen.value = false;
   commandOpen.value = false;
+  refundCommandOpen.value = false;
 });
 </script>
 
@@ -159,7 +194,7 @@ onBeforeUnmount(() => {
         <el-button
           data-testid="admin-order-refresh"
           :loading="loading"
-          :disabled="commandOpen || addressOpen"
+          :disabled="commandOpen || addressOpen || refundCommandOpen"
           @click="loadDetail"
         >
           <el-icon><Refresh /></el-icon>刷新投影
@@ -243,6 +278,26 @@ onBeforeUnmount(() => {
               @click="router.push('/orders/reconciliation')"
             >
               查看支付对账
+            </el-button>
+            <el-button
+              v-if="hasAction('RETRY_REFUND')"
+              type="warning"
+              plain
+              :disabled="refundJournalBlocked"
+              data-testid="admin-order-retry-refund"
+              @click="openRefundCommand('RETRY_REFUND')"
+            >
+              重试失败退款
+            </el-button>
+            <el-button
+              v-if="hasAction('MANUAL_COMPENSATION')"
+              type="danger"
+              plain
+              :disabled="refundJournalBlocked"
+              data-testid="admin-order-manual-compensation"
+              @click="openRefundCommand('MANUAL_COMPENSATION')"
+            >
+              金额补偿
             </el-button>
           </div>
         </section>
@@ -439,6 +494,15 @@ onBeforeUnmount(() => {
       @completed="commandCompleted"
       @conflict="commandConflict"
       @auth-expired="authExpired"
+    />
+    <OrderRefundCommandDialog
+      v-if="detail"
+      v-model:open="refundCommandOpen"
+      :mode="refundCommandMode"
+      :order="detail"
+      @auth-expired="authExpired"
+      @completed="commandCompleted"
+      @conflict="commandConflict"
     />
   </AdminShell>
 </template>

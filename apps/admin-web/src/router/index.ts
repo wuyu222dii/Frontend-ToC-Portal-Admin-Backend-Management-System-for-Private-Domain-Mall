@@ -104,6 +104,18 @@ export const router = createRouter({
       path: '/orders/:order_id',
     },
     {
+      component: () => import('../views/aftersales/AftersaleListView.vue'),
+      meta: { access: 'session', title: '售后管理' },
+      name: 'aftersales',
+      path: '/aftersales',
+    },
+    {
+      component: () => import('../views/aftersales/AftersaleDetailView.vue'),
+      meta: { access: 'session', title: '售后详情' },
+      name: 'aftersale-detail',
+      path: '/aftersales/:aftersale_id',
+    },
+    {
       component: () => import('../views/payments/PaymentReconciliationView.vue'),
       meta: { access: 'session', title: '支付对账' },
       name: 'payment-reconciliation',

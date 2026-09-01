@@ -5,6 +5,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 import OneTimeCodesDialog from '../../components/security/OneTimeCodesDialog.vue';
+import ReturnAddressPanel from '../../components/security/ReturnAddressPanel.vue';
 import AdminShell from '../../layouts/AdminShell.vue';
 import {
   AdminApiError,
@@ -140,6 +141,10 @@ function acknowledgeCodes(): void {
   ElMessage.success('恢复码已从当前页面清除');
 }
 
+async function returnAddressAuthExpired(error: AdminApiError): Promise<void> {
+  await redirectIfSessionExpired(error);
+}
+
 onMounted(loadCurrent);
 onBeforeUnmount(() => {
   clearPasswordForm();
@@ -204,6 +209,8 @@ onBeforeUnmount(() => {
             <el-button type="danger" plain :loading="logoutAllPending" @click="endAllSessions">退出全部会话</el-button>
           </article>
         </div>
+
+        <ReturnAddressPanel @auth-expired="returnAddressAuthExpired" />
       </template>
     </section>
 

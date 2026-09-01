@@ -14,6 +14,10 @@ const pngBytes = Buffer.from(
   'base64',
 );
 
+function uploadFileId(sequence: number): string {
+  return `01J${String(sequence).padStart(23, '0')}`;
+}
+
 type ProductStatus = 'DRAFT' | 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
 type SkuStatus = 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
 type LifecycleAction = 'ACTIVATE' | 'DEACTIVATE' | 'SOFT_DELETE';
@@ -346,7 +350,7 @@ class MockProductsBackend {
         if (request.method() === 'OPTIONS') {
           await route.fulfill({
             headers: {
-              'access-control-allow-headers': 'content-type,x-upload-contract',
+              'access-control-allow-headers': 'content-type,x-amz-meta-sha256',
               'access-control-allow-methods': 'PUT,OPTIONS',
               'access-control-allow-origin': adminBaseUrl,
             },
@@ -355,8 +359,11 @@ class MockProductsBackend {
           return;
         }
         expect(request.method()).toBe('PUT');
+        const fileId = decodeURIComponent(url.pathname.slice(1));
+        const intent = this.uploadIntents.get(fileId);
+        expect(intent).toBeDefined();
         expect(request.headers()['content-type']).toBe('image/png');
-        expect(request.headers()['x-upload-contract']).toBe('product-v1');
+        expect(request.headers()['x-amz-meta-sha256']).toBe(intent?.sha256);
         this.uploadedBodies.push(request.postDataBuffer() ?? Buffer.alloc(0));
         await route.fulfill({
           body: '',
@@ -826,7 +833,7 @@ class MockProductsBackend {
     const body = route.request().postDataJSON() as Record<string, unknown>;
     this.recordRequest(route, body);
     this.fileSequence += 1;
-    const fileId = `product-file-${this.fileSequence}`;
+    const fileId = uploadFileId(this.fileSequence);
     this.uploadIntents.set(fileId, {
       mimeType: String(body.mime_type),
       purpose: String(body.purpose),
@@ -840,7 +847,7 @@ class MockProductsBackend {
       status: 'PENDING',
       upload_headers: [
         { name: 'Content-Type', value: String(body.mime_type) },
-        { name: 'x-upload-contract', value: 'product-v1' },
+        { name: 'x-amz-meta-sha256', value: String(body.sha256) },
       ],
       upload_url: `https://uploads.example.test/${fileId}`,
     }));
@@ -1065,7 +1072,7 @@ test.describe('B4.3 admin Product and SKU management', () => {
     const imagesEditor = page.getByTestId('product-images-editor');
     await expect(imagesEditor).toContainText('8 / 8');
     await expect(imagesEditor.getByRole('button', { name: /上传|选择/ })).toBeDisabled();
-    await imagesEditor.locator('[data-file-id="product-file-2"]').getByRole('button', { name: '上移' }).click();
+    await imagesEditor.locator(`[data-file-id="${uploadFileId(2)}"]`).getByRole('button', { name: '上移' }).click();
     await page.screenshot({ fullPage: true, path: testInfo.outputPath('product-editor.png') });
 
     backend.nextProductCreateFailure = {
@@ -1094,7 +1101,7 @@ test.describe('B4.3 admin Product and SKU management', () => {
     const imageInputs = creates[1]?.body.images as Array<{ file_id: string; sort_order: number }>;
     expect(imageInputs).toHaveLength(8);
     expect(imageInputs.map((item) => item.sort_order)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
-    expect(imageInputs[0]?.file_id).toBe('product-file-2');
+    expect(imageInputs[0]?.file_id).toBe(uploadFileId(2));
     expectUniqueIdempotencyKeys(creates);
 
     const intents = backend.matching(/^\/api\/v1\/files\/upload-intents$/, 'POST');

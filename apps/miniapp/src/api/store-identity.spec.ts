@@ -205,6 +205,83 @@ describe('Store CUSTOMER API coordinator', () => {
     await expect(pending).resolves.toMatchObject({ nickname: '新昵称', version: 5 });
   });
 
+  it('shares one refresh and retries concurrent requests within the same customer generation', async () => {
+    const current = environment();
+    saveCustomerSession(initialSession);
+    const first = getCustomerProfile();
+    const second = getCustomerProfile();
+
+    current.requests[0]?.success?.(error(401, 'SESSION_EXPIRED', 'req_first_expired'));
+    current.requests[1]?.success?.(error(401, 'SESSION_EXPIRED', 'req_second_expired'));
+    await vi.waitFor(() => expect(current.requests).toHaveLength(3));
+    expect(current.requests[2]).toMatchObject({
+      data: { refresh_token: initialSession.refresh_token },
+      url: '/api/v1/store/auth/refresh',
+    });
+
+    current.requests[2]?.success?.(response(rotatedSession, 'req_shared_refresh'));
+    await vi.waitFor(() => expect(current.requests).toHaveLength(5));
+    for (const retry of current.requests.slice(3)) {
+      expect(retry.header).toMatchObject({
+        Authorization: `Bearer ${rotatedSession.access_token}`,
+      });
+      retry.success?.(response({
+        customer_id: '01JTESTCUSTOMER00000000000',
+        nickname: null,
+        avatar_url: null,
+        city: null,
+        phone_tail: null,
+        phone_masked: null,
+        phone_source: null,
+        phone_verified_at: null,
+        version: 1,
+      }, 'req_profile'));
+    }
+
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+    expect(current.requests.filter(({ url }) => url === '/api/v1/store/auth/refresh')).toHaveLength(1);
+    expect(loadCustomerSession()).toEqual(rotatedSession);
+  });
+
+  it('does not discard a successful mutation when the same customer refreshes concurrently', async () => {
+    const current = environment();
+    saveCustomerSession(initialSession);
+    const mutation = updateCustomerProfile({ nickname: '已提交的修改' }, 4);
+    const profile = getCustomerProfile();
+
+    current.requests[1]?.success?.(error(401, 'SESSION_EXPIRED', 'req_profile_expired'));
+    await vi.waitFor(() => expect(current.requests).toHaveLength(3));
+    current.requests[2]?.success?.(response(rotatedSession, 'req_concurrent_refresh'));
+    await vi.waitFor(() => expect(current.requests).toHaveLength(4));
+
+    current.requests[0]?.success?.(response({
+      customer_id: '01JTESTCUSTOMER00000000000',
+      nickname: '已提交的修改',
+      avatar_url: null,
+      city: null,
+      phone_tail: null,
+      phone_masked: null,
+      phone_source: null,
+      phone_verified_at: null,
+      version: 5,
+    }, 'req_mutation_success'));
+    await expect(mutation).resolves.toMatchObject({ nickname: '已提交的修改', version: 5 });
+
+    current.requests[3]?.success?.(response({
+      customer_id: '01JTESTCUSTOMER00000000000',
+      nickname: '已提交的修改',
+      avatar_url: null,
+      city: null,
+      phone_tail: null,
+      phone_masked: null,
+      phone_source: null,
+      phone_verified_at: null,
+      version: 5,
+    }, 'req_profile_success'));
+    await expect(profile).resolves.toMatchObject({ nickname: '已提交的修改', version: 5 });
+    expect(loadCustomerSession()).toEqual(rotatedSession);
+  });
+
   it('does not let a late refresh success overwrite a newer login session', async () => {
     const current = environment();
     saveCustomerSession(initialSession);
@@ -219,6 +296,7 @@ describe('Store CUSTOMER API coordinator', () => {
         { type: 'PRIVACY_POLICY', document_version: 'v1', accepted: true },
       ],
     });
+    clearCustomerSession();
     expect(current.requests).toHaveLength(3);
     current.requests[2]?.success?.(response({
       session: newLoginSession,
@@ -228,22 +306,25 @@ describe('Store CUSTOMER API coordinator', () => {
     await loginPending;
 
     current.requests[1]?.success?.(response(rotatedSession, 'req_late_refresh'));
-    await vi.waitFor(() => expect(current.requests).toHaveLength(4));
-    expect(current.requests[3]?.header).toMatchObject({
-      Authorization: `Bearer ${newLoginSession.access_token}`,
+    await expect(profilePending).rejects.toMatchObject({ code: 'SESSION_CHANGED', status: 409 });
+    expect(current.requests).toHaveLength(3);
+    expect(loadCustomerSession()).toEqual(newLoginSession);
+  });
+
+  it('does not replay a customer request under a replacement login', async () => {
+    const current = environment();
+    saveCustomerSession(initialSession);
+    const pending = updateCustomerProfile({ nickname: 'A 发起的修改' }, 4);
+    expect(current.requests[0]?.header).toMatchObject({
+      Authorization: `Bearer ${initialSession.access_token}`,
     });
-    current.requests[3]?.success?.(response({
-      customer_id: '01JTESTCUSTOMER00000000000',
-      nickname: null,
-      avatar_url: null,
-      city: null,
-      phone_tail: null,
-      phone_masked: null,
-      phone_source: null,
-      phone_verified_at: null,
-      version: 1,
-    }, 'req_profile'));
-    await profilePending;
+
+    clearCustomerSession();
+    saveCustomerSession(newLoginSession);
+    current.requests[0]?.success?.(error(401, 'SESSION_EXPIRED', 'req_customer_a_expired'));
+
+    await expect(pending).rejects.toMatchObject({ code: 'SESSION_CHANGED', status: 409 });
+    expect(current.requests).toHaveLength(1);
     expect(loadCustomerSession()).toEqual(newLoginSession);
   });
 

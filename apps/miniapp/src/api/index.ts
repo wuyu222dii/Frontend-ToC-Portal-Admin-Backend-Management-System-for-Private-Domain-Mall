@@ -1,8 +1,28 @@
 export * from './store-catalog';
+export * from './store-aftersales';
+export * from './store-files';
 export * from './store-identity';
 export * from './store-orders';
 export * from './store-payments';
 export * from './store-shopping';
+export type {
+  AftersaleLineInput,
+  StoreAftersale,
+  StoreAftersaleCancelInput,
+  StoreAftersaleConfirmInput,
+  StoreAftersaleCreateInput,
+  StoreAftersaleDetail,
+  StoreAftersaleList,
+  StoreAftersaleListItem,
+  StoreAftersaleListQuery,
+  StoreAftersalePreview,
+  StoreAftersalePreviewInput,
+  StoreAftersaleReturnShipmentInput,
+} from '../types/store-aftersales';
+export type {
+  StoreAftersaleEvidenceImageInput,
+  StoreUploadedAftersaleEvidence,
+} from '../types/store-files';
 export type {
   CheckoutQuote,
   CheckoutQuoteBlocker,

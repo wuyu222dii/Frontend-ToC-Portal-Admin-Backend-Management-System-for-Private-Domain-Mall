@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { CustomerSession } from '../types/store-identity';
 import {
+  acceptRotatedCustomerSession,
   clearCustomerSession,
   CUSTOMER_SESSION_STORAGE_KEY,
+  customerSessionGeneration,
   hasRefreshableCustomerSession,
   loadCustomerRefreshCredential,
   loadCustomerSession,
@@ -82,6 +84,21 @@ describe('minimal CUSTOMER session storage', () => {
     });
     expect(current.values.get(CUSTOMER_SESSION_STORAGE_KEY)).not.toHaveProperty('access_token');
     expect(hasRefreshableCustomerSession(Date.parse('2029-01-01T00:00:00.000Z'))).toBe(true);
+  });
+
+  it('preserves the customer generation when only session credentials rotate', () => {
+    storageEnvironment();
+    saveCustomerSession(session, 'h5');
+    const generation = customerSessionGeneration();
+
+    acceptRotatedCustomerSession({
+      ...session,
+      access_token: 'b'.repeat(20),
+      refresh_token: 's'.repeat(20),
+    }, 'h5');
+
+    expect(customerSessionGeneration()).toBe(generation);
+    expect(loadCustomerSession()?.refresh_token).toBe('s'.repeat(20));
   });
 
   it('clears expired memory and MP refresh credentials before credential selection', () => {

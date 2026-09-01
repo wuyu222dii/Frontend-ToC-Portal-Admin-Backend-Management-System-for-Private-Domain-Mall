@@ -14,6 +14,10 @@ const pngBytes = Buffer.from(
   'base64',
 );
 
+function uploadFileId(sequence: number): string {
+  return `01J${String(sequence).padStart(23, '0')}`;
+}
+
 type BannerStatus = 'DRAFT' | 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
 type BannerTargetType = 'NONE' | 'PRODUCT' | 'CATEGORY' | 'URL';
 type InventoryStatus = 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
@@ -312,7 +316,7 @@ class MockB5Backend {
         if (request.method() === 'OPTIONS') {
           await route.fulfill({
             headers: {
-              'access-control-allow-headers': 'content-type,x-upload-contract',
+              'access-control-allow-headers': 'content-type,x-amz-meta-sha256',
               'access-control-allow-methods': 'PUT,OPTIONS',
               'access-control-allow-origin': adminBaseUrl,
             },
@@ -321,8 +325,11 @@ class MockB5Backend {
           return;
         }
         expect(request.method()).toBe('PUT');
+        const fileId = decodeURIComponent(url.pathname.slice(1));
+        const intent = this.uploadIntents.get(fileId);
+        expect(intent).toBeDefined();
         expect(request.headers()['content-type']).toBe('image/png');
-        expect(request.headers()['x-upload-contract']).toBe('banner-v1');
+        expect(request.headers()['x-amz-meta-sha256']).toBe(intent?.sha256);
         this.uploadedBodies.push(request.postDataBuffer() ?? Buffer.alloc(0));
         await route.fulfill({
           body: '',
@@ -467,22 +474,21 @@ class MockB5Backend {
     expect(body.mime_type).toBe('image/png');
     expect(body.size).toBe(pngBytes.byteLength);
     expect(body.sha256).toBe(createHash('sha256').update(pngBytes).digest('hex'));
-    const fileId = `banner-upload-${++this.fileSequence}`;
+    const fileId = uploadFileId(++this.fileSequence);
     this.uploadIntents.set(fileId, {
       mimeType: String(body.mime_type),
       purpose: String(body.purpose),
       sha256: String(body.sha256),
       size: Number(body.size),
     });
-    await json(route, 201, success({
+    await json(route, 200, success({
       expires_at: '2099-08-25T09:15:00.000Z',
       file_id: fileId,
-      object_key: `staging/${fileId}`,
       purpose: 'BANNER',
       status: 'PENDING',
       upload_headers: [
         { name: 'Content-Type', value: 'image/png' },
-        { name: 'x-upload-contract', value: 'banner-v1' },
+        { name: 'x-amz-meta-sha256', value: String(body.sha256) },
       ],
       upload_url: `https://uploads.example.test/${fileId}`,
     }));
@@ -1014,7 +1020,7 @@ test.describe('B5.3 admin Banner and Inventory management', () => {
     expect(creates).toHaveLength(1);
     expect(creates[0]?.body).toEqual({
       ends_at: '2026-09-30T12:30:00.000Z',
-      file_id: 'banner-upload-1',
+      file_id: uploadFileId(1),
       initial_status: 'DRAFT',
       sort_order: 5,
       starts_at: '2026-09-01T00:00:00.000Z',
@@ -1040,7 +1046,7 @@ test.describe('B5.3 admin Banner and Inventory management', () => {
     expect(patches[0]?.headers['if-match']).toBe('"1"');
     expect(patches[0]?.body).toEqual({
       ends_at: '2026-09-30T12:30:00.000Z',
-      file_id: 'banner-upload-1',
+      file_id: uploadFileId(1),
       sort_order: 5,
       starts_at: '2026-09-01T00:00:00.000Z',
       target_id: 'category-active',

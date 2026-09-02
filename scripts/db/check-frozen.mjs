@@ -32,6 +32,11 @@ const artifacts = [
     formal: "prisma/migrations/0005_b12_aftersale_refund_guards/migration.sql",
     sha256: "95f362667bdc6a0b751ae636d91a139a71a3f40155ba764937db01d5bbce412b",
   },
+  {
+    frozen: "product-materials/docs/03-技术设计/migrations/0006_b13_agent_finance_guards/migration.sql",
+    formal: "prisma/migrations/0006_b13_agent_finance_guards/migration.sql",
+    sha256: "355311f6a5091f03bcb879f927ca78c984ec2cb26efb7f14bb4133161ccc2ea0",
+  },
 ];
 
 function digest(buffer) {

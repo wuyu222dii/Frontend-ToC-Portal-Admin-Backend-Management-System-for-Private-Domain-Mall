@@ -5,12 +5,12 @@
 | 项目 | 内容 |
 |---|---|
 | 产品名称 | 洗化产品私域商城（工作名） |
-| 文档版本 | v2.4.10 |
+| 文档版本 | v2.4.11 |
 | MVP 模式 | 三端标准 MVP |
 | 目标用户 | 终端消费者、一级代理、总部商城经营人员 |
 | 人员角色 | `SUPER_ADMIN`、`AGENT_ADMIN`、`CUSTOMER` |
 | 更新日期 | 2026-09-02 |
-| 文档状态 | B0 至 B11 development 已完成并维持 `GO`；B11 最终同 SHA 双绿已闭合，CH-025 已自动失效。当前产品/API 基线为 `v2.4.10 / 2.4.10-ch026`；B12.0 精确 SHA 的普通 CI、Supabase development migration 与 rollback-only smoke 已全部成功，CH-027 已批准且仍有效。B12.1-B12.6 本地实现与本地验收已完成；当前 B12 full DB `6 files / 65 passed`、两端 E2E `45 passed`、全仓单测 `2738 passed / 166 skips`，完整 `RETURN_REFUND` 真实纵向 `1/1` 及精确清理通过。尚无 B12 最终实现 SHA 的普通 CI 与 Supabase rollback-only 同 SHA 双绿证据，B12 整体仍非 development `GO`。真实客户数据、真实微信支付/退款、真实物流、staging/production 均为 `NO-GO` |
+| 文档状态 | B0 至 B12 development 已完成并维持 `GO`；B12 最终 SHA `8c3589afcf7bb0dd5a4b8711d418e4c61b1ad09c` 的普通 CI Run `33592754575` 与 Supabase rollback-only smoke Run `33594513127` 同 SHA 双绿，CH-027 已自动失效。当前进入 B13.0 治理，产品/API 基线升级为 `v2.4.11 / CH-028`；CH-029 仅覆盖 B13.1-B13.9 脱敏 development。B12 orphan `P2=1` 仍阻断 staging/真实数据；真实客户数据、真实微信支付/退款、真实物流、staging/production 均为 `NO-GO` |
 
 ## 1. MVP 概述
 
@@ -362,7 +362,7 @@
 - 品牌和一级分类只能以 `DRAFT` 创建，列表固定按 `sort_order ASC,id ASC`。非删除记录只允许 `DRAFT/INACTIVE -> ACTIVE`、`ACTIVE -> INACTIVE`，以及 `DRAFT/INACTIVE -> ARCHIVED + deleted_at`；ACTIVE 不得直接软删除。生命周期启用、停用和软删除均先预览再确认；恢复只针对软删除 ARCHIVED，固定回到 DRAFT，之后须另行启用。默认列表排除归档，显式归档筛选和按 ID 详情支持恢复操作。
 - 商品固定以 `DRAFT` 创建，SKU 固定以 `INACTIVE` 创建。两者均通过独立的 ACTIVATE/DEACTIVATE/SOFT_DELETE preview-confirm 上下架或归档；Product 恢复为 DRAFT，SKU 恢复为 INACTIVE，任何状态变化均不级联修改子记录。商品启用要求 ACTIVE 品牌/分类、至少一张 READY/PUBLIC 商品图和至少一个 ACTIVE SKU；商品软删除要求没有 ACTIVE SKU 和活动库存预占，SKU 软删除要求没有活动库存预占。
 - SPU/SKU code 创建后永不可改且软删除后保留。商品图集最多 8 张并按 `sort_order,id` 排序；SKU 创建同时生成物理/锁定库存均为 0 的余额。商品列表固定 `published_at DESC NULLS LAST,id DESC`，首次启用写 `published_at` 且重新启用不覆盖；没有 ACTIVE SKU 时最低活动价为 `null`。商品详情返回全部 SKU，包括 ARCHIVED，并按 `created_at,id` 排序。
-- 七类文件统一只接受 JPEG/PNG 且最大 5 MiB。上传意图必须声明 64 位小写 SHA-256；完成时由服务端复核 MIME、魔数、大小和哈希。上传签名 15 分钟、私有下载签名 5 分钟，满 24 小时的 PENDING/staging 才可进入清理候选；bucket 默认私有，仅 `public/*` 允许匿名 GET，私有素材固定使用 `private/*`。
+- 六类外部上传文件统一只接受 JPEG/PNG 且最大 5 MiB。上传意图必须声明 64 位小写 SHA-256；完成时由服务端复核 MIME、魔数、大小和哈希。`PROMOTION_QR` 不接受客户端 upload-intent/complete，只能由服务端生成并与推广素材原子绑定。上传签名 15 分钟、私有下载签名 5 分钟，满 24 小时的 PENDING/staging 才可进入清理候选；bucket 默认私有，仅 `public/*` 允许匿名 GET，私有素材固定使用 `private/*`。
 - 所有列表/详情响应按消费者、代理、总部专用投影返回；同名业务字段也必须明确本人范围、当前归属期或全生命周期口径，禁止前端接收超范围字段后再隐藏。
 - 临时密码、TOTP 绑定 URI/恢复码、邀请码明文、银行卡查看授权、预览/确认能力令牌和签名文件 URL 等短时凭据/能力响应均使用 `Cache-Control: no-store`，仅在签发当次展示；页面刷新、离页、消费或到期后不得从缓存或普通详情接口再次取得。
 - 完整地址仅允许在最小授权场景返回：消费者查看本人收货地址/订单、消费者查看本人已通过退货审核的总部退货地址快照，以及总部用途绑定的履约地址读取；三类响应均禁止缓存。代理端、列表、日志、错误、审计摘要和自动化截图不得出现详细地址或完整手机号。
@@ -422,10 +422,10 @@ B0-B11 development 已完成并维持 `GO`，历史证据保留。B11 最终同 
 
 | 阶段 | 主要交付物 | 当前状态 |
 |---|---|---|
-| 需求确认 | MVP、三端角色确认、变更记录 | CH-026 已批准，基线升级为 v2.4.10/CH-026；CH-027 已批准且仅覆盖 B12.1-B12.6 脱敏 development，当前仍有效 |
+| 需求确认 | MVP、三端角色确认、变更记录 | CH-028/CH-029 已批准；基线升级为 v2.4.11/CH-028，CH-029 仅覆盖 B13.1-B13.9 脱敏 development |
 | 产品设计 | PRD、三端信息架构、可点击原型、Figma 重建规范 | B12 售后、验货、普通退款与金额补偿边界已同步；继续复用 21/9/22 页面，B12.5 已落地 MP-13/14 与 ADM-12/13/16 |
-| 技术设计 | 系统架构、数据库 ERD、接口文档、OpenAPI、Prisma 草案与部署拓扑 | OpenAPI `2.4.10-ch026` 保持 `173/198/198/326`；B12.5 未修改冻结 Prisma schema 或既有 `0001` 至 `0005` 迁移 |
-| 开发与测试 | 三端工程、API、数据库、自动化测试 | B0-B11 development `GO`；B12.1-B12.6 本地实现与本地验收已完成，完整真实纵向和精确清理通过；最终同 SHA 远端双绿待完成，B12 尚未 `GO` |
+| 技术设计 | 系统架构、数据库 ERD、接口文档、OpenAPI、Prisma 草案与部署拓扑 | OpenAPI `2.4.11-ch028` 当前保持 `173/198/198/327`；两份 Prisma schema 不变，`0001` 至 `0005` 继续冻结，B13.0 只新增前向 `0006_b13_agent_finance_guards` 数据库守卫 |
+| 开发与测试 | 三端工程、API、数据库、自动化测试 | B0-B12 development `GO`；B13.0 治理已建立，代理业务实现尚未准入 |
 | 上线准备 | 微信资质、真实支付退款、隐私合规、部署与验收 | 未开始 |
 
 ## 10. 风险与应对
@@ -501,13 +501,15 @@ B0-B11 development 已完成并维持 `GO`，历史证据保留。B11 最终同 
 - 2026-08-30 批准的 CH-023：以 0004 前向函数修复移除佣金 position 触发器不必要的 `FOR SHARE`，保持 SECURITY INVOKER 和运行角色最小权限；产品/API 基线不变；
 - 2026-08-30 CCB 批准的 CH-024：基线升级为 v2.4.9，冻结一单一包裹、总部人工物流、消费者确认收货、总部兜底完成和订单完成时佣金一次入账；零迁移并明确排除普通售后、第三方物流、自动确认和多包裹；
 - 2026-09-01 CCB 批准的 CH-026：基线升级为 v2.4.10，收紧 Store/Admin 售后、退货验货、普通退款、失败重试和纯金额补偿契约，并准入前向数据防护迁移 `0005_b12_aftersale_refund_guards`；B12.0 只实施治理、契约、迁移与门禁；
+- 2026-09-01 批准的 CH-027：仅在 B12.1-B12.6 脱敏 development 补偿单维护者第二 reviewer 缺失；B12 最终同 SHA 双绿后已自动失效；
+- 2026-09-02 CCB 批准的 CH-028/CH-029：基线升级为 v2.4.11，准入 B13.0 一级代理经营与资金闭环治理；CH-029 仅覆盖 B13.1-B13.9 脱敏 development，B13.9 最终同 SHA 双绿后自动失效；
 - 现有交易、库存、支付、物流和售后规则。
 
 ### 12.2 当前限制
 
 - 尚无真实用户访谈、历史订单、代理规模、佣金预算、商品规模和并发数据；指标阈值需试运行后校准。
 - 尚无微信正式参数、物流合同、隐私文本、线下打款财务制度和法律审核结论。
-- 当前交付物仍不是完整可用商城业务系统。B0-B11 development 已完成，B11 最终同 SHA 双绿已闭合，CH-025 已自动失效。B12.1-B12.6 本地实现与本地验收已完成，包括本人售后、Admin 审核/验货、普通退款/重试、金额补偿、库存/订单/佣金收敛、工程前端、完整真实纵向及精确清理；最终同 SHA 远端双绿仍待完成。真实微信支付/退款、第三方物流、staging 和 production 继续排除。
+- 当前交付物仍不是完整可用商城业务系统。B0-B12 development 已完成；B12 最终实现 SHA `8c3589afcf7bb0dd5a4b8711d418e4c61b1ad09c` 的普通 CI `33592754575` 与 Supabase rollback-only smoke `33594513127` 同 SHA 双绿，B12 development `GO`，CH-027 已自动失效。当前只进入 B13.0 治理，B13.1 尚未准入；B12 orphan `P2=1` 继续阻断 staging/真实数据，真实微信支付/退款、第三方物流、staging 和 production 继续排除。
 
 ## 13. 后续建议
 
@@ -517,8 +519,8 @@ B0-B11 development 已完成并维持 `GO`，历史证据保留。B11 最终同 
 4. B10.6 最终 SHA `f5e59169b53a97704711c3aae3049e5b5d16a930` 已取得普通 CI 与 Supabase rollback-only 同 SHA 双绿，B10 development `GO`；不得扩大 runtime 权限或修改冻结迁移。
 5. CH-021 已在 B10 development 最终门禁通过后自动失效；第一次进入 staging 前仍须外部独立复核。
 6. B11.0-B11.5 与最终远端同 SHA 双绿均已完成；B11 development `GO`，CH-025 已自动失效，且不得用静态原型替代工程证据。
-7. B12.0 已在精确 SHA 上取得普通 CI、Supabase development migration 与 rollback-only smoke 成功证据；CH-027 已另行批准并仅补偿 B12.1-B12.6 脱敏 development 第二 reviewer 缺失。B12.1-B12.6 本地实现与本地验收已完成，完整真实纵向及精确清理通过；最终同 SHA 远端双绿尚未完成。CH-027 仍有效，CH-026 本身不构成单人 reviewer 例外。
+7. B12.0 已在精确 SHA 上取得普通 CI、Supabase development migration 与 rollback-only smoke 成功证据；CH-027 已另行批准并仅补偿 B12.1-B12.6 脱敏 development 第二 reviewer 缺失。B12.1-B12.6 本地实现与本地验收已完成，完整真实纵向及精确清理通过；最终实现 SHA `8c3589afcf7bb0dd5a4b8711d418e4c61b1ad09c` 的普通 CI `33592754575` 与 Supabase rollback-only smoke `33594513127` 同 SHA 双绿，B12 development `GO`，CH-027 已自动失效。B13.0 治理按 CH-028/CH-029 建立，B13.1 尚未准入。
 
 ---
 
-项目状态：三端 MVP 产品/API 基线为 `v2.4.10 / 2.4.10-ch026`。B0 至 B11 development 已完成并保留远端证据；B12.0 三项远端门禁已闭合，CH-027 已批准且仍有效。B12.1-B12.6 本地实现与本地验收已完成；当前 B12 full DB `65/65`、两端 E2E `45 passed`、全仓单测 `2738 passed / 166 skips`，完整真实纵向 `1/1` 及精确清理通过。尚无 B12 最终实现 SHA 的普通 CI 与 Supabase rollback-only 同 SHA 双绿证据，B12 整体仍非 development `GO`。真实客户数据、真实支付/退款、真实物流、staging/production 仍为 `NO-GO`，进入 staging 前须外部独立复核。
+项目状态：三端 MVP 产品/API 基线为 `v2.4.11 / 2.4.11-ch028`。B0 至 B12 development 已完成并保留远端证据；B12 最终实现 SHA `8c3589afcf7bb0dd5a4b8711d418e4c61b1ad09c` 的普通 CI `33592754575` 与 Supabase rollback-only smoke `33594513127` 同 SHA 双绿，B12 development `GO`，CH-027 已自动失效。当前进入 B13.0 治理，CH-028/CH-029 已批准，B13.1 尚未准入。B12 orphan `P2=1` 继续阻断 staging/真实数据；真实客户数据、真实支付/退款、真实物流、staging/production 仍为 `NO-GO`，进入 staging 前须外部独立复核。

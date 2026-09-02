@@ -41,6 +41,14 @@ function runtimeConfig(): PlatformRuntimeConfig {
   const key = (byte: number) => Buffer.alloc(32, byte);
   return {
     banner: { targetOrigins: [] },
+    promotion: { publicBaseUrl: 'https://mall.example.test' },
+    agent: {
+      accessTokenTtlSeconds: 900,
+      authTokenAudience: 'qingxu-agent-web',
+      loginRateLimitMax: 10,
+      loginRateLimitWindowSeconds: 900,
+      sessionTtlSeconds: 604_800,
+    },
     authentication: {
       accessTokenTtlSeconds: 900,
       audience: 'qingxu-admin-web',
@@ -56,6 +64,7 @@ function runtimeConfig(): PlatformRuntimeConfig {
       url: 'postgresql://mall_runtime:password@db.example.test:5432/postgres?sslmode=verify-full',
     },
     encryption: {
+      bankAccountHashKeys: { current: { id: 'bank-v1', key: key(4) }, previous: [] },
       fieldKeys: { current: { id: 'field-v1', key: key(1) }, previous: [] },
       idempotencyHashKeys: { current: { id: 'idem-v1', key: key(3) }, previous: [] },
       ipHashKey: key(2),

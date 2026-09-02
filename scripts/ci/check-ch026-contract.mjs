@@ -6,9 +6,9 @@ import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
-process.env.QINGXU_CONTRACT_EXPECTED_VERSION = '2.4.10-ch026';
-process.env.QINGXU_CONTRACT_EXPECTED_SCHEMA_REFERENCES = '706';
-process.env.QINGXU_CONTRACT_EXPECTED_LOCAL_REFERENCES = '2726';
+process.env.QINGXU_CONTRACT_EXPECTED_VERSION ??= '2.4.10-ch026';
+process.env.QINGXU_CONTRACT_EXPECTED_SCHEMA_REFERENCES ??= '706';
+process.env.QINGXU_CONTRACT_EXPECTED_LOCAL_REFERENCES ??= '2726';
 process.env.QINGXU_CONTRACT_ORDINARY_AFTERSALES_ENABLED = '1';
 process.env.QINGXU_CONTRACT_RETURN_ADDRESS_IN_STORE_ERRORS = '0';
 

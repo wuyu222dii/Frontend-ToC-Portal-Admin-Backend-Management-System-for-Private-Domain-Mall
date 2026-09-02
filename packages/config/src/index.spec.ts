@@ -9,6 +9,7 @@ const PREVIOUS_IDEMPOTENCY_HASH_KEY = Buffer.alloc(32, 13).toString('base64');
 const AUTH_SIGNING_KEY = Buffer.alloc(32, 17).toString('base64');
 const AUTH_SECRET_HASH_KEY = Buffer.alloc(32, 19).toString('base64');
 const STORE_PHONE_HASH_KEY = Buffer.alloc(32, 21).toString('base64');
+const BANK_ACCOUNT_HASH_KEY = Buffer.alloc(32, 23).toString('base64');
 const PAYMENT_MOCK_SIGNING_KEY = Buffer.alloc(32, 25).toString('base64');
 
 function validEnvironment(): NodeJS.ProcessEnv {
@@ -46,6 +47,15 @@ function validEnvironment(): NodeJS.ProcessEnv {
     STORE_PHONE_HASH_KEY_BASE64: STORE_PHONE_HASH_KEY,
     STORE_PHONE_HASH_KEY_ID: 'test-store-phone-v1',
     STORE_PHONE_PREVIOUS_HASH_KEYS_JSON: '[]',
+    BANK_ACCOUNT_HASH_KEY_BASE64: BANK_ACCOUNT_HASH_KEY,
+    BANK_ACCOUNT_HASH_KEY_ID: 'test-bank-account-v1',
+    BANK_ACCOUNT_PREVIOUS_HASH_KEYS_JSON: '[]',
+    AGENT_AUTH_TOKEN_AUDIENCE: 'qingxu-agent-web',
+    AGENT_ACCESS_TOKEN_TTL_SECONDS: '900',
+    AGENT_SESSION_TTL_SECONDS: '604800',
+    AGENT_LOGIN_RATE_LIMIT_MAX: '10',
+    AGENT_LOGIN_RATE_LIMIT_WINDOW_SECONDS: '900',
+    STORE_PROMOTION_PUBLIC_BASE_URL: 'http://127.0.0.1:8080',
     STORE_PAYMENT_PROVIDER: 'MOCK',
     PAYMENT_MOCK_SIGNING_KEY_BASE64: PAYMENT_MOCK_SIGNING_KEY,
     PAYMENT_PROVIDER_TIMEOUT_MS: '5000',
@@ -76,6 +86,7 @@ describe('loadPlatformConfig', () => {
     expect(api.port).toBe(3000);
     expect(api.http).toEqual({ trustedProxyCidrs: [] });
     expect(api.banner.targetOrigins).toEqual([]);
+    expect(api.promotion).toEqual({ publicBaseUrl: 'http://127.0.0.1:8080' });
     expect(api.database.poolMax).toBe(10);
     expect(api.database.allowInsecureLocalhost).toBe(true);
     expect(api.database.sslRootCertPath).toBeUndefined();
@@ -105,6 +116,10 @@ describe('loadPlatformConfig', () => {
     });
     expect(api.encryption.idempotencyHashKeys).toEqual({
       current: { id: 'test-idempotency-v1', key: Buffer.alloc(32, 11) },
+      previous: [],
+    });
+    expect(api.encryption.bankAccountHashKeys).toEqual({
+      current: { id: 'test-bank-account-v1', key: Buffer.alloc(32, 23) },
       previous: [],
     });
     expect(api.authentication).toMatchObject({
@@ -143,6 +158,13 @@ describe('loadPlatformConfig', () => {
       loginRateLimitWindowSeconds: 900,
       customerRateLimitMax: 120,
       customerRateLimitWindowSeconds: 60,
+    });
+    expect(api.agent).toEqual({
+      accessTokenTtlSeconds: 900,
+      authTokenAudience: 'qingxu-agent-web',
+      loginRateLimitMax: 10,
+      loginRateLimitWindowSeconds: 900,
+      sessionTtlSeconds: 604_800,
     });
     expect(worker.port).toBe(3001);
     expect(worker.http).toEqual({ trustedProxyCidrs: [] });
@@ -568,19 +590,84 @@ describe('loadPlatformConfig', () => {
     );
   });
 
+  it('loads the isolated Agent realm and rejects audience drift or collision', () => {
+    expect(loadPlatformConfig(validEnvironment(), { service: 'api' }).agent).toEqual({
+      accessTokenTtlSeconds: 900,
+      authTokenAudience: 'qingxu-agent-web',
+      loginRateLimitMax: 10,
+      loginRateLimitWindowSeconds: 900,
+      sessionTtlSeconds: 604_800,
+    });
+
+    const drifted = validEnvironment();
+    drifted.AGENT_AUTH_TOKEN_AUDIENCE = 'qingxu-agent-preview';
+    expect(() => loadPlatformConfig(drifted, { service: 'api' })).toThrow(
+      'AGENT_AUTH_TOKEN_AUDIENCE must be qingxu-agent-web',
+    );
+
+    const collision = validEnvironment();
+    collision.AUTH_TOKEN_AUDIENCE = 'qingxu-agent-web';
+    expect(() => loadPlatformConfig(collision, { service: 'api' })).toThrow(
+      'AGENT_AUTH_TOKEN_AUDIENCE must differ from admin and Store audiences',
+    );
+  });
+
+  it('validates Agent TTL and login-rate-limit bounds', () => {
+    const shortSession = validEnvironment();
+    shortSession.AGENT_ACCESS_TOKEN_TTL_SECONDS = '3600';
+    shortSession.AGENT_SESSION_TTL_SECONDS = '3599';
+    expect(() => loadPlatformConfig(shortSession, { service: 'api' })).toThrow(
+      'AGENT_SESSION_TTL_SECONDS must be between 3600 and 2592000',
+    );
+
+    const invalidLimit = validEnvironment();
+    invalidLimit.AGENT_LOGIN_RATE_LIMIT_MAX = '0';
+    expect(() => loadPlatformConfig(invalidLimit, { service: 'api' })).toThrow(
+      'AGENT_LOGIN_RATE_LIMIT_MAX must be between 1 and 1000',
+    );
+  });
+
+  it('requires a purpose-isolated bank-account HMAC key ring', () => {
+    const missing = validEnvironment();
+    delete missing.BANK_ACCOUNT_PREVIOUS_HASH_KEYS_JSON;
+    expect(() => loadPlatformConfig(missing, { service: 'api' })).toThrow(
+      'BANK_ACCOUNT_PREVIOUS_HASH_KEYS_JSON is required',
+    );
+
+    const reused = validEnvironment();
+    reused.BANK_ACCOUNT_HASH_KEY_BASE64 = reused.AUTH_SECRET_HASH_KEY_BASE64;
+    expect(() => loadPlatformConfig(reused, { service: 'api' })).toThrow(
+      'all authentication, encryption, audit, and idempotency keys must be independent',
+    );
+  });
+
+  it('accepts only credential-free promotion bases and requires HTTPS remotely', () => {
+    const remoteHttp = validEnvironment();
+    remoteHttp.STORE_PROMOTION_PUBLIC_BASE_URL = 'http://mall.example.test/promotion';
+    expect(() => loadPlatformConfig(remoteHttp, { service: 'api' })).toThrow(
+      'Remote and production STORE_PROMOTION_PUBLIC_BASE_URL values must use HTTPS',
+    );
+
+    const withQuery = validEnvironment();
+    withQuery.STORE_PROMOTION_PUBLIC_BASE_URL = 'https://mall.example.test/promotion?token=secret';
+    expect(() => loadPlatformConfig(withQuery, { service: 'api' })).toThrow(
+      'STORE_PROMOTION_PUBLIC_BASE_URL must be a credential-free URL without query or fragment',
+    );
+  });
+
   it('loads bounded authentication key rings and token lifetimes', () => {
     const environment = validEnvironment();
     environment.AUTH_SIGNING_KEY_ID = 'test-auth-sign-v2';
     environment.AUTH_PREVIOUS_SIGNING_KEYS_JSON = JSON.stringify([{
       id: 'test-auth-sign-v1',
-      key_base64: Buffer.alloc(32, 23).toString('base64'),
+      key_base64: Buffer.alloc(32, 27).toString('base64'),
     }]);
     environment.AUTH_ACCESS_TOKEN_TTL_SECONDS = '1200';
 
     const authentication = loadPlatformConfig(environment, { service: 'api' }).authentication;
     expect(authentication.accessTokenTtlSeconds).toBe(1200);
     expect(authentication.signingKeys.previous).toEqual([
-      { id: 'test-auth-sign-v1', key: Buffer.alloc(32, 23) },
+      { id: 'test-auth-sign-v1', key: Buffer.alloc(32, 27) },
     ]);
   });
 

@@ -30,10 +30,13 @@ const requestId = 'req_0123456789abcdef0123456789abcdef';
 function config(): PlatformRuntimeConfig {
   return {
     banner: { targetOrigins: [] },
+    promotion: { publicBaseUrl: 'https://mall.example.test' },
     authentication: {} as PlatformRuntimeConfig['authentication'],
+    agent: {} as PlatformRuntimeConfig['agent'],
     store: {} as PlatformRuntimeConfig['store'],
     database: {} as PlatformRuntimeConfig['database'],
     encryption: {
+      bankAccountHashKeys: { current: { id: 'bank', key: Buffer.alloc(32, 4) }, previous: [] },
       fieldKeys: { current: { id: 'field', key: Buffer.alloc(32, 1) }, previous: [] },
       idempotencyHashKeys: { current: { id: 'idem', key: Buffer.alloc(32, 2) }, previous: [] },
       ipHashKey: Buffer.alloc(32, 3),

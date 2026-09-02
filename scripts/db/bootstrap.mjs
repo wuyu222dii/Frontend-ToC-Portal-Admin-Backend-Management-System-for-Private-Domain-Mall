@@ -27,6 +27,12 @@ const aftersaleRefundGuardFrozenPath =
   "product-materials/docs/03-技术设计/migrations/0005_b12_aftersale_refund_guards/migration.sql";
 const expectedAftersaleRefundGuardDigest =
   "95f362667bdc6a0b751ae636d91a139a71a3f40155ba764937db01d5bbce412b";
+const agentFinanceGuardMigrationPath =
+  "prisma/migrations/0006_b13_agent_finance_guards/migration.sql";
+const agentFinanceGuardFrozenPath =
+  "product-materials/docs/03-技术设计/migrations/0006_b13_agent_finance_guards/migration.sql";
+const expectedAgentFinanceGuardDigest =
+  "355311f6a5091f03bcb879f927ca78c984ec2cb26efb7f14bb4133161ccc2ea0";
 
 function digest(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -160,6 +166,12 @@ try {
   ) {
     throw new Error("B12 migration differs from its frozen artifact");
   }
+  if (
+    digest(agentFinanceGuardMigrationPath) !== expectedAgentFinanceGuardDigest ||
+    digest(agentFinanceGuardFrozenPath) !== expectedAgentFinanceGuardDigest
+  ) {
+    throw new Error("B13 migration differs from its frozen artifact");
+  }
 
   const state = runPsql(owner, [
     "-Atqc",
@@ -199,26 +211,37 @@ try {
          pg_get_userbyid(c.relowner),
          count(*) FILTER (
            WHERE m.migration_name = '0001_initial'
+             AND m.checksum = 'f1e192fc6a93710e855770a27ed2de04665288fd9ab188652c0fd5f7683ba71b'
              AND m.finished_at IS NOT NULL
              AND m.rolled_back_at IS NULL
          ),
          count(*) FILTER (
            WHERE m.migration_name = '0002_b9_inventory_fact_indexes'
+             AND m.checksum = '9c933d256e0cbe7c33acdd801b6385bae6f892ff3db10978c40e37ea2f89f5d0'
              AND m.finished_at IS NOT NULL
              AND m.rolled_back_at IS NULL
          ),
          count(*) FILTER (
            WHERE m.migration_name = '0003_b10_payment_fact_indexes'
+             AND m.checksum = '0d5109a6d0eab2598f2c6c98bbeca265bdd32733e7d89f8eb78eff67caedb836'
              AND m.finished_at IS NOT NULL
              AND m.rolled_back_at IS NULL
          ),
          count(*) FILTER (
            WHERE m.migration_name = '0004_b10_commission_position_trigger_fix'
+             AND m.checksum = '8d4c391af114c4691d2be80ae8bb44efc1c70658f5268ad4de7221a29d5ee102'
              AND m.finished_at IS NOT NULL
              AND m.rolled_back_at IS NULL
          ),
          count(*) FILTER (
            WHERE m.migration_name = '0005_b12_aftersale_refund_guards'
+             AND m.checksum = '95f362667bdc6a0b751ae636d91a139a71a3f40155ba764937db01d5bbce412b'
+             AND m.finished_at IS NOT NULL
+             AND m.rolled_back_at IS NULL
+         ),
+         count(*) FILTER (
+           WHERE m.migration_name = '0006_b13_agent_finance_guards'
+             AND m.checksum = '355311f6a5091f03bcb879f927ca78c984ec2cb26efb7f14bb4133161ccc2ea0'
              AND m.finished_at IS NOT NULL
              AND m.rolled_back_at IS NULL
          ),
@@ -229,7 +252,8 @@ try {
              '0002_b9_inventory_fact_indexes',
              '0003_b10_payment_fact_indexes',
              '0004_b10_commission_position_trigger_fix',
-             '0005_b12_aftersale_refund_guards'
+             '0005_b12_aftersale_refund_guards',
+             '0006_b13_agent_finance_guards'
            )
          )
        )
@@ -239,8 +263,8 @@ try {
        WHERE n.nspname = 'public' AND c.relname = '_prisma_migrations'
        GROUP BY c.relowner`,
     ], undefined, true);
-    if (history !== "mall_migrator|1|1|1|1|1|0|0") {
-      throw new Error("existing Prisma migration history is not the completed B12 migration chain");
+    if (history !== "mall_migrator|1|1|1|1|1|1|0|0") {
+      throw new Error("existing Prisma migration history is not the completed B13 migration chain");
     }
   }
   if (state === "EMPTY") {

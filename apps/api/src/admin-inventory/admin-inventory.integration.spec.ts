@@ -99,10 +99,16 @@ function runtimeForMode(): DatabaseRuntime {
 function config(): PlatformRuntimeConfig {
   return {
     authentication: {} as PlatformRuntimeConfig['authentication'],
+    agent: {} as PlatformRuntimeConfig['agent'],
     store: {} as PlatformRuntimeConfig['store'],
     banner: { targetOrigins: [] },
+    promotion: { publicBaseUrl: 'https://mall.example.test' },
     database: {} as PlatformRuntimeConfig['database'],
     encryption: {
+      bankAccountHashKeys: {
+        current: { id: 'b5-inventory-bank', key: Buffer.alloc(32, 0x64) },
+        previous: [],
+      },
       fieldKeys: { current: { id: 'b5-inventory-field', key: Buffer.alloc(32, 0x61) }, previous: [] },
       idempotencyHashKeys: {
         current: { id: 'b5-inventory-idempotency', key: Buffer.alloc(32, 0x62) },

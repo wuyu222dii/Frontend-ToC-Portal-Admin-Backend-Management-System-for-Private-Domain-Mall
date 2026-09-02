@@ -26,7 +26,11 @@ import { API_DATABASE_RUNTIME } from '../platform/database/api-database-runtime'
 import { preEnvelopedResponse } from '../platform/http/success-envelope.interceptor';
 import { API_OBJECT_STORAGE } from '../platform/storage/api-object-storage';
 import { FileObjectLeaseManager } from './file-object-lease';
-import type { UploadCompleteInput, UploadIntentInput } from './files.dto';
+import {
+  EXTERNAL_UPLOAD_FILE_PURPOSES,
+  type UploadCompleteInput,
+  type UploadIntentInput,
+} from './files.dto';
 import type { FilesRequestContext } from './files.request';
 
 const ROUTES = {
@@ -77,7 +81,7 @@ export class FileAssetsService {
     input: UploadIntentInput,
     idempotencyKey: string,
   ) {
-    this.authorizePurpose(request, input.purpose);
+    this.authorizeExternalUploadPurpose(request, input.purpose);
     const { config, database, storage } = this.runtime();
     const fileId = generateUlid();
     const objectKey = buildStagingObjectKey(fileId);
@@ -164,12 +168,12 @@ export class FileAssetsService {
       return result.kind === 'replay' ? this.idempotency.fileUploadCompleteReplay(result.record) : null;
     });
     if (replay) {
-      this.authorizePurpose(request, replay.data.purpose);
+      this.authorizeExternalUploadPurpose(request, replay.data.purpose);
       return preEnvelopedResponse(replay);
     }
 
     const initialAsset = await this.assets.getOwned({ actorId: request.principal.accountId, fileId });
-    this.authorizePurpose(request, initialAsset.purpose);
+    this.authorizeExternalUploadPurpose(request, initialAsset.purpose);
     if (initialAsset.status !== 'PENDING') {
       throw new ApplicationError('STATE_CONFLICT', 'File asset has already left the pending state');
     }
@@ -180,7 +184,7 @@ export class FileAssetsService {
     let stagingKey: string | undefined;
     try {
       const asset = await this.assets.getOwned({ actorId: request.principal.accountId, fileId });
-      this.authorizePurpose(request, asset.purpose);
+      this.authorizeExternalUploadPurpose(request, asset.purpose);
       if (asset.status !== 'PENDING') {
         throw new ApplicationError('STATE_CONFLICT', 'File asset has already left the pending state');
       }
@@ -358,6 +362,13 @@ export class FileAssetsService {
     if (request.principal.role === 'SUPER_ADMIN' ||
       (request.principal.role === 'CUSTOMER' && purpose === 'AFTERSALE_EVIDENCE')) return;
     throw new ApplicationError('PERMISSION_DENIED', 'File purpose is not available to this role');
+  }
+
+  private authorizeExternalUploadPurpose(request: FilesRequestContext, purpose: string): void {
+    if (!(EXTERNAL_UPLOAD_FILE_PURPOSES as readonly string[]).includes(purpose)) {
+      throw new ApplicationError('INVALID_ARGUMENT', 'File purpose is not available to external upload operations');
+    }
+    this.authorizePurpose(request, purpose);
   }
 
   private leaseManager(): FileObjectLeaseManager {

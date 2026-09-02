@@ -25,10 +25,13 @@ const occurredAt = new Date('2026-08-25T05:00:00.000Z');
 function config(): PlatformRuntimeConfig {
   return {
     authentication: {} as PlatformRuntimeConfig['authentication'],
+    agent: {} as PlatformRuntimeConfig['agent'],
     store: {} as PlatformRuntimeConfig['store'],
     banner: { targetOrigins: [] },
+    promotion: { publicBaseUrl: 'https://mall.example.test' },
     database: {} as PlatformRuntimeConfig['database'],
     encryption: {
+      bankAccountHashKeys: { current: { id: 'bank', key: Buffer.alloc(32, 4) }, previous: [] },
       fieldKeys: { current: { id: 'field', key: Buffer.alloc(32, 1) }, previous: [] },
       idempotencyHashKeys: { current: { id: 'idem', key: Buffer.alloc(32, 2) }, previous: [] },
       ipHashKey: Buffer.alloc(32, 3),

@@ -136,6 +136,26 @@ export function signStoreAccessToken(
   return signScopedAccessToken(configuration, principal, lifetimeSeconds, now);
 }
 
+/**
+ * Signs an access token for the isolated first-level agent realm. Agent tokens
+ * intentionally carry no RBAC permissions and use PASSWORD assurance for both
+ * regular and temporary-password sessions.
+ */
+export function signAgentAccessToken(
+  configuration: AuthTokenConfiguration,
+  principal: RbacPrincipal & { tokenId: string },
+  lifetimeSeconds: number,
+  now: Date = new Date(),
+): { expiresAt: Date; token: string } {
+  assertLifetime(lifetimeSeconds);
+  if (principal.role !== 'AGENT_ADMIN' || principal.assurance !== 'PASSWORD' ||
+    (principal.restriction !== 'NONE' && principal.restriction !== 'CHANGE_PASSWORD_ONLY') ||
+    principal.permissions.length !== 0) {
+    throw new TypeError('Agent access token principal is invalid');
+  }
+  return signScopedAccessToken(configuration, principal, lifetimeSeconds, now);
+}
+
 function signScopedAccessToken(
   configuration: AuthTokenConfiguration,
   principal: RbacPrincipal & { tokenId: string },
@@ -258,6 +278,29 @@ export function verifyStoreAccessToken(
     role: 'CUSTOMER',
     assurance: 'WECHAT',
     restriction: 'NONE',
+    permissions: [],
+  };
+}
+
+export function verifyAgentAccessToken(
+  configuration: AuthTokenConfiguration,
+  token: string,
+): VerifiedAccessClaims {
+  const payload = verifyJwt(configuration, token);
+  const base = baseClaims(payload);
+  if (payload.token_use !== 'access' || typeof payload.sid !== 'string' ||
+    payload.role !== 'AGENT_ADMIN' || payload.assurance !== 'PASSWORD' ||
+    (payload.restriction !== 'NONE' && payload.restriction !== 'CHANGE_PASSWORD_ONLY') ||
+    !Array.isArray(payload.permissions) || payload.permissions.length !== 0) {
+    throw new TypeError('Agent access token claims are invalid');
+  }
+  return {
+    ...base,
+    accountId: base.accountId,
+    sessionId: payload.sid,
+    role: 'AGENT_ADMIN',
+    assurance: 'PASSWORD',
+    restriction: payload.restriction,
     permissions: [],
   };
 }

@@ -6,10 +6,10 @@
 |---|---|
 | 产品名称 | 洗化产品私域商城（工作名） |
 | 文档类型 | Product Requirements Document |
-| 文档版本 | v2.4.10 |
+| 文档版本 | v2.4.11 |
 | 对应阶段 | 三端标准 MVP |
 | 更新日期 | 2026-09-02 |
-| 当前状态 | B0 至 B11 development 已完成并维持 `GO`；B12.0 精确 SHA 的普通 CI、Supabase development migration 和 rollback-only smoke 已成功，CH-027 已批准且仍有效。当前产品/API 基线为 `v2.4.10 / 2.4.10-ch026`；B12.1-B12.6 本地实现与本地验收已完成，B12 full DB `65/65`、两端 E2E `45 passed`、全仓单测 `2738 passed / 166 skips`、完整真实纵向 `1/1` 及精确清理通过。最终同 SHA 远端双绿待完成，B12 整体仍非 development `GO`；真实客户数据、真实微信支付/退款、真实物流、staging/production `NO-GO` |
+| 当前状态 | B0 至 B12 development 已完成并维持 `GO`；B12 最终 SHA `8c3589afcf7bb0dd5a4b8711d418e4c61b1ad09c` 的普通 CI `33592754575` 与 Supabase rollback-only smoke `33594513127` 同 SHA 双绿，CH-027 已自动失效。当前进入 B13.0 治理，产品/API 基线为 `v2.4.11 / CH-028`；CH-029 仅覆盖 B13.1-B13.9 脱敏 development。B12 orphan `P2=1` 继续阻断 staging/真实数据；代理业务实现按 B13.1-B13.9 分批准入，真实客户数据、真实微信支付/退款、真实物流、staging/production `NO-GO` |
 | 产品终端 | 消费者微信小程序、一级代理工作台、总部管理后台 |
 | 人员角色 | `CUSTOMER`、`AGENT_ADMIN`、`SUPER_ADMIN` |
 
@@ -32,7 +32,8 @@
 | v2.4.7 | 2026-08-28 | 落实 CH-020：结算报价凭证、待付款订单、库存预占、主动取消/超时释放与 0002 索引迁移 | 已归档；B9.0-B9.5 已完成并取得最终同 SHA 双绿，B9 development `GO`，CH-019 已自动失效 |
 | v2.4.8 | 2026-08-29 | 落实 CH-022：Mock 支付意图、结果消费、订单结算、关单对账、迟到支付自动退款与 0003 支付事实索引；CH-023 仅补充 0004 数据库函数权限修复 | 已归档；B10.0-B10.6 已完成，最终 SHA `f5e59169b53a97704711c3aae3049e5b5d16a930` 同 SHA 双绿，B10 development `GO`，CH-021 已自动失效 |
 | v2.4.9 | 2026-08-30 | 落实 CH-024：一单一包裹、总部人工物流、Store 本人物流/确认收货、Admin 订单/履约地址/发货/物流/兜底完成，以及完成时佣金一次入账；零迁移 | 已归档；B11 development `GO`，最终同 SHA 双绿已闭合 |
-| v2.4.10 | 2026-09-01 | 落实 CH-026：收紧 Store/Admin 售后、退货验货、普通退款/重试和纯金额补偿契约，准入 `0005_b12_aftersale_refund_guards` | 当前产品版本；B12.0-B12.6 本地实现与本地验收已完成，最终同 SHA 远端双绿待完成，B12 尚未 `GO` |
+| v2.4.10 | 2026-09-01 | 落实 CH-026：收紧 Store/Admin 售后、退货验货、普通退款/重试和纯金额补偿契约，准入 `0005_b12_aftersale_refund_guards` | 已归档；B12 development `GO`，CH-027 已自动失效 |
+| v2.4.11 | 2026-09-02 | 落实 CH-028：一级代理经营、归属、佣金、钱包和提现闭环治理，准入 B13.0 | 当前产品版本；B13.0 治理已建立，CH-029 仅覆盖 B13.1-B13.9 脱敏 development |
 
 ### 文档使用约定
 
@@ -795,7 +796,7 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 - 库存列表不提供 `low_stock` 或每 SKU 预警值。统一公式为 `available_qty=physical_qty-locked_qty`；`active_reservation_qty` 只复核锁定事实，不再二次扣减售后占用。ARCHIVED SKU 只读和可查流水，恢复为 INACTIVE 后才可调整。
 - 库存人工调整只修改 physical，接收非零 PostgreSQL INTEGER 范围 `physical_delta` 与 2-500 字符原因。preview 绑定 actor、session、`INVENTORY.ADJUST`、`INVENTORY`、SKU、规范化请求和余额版本；即使调整后实物低于 locked 仍返回 200 warning，confirm 以 `STOCK_INSUFFICIENT` 422 阻断且不消费 preview；整数溢出返回 `INVENTORY_QUANTITY_OUT_OF_RANGE` 422。
 - 库存 confirm 需要相同业务字段、未过期 token/确认哈希、新幂等键和 `If-Match`；成功原子消费 preview、递增余额版本、插入一条 `MANUAL_INCREASE/MANUAL_DECREASE` 流水、写审计/幂等/outbox。同 token 换键、并发确认或同键重放不得产生第二条流水；流水按 `occurred_at DESC,id DESC`，B4 零余额不补写 INITIAL。
-- 七类文件 purpose 只接受 `image/jpeg`、`image/png` 且最大 5 MiB。上传意图声明 64 位小写 SHA-256，完成请求的 SHA-256/size 必须与 intent 及服务端 MIME、魔数、大小、哈希实测一致；不一致返回 `FILE_CONTENT_MISMATCH` 422。
+- 六类外部上传 purpose 只接受 `image/jpeg`、`image/png` 且最大 5 MiB。上传意图声明 64 位小写 SHA-256，完成请求的 SHA-256/size 必须与 intent 及服务端 MIME、魔数、大小、哈希实测一致；不一致返回 `FILE_CONTENT_MISMATCH` 422。`PROMOTION_QR` 不在外部枚举中，由服务端生成并与推广素材原子绑定。
 - 上传签名有效 15 分钟，私有下载签名有效 5 分钟；PENDING/staging 满 24 小时仅成为清理候选，删除前仍须复核无 READY 和业务引用。bucket 默认私有，仅 `public/*` 可匿名 GET；售后、提现、推广 QR 等私有素材只能位于 `private/*`。
 - 品牌、一级分类、商品和 SKU 只允许软删除。已被订单、库存流水、售后或佣金规则引用的记录必须永久保留历史可读性。
 - 一级分类或品牌存在在售商品时禁止停用或删除；页面返回阻断商品数量和清单入口，超级管理员必须先迁移或下架商品。商品/SKU 存在活动库存预占时禁止软删除。
@@ -1573,8 +1574,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | 验收场景 AC | 116 | 0 |
 | 用户故事 US | 24 | 0 |
 
-当前准入结论：B0 至 B11 development 已通过并维持 `GO`。产品/API 基线为 `v2.4.10 / 2.4.10-ch026`；B12.0 三项远端门禁已闭合，CH-027 已批准且仍有效。B12.1-B12.6 本地实现与本地验收已完成；工程前端已覆盖 MP-13/14、ADM-12/13/16，并使用 generated contracts、严格响应解码器及五视口 E2E。DB/E2E/全仓、完整真实纵向与精确清理通过；最终实现 SHA 的普通 CI、Supabase rollback-only 同 SHA 双绿待完成。B12 整体仍非 development `GO`；真实客户数据、真实支付/退款、真实物流、staging 和 production 均未放行。
+当前准入结论：B0 至 B12 development 已通过并维持 `GO`。B12 最终实现 SHA `8c3589afcf7bb0dd5a4b8711d418e4c61b1ad09c` 的普通 CI `33592754575` 与 Supabase rollback-only smoke `33594513127` 同 SHA 双绿，CH-027 已自动失效。当前产品/API 基线为 `v2.4.11 / 2.4.11-ch028`；B13.0 治理已建立，CH-029 仅覆盖 B13.1-B13.9 脱敏 development，B13.1 尚未准入。B12 orphan `P2=1` 继续阻断 staging/真实数据；真实客户数据、真实支付/退款、真实物流、staging 和 production 均未放行。
 
 ---
 
-PRD 状态：`v2.4.10 / CH-026` 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24。B0 至 B11 development `GO`；B12.0-B12.6 本地实现与本地验收已完成，最终同 SHA 远端双绿待完成；B12 仍非 development `GO`，CH-027 仍有效。真实客户数据、真实支付/退款、真实物流、staging/production 尚未放行。
+PRD 状态：`v2.4.11 / CH-028` 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24。B0 至 B12 development `GO`；B13.0 治理已建立，代理业务实现按 B13.1-B13.9 分批准入，CH-029 仅覆盖脱敏 development。B12 orphan `P2=1` 继续阻断 staging/真实数据，真实客户数据、真实支付/退款、真实物流、staging/production 尚未放行。

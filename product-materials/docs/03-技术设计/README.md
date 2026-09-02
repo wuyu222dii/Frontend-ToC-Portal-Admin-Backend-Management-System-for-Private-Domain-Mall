@@ -1,11 +1,11 @@
 # 技术设计交付索引
 
-> 当前产品/API 基线为 MVP/PRD v2.4.10、在线协议 CH-026；数据库修复 CH-023（2026-08-30）继续有效。B0-B11 development 已完成并维持 `GO`；B12.0 精确 SHA 三项远端门禁已闭合，CH-027 已批准且仍有效。B12.1-B12.6 本地实现与本地验收已完成，B12 full DB `65/65`、两端 E2E `45 passed`、全仓单测 `2738 passed / 166 skips`、完整真实纵向 `1/1` 及精确清理通过；最终远端同 SHA 双绿待完成。B12 development 尚未 `GO`；真实客户数据、staging、production、真实微信退款与真实物流均为 `NO-GO`。
+> 当前产品/API 基线为 MVP/PRD v2.4.11、在线协议 CH-028；数据库修复 CH-023（2026-08-30）继续有效。B0-B12 development 已完成并维持 `GO`；B12 最终 SHA `8c3589afcf7bb0dd5a4b8711d418e4c61b1ad09c` 的普通 CI Run `33592754575` 与 Supabase rollback-only smoke Run `33594513127` 同 SHA 双绿，CH-027 已自动失效。B13.0 本地候选门禁已通过；最终实现 SHA 的普通 CI -> development migration -> rollback-only smoke 尚未执行，因此 B13.0 未退出、B13.1 不得开始。B12 orphan `P2=1` 继续阻断 staging/真实数据；真实客户数据、staging、production、真实微信退款与真实物流均为 `NO-GO`。
 
 | 文件 | 用途 |
 |---|---|
 | `技术架构说明.md` | 技术栈、三端边界、认证/RBAC、事务锁序、Provider、部署与扩展策略 |
-| `API接口文档.md` | CH-026 专属检查、生成与 Redocly lint 通过；实测 173 paths、198 operations、198 unique operationId、326 schemas、706 schema refs、2,726 local refs、0 dangling refs |
+| `API接口文档.md` | 当前 CH-028 本地契约实测 173 paths、198 operations、198 unique operationId、327 schemas、714 schema refs、2,734 local refs、0 dangling refs，Redocly 0 warning；B13.0 本地候选绿色、远端同 SHA 三门禁待执行，CH-026 历史统计见下文 |
 | `openapi.yaml` | OpenAPI 3.1 单一可解析契约；文本目录必须完全覆盖且 operationId 唯一 |
 | `数据库设计.md` | PostgreSQL/Supabase 表域、ERD、状态机、事务、索引、加密、RLS 与验收门禁 |
 | `schema.prisma` | Prisma 7.9.1 逻辑模型：76 models、59 enums、270 个 model-typed relation fields，全部位于 `public` |
@@ -15,6 +15,7 @@
 | `migrations/0003_b10_payment_fact_indexes/migration.sql` | B10 前向索引迁移：intent 成功事实与订单迟到退款唯一性；不修改既有迁移 |
 | `migrations/0004_b10_commission_position_trigger_fix/migration.sql` | CH-023 前向函数修复：移除佣金 position 触发器不必要的 `FOR SHARE`，保持 SECURITY INVOKER 和最小权限；不修改 0001-0003 |
 | `migrations/0005_b12_aftersale_refund_guards/migration.sql` | CH-026 前向退款防护：修复不可变验货读取锁权限，增加每退款活动/成功 attempt 唯一索引及可延迟来源包络/金额约束；不修改 0001-0004 |
+| `migrations/0006_b13_agent_finance_guards/migration.sql` | CH-028 前向代理与资金防护：只增加历史预检、闭合 CHECK、条件唯一索引和 SECURITY INVOKER 触发器，保护代理角色、邀请/推广/归属生命周期、佣金引用、银行卡快照与提现包络；不增加表或枚举，不修改 0001-0005 |
 | `../05-开发管理/B4-商品与SKU.md` | B4.0 至 B4.4 串行批次、准入门禁、验收与回退边界 |
 | `../05-开发管理/B5-Banner与库存.md` | B5.0 CH-012 契约、CH-011 门禁及后续串行批次 |
 | `../05-开发管理/B6-消费者匿名商城目录.md` | B6.0 CH-014 契约、B6.1-B6.4 实施/最终证据及 CH-013 失效边界 |
@@ -24,8 +25,9 @@
 | `../05-开发管理/B10-支付对账与迟到支付退款.md` | B10.0 CH-022 契约/迁移、CH-021 门禁、CH-023 0004 解阻、B10.1-B10.6 串行批次与退出边界 |
 | `../05-开发管理/B11-订单履约与物流.md` | B11.0 CH-024 单包裹人工履约契约、B11.1 查询/PII 证据、CH-025 边界及后续串行批次与退出条件 |
 | `../05-开发管理/B12-售后验货与普通退款.md` | B12.0 CH-026 契约/0005 防护、B12.1-B12.6 串行批次、CH-027 前置边界与退出条件 |
+| `../05-开发管理/B13-一级代理经营与资金闭环.md` | CH-028/CH-029、B13.0-B13.9 一级代理经营与资金闭环批次、前向 0006 防护和退出条件 |
 
-上游真相顺序为：已批准需求变更记录、PRD v2.4.10、MVP v2.4.10、原型设计方案。发生冲突时先更新上游基线和本目录契约，不由开发人员临时选择口径。
+上游真相顺序为：已批准需求变更记录、PRD v2.4.11、MVP v2.4.11、原型设计方案。发生冲突时先更新上游基线和本目录契约，不由开发人员临时选择口径。
 
 ## CH-006 历史验证状态
 
@@ -111,13 +113,13 @@
 - 产品/API 基线升级为 `v2.4.10 / 2.4.10-ch026`。实测保持 173 paths / 198 operations / 198 unique operationId / 326 schemas，并收敛为 706 schema refs / 2,726 local refs / 0 dangling refs；Redocly 0 warning。
 - 复用既有 18 个售后/退款 operation 和 2 个金额补偿 operation；`POST /store/aftersales` 在同一 operation 内使用 `PREVIEW -> CONFIRM`，统一 ULID、Store `120/60` fail-closed 限流、no-store、HASH_ONLY、If-Match、闭合 reason/error/evidence/carrier，以及 Admin preview-confirm。订单投影不再固定空售后，并按 PAID/NORMAL、完成前/完成后期限和逐项剩余额度矩阵权威返回 `APPLY_AFTERSALE`；金额补偿失败复用稳定 refund 进入统一 retry。
 - `0005_b12_aftersale_refund_guards` 双份 SHA-256 为 `95f362667bdc6a0b751ae636d91a139a71a3f40155ba764937db01d5bbce412b`。本地完整回放实测 22 个 partial indexes、26 个用户触发器、50 个事件绑定和 16 个自有/runtime 函数；合法/非法 runtime DML、金额补偿订单项及 quantity 绑定、同 refund 父行并发串行、B10 late refund 兼容、Prisma validate、冻结和 `migration diff=0` 均通过。
-- B12.0 精确 SHA `03a1e9f98bea0926887fb68354ca602566148f6a` 的普通 CI、Supabase development migration、rollback-only smoke 已依次成功，CH-027 已批准。B12.1 已完成申请 PREVIEW/CONFIRM、本人列表/详情、取消、额度占用、订单投影和售后证据权限；该批次 `P0=0/P1=0` 后暂停，不等于 B12 development `GO`。
+- B12.0 精确 SHA `03a1e9f98bea0926887fb68354ca602566148f6a` 的普通 CI、Supabase development migration、rollback-only smoke 已依次成功。B12.1-B12.6 后续严格串行完成；最终实现 SHA `8c3589afcf7bb0dd5a4b8711d418e4c61b1ad09c` 的普通 CI `33592754575` 与 Supabase rollback-only smoke `33594513127` 同 SHA 双绿，B12 development `GO`，CH-027 已自动失效。
 
 ## B3.1 当前验证状态
 
 - 真实 PostgreSQL、Redis、MinIO API 集成 `3/3` 通过；Worker 清理集成 `3/3` 通过。API 全量 `118 passed / 10 skipped`，Worker 全量 `30 passed / 3 skipped`，storage `16 passed`，database `141 passed / 24 skipped`。
 - MinIO 实测通过非 root runtime 身份、`public/*` 匿名 GET 与 private/staging 拒绝、无盲目生命周期规则、大小/MIME/魔数/SHA-256、copy source 变更、签名过期及 CORS 边界。
-- `GET /files/{file_id}/download-url` 按 CH-008 不接受幂等键、不创建幂等记录；每次重新鉴权并写不含 URL 的 `READ_SENSITIVE` 审计，签名 URL 只在 no-store/private 响应中返回。
+- `GET /files/{file_id}/download-url` 按 CH-008 不接受幂等键、不创建幂等记录；每次重新鉴权并写不含 URL 的 `READ_SENSITIVE` 审计，签名 URL 只在 no-store/private 响应中返回。CH-028 仅为当前 Agent 本人推广素材绑定的 `READY/PRIVATE/PROMOTION_QR` 增加 `agentBearerAuth` 受控分支；外部 upload/complete 不接受 `PROMOTION_QR`。
 - complete 在提交后即时尽力删除 staging，同时投递延迟清理事件兜底；Worker 删除前重新核对 READY/PENDING 和精确对象 key。MinIO runtime 使用最小对象权限，Redis 断线采用有界重连，注入 Redis 且未 ready 时 API/Worker 健康检查返回 503。
 - `pnpm check` exit 0，共 `424 passed / 37 skipped`；全量 build 通过，lint 0 error / 207 个既有 Vue warning。contracts lint/check/typecheck、生成 hash 一致、Prisma validate、冻结文件、权限故障注入、migration diff=0、MP-Weixin build、敏感扫描和 diff-check 均通过；独立安全审计 `P0/P1=0`。
 - B3.2 已通过 database `192/30 skipped`、API `161/14 skipped`、真实 PostgreSQL `5/1 mode-skipped` 和真实 Nest + PostgreSQL + Redis `4/4`。响应 HMAC 绑定 actor/scope/幂等键/request hash，高风险 preview 绑定 actor/session/action/target/request/version 并且单次消费。B2/B3 Supabase repository rollback-only 已由 Run `32678252828` 补齐；B3 development 已完成。
@@ -146,7 +148,7 @@ B10 的 CH-021/CH-022/CH-023、契约/迁移边界与批次见 `../05-开发管�
 
 B11 的已批准 CH-024、冻结履约状态机、零迁移边界及批次见 `../05-开发管理/B11-订单履约与物流.md`。B11.1 已实现独立 Fulfillment 查询、Admin/Store 投影、受控履约地址和共享 `display_status`；B11.2 已实现唯一包裹、人工物流与 Store 本人物流；B11.3 已实现共享订单完成事务、送达封存、规则/售后期限冻结和佣金精确一次结转；B11.4 已实现 MP-10/11/12 与 ADM-09/10/11 工程交互；B11.5 已完成数据库、API、前端、真实纵向、全仓门禁、零残留复验和最终远端同 SHA 双绿。普通 CI 的 60 分钟裕量 P2 已由成功运行关闭；B11.2/B11.3 的历史非阻断 P2 继续保留。普通退款生产路径未纳入；正佣金钱包缺失或不一致时 fail-closed，钱包预创建由上游保证。B11 development `GO`，CH-025 已自动失效。
 
-B12 的已批准 CH-026/CH-027、普通售后/验货/普通退款契约、0005 防护和 B12.0-B12.6 批次见 `../05-开发管理/B12-售后验货与普通退款.md`。B12.0 三项远端证据已闭合；B12.1-B12.6 本地实现与本地验收已完成，完整真实纵向和精确清理通过。最终同 SHA 远端双绿尚未取得，不得把当前本地结果描述为 B12 development `GO` 或令 CH-027 失效。
+B12 的已批准 CH-026/CH-027、普通售后/验货/普通退款契约、0005 防护和 B12.0-B12.6 批次见 `../05-开发管理/B12-售后验货与普通退款.md`。B12 最终同 SHA 双绿已闭合，B12 development `GO`，CH-027 已自动失效；当前唯一 P2 为未绑定 evidence orphan，继续阻断 staging/真实数据。B13 的 CH-028/CH-029、代理契约与 B13.0-B13.9 批次见 `../05-开发管理/B13-一级代理经营与资金闭环.md`；B13.0 治理已建立，B13.1 尚未准入。
 
 ## 剩余上线门禁
 

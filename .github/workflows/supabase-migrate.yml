@@ -117,7 +117,31 @@ jobs:
           DIRECT_URL: postgresql://mall_migrator:prisma-validate-only@127.0.0.1:5432/schema_validation
         run: pnpm prisma:validate
 
-      - name: Deploy and post-verify the B12 migration chain
+      - name: Deploy and post-verify the B13 migration chain
         env:
           DIRECT_URL: ${{ secrets.SUPABASE_DIRECT_URL }}
         run: node scripts/db/deploy-development.mjs
+
+      - name: Write development migration attestation
+        env:
+          PROJECT_REF: ${{ inputs.project_ref }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          jq --null-input \
+            --arg project_ref "$PROJECT_REF" \
+            --arg target_sha "$TARGET_SHA" \
+            --arg workflow_run_id "$GITHUB_RUN_ID" \
+            '{
+              schema_version: 1,
+              project_ref: $project_ref,
+              target_sha: $target_sha,
+              workflow_run_id: $workflow_run_id
+            }' > /tmp/supabase-migration-attestation.json
+
+      - name: Publish development migration attestation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: supabase-migration-${{ inputs.target_sha }}-${{ inputs.project_ref }}
+          path: /tmp/supabase-migration-attestation.json
+          if-no-files-found: error
+          retention-days: 30

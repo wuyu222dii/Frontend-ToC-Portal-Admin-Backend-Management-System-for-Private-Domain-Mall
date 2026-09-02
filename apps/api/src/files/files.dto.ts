@@ -1,16 +1,15 @@
 import { ApplicationError, isValidUlid } from '@qingxu/platform-core';
 
-export const FILE_PURPOSES = [
+export const EXTERNAL_UPLOAD_FILE_PURPOSES = [
   'PRODUCT_IMAGE',
   'BRAND_LOGO',
   'CATEGORY_ICON',
   'BANNER',
   'AFTERSALE_EVIDENCE',
   'WITHDRAWAL_PROOF',
-  'PROMOTION_QR',
 ] as const;
 
-export type FilePurposeInput = (typeof FILE_PURPOSES)[number];
+export type FilePurposeInput = (typeof EXTERNAL_UPLOAD_FILE_PURPOSES)[number];
 export type FileMimeTypeInput = 'image/jpeg' | 'image/png';
 
 export interface UploadIntentInput {
@@ -66,7 +65,8 @@ function hasControlCharacter(value: string): boolean {
 
 export function parseUploadIntentBody(value: unknown): UploadIntentInput {
   const body = exactBody(value, ['purpose', 'filename', 'mime_type', 'size', 'sha256']);
-  if (typeof body.purpose !== 'string' || !(FILE_PURPOSES as readonly string[]).includes(body.purpose)) {
+  if (typeof body.purpose !== 'string' ||
+    !(EXTERNAL_UPLOAD_FILE_PURPOSES as readonly string[]).includes(body.purpose)) {
     throw new ApplicationError('INVALID_ARGUMENT', 'purpose is invalid');
   }
   if (typeof body.filename !== 'string' || body.filename.length < 1 || body.filename.length > 255 ||

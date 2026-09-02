@@ -1,13 +1,16 @@
 import { spawnSync } from "node:child_process";
 import { postgresEnvironment, readConnection } from "./lib/connection.mjs";
+import { B13_PREDEPLOY_CHECKS } from "./lib/b13-preflight.mjs";
+import {
+  B13_DEPLOYED_HISTORY,
+  B13_MIGRATION_HISTORY_SQL,
+  isApprovedB13Predecessor,
+  isExactB13History,
+  requiresB13HistoricalPreflight,
+} from "./lib/migration-history.mjs";
 import { prismaEnvironment, prismaInvocation } from "./lib/prisma.mjs";
 
 const APPROVAL = "DEVELOPMENT_MIGRATION_APPROVED";
-const EXPECTED_BEFORE = new Set([
-  "4|1|1|1|1|0|0|0",
-  "5|1|1|1|1|1|0|0",
-]);
-const EXPECTED_AFTER = "5|1|1|1|1|1|0|0";
 
 function runPsql(connection, args, capture = false) {
   const result = spawnSync("psql", ["-X", "-v", "ON_ERROR_STOP=1", ...args], {
@@ -36,45 +39,7 @@ function runPrisma(connection, args, label) {
 function readHistory(connection) {
   return runPsql(connection, [
     "-Atqc",
-    `SELECT concat_ws('|',
-       count(*),
-       count(*) FILTER (
-         WHERE migration_name = '0001_initial'
-           AND finished_at IS NOT NULL
-           AND rolled_back_at IS NULL
-       ),
-       count(*) FILTER (
-         WHERE migration_name = '0002_b9_inventory_fact_indexes'
-           AND finished_at IS NOT NULL
-           AND rolled_back_at IS NULL
-       ),
-       count(*) FILTER (
-         WHERE migration_name = '0003_b10_payment_fact_indexes'
-           AND finished_at IS NOT NULL
-           AND rolled_back_at IS NULL
-       ),
-       count(*) FILTER (
-         WHERE migration_name = '0004_b10_commission_position_trigger_fix'
-           AND finished_at IS NOT NULL
-           AND rolled_back_at IS NULL
-       ),
-       count(*) FILTER (
-         WHERE migration_name = '0005_b12_aftersale_refund_guards'
-           AND finished_at IS NOT NULL
-           AND rolled_back_at IS NULL
-       ),
-       count(*) FILTER (WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL),
-       count(*) FILTER (
-         WHERE migration_name NOT IN (
-           '0001_initial',
-           '0002_b9_inventory_fact_indexes',
-           '0003_b10_payment_fact_indexes',
-           '0004_b10_commission_position_trigger_fix',
-           '0005_b12_aftersale_refund_guards'
-         )
-       )
-     )
-     FROM public._prisma_migrations`,
+    B13_MIGRATION_HISTORY_SQL,
   ], true);
 }
 
@@ -85,8 +50,8 @@ try {
 
   const migrator = readConnection("DIRECT_URL", "migrator");
   const before = readHistory(migrator);
-  if (!EXPECTED_BEFORE.has(before)) {
-    throw new Error(`migration history is not an approved B12 predecessor state: ${before || "empty"}`);
+  if (!isApprovedB13Predecessor(before)) {
+    throw new Error(`migration history is not an approved B13 predecessor state: ${before || "empty"}`);
   }
 
   const duplicatePaymentFacts = runPsql(migrator, [
@@ -213,15 +178,26 @@ try {
     throw new Error(`refunds have ${invalidRefundAmounts} head-to-item amount mismatch(es)`);
   }
 
+  if (requiresB13HistoricalPreflight(before)) {
+    for (const check of B13_PREDEPLOY_CHECKS) {
+      const invalidFacts = runPsql(migrator, ["-Atqc", check.sql], true);
+      if (invalidFacts !== "0") {
+        throw new Error(`${check.error}: ${invalidFacts}`);
+      }
+    }
+  }
+
   runPrisma(
     migrator,
     ["migrate", "deploy", "--config", "prisma.config.ts"],
-    "B12 database migration deployment failed",
+    "B13 database migration deployment failed",
   );
 
   const after = readHistory(migrator);
-  if (after !== EXPECTED_AFTER) {
-    throw new Error(`migration history did not converge to the B12 target: ${after || "empty"}`);
+  if (!isExactB13History(after)) {
+    throw new Error(
+      `migration history did not converge to the B13 target: ${after || "empty"}; expected ${B13_DEPLOYED_HISTORY}`,
+    );
   }
 
   // Migrations can create functions after the initial database bootstrap.
@@ -240,7 +216,7 @@ try {
       "--config",
       "prisma.config.ts",
     ],
-    "B12 post-migration Prisma drift check failed",
+    "B13 post-migration Prisma drift check failed",
   );
 
   console.log("Supabase development migration and post-verification passed");

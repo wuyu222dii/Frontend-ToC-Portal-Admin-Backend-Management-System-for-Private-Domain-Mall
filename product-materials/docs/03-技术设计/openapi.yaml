@@ -1,8 +1,8 @@
 openapi: "3.1.0"
 info:
   title: "洗化产品私域商城 API"
-  version: "2.4.10-ch026"
-  description: "CH-026 单一线协议，继承 CH-006、CH-008、CH-010、CH-012、CH-014、CH-016、CH-018、CH-020、CH-022 与 CH-024，并闭合 B12 development 普通售后、退货验货、普通退款与失败重试语义。B12 development 仅允许 Mock Provider，不注册真实微信退款回调；多包裹、第三方物流、真实资金、staging 和 production 继续不开放；所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
+  version: "2.4.11-ch028"
+  description: "CH-028 单一线协议，继承 CH-006、CH-008、CH-010、CH-012、CH-014、CH-016、CH-018、CH-020、CH-022、CH-024 与 CH-026，并准入 B13 一级代理经营与资金闭环的契约、配置和数据库防护基础。B13.0 只闭合 Agent 独立认证 realm、当前代理 DTO、已上架授权商品查询、敏感一次性披露状态、银行卡哈希密钥配置与前向 0006 防护迁移；B13 业务路由、真实资金、staging 和 production 继续不开放；所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
   license:
     name: "Proprietary"
     identifier: "LicenseRef-Proprietary"
@@ -2581,7 +2581,11 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/AgentLoginResponse"
+                oneOf:
+                  -
+                    "$ref": "#/components/schemas/AgentSessionResponse"
+                  -
+                    "$ref": "#/components/schemas/RestrictedAgentSessionResponse"
         400:
           "$ref": "#/components/responses/BadRequest"
         401:
@@ -2625,7 +2629,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/SessionAuthResponse"
+                "$ref": "#/components/schemas/AgentSessionResponse"
         400:
           "$ref": "#/components/responses/BadRequest"
         401:
@@ -2650,7 +2654,7 @@ paths:
       operationId: "postAgentAuthLogout"
       security:
         -
-          bearerAuth: []
+          agentBearerAuth: []
       parameters:
         -
           "$ref": "#/components/parameters/IdempotencyKey"
@@ -2685,7 +2689,7 @@ paths:
       operationId: "postAgentAuthChangeTemporaryPassword"
       security:
         -
-          bearerAuth: []
+          agentBearerAuth: []
       parameters:
         -
           "$ref": "#/components/parameters/IdempotencyKey"
@@ -2706,7 +2710,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/SessionAuthResponse"
+                "$ref": "#/components/schemas/AgentSessionResponse"
         400:
           "$ref": "#/components/responses/BadRequest"
         401:
@@ -2731,7 +2735,7 @@ paths:
       operationId: "postAgentAuthChangePassword"
       security:
         -
-          bearerAuth: []
+          agentBearerAuth: []
       parameters:
         -
           "$ref": "#/components/parameters/IdempotencyKey"
@@ -2777,7 +2781,7 @@ paths:
       operationId: "postAgentAuthLogoutAll"
       security:
         -
-          bearerAuth: []
+          agentBearerAuth: []
       parameters:
         -
           "$ref": "#/components/parameters/IdempotencyKey"
@@ -2808,11 +2812,11 @@ paths:
     get:
       tags:
         - "Agent"
-      summary: "当前代理账号、会话与权限摘要"
+      summary: "当前代理身份和商品授权模式摘要"
       operationId: "getAgentAuthCurrent"
       security:
         -
-          bearerAuth: []
+          agentBearerAuth: []
       parameters: []
       responses:
         200:
@@ -2820,7 +2824,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/AccountCurrentResponse"
+                "$ref": "#/components/schemas/AgentCurrentResponse"
         400:
           "$ref": "#/components/responses/BadRequest"
         401:
@@ -2845,7 +2849,7 @@ paths:
       operationId: "getAgentDashboard"
       security:
         -
-          bearerAuth: []
+          agentBearerAuth: []
       parameters: []
       responses:
         200:
@@ -2874,11 +2878,11 @@ paths:
     get:
       tags:
         - "Agent"
-      summary: "当前授权且已上架商品与各 SKU 当前预计比例"
+      summary: "当前授权且已上架商品与各 SKU 当前预计比例；服务端固定只返回 ACTIVE 商品"
       operationId: "getAgentProducts"
       security:
         -
-          bearerAuth: []
+          agentBearerAuth: []
       parameters:
         -
           "$ref": "#/components/parameters/Page"
@@ -2908,18 +2912,6 @@ paths:
             type: "string"
             minLength: 1
           description: "一级分类 ID"
-        -
-          name: "status"
-          in: "query"
-          required: false
-          schema:
-            type: "string"
-            enum:
-              - "DRAFT"
-              - "ACTIVE"
-              - "INACTIVE"
-              - "ARCHIVED"
-          description: "实体状态"
         -
           name: "recommended"
           in: "query"
@@ -2958,7 +2950,7 @@ paths:
       operationId: "getAgentProductsByProductId"
       security:
         -
-          bearerAuth: []
+          agentBearerAuth: []
       parameters:
         -
           name: "product_id"
@@ -2995,10 +2987,11 @@ paths:
       tags:
         - "Agent"
       summary: "为商城主页或当前授权商品生成推广素材"
+      description: "服务端生成 QR 图像，并在同一事务中将 READY/PRIVATE/PROMOTION_QR 文件与新推广素材原子绑定。响应仅返回文件事实，不返回签名下载 URL；下载时必须通过 GET /files/{file_id}/download-url 重新鉴权。"
       operationId: "postAgentPromotionAssets"
       security:
         -
-          bearerAuth: []
+          agentBearerAuth: []
       parameters:
         -
           "$ref": "#/components/parameters/IdempotencyKey"
@@ -3044,7 +3037,7 @@ paths:
       operationId: "getAgentCustomers"
       security:
         -
-          bearerAuth: []
+          agentBearerAuth: []
       parameters:
         -
           "$ref": "#/components/parameters/Page"
@@ -3105,7 +3098,7 @@ paths:
       operationId: "getAgentCustomersByCustomerId"
       security:
         -
-          bearerAuth: []
+          agentBearerAuth: []
       parameters:
         -
           name: "customer_id"
@@ -3146,7 +3139,7 @@ paths:
       operationId: "getAgentOrders"
       security:
         -
-          bearerAuth: []
+          agentBearerAuth: []
       parameters:
         -
           "$ref": "#/components/parameters/Page"
@@ -3297,7 +3290,7 @@ paths:
       operationId: "getAgentOrdersByOrderId"
       security:
         -
-          bearerAuth: []
+          agentBearerAuth: []
       parameters:
         -
           name: "order_id"
@@ -3337,7 +3330,7 @@ paths:
       operationId: "getAgentCommissions"
       security:
         -
-          bearerAuth: []
+          agentBearerAuth: []
       parameters:
         -
           "$ref": "#/components/parameters/Page"
@@ -3423,7 +3416,7 @@ paths:
       operationId: "getAgentCommissionsByCommissionSnapshotId"
       security:
         -
-          bearerAuth: []
+          agentBearerAuth: []
       parameters:
         -
           name: "commission_snapshot_id"
@@ -3463,7 +3456,7 @@ paths:
       operationId: "getAgentWallet"
       security:
         -
-          bearerAuth: []
+          agentBearerAuth: []
       parameters: []
       responses:
         200:
@@ -3496,7 +3489,7 @@ paths:
       operationId: "getAgentBankAccounts"
       security:
         -
-          bearerAuth: []
+          agentBearerAuth: []
       parameters: []
       responses:
         200:
@@ -3528,7 +3521,7 @@ paths:
       operationId: "postAgentBankAccounts"
       security:
         -
-          bearerAuth: []
+          agentBearerAuth: []
       parameters:
         -
           "$ref": "#/components/parameters/IdempotencyKey"
@@ -3569,7 +3562,7 @@ paths:
       operationId: "postAgentWithdrawals"
       security:
         -
-          bearerAuth: []
+          agentBearerAuth: []
       parameters:
         -
           "$ref": "#/components/parameters/IdempotencyKey"
@@ -3609,7 +3602,7 @@ paths:
       operationId: "getAgentWithdrawals"
       security:
         -
-          bearerAuth: []
+          agentBearerAuth: []
       parameters:
         -
           "$ref": "#/components/parameters/Page"
@@ -3698,7 +3691,7 @@ paths:
       operationId: "getAgentWithdrawalsByWithdrawalId"
       security:
         -
-          bearerAuth: []
+          agentBearerAuth: []
       parameters:
         -
           name: "withdrawal_id"
@@ -10716,7 +10709,7 @@ paths:
       tags:
         - "Files"
       summary: "获取对象存储上传参数和 file_id"
-      description: "七类 purpose 均仅接受 image/jpeg 或 image/png，单文件最大 5 MiB（5242880 bytes），请求必须提交预期 SHA-256。上传签名有效 15 分钟；对象先写入不含原文件名的 staging/ 键。上传意图响应包含短时签名 URL，幂等仅使用 HASH_ONLY，不得缓存响应体。"
+      description: "六类外部上传 purpose 均仅接受 image/jpeg 或 image/png，单文件最大 5 MiB（5242880 bytes），请求必须提交预期 SHA-256。PROMOTION_QR 只能由服务端生成，不接受客户端上传意图。上传签名有效 15 分钟；对象先写入不含原文件名的 staging/ 键。上传意图响应包含短时签名 URL，幂等仅使用 HASH_ONLY，不得缓存响应体。"
       operationId: "postFilesUploadIntents"
       security:
         -
@@ -10763,7 +10756,7 @@ paths:
       tags:
         - "Files"
       summary: "校验类型、大小和哈希后确认上传"
-      description: "请求 sha256/size 必须同时与上传意图及服务端读取对象后的实测 MIME、魔数、大小和 SHA-256 一致；不一致返回 422 FILE_CONTENT_MISMATCH。PRODUCT_IMAGE、BRAND_LOGO、CATEGORY_ICON、BANNER 移至 public/；AFTERSALE_EVIDENCE、WITHDRAWAL_PROOF、PROMOTION_QR 移至 private/；对象键均不含原文件名。FILE_UPLOAD_COMPLETE 使用闭合幂等策略：同 Idempotency-Key 精确重放，已完成文件使用新键重复提交返回 409；不得在数据库新增 completed_at 列。"
+      description: "请求 sha256/size 必须同时与上传意图及服务端读取对象后的实测 MIME、魔数、大小和 SHA-256 一致；不一致返回 422 FILE_CONTENT_MISMATCH。PRODUCT_IMAGE、BRAND_LOGO、CATEGORY_ICON、BANNER 移至 public/；AFTERSALE_EVIDENCE、WITHDRAWAL_PROOF 移至 private/；对象键均不含原文件名。PROMOTION_QR 由服务端直接生成并原子落为 READY/PRIVATE，不使用本客户端 complete operation。FILE_UPLOAD_COMPLETE 使用闭合幂等策略：同 Idempotency-Key 精确重放，已完成文件使用新键重复提交返回 409；不得在数据库新增 completed_at 列。"
       operationId: "postFilesByFileIdComplete"
       security:
         -
@@ -10817,11 +10810,13 @@ paths:
       tags:
         - "Files"
       summary: "按角色和业务对象返回短时签名 URL"
-      description: "仅 READY 且通过角色和业务归属校验的文件可下载：CUSTOMER 只能读取由本账户创建的 AFTERSALE_EVIDENCE；SUPER_ADMIN 可读取本人创建且 purpose 通过角色校验的私有文件，跨创建者读取仅限已绑定至任一 aftersale_evidence 且实测为 READY/PRIVATE/AFTERSALE_EVIDENCE、对象键精确为 private/{file_id} 的文件，不得因 SUPER_ADMIN 角色放宽其他跨账户私有文件。private/ 对象返回有效期 5 分钟的签名 URL；公开素材的稳定地址由 FileUploadCompleteResponse.public_url 提供。本 GET operation 不接受 Idempotency-Key、不创建幂等记录；响应必须 no-store/private，且不得持久化或记录签名 URL。存储桶默认私有，仅 public/* 允许匿名 GET，private/* 始终禁止匿名访问。PENDING 或 staging/ 满 24 小时仅进入清理候选，删除前必须再次确认没有 READY 引用。"
+      description: "仅 READY 且通过角色和业务归属校验的文件可下载：CUSTOMER 只能读取由本账户创建的 AFTERSALE_EVIDENCE；SUPER_ADMIN 可读取本人创建且 purpose 通过角色校验的私有文件，跨创建者读取仅限已绑定至任一 aftersale_evidence 且实测为 READY/PRIVATE/AFTERSALE_EVIDENCE、对象键精确为 private/{file_id} 的文件，不得因 SUPER_ADMIN 角色放宽其他跨账户私有文件。AGENT_ADMIN 仅可通过 agentBearerAuth 读取实测为 READY/PRIVATE/PROMOTION_QR、对象键精确为 private/{file_id}，且已作为 qr_file_id 绑定至当前 Agent 本人 promotion_asset 的文件；Agent token 不得下载其他 purpose 或其他 Agent 的 QR。private/ 对象返回有效期 5 分钟的签名 URL；公开素材的稳定地址由 FileUploadCompleteResponse.public_url 提供。本 GET operation 不接受 Idempotency-Key、不创建幂等记录；响应必须 no-store/private，且不得持久化或记录签名 URL。存储桶默认私有，仅 public/* 允许匿名 GET，private/* 始终禁止匿名访问。PENDING 或 staging/ 满 24 小时仅进入清理候选，删除前必须再次确认没有 READY 引用。"
       operationId: "getFilesByFileIdDownloadUrl"
       security:
         -
           bearerAuth: []
+        -
+          agentBearerAuth: []
       parameters:
         -
           name: "file_id"
@@ -10864,7 +10859,12 @@ components:
       type: "http"
       scheme: "bearer"
       bearerFormat: "JWT"
-      description: "B7 新增的 /store 路径仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT；/admin 继续仅接受 aud=qingxu-admin-web、role=SUPER_ADMIN、assurance=MFA。B7 不修改 /agent 现有 operation 的身份与会话契约。不得跨端复用或通过 B7 放宽 B2 会话。"
+      description: "不得跨端复用 token；通用受保护路径按 realm 严格拒绝跨端 token：/store 仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT；/admin 仅接受 aud=qingxu-admin-web、role=SUPER_ADMIN、assurance=MFA。B7 不修改 /agent 现有 operation；CH-028 起 /agent 改用独立 agentBearerAuth。"
+    agentBearerAuth:
+      type: "http"
+      scheme: "bearer"
+      bearerFormat: "AgentJWT"
+      description: "仅 /agent 路径及 GET /files/{file_id}/download-url 的本人 PROMOTION_QR 受控分支使用的独立 Bearer realm：固定 aud=qingxu-agent-web、role=AGENT_ADMIN、assurance=PASSWORD，不得接受 Admin 或 Store token。正常会话固定 restriction=NONE；临时会话固定 restriction=CHANGE_PASSWORD_ONLY、无 refresh token，且只允许改密和注销。"
     preAuth:
       type: "http"
       scheme: "bearer"
@@ -11942,36 +11942,71 @@ components:
         expires_at:
           type: "string"
           format: "date-time"
-    AuthSessionData:
+    AgentSessionData:
       type: "object"
       additionalProperties: false
       required:
         - "access_token"
         - "refresh_token"
+        - "account_id"
+        - "session_id"
+        - "role"
         - "mfa_required"
         - "assurance"
+        - "restriction"
         - "expires_at"
       properties:
         access_token:
           type: "string"
+          minLength: 20
+          description: "JWT aud 固定为 qingxu-agent-web；仅 AGENT_ADMIN 可接受。"
         refresh_token:
           type: "string"
+          minLength: 20
+          description: "仅代理安全会话存储使用；服务端只保存哈希并在 refresh 时轮换。"
+        account_id:
+          type: "string"
+        session_id:
+          type: "string"
+        role:
+          const: "AGENT_ADMIN"
         mfa_required:
           const: false
         assurance:
-          type: "string"
-          enum:
-            - "WECHAT"
-            - "PASSWORD"
-            - "MFA"
+          const: "PASSWORD"
+        restriction:
+          const: "NONE"
         expires_at:
           type: "string"
           format: "date-time"
+    AgentSessionResponse:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "code"
+        - "message"
+        - "data"
+        - "request_id"
+      properties:
+        code:
+          const: "OK"
+        message:
+          const: "success"
+        data:
+          "$ref": "#/components/schemas/AgentSessionData"
+        request_id:
+          type: "string"
     RestrictedAgentSessionData:
       type: "object"
       additionalProperties: false
       required:
         - "access_token"
+        - "account_id"
+        - "session_id"
+        - "role"
+        - "mfa_required"
+        - "assurance"
+        - "restriction"
         - "must_change_password"
         - "next_action"
         - "allowed_actions"
@@ -11979,6 +12014,20 @@ components:
       properties:
         access_token:
           type: "string"
+          minLength: 20
+          description: "JWT aud 固定为 qingxu-agent-web；不含 refresh token，且只允许改密和注销。"
+        account_id:
+          type: "string"
+        session_id:
+          type: "string"
+        role:
+          const: "AGENT_ADMIN"
+        mfa_required:
+          const: false
+        assurance:
+          const: "PASSWORD"
+        restriction:
+          const: "CHANGE_PASSWORD_ONLY"
         must_change_password:
           const: true
         next_action:
@@ -11996,6 +12045,23 @@ components:
         expires_at:
           type: "string"
           format: "date-time"
+    RestrictedAgentSessionResponse:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "code"
+        - "message"
+        - "data"
+        - "request_id"
+      properties:
+        code:
+          const: "OK"
+        message:
+          const: "success"
+        data:
+          "$ref": "#/components/schemas/RestrictedAgentSessionData"
+        request_id:
+          type: "string"
     AdminLoginPreAuthResponse:
       type: "object"
       additionalProperties: false
@@ -12011,23 +12077,6 @@ components:
           const: "success"
         data:
           "$ref": "#/components/schemas/AuthPreauthData"
-        request_id:
-          type: "string"
-    SessionAuthResponse:
-      type: "object"
-      additionalProperties: false
-      required:
-        - "code"
-        - "message"
-        - "data"
-        - "request_id"
-      properties:
-        code:
-          const: "OK"
-        message:
-          const: "success"
-        data:
-          "$ref": "#/components/schemas/AuthSessionData"
         request_id:
           type: "string"
     StoreSessionView:
@@ -12074,27 +12123,6 @@ components:
           const: "success"
         data:
           "$ref": "#/components/schemas/StoreSessionView"
-        request_id:
-          type: "string"
-    AgentLoginResponse:
-      type: "object"
-      additionalProperties: false
-      required:
-        - "code"
-        - "message"
-        - "data"
-        - "request_id"
-      properties:
-        code:
-          const: "OK"
-        message:
-          const: "success"
-        data:
-          oneOf:
-            -
-              "$ref": "#/components/schemas/AuthSessionData"
-            -
-              "$ref": "#/components/schemas/RestrictedAgentSessionData"
         request_id:
           type: "string"
     AttributionCandidateSummary:
@@ -12881,7 +12909,9 @@ components:
           type: "string"
           minLength: 6
           maxLength: 64
+          pattern: "^(?=(?:[ -]*[0-9]){6,32}$)[0-9][0-9 -]*[0-9]$"
           writeOnly: true
+          description: "服务端先去除 ASCII 空格和连字符，再校验为 6-32 位数字；请求可使用分隔符，明文只在写入事务内存在。"
     ShipmentLineInput:
       type: "object"
       additionalProperties: false
@@ -14216,7 +14246,6 @@ components:
             - "BANNER"
             - "AFTERSALE_EVIDENCE"
             - "WITHDRAWAL_PROOF"
-            - "PROMOTION_QR"
         filename:
           type: "string"
           minLength: 1
@@ -15289,61 +15318,34 @@ components:
                     "$ref": "#/components/schemas/PositiveMoney"
         request_id:
           type: "string"
-    AccountCurrentView:
+    AgentCurrentView:
       type: "object"
       additionalProperties: false
       required:
-        - "account_id"
-        - "role"
+        - "agent_id"
+        - "agent_no"
+        - "name"
         - "status"
-        - "session_id"
-        - "assurance"
-        - "restriction"
-        - "permissions"
-        - "version"
+        - "product_authorization_mode"
       properties:
-        account_id:
+        agent_id:
           type: "string"
-        role:
+        agent_no:
           type: "string"
-          enum:
-            - "SUPER_ADMIN"
-            - "AGENT_ADMIN"
-            - "CUSTOMER"
+        name:
+          type: "string"
         status:
           type: "string"
           enum:
             - "ACTIVE"
             - "DISABLED"
-            - "DELETION_PENDING"
-            - "ANONYMIZED"
-        session_id:
-          type: "string"
-        assurance:
+        product_authorization_mode:
           type: "string"
           enum:
-            - "WECHAT"
-            - "PASSWORD"
-            - "MFA"
-        restriction:
-          type: "string"
-          enum:
-            - "NONE"
-            - "CHANGE_PASSWORD_ONLY"
-        mfa_verified_at:
-          type:
-            - "string"
-            - "null"
-          format: "date-time"
-        permissions:
-          type: "array"
-          uniqueItems: true
-          items:
-            type: "string"
-        version:
-          type: "integer"
-          minimum: 1
-    AccountCurrentResponse:
+            - "ALL_ACTIVE_PRODUCTS"
+            - "CUSTOM_WHITELIST"
+      description: "仅返回当前代理 ID、编号、名称、状态和商品授权模式；不得包含密码、token、权限或银行卡明文。"
+    AgentCurrentResponse:
       type: "object"
       additionalProperties: false
       required:
@@ -15357,7 +15359,7 @@ components:
         message:
           const: "success"
         data:
-          "$ref": "#/components/schemas/AccountCurrentView"
+          "$ref": "#/components/schemas/AgentCurrentView"
         request_id:
           type: "string"
     ProfileView:
@@ -18071,6 +18073,7 @@ components:
             - "promotion_asset_id"
             - "target_type"
             - "public_url"
+            - "qr_file"
             - "attribution_eligible"
             - "expires_at"
           properties:
@@ -18088,11 +18091,25 @@ components:
             public_url:
               type: "string"
               format: "uri"
-            qr_download_url:
-              type:
-                - "string"
-                - "null"
-              format: "uri"
+            qr_file:
+              type: "object"
+              additionalProperties: false
+              description: "服务端生成并与 promotion_asset 原子绑定的私有 QR 文件事实；下载 URL 必须另行重新鉴权获取。"
+              required:
+                - "file_id"
+                - "status"
+                - "visibility"
+                - "purpose"
+              properties:
+                file_id:
+                  type: "string"
+                  pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+                status:
+                  const: "READY"
+                visibility:
+                  const: "PRIVATE"
+                purpose:
+                  const: "PROMOTION_QR"
             attribution_eligible:
               type: "boolean"
             expires_at:
@@ -19602,6 +19619,12 @@ components:
               "$ref": "#/components/schemas/PaginationView"
         request_id:
           type: "string"
+    OneTimeDisclosureState:
+      type: "string"
+      enum:
+        - "FIRST_ISSUE"
+        - "REPLAY_REDACTED"
+      description: "一次性秘密首次签发或幂等重放脱敏状态；服务端不得持久化或再次披露秘密。"
     AgentPasswordResetResponse:
       type: "object"
       additionalProperties: false
@@ -19616,24 +19639,55 @@ components:
         message:
           const: "success"
         data:
-          type: "object"
-          additionalProperties: false
-          required:
-            - "agent"
-            - "temporary_password"
-            - "expires_at"
-            - "must_change_password"
-          properties:
-            agent:
-              "$ref": "#/components/schemas/AgentView"
-            temporary_password:
-              type: "string"
-              description: "仅在本次 no-store 响应中展示一次，不进入日志、缓存或幂等响应体。"
-            expires_at:
-              type: "string"
-              format: "date-time"
-            must_change_password:
-              const: true
+          oneOf:
+            -
+              title: "首次披露"
+              type: "object"
+              additionalProperties: false
+              required: ["agent", "temporary_password", "expires_at", "must_change_password", "disclosure_state", "reissue_required"]
+              properties:
+                agent:
+                  "$ref": "#/components/schemas/AgentView"
+                temporary_password:
+                  type: "string"
+                  minLength: 12
+                  description: "仅本次 no-store 响应展示一次，不保存或进入日志、缓存。"
+                expires_at:
+                  type: "string"
+                  format: "date-time"
+                must_change_password:
+                  const: true
+                disclosure_state:
+                  allOf:
+                    -
+                      "$ref": "#/components/schemas/OneTimeDisclosureState"
+                    -
+                      const: "FIRST_ISSUE"
+                reissue_required:
+                  const: false
+            -
+              title: "幂等重放脱敏"
+              type: "object"
+              additionalProperties: false
+              required: ["agent", "temporary_password", "expires_at", "must_change_password", "disclosure_state", "reissue_required"]
+              properties:
+                agent:
+                  "$ref": "#/components/schemas/AgentView"
+                temporary_password:
+                  type: "null"
+                expires_at:
+                  type: ["string", "null"]
+                  format: "date-time"
+                must_change_password:
+                  const: true
+                disclosure_state:
+                  allOf:
+                    -
+                      "$ref": "#/components/schemas/OneTimeDisclosureState"
+                    -
+                      const: "REPLAY_REDACTED"
+                reissue_required:
+                  const: true
         request_id:
           type: "string"
     AgentCreateResponse:
@@ -19650,27 +19704,59 @@ components:
         message:
           const: "success"
         data:
-          type: "object"
-          additionalProperties: false
-          required:
-            - "agent"
-            - "temporary_password"
-            - "expires_at"
-            - "must_change_password"
-            - "initial_invite_code"
-          properties:
-            agent:
-              "$ref": "#/components/schemas/AgentView"
-            temporary_password:
-              type: "string"
-              description: "仅在本次 no-store 响应中展示一次，不进入日志、缓存或幂等响应体。"
-            expires_at:
-              type: "string"
-              format: "date-time"
-            must_change_password:
-              const: true
-            initial_invite_code:
-              "$ref": "#/components/schemas/IssuedInviteCodeView"
+          oneOf:
+            -
+              title: "首次披露"
+              type: "object"
+              additionalProperties: false
+              required: ["agent", "temporary_password", "expires_at", "must_change_password", "initial_invite_code", "disclosure_state", "reissue_required"]
+              properties:
+                agent:
+                  "$ref": "#/components/schemas/AgentView"
+                temporary_password:
+                  type: "string"
+                  minLength: 12
+                  description: "仅本次 no-store 响应展示一次，不保存或进入日志、缓存。"
+                expires_at:
+                  type: "string"
+                  format: "date-time"
+                must_change_password:
+                  const: true
+                initial_invite_code:
+                  "$ref": "#/components/schemas/IssuedInviteCodeView"
+                disclosure_state:
+                  allOf:
+                    -
+                      "$ref": "#/components/schemas/OneTimeDisclosureState"
+                    -
+                      const: "FIRST_ISSUE"
+                reissue_required:
+                  const: false
+            -
+              title: "幂等重放脱敏"
+              type: "object"
+              additionalProperties: false
+              required: ["agent", "temporary_password", "expires_at", "must_change_password", "initial_invite_code", "disclosure_state", "reissue_required"]
+              properties:
+                agent:
+                  "$ref": "#/components/schemas/AgentView"
+                temporary_password:
+                  type: "null"
+                expires_at:
+                  type: ["string", "null"]
+                  format: "date-time"
+                must_change_password:
+                  const: true
+                initial_invite_code:
+                  type: "null"
+                disclosure_state:
+                  allOf:
+                    -
+                      "$ref": "#/components/schemas/OneTimeDisclosureState"
+                    -
+                      const: "REPLAY_REDACTED"
+                reissue_required:
+                  const: true
         request_id:
           type: "string"
     ProductAuthorizationResponse:
@@ -20023,7 +20109,6 @@ components:
                 - "BANNER"
                 - "AFTERSALE_EVIDENCE"
                 - "WITHDRAWAL_PROOF"
-                - "PROMOTION_QR"
             status:
               const: "PENDING"
             upload_url:
@@ -20056,7 +20141,7 @@ components:
               type: "string"
             purpose:
               type: "string"
-              enum: ["PRODUCT_IMAGE", "BRAND_LOGO", "CATEGORY_ICON", "BANNER", "AFTERSALE_EVIDENCE", "WITHDRAWAL_PROOF", "PROMOTION_QR"]
+              enum: ["PRODUCT_IMAGE", "BRAND_LOGO", "CATEGORY_ICON", "BANNER", "AFTERSALE_EVIDENCE", "WITHDRAWAL_PROOF"]
             status:
               const: "READY"
             public_url:
@@ -22329,27 +22414,70 @@ components:
         message:
           const: "success"
         data:
-          type: "object"
-          additionalProperties: false
-          required: ["agent_id", "new_invite_code", "old_code_invalidated"]
-          properties:
-            agent_id:
-              type: "string"
-            new_invite_code:
-              "$ref": "#/components/schemas/IssuedInviteCodeView"
-            old_code_invalidated:
+          oneOf:
+            -
+              title: "首次披露"
               type: "object"
               additionalProperties: false
-              required: ["invite_code_id", "code_masked", "invalidated_at", "existing_bindings_unchanged"]
+              required: ["agent_id", "new_invite_code", "old_code_invalidated", "disclosure_state", "reissue_required"]
               properties:
-                invite_code_id:
+                agent_id:
                   type: "string"
-                code_masked:
+                new_invite_code:
+                  "$ref": "#/components/schemas/IssuedInviteCodeView"
+                old_code_invalidated:
+                  type: "object"
+                  additionalProperties: false
+                  required: ["invite_code_id", "code_masked", "invalidated_at", "existing_bindings_unchanged"]
+                  properties:
+                    invite_code_id:
+                      type: "string"
+                    code_masked:
+                      type: "string"
+                    invalidated_at:
+                      type: "string"
+                      format: "date-time"
+                    existing_bindings_unchanged:
+                      const: true
+                disclosure_state:
+                  allOf:
+                    -
+                      "$ref": "#/components/schemas/OneTimeDisclosureState"
+                    -
+                      const: "FIRST_ISSUE"
+                reissue_required:
+                  const: false
+            -
+              title: "幂等重放脱敏"
+              type: "object"
+              additionalProperties: false
+              required: ["agent_id", "new_invite_code", "old_code_invalidated", "disclosure_state", "reissue_required"]
+              properties:
+                agent_id:
                   type: "string"
-                invalidated_at:
-                  type: "string"
-                  format: "date-time"
-                existing_bindings_unchanged:
+                new_invite_code:
+                  type: "null"
+                old_code_invalidated:
+                  type: "object"
+                  additionalProperties: false
+                  required: ["invite_code_id", "code_masked", "invalidated_at", "existing_bindings_unchanged"]
+                  properties:
+                    invite_code_id:
+                      type: "string"
+                    code_masked:
+                      type: "string"
+                    invalidated_at:
+                      type: "string"
+                      format: "date-time"
+                    existing_bindings_unchanged:
+                      const: true
+                disclosure_state:
+                  allOf:
+                    -
+                      "$ref": "#/components/schemas/OneTimeDisclosureState"
+                    -
+                      const: "REPLAY_REDACTED"
+                reissue_required:
                   const: true
         request_id:
           type: "string"

@@ -1,5 +1,13 @@
 import { spawn, spawnSync } from "node:child_process";
 import { postgresEnvironment, readConnection } from "./lib/connection.mjs";
+import { B13_PREDEPLOY_CHECKS } from "./lib/b13-preflight.mjs";
+import {
+  B13_DEPLOYED_HISTORY,
+  B13_MIGRATION_HISTORY_SQL,
+  isApprovedB13Predecessor,
+  isExactB13History,
+  requiresB13HistoricalPreflight,
+} from "./lib/migration-history.mjs";
 import { prismaEnvironment, prismaInvocation } from "./lib/prisma.mjs";
 
 function quoteSqlLiteral(value) {
@@ -55,6 +63,23 @@ function runPsqlAsync(connection, input) {
   });
 }
 
+function resolveAppliedMigration(connection, migratorUrl, migrationName) {
+  const prisma = prismaInvocation([
+    "migrate",
+    "resolve",
+    "--applied",
+    migrationName,
+    "--config",
+    "prisma.config.ts",
+  ]);
+  const result = spawnSync(prisma.command, prisma.args, {
+    env: prismaEnvironment(migratorUrl, postgresEnvironment(connection)),
+    stdio: "inherit",
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`Prisma could not register ${migrationName}`);
+}
+
 function waitForSleepingApplication(connection, applicationName) {
   for (let attempt = 0; attempt < 50; attempt += 1) {
     const active = runPsql(connection, [
@@ -67,7 +92,7 @@ function waitForSleepingApplication(connection, applicationName) {
     if (active === "1") return;
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
   }
-  throw new Error("B12 concurrent refund guard fixture did not reach its synchronization point");
+  throw new Error(`${applicationName} did not reach its synchronization point`);
 }
 
 function verifyB9MigrationFailurePath(replay, migrator) {
@@ -566,6 +591,287 @@ function verifyB12MigrationFailurePaths(replay, migrator) {
   console.log("B12 refund-attempt and manual-compensation preflights failed atomically as expected");
 }
 
+function verifyB13MigrationFailurePaths(replay, migrator) {
+  const orphanAccountId = "01J00000000000000000000301";
+  const forged = {
+    account: "01J00000000000000000000302",
+    agent: "01J00000000000000000000303",
+    bank: "01J00000000000000000000304",
+    withdrawal: "01J00000000000000000000305",
+    bankSnapshot: "01J00000000000000000000306",
+  };
+  const invalidPromotion = {
+    account: "01J00000000000000000000307",
+    agent: "01J00000000000000000000308",
+    invite: "01J00000000000000000000309",
+    promotion: "01J0000000000000000000030A",
+  };
+  const invalidCommission = {
+    firstAccount: "01J0000000000000000000030B",
+    firstAgent: "01J0000000000000000000030C",
+    secondAccount: "01J0000000000000000000030D",
+    secondAgent: "01J0000000000000000000030E",
+    order: "01J0000000000000000000030F",
+    item: "01J0000000000000000000030G",
+    snapshot: "01J0000000000000000000030H",
+    ledger: "01J0000000000000000000030J",
+  };
+  const scenarios = [
+    {
+      name: "orphan AGENT_ADMIN account",
+      predeployCheck: "agent-promotion",
+      expectedError: "AGENT_ADMIN account and agent profile are not a complete one-to-one pair",
+      setup: `
+        SET session_replication_role = replica;
+        INSERT INTO public.account (id, role, updated_at)
+        VALUES ('${orphanAccountId}', 'AGENT_ADMIN', CURRENT_TIMESTAMP);
+        SET session_replication_role = origin;
+      `,
+      cleanup: `
+        SET session_replication_role = replica;
+        DELETE FROM public.account WHERE id = '${orphanAccountId}';
+        SET session_replication_role = origin;
+      `,
+    },
+    {
+      name: "forged withdrawal bank snapshot",
+      predeployCheck: "withdrawal-bank-snapshot",
+      expectedError: "withdrawal bank snapshot contains an invalid immutable source envelope",
+      setup: `
+        SET session_replication_role = replica;
+        INSERT INTO public.account (id, role, updated_at)
+        VALUES ('${forged.account}', 'AGENT_ADMIN', CURRENT_TIMESTAMP);
+        INSERT INTO public.agent_profile (id, account_id, agent_no, name, updated_at)
+        VALUES ('${forged.agent}', '${forged.account}', 'B13-PREFLIGHT', 'B13 preflight agent', CURRENT_TIMESTAMP);
+        INSERT INTO public.agent_bank_account (
+          id, agent_id, account_holder, bank_name, account_no_ciphertext,
+          account_no_hash, account_no_last4, encryption_key_id, updated_at
+        ) VALUES (
+          '${forged.bank}', '${forged.agent}', 'B13 source holder', 'B13 fixture bank',
+          decode('aabbccdd', 'hex'), repeat('a', 64), '1234', 'b13-field-key', CURRENT_TIMESTAMP
+        );
+        INSERT INTO public.withdrawal (
+          id, withdrawal_no, agent_id, amount, available_before, frozen_after, updated_at
+        ) VALUES (
+          '${forged.withdrawal}', 'WDB13PREFLIGHT001', '${forged.agent}',
+          10.00, 20.00, 10.00, CURRENT_TIMESTAMP
+        );
+        INSERT INTO public.withdrawal_bank_snapshot (
+          id, withdrawal_id, source_bank_account_id, account_holder, bank_name,
+          account_no_ciphertext, account_no_last4, encryption_key_id
+        ) VALUES (
+          '${forged.bankSnapshot}', '${forged.withdrawal}', '${forged.bank}',
+          'B13 forged holder', 'B13 fixture bank', decode('aabbccdd', 'hex'),
+          '1234', 'b13-field-key'
+        );
+        SET session_replication_role = origin;
+      `,
+      cleanup: `
+        SET session_replication_role = replica;
+        DELETE FROM public.withdrawal_bank_snapshot WHERE id = '${forged.bankSnapshot}';
+        DELETE FROM public.withdrawal WHERE id = '${forged.withdrawal}';
+        DELETE FROM public.agent_bank_account WHERE id = '${forged.bank}';
+        DELETE FROM public.agent_profile WHERE id = '${forged.agent}';
+        DELETE FROM public.account WHERE id = '${forged.account}';
+        SET session_replication_role = origin;
+      `,
+    },
+    {
+      name: "invalid active promotion lifecycle",
+      predeployCheck: "agent-promotion",
+      expectedError: "promotion asset contains an invalid target, lifecycle, or agent envelope",
+      setup: `
+        SET session_replication_role = replica;
+        INSERT INTO public.account (id, role, updated_at)
+        VALUES ('${invalidPromotion.account}', 'AGENT_ADMIN', CURRENT_TIMESTAMP);
+        INSERT INTO public.agent_profile (id, account_id, agent_no, name, updated_at)
+        VALUES (
+          '${invalidPromotion.agent}', '${invalidPromotion.account}',
+          'B13-PREFLIGHT-PROMO', 'B13 preflight promotion agent', CURRENT_TIMESTAMP
+        );
+        INSERT INTO public.agent_invite_code (
+          id, agent_id, code_hash, code_ciphertext, code_last4, encryption_key_id
+        ) VALUES (
+          '${invalidPromotion.invite}', '${invalidPromotion.agent}', repeat('b', 64),
+          decode('11223344', 'hex'), '5678', 'b13-invite-key'
+        );
+        INSERT INTO public.promotion_asset (
+          id, agent_id, invite_code_id, target_type, status,
+          authorization_version, public_url, revoked_at
+        ) VALUES (
+          '${invalidPromotion.promotion}', '${invalidPromotion.agent}', '${invalidPromotion.invite}',
+          'STOREFRONT', 'ACTIVE', 1, 'https://store.example.invalid/invalid', CURRENT_TIMESTAMP
+        );
+        SET session_replication_role = origin;
+      `,
+      cleanup: `
+        SET session_replication_role = replica;
+        DELETE FROM public.promotion_asset WHERE id = '${invalidPromotion.promotion}';
+        DELETE FROM public.agent_invite_code WHERE id = '${invalidPromotion.invite}';
+        DELETE FROM public.agent_profile WHERE id = '${invalidPromotion.agent}';
+        DELETE FROM public.account WHERE id = '${invalidPromotion.account}';
+        SET session_replication_role = origin;
+      `,
+    },
+    {
+      name: "invalid commission ledger balance envelope",
+      predeployCheck: "commission-ledger",
+      expectedError: "commission ledger contains an invalid reference or balance-change envelope",
+      setup: `
+        SET session_replication_role = replica;
+        INSERT INTO public.account (id, role, updated_at) VALUES
+          ('${invalidCommission.firstAccount}', 'AGENT_ADMIN', CURRENT_TIMESTAMP),
+          ('${invalidCommission.secondAccount}', 'AGENT_ADMIN', CURRENT_TIMESTAMP);
+        INSERT INTO public.agent_profile (id, account_id, agent_no, name, updated_at) VALUES
+          ('${invalidCommission.firstAgent}', '${invalidCommission.firstAccount}',
+           'B13-PREFLIGHT-COMM-1', 'B13 commission agent one', CURRENT_TIMESTAMP),
+          ('${invalidCommission.secondAgent}', '${invalidCommission.secondAccount}',
+           'B13-PREFLIGHT-COMM-2', 'B13 commission agent two', CURRENT_TIMESTAMP);
+        INSERT INTO public.sales_order (
+          id, order_no, customer_id, source, final_channel, final_agent_id,
+          goods_amount, payable_amount, paid_amount, created_at, pay_expires_at, updated_at
+        ) VALUES (
+          '${invalidCommission.order}', 'QXB13PREFLIGHT001',
+          '01J0000000000000000000030K', 'BUY_NOW', 'AGENT', '${invalidCommission.firstAgent}',
+          10.00, 10.00, 10.00, '2026-09-02T00:00:00Z',
+          '2026-09-02T00:30:00Z', '2026-09-02T00:00:00Z'
+        );
+        INSERT INTO public.order_item (
+          id, order_id, product_id, category_id, sku_id, product_name_snapshot,
+          brand_name_snapshot, category_name_snapshot, sku_name_snapshot,
+          sku_code_snapshot, unit_price, quantity, line_paid_amount
+        ) VALUES (
+          '${invalidCommission.item}', '${invalidCommission.order}',
+          '01J0000000000000000000030M', '01J0000000000000000000030N',
+          '01J0000000000000000000030P', 'B13 preflight item', 'B13 brand',
+          'B13 category', 'B13 SKU', 'B13-PREFLIGHT-SKU', 10.00, 1, 10.00
+        );
+        INSERT INTO public.order_item_commission_snapshot (
+          id, order_item_id, agent_id, rule_version_id, source_type,
+          category_id_snapshot, category_name_snapshot, product_id_snapshot,
+          sku_id_snapshot, effective_rate, commission_base, original_commission
+        ) VALUES (
+          '${invalidCommission.snapshot}', '${invalidCommission.item}', '${invalidCommission.firstAgent}',
+          '01J0000000000000000000030Q', 'PLATFORM', '01J0000000000000000000030N',
+          'B13 category', '01J0000000000000000000030M', '01J0000000000000000000030P',
+          10.0000, 10.00, 1.00
+        );
+        INSERT INTO public.commission_ledger (
+          id, agent_id, snapshot_id, ledger_type, expected_change,
+          available_change, frozen_change, reason, idempotency_key
+        ) VALUES (
+          '${invalidCommission.ledger}', '${invalidCommission.firstAgent}',
+          '${invalidCommission.snapshot}', 'EXPECTED_CREATED', 1.00, 1.00, 0.00,
+          'B13 invalid preflight ledger', 'b13-invalid-preflight-ledger'
+        );
+        SET session_replication_role = origin;
+      `,
+      cleanup: `
+        SET session_replication_role = replica;
+        DELETE FROM public.commission_ledger WHERE id = '${invalidCommission.ledger}';
+        DELETE FROM public.order_item_commission_snapshot WHERE id = '${invalidCommission.snapshot}';
+        DELETE FROM public.order_item WHERE id = '${invalidCommission.item}';
+        DELETE FROM public.sales_order WHERE id = '${invalidCommission.order}';
+        DELETE FROM public.agent_profile
+        WHERE id IN ('${invalidCommission.firstAgent}', '${invalidCommission.secondAgent}');
+        DELETE FROM public.account
+        WHERE id IN ('${invalidCommission.firstAccount}', '${invalidCommission.secondAccount}');
+        SET session_replication_role = origin;
+      `,
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    runPsql(replay, [], scenario.setup);
+    try {
+      const failedPredeployChecks = B13_PREDEPLOY_CHECKS
+        .filter((check) => runPsql(replay, ["-Atqc", check.sql], undefined, true) !== "0")
+        .map((check) => check.key);
+      if (!failedPredeployChecks.includes(scenario.predeployCheck)) {
+        throw new Error(
+          `B13 shared pre-deploy predicates missed ${scenario.name}: ${failedPredeployChecks.join(",")}`,
+        );
+      }
+      const predeployHistory = runPsql(replay, [
+        "-Atqc",
+        `SELECT count(*) FROM public._prisma_migrations
+         WHERE migration_name = '0006_b13_agent_finance_guards'`,
+      ], undefined, true);
+      if (predeployHistory !== "0") {
+        throw new Error(`B13 pre-deploy predicate left history residue for ${scenario.name}`);
+      }
+
+      const failure = spawnSync(
+        "psql",
+        [
+          "-X",
+          "-v", "ON_ERROR_STOP=1",
+          "--set=VERBOSITY=verbose",
+          "-f", "prisma/migrations/0006_b13_agent_finance_guards/migration.sql",
+        ],
+        {
+          env: postgresEnvironment(migrator),
+          encoding: "utf8",
+          stdio: ["ignore", "ignore", "pipe"],
+        },
+      );
+      if (failure.error) throw failure.error;
+      if (failure.status === 0) throw new Error(`B13 migration accepted ${scenario.name}`);
+      if (!failure.stderr.includes(scenario.expectedError) || !/ERROR:\s+23514:/.test(failure.stderr)) {
+        throw new Error(`B13 migration failed unexpectedly while testing ${scenario.name}`);
+      }
+
+      const residue = runPsql(replay, [
+        "-Atqc",
+        `SELECT
+           (SELECT count(*) FROM pg_class WHERE relkind = 'i'
+             AND relname = 'uq_commission_ledger_withdrawal_type')
+           + (SELECT count(*) FROM pg_constraint WHERE conname LIKE 'chk_b13_%')
+           + (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+             WHERE n.nspname = 'public'
+               AND (p.proname LIKE 'enforce_b13_%' OR p.proname LIKE 'guard_b13_%'))
+           + (SELECT count(*) FROM pg_trigger WHERE tgname LIKE 'trg_b13_%')
+           + (SELECT count(*) FROM public._prisma_migrations
+             WHERE migration_name = '0006_b13_agent_finance_guards')`,
+      ], undefined, true);
+      if (residue !== "0") {
+        throw new Error(`B13 migration failure left schema or history residue for ${scenario.name}`);
+      }
+    } finally {
+      runPsql(replay, [], scenario.cleanup);
+    }
+  }
+  const historicalResidue = runPsql(replay, [
+    "-Atqc",
+    `SELECT count(*) FROM (
+       SELECT id FROM public.withdrawal_bank_snapshot WHERE id = '${forged.bankSnapshot}'
+       UNION ALL SELECT id FROM public.withdrawal WHERE id = '${forged.withdrawal}'
+       UNION ALL SELECT id FROM public.agent_bank_account WHERE id = '${forged.bank}'
+       UNION ALL SELECT id FROM public.promotion_asset WHERE id = '${invalidPromotion.promotion}'
+       UNION ALL SELECT id FROM public.agent_invite_code WHERE id = '${invalidPromotion.invite}'
+       UNION ALL SELECT id FROM public.commission_ledger WHERE id = '${invalidCommission.ledger}'
+       UNION ALL SELECT id FROM public.order_item_commission_snapshot
+       WHERE id = '${invalidCommission.snapshot}'
+       UNION ALL SELECT id FROM public.order_item WHERE id = '${invalidCommission.item}'
+       UNION ALL SELECT id FROM public.sales_order WHERE id = '${invalidCommission.order}'
+       UNION ALL SELECT id FROM public.agent_profile WHERE id IN (
+         '${forged.agent}', '${invalidPromotion.agent}',
+         '${invalidCommission.firstAgent}', '${invalidCommission.secondAgent}'
+       )
+       UNION ALL SELECT id FROM public.account WHERE id IN (
+         '${orphanAccountId}', '${forged.account}', '${invalidPromotion.account}',
+         '${invalidCommission.firstAccount}', '${invalidCommission.secondAccount}'
+       )
+     ) AS fixture_residue`,
+  ], undefined, true);
+  if (historicalResidue !== "0") {
+    throw new Error("B13 migration failure-path tests left historical fixture residue");
+  }
+  console.log(
+    "B13 Agent, bank-snapshot, promotion and commission preflights failed atomically as expected",
+  );
+}
+
 async function verifyB12RefundGuards(replay) {
   const fixtureIds = {
     firstOrder: "01J00000000000000000000101",
@@ -949,6 +1255,911 @@ async function verifyB12RefundGuards(replay) {
   );
 }
 
+async function verifyB13AgentRoleRace(replay) {
+  const runtime = { ...replay, username: "mall_runtime", password: `${replay.password}-runtime` };
+  const ids = {
+    raceAccount: "01J00000000000000000000311",
+    raceAgent: "01J00000000000000000000312",
+    validAccount: "01J00000000000000000000313",
+    validAgent: "01J00000000000000000000314",
+  };
+
+  runPsql(runtime, [], `
+    INSERT INTO public.account (id, role, updated_at)
+    VALUES ('${ids.raceAccount}', 'CUSTOMER', CURRENT_TIMESTAMP);
+  `);
+  try {
+    const roleChange = runPsqlAsync(runtime, `
+      SET application_name = 'b13-agent-role-change';
+      BEGIN;
+      UPDATE public.account
+      SET role = 'AGENT_ADMIN', updated_at = CURRENT_TIMESTAMP
+      WHERE id = '${ids.raceAccount}';
+      SELECT pg_sleep(2);
+      COMMIT;
+    `);
+    waitForSleepingApplication(replay, "b13-agent-role-change");
+    const profileInsert = runPsqlAsync(runtime, `
+      SET statement_timeout = '6s';
+      BEGIN;
+      INSERT INTO public.agent_profile (id, account_id, agent_no, name, updated_at)
+      VALUES (
+        '${ids.raceAgent}', '${ids.raceAccount}', 'B13-RACE',
+        'B13 role race agent', CURRENT_TIMESTAMP
+      );
+      COMMIT;
+    `);
+    const [roleResult, profileResult] = await Promise.all([roleChange, profileInsert]);
+    if (roleResult.status === 0 ||
+      !roleResult.stderr.includes("AGENT_ADMIN account and agent profile must form a complete one-to-one pair")) {
+      throw new Error("B13 role change committed without its required AgentProfile");
+    }
+    if (profileResult.status === 0 ||
+      !profileResult.stderr.includes("agent profile account must have the AGENT_ADMIN role")) {
+      throw new Error("B13 AgentProfile insert escaped the concurrent account-role lock");
+    }
+    const raceState = runPsql(replay, [
+      "-Atqc",
+      `SELECT concat_ws('|', a.role, count(ap.id))
+       FROM public.account a
+       LEFT JOIN public.agent_profile ap ON ap.account_id = a.id
+       WHERE a.id = '${ids.raceAccount}'
+       GROUP BY a.role`,
+    ], undefined, true);
+    if (raceState !== "CUSTOMER|0") {
+      throw new Error(`B13 Agent role race left an invalid committed state: ${raceState}`);
+    }
+
+    runPsql(runtime, [], `
+      BEGIN;
+      INSERT INTO public.account (id, role, updated_at)
+      VALUES ('${ids.validAccount}', 'AGENT_ADMIN', CURRENT_TIMESTAMP);
+      INSERT INTO public.agent_profile (id, account_id, agent_no, name, updated_at)
+      VALUES (
+        '${ids.validAgent}', '${ids.validAccount}', 'B13-VALID',
+        'B13 valid agent', CURRENT_TIMESTAMP
+      );
+      COMMIT;
+    `);
+    expectPsqlFailure(runtime, `
+      UPDATE public.agent_profile
+      SET account_id = '${ids.raceAccount}', updated_at = CURRENT_TIMESTAMP
+      WHERE id = '${ids.validAgent}';
+    `, "agent profile account_id is immutable", "B13 AgentProfile account identity");
+
+    runPsql(replay, [], `
+      BEGIN;
+      SET LOCAL ROLE mall_migrator;
+      DELETE FROM public.agent_profile WHERE id = '${ids.validAgent}';
+      DELETE FROM public.account WHERE id = '${ids.validAccount}';
+      COMMIT;
+    `);
+  } finally {
+    runPsql(replay, [], `
+      SET session_replication_role = replica;
+      DELETE FROM public.agent_profile WHERE id IN ('${ids.raceAgent}', '${ids.validAgent}');
+      DELETE FROM public.account WHERE id IN ('${ids.raceAccount}', '${ids.validAccount}');
+      SET session_replication_role = origin;
+    `);
+  }
+
+  const residue = runPsql(replay, [
+    "-Atqc",
+    `SELECT count(*) FROM (
+       SELECT id FROM public.agent_profile
+       WHERE id IN ('${ids.raceAgent}', '${ids.validAgent}')
+       UNION ALL
+       SELECT id FROM public.account
+       WHERE id IN ('${ids.raceAccount}', '${ids.validAccount}')
+     ) AS fixture_residue`,
+  ], undefined, true);
+  if (residue !== "0") throw new Error("B13 Agent role race test left fixture residue");
+
+  console.log("B13 Agent account/profile commit-time 1:1 and concurrent role serialization verified");
+}
+
+async function verifyB13CommissionGuards(replay) {
+  const runtime = { ...replay, username: "mall_runtime", password: `${replay.password}-runtime` };
+  const ids = {
+    account: "01J00000000000000000000321",
+    agent: "01J00000000000000000000322",
+    firstOrder: "01J00000000000000000000323",
+    secondOrder: "01J00000000000000000000324",
+    orderItem: "01J00000000000000000000325",
+    snapshot: "01J00000000000000000000326",
+    rule: "01J00000000000000000000327",
+    refund: "01J00000000000000000000328",
+    refundLedger: "01J00000000000000000000329",
+    otherAccount: "01J0000000000000000000032F",
+    otherAgent: "01J0000000000000000000032G",
+    crossAgentLedger: "01J0000000000000000000032H",
+    crossOrderRefund: "01J0000000000000000000032J",
+    crossOrderLedger: "01J0000000000000000000032K",
+    firstCustomer: "01J0000000000000000000032A",
+    secondCustomer: "01J0000000000000000000032B",
+    firstCustomerAccount: "01J0000000000000000000032R",
+    secondCustomerAccount: "01J0000000000000000000032S",
+  };
+
+  runPsql(replay, [], `
+    SET session_replication_role = replica;
+    INSERT INTO public.account (id, role, updated_at) VALUES
+      ('${ids.account}', 'AGENT_ADMIN', CURRENT_TIMESTAMP),
+      ('${ids.otherAccount}', 'AGENT_ADMIN', CURRENT_TIMESTAMP),
+      ('${ids.firstCustomerAccount}', 'CUSTOMER', CURRENT_TIMESTAMP),
+      ('${ids.secondCustomerAccount}', 'CUSTOMER', CURRENT_TIMESTAMP);
+    INSERT INTO public.agent_profile (id, account_id, agent_no, name, updated_at) VALUES
+      ('${ids.agent}', '${ids.account}', 'B13-COMMISSION', 'B13 commission agent', CURRENT_TIMESTAMP),
+      ('${ids.otherAgent}', '${ids.otherAccount}', 'B13-COMMISSION-2', 'B13 other agent', CURRENT_TIMESTAMP);
+    INSERT INTO public.customer_profile (id, account_id, updated_at) VALUES
+      ('${ids.firstCustomer}', '${ids.firstCustomerAccount}', CURRENT_TIMESTAMP),
+      ('${ids.secondCustomer}', '${ids.secondCustomerAccount}', CURRENT_TIMESTAMP);
+    INSERT INTO public.commission_rule_version (
+      id, version_no, status, reason, created_by_id
+    ) VALUES (
+      '${ids.rule}', 9130001, 'DRAFT', 'B13 runtime snapshot fixture', '${ids.account}'
+    );
+    INSERT INTO public.sales_order (
+      id, order_no, customer_id, source, final_channel, final_agent_id,
+      goods_amount, payable_amount, paid_amount, created_at, pay_expires_at, updated_at
+    ) VALUES
+      ('${ids.firstOrder}', 'QXB13COMMISSION001', '${ids.firstCustomer}', 'BUY_NOW',
+       'AGENT', '${ids.agent}', 10.00, 10.00, 10.00,
+       '2026-09-02T00:00:00Z', '2026-09-02T00:30:00Z', '2026-09-02T00:00:00Z'),
+      ('${ids.secondOrder}', 'QXB13COMMISSION002', '${ids.secondCustomer}', 'BUY_NOW',
+       'DIRECT', NULL, 1.00, 1.00, 1.00,
+       '2026-09-02T00:00:00Z', '2026-09-02T00:30:00Z', '2026-09-02T00:00:00Z');
+    INSERT INTO public.order_item (
+      id, order_id, product_id, category_id, sku_id, product_name_snapshot,
+      brand_name_snapshot, category_name_snapshot, sku_name_snapshot, sku_code_snapshot,
+      unit_price, quantity, line_paid_amount
+    ) VALUES (
+      '${ids.orderItem}', '${ids.firstOrder}', '01J0000000000000000000032C',
+      '01J0000000000000000000032D', '01J0000000000000000000032E',
+      'B13 commission item', 'B13 brand', 'B13 category', 'B13 SKU',
+      'B13-COMMISSION-SKU', 10.00, 1, 10.00
+    );
+    INSERT INTO public.refund (
+      id, refund_no, order_id, origin_type, provider, amount, reason,
+      is_late_payment_refund, updated_at
+    ) VALUES (
+      '${ids.refund}', 'RFB13COMMISSION001', '${ids.firstOrder}',
+      'LATE_PAYMENT', 'MOCK', 1.00, 'B13 commission refund fixture', TRUE, CURRENT_TIMESTAMP
+    ), (
+      '${ids.crossOrderRefund}', 'RFB13COMMISSION002', '${ids.secondOrder}',
+      'LATE_PAYMENT', 'MOCK', 1.00, 'B13 cross-order refund fixture', TRUE, CURRENT_TIMESTAMP
+    );
+    SET session_replication_role = origin;
+  `);
+
+  try {
+    runPsql(runtime, [], `
+      BEGIN;
+      INSERT INTO public.order_item_commission_snapshot (
+        id, order_item_id, agent_id, rule_version_id, source_type,
+        category_id_snapshot, category_name_snapshot, product_id_snapshot,
+        sku_id_snapshot, effective_rate, commission_base, original_commission
+      ) VALUES (
+        '${ids.snapshot}', '${ids.orderItem}', '${ids.agent}', '${ids.rule}', 'PLATFORM',
+        '01J0000000000000000000032D', 'B13 category',
+        '01J0000000000000000000032C', '01J0000000000000000000032E',
+        10.0000, 10.00, 1.00
+      );
+      COMMIT;
+    `);
+    expectPsqlFailure(runtime, `
+      INSERT INTO public.commission_ledger (
+        id, agent_id, snapshot_id, ledger_type, expected_change,
+        available_change, frozen_change, reason, idempotency_key
+      ) VALUES (
+        '${ids.crossAgentLedger}', '${ids.otherAgent}', '${ids.snapshot}',
+        'EXPECTED_CREATED', 1.00, 0.00, 0.00, 'cross agent', 'b13-cross-agent'
+      );
+    `, "commission ledger snapshot must belong to the same agent", "B13 cross-agent commission ledger");
+    expectPsqlFailure(runtime, `
+      INSERT INTO public.commission_ledger (
+        id, agent_id, snapshot_id, refund_id, ledger_type, expected_change,
+        available_change, frozen_change, reason, idempotency_key
+      ) VALUES (
+        '${ids.crossOrderLedger}', '${ids.agent}', '${ids.snapshot}', '${ids.crossOrderRefund}',
+        'REFUND_DEBIT', 0.00, -1.00, 0.00, 'cross order', 'b13-cross-order'
+      );
+    `, "commission refund ledger must reference the snapshot order", "B13 cross-order commission ledger");
+    const ledgerInsert = runPsqlAsync(runtime, `
+      SET application_name = 'b13-commission-ledger-insert';
+      BEGIN;
+      INSERT INTO public.commission_ledger (
+        id, agent_id, snapshot_id, refund_id, ledger_type,
+        expected_change, available_change, frozen_change, reason, idempotency_key
+      ) VALUES (
+        '${ids.refundLedger}', '${ids.agent}', '${ids.snapshot}', '${ids.refund}',
+        'REFUND_DEBIT', 0.00, -1.00, 0.00, 'B13 refund debit', 'b13-refund-debit'
+      );
+      SELECT pg_sleep(2);
+      COMMIT;
+    `);
+    waitForSleepingApplication(replay, "b13-commission-ledger-insert");
+    const refundMutation = runPsqlAsync(runtime, `
+      SET statement_timeout = '6s';
+      BEGIN;
+      UPDATE public.refund
+      SET order_id = '${ids.secondOrder}', updated_at = CURRENT_TIMESTAMP
+      WHERE id = '${ids.refund}';
+      COMMIT;
+    `);
+    const [ledgerResult, refundResult] = await Promise.all([ledgerInsert, refundMutation]);
+    if (ledgerResult.status !== 0) {
+      throw new Error(`B13 runtime commission ledger insert failed: ${ledgerResult.stderr}`);
+    }
+    if (refundResult.status === 0 ||
+      !refundResult.stderr.includes("refund order_id is immutable after commission reversal")) {
+      throw new Error(
+        `B13 refund mutation did not serialize behind its commission reversal: ${refundResult.stderr}`,
+      );
+    }
+
+    expectPsqlFailure(replay, `
+      UPDATE public.order_item_commission_snapshot
+      SET effective_rate = 11.0000 WHERE id = '${ids.snapshot}';
+    `, "order-item commission snapshot is immutable", "B13 commission snapshot UPDATE");
+    expectPsqlFailure(replay, `
+      UPDATE public.commission_ledger
+      SET reason = 'rewritten' WHERE id = '${ids.refundLedger}';
+    `, "commission ledger is immutable", "B13 commission ledger UPDATE");
+    expectPsqlFailure(runtime, `
+      UPDATE public.order_item_commission_snapshot
+      SET effective_rate = 11.0000 WHERE id = '${ids.snapshot}';
+    `, "permission denied for table order_item_commission_snapshot", "B13 runtime commission snapshot UPDATE");
+    expectPsqlFailure(runtime, `
+      DELETE FROM public.order_item_commission_snapshot WHERE id = '${ids.snapshot}';
+    `, "permission denied for table order_item_commission_snapshot", "B13 runtime commission snapshot DELETE");
+    expectPsqlFailure(replay, `
+      UPDATE public.order_item
+      SET line_paid_amount = 11.00 WHERE id = '${ids.orderItem}';
+    `, "paid order-item commission source fields are immutable", "B13 commission order-item parent UPDATE");
+    expectPsqlFailure(runtime, `
+      BEGIN;
+      UPDATE public.sales_order
+      SET final_channel = 'DIRECT', final_agent_id = NULL, updated_at = CURRENT_TIMESTAMP
+      WHERE id = '${ids.firstOrder}';
+      COMMIT;
+    `, "order final attribution cannot contradict an immutable commission snapshot", "B13 snapshot final-agent mismatch");
+
+    runPsql(runtime, [], `
+      BEGIN;
+      UPDATE public.sales_order
+      SET final_channel = 'DIRECT', final_agent_id = NULL, updated_at = CURRENT_TIMESTAMP
+      WHERE id = '${ids.firstOrder}';
+      UPDATE public.sales_order
+      SET final_channel = 'AGENT', final_agent_id = '${ids.agent}', updated_at = CURRENT_TIMESTAMP
+      WHERE id = '${ids.firstOrder}';
+      COMMIT;
+    `);
+
+    runPsql(replay, [], `
+      BEGIN;
+      SET LOCAL ROLE mall_migrator;
+      DELETE FROM public.commission_ledger WHERE id = '${ids.refundLedger}';
+      DELETE FROM public.order_item_commission_snapshot WHERE id = '${ids.snapshot}';
+      ROLLBACK;
+    `);
+  } finally {
+    runPsql(replay, [], `
+      SET session_replication_role = replica;
+      DELETE FROM public.commission_ledger
+      WHERE id IN ('${ids.refundLedger}', '${ids.crossAgentLedger}', '${ids.crossOrderLedger}');
+      DELETE FROM public.order_item_commission_snapshot WHERE id = '${ids.snapshot}';
+      DELETE FROM public.refund WHERE id IN ('${ids.refund}', '${ids.crossOrderRefund}');
+      DELETE FROM public.order_item WHERE id = '${ids.orderItem}';
+      DELETE FROM public.sales_order WHERE id IN ('${ids.firstOrder}', '${ids.secondOrder}');
+      DELETE FROM public.commission_rule_version WHERE id = '${ids.rule}';
+      DELETE FROM public.customer_profile WHERE id IN ('${ids.firstCustomer}', '${ids.secondCustomer}');
+      DELETE FROM public.agent_profile WHERE id IN ('${ids.agent}', '${ids.otherAgent}');
+      DELETE FROM public.account WHERE id IN (
+        '${ids.account}', '${ids.otherAccount}',
+        '${ids.firstCustomerAccount}', '${ids.secondCustomerAccount}'
+      );
+      SET session_replication_role = origin;
+    `);
+  }
+
+  const residue = runPsql(replay, [
+    "-Atqc",
+    `SELECT count(*) FROM (
+       SELECT id FROM public.commission_ledger
+       WHERE id IN ('${ids.refundLedger}', '${ids.crossAgentLedger}', '${ids.crossOrderLedger}')
+       UNION ALL SELECT id FROM public.order_item_commission_snapshot WHERE id = '${ids.snapshot}'
+       UNION ALL SELECT id FROM public.refund WHERE id IN ('${ids.refund}', '${ids.crossOrderRefund}')
+       UNION ALL SELECT id FROM public.order_item WHERE id = '${ids.orderItem}'
+       UNION ALL SELECT id FROM public.sales_order WHERE id IN ('${ids.firstOrder}', '${ids.secondOrder}')
+       UNION ALL SELECT id FROM public.commission_rule_version WHERE id = '${ids.rule}'
+       UNION ALL SELECT id FROM public.customer_profile
+       WHERE id IN ('${ids.firstCustomer}', '${ids.secondCustomer}')
+       UNION ALL SELECT id FROM public.agent_profile WHERE id IN ('${ids.agent}', '${ids.otherAgent}')
+       UNION ALL SELECT id FROM public.account WHERE id IN (
+         '${ids.account}', '${ids.otherAccount}',
+         '${ids.firstCustomerAccount}', '${ids.secondCustomerAccount}'
+       )
+     ) AS fixture_residue`,
+  ], undefined, true);
+  if (residue !== "0") throw new Error("B13 commission guard test left fixture residue");
+
+  console.log("B13 commission immutability, parent continuity, refund serialization and migrator cleanup verified");
+}
+
+function verifyB13PromotionLifecycle(replay) {
+  const runtime = { ...replay, username: "mall_runtime", password: `${replay.password}-runtime` };
+  const ids = {
+    account: "01J00000000000000000000331",
+    agent: "01J00000000000000000000332",
+    invite: "01J00000000000000000000333",
+    promotion: "01J00000000000000000000334",
+    candidate: "01J00000000000000000000335",
+    customerAccount: "01J00000000000000000000336",
+    customer: "01J00000000000000000000337",
+    unusedInvite: "01J00000000000000000000338",
+    unusedPromotion: "01J00000000000000000000339",
+    rewrittenInvite: "01J0000000000000000000033A",
+    rewrittenPromotion: "01J0000000000000000000033B",
+    rewrittenCandidate: "01J0000000000000000000033C",
+  };
+
+  runPsql(runtime, [], `
+    BEGIN;
+    INSERT INTO public.account (id, role, updated_at) VALUES
+      ('${ids.account}', 'AGENT_ADMIN', CURRENT_TIMESTAMP),
+      ('${ids.customerAccount}', 'CUSTOMER', CURRENT_TIMESTAMP);
+    INSERT INTO public.agent_profile (id, account_id, agent_no, name, updated_at)
+    VALUES ('${ids.agent}', '${ids.account}', 'B13-PROMOTION', 'B13 promotion agent', CURRENT_TIMESTAMP);
+    INSERT INTO public.customer_profile (id, account_id, updated_at)
+    VALUES ('${ids.customer}', '${ids.customerAccount}', CURRENT_TIMESTAMP);
+    INSERT INTO public.agent_invite_code (
+      id, agent_id, code_hash, code_ciphertext, code_last4, encryption_key_id,
+      status, effective_at, expires_at
+    ) VALUES (
+      '${ids.invite}', '${ids.agent}', repeat('b', 64), decode('11223344', 'hex'),
+      '5678', 'b13-invite-key', 'ACTIVE', '2026-09-02T00:00:00Z', '2026-09-03T00:00:00Z'
+    ), (
+      '${ids.unusedInvite}', '${ids.agent}', repeat('e', 64), decode('55667788', 'hex'),
+      '9876', 'b13-invite-key', 'DISABLED', '2026-09-02T00:00:00Z', '2026-09-03T00:00:00Z'
+    );
+    INSERT INTO public.promotion_asset (
+      id, agent_id, invite_code_id, target_type, authorization_version,
+      public_url, expires_at, created_at
+    ) VALUES (
+      '${ids.promotion}', '${ids.agent}', '${ids.invite}', 'STOREFRONT', 1,
+      'https://store.example.invalid/b13', '2026-09-03T00:00:00Z', '2026-09-02T00:00:00Z'
+    ), (
+      '${ids.unusedPromotion}', '${ids.agent}', '${ids.invite}', 'STOREFRONT', 1,
+      'https://store.example.invalid/b13-unused', '2026-09-03T00:00:00Z', '2026-09-02T00:00:00Z'
+    );
+    INSERT INTO public.attribution_candidate (
+      id, candidate_token_hash, agent_id, invite_code_id, promotion_asset_id, status,
+      expires_at, created_at, updated_at
+    ) VALUES (
+      '${ids.candidate}', repeat('a', 64), '${ids.agent}', '${ids.invite}', '${ids.promotion}', 'ACTIVE',
+      '2026-09-02T00:30:00Z', '2026-09-02T00:00:00Z', '2026-09-02T00:00:00Z'
+    );
+    COMMIT;
+  `);
+
+  try {
+    runPsql(runtime, [], `
+      UPDATE public.attribution_candidate
+      SET candidate_token_hash = NULL, customer_id = '${ids.customer}',
+          updated_at = '2026-09-02T00:01:00Z'
+      WHERE id = '${ids.candidate}';
+      UPDATE public.attribution_candidate
+      SET status = 'CONFIRMED', confirmed_at = '2026-09-02T00:02:00Z',
+          updated_at = '2026-09-02T00:02:00Z'
+      WHERE id = '${ids.candidate}';
+    `);
+    expectPsqlFailure(runtime, `
+      UPDATE public.attribution_candidate
+      SET status = 'ACTIVE', confirmed_at = NULL, updated_at = CURRENT_TIMESTAMP
+      WHERE id = '${ids.candidate}';
+    `, "invalid attribution candidate lifecycle transition", "B13 candidate terminal reopen");
+    expectPsqlFailure(runtime, `
+      UPDATE public.attribution_candidate
+      SET status = 'REJECTED', confirmed_at = NULL, invalid_reason = 'rewritten terminal',
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = '${ids.candidate}';
+    `, "invalid attribution candidate lifecycle transition", "B13 candidate terminal rewrite");
+    expectPsqlFailure(runtime, `
+      UPDATE public.attribution_candidate
+      SET confirmed_at = '2026-09-02T00:03:00Z', updated_at = CURRENT_TIMESTAMP
+      WHERE id = '${ids.candidate}';
+    `, "terminal attribution candidate facts are immutable", "B13 candidate terminal timestamp rewrite");
+    expectPsqlFailure(runtime, `
+      UPDATE public.attribution_candidate
+      SET candidate_token_hash = repeat('d', 64), customer_id = NULL,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = '${ids.candidate}';
+    `, "invalid attribution candidate subject transition", "B13 candidate terminal subject rewrite");
+    expectPsqlFailure(runtime, `
+      UPDATE public.agent_invite_code SET id = '${ids.rewrittenInvite}'
+      WHERE id = '${ids.unusedInvite}';
+    `, "invite code identity and encrypted value are immutable", "B13 invite primary-key rewrite");
+    expectPsqlFailure(runtime, `
+      UPDATE public.promotion_asset SET id = '${ids.rewrittenPromotion}'
+      WHERE id = '${ids.unusedPromotion}';
+    `, "promotion asset subject, target and public URL are immutable", "B13 promotion primary-key rewrite");
+    expectPsqlFailure(runtime, `
+      UPDATE public.attribution_candidate
+      SET id = '${ids.rewrittenCandidate}', updated_at = CURRENT_TIMESTAMP
+      WHERE id = '${ids.candidate}';
+    `, "attribution candidate agent and promotion identity are immutable", "B13 candidate primary-key rewrite");
+    expectPsqlFailure(runtime, `
+      UPDATE public.agent_invite_code
+      SET status = 'EXPIRED', ended_at = '2026-09-02T12:00:00Z', end_reason = 'expired'
+      WHERE id = '${ids.invite}';
+    `, "chk_b13_invite_code_lifecycle", "B13 early invite expiry");
+    expectPsqlFailure(runtime, `
+      UPDATE public.promotion_asset
+      SET status = 'EXPIRED', revoked_at = '2026-09-02T12:00:00Z'
+      WHERE id = '${ids.promotion}';
+    `, "chk_b13_promotion_asset_envelope", "B13 early promotion expiry");
+    runPsql(runtime, [], `
+      UPDATE public.agent_invite_code
+      SET status = 'ROTATED', ended_at = '2026-09-02T00:04:00Z', end_reason = 'rotated'
+      WHERE id = '${ids.invite}';
+      UPDATE public.promotion_asset
+      SET status = 'REVOKED', revoked_at = '2026-09-02T00:04:00Z'
+      WHERE id = '${ids.promotion}';
+    `);
+    expectPsqlFailure(runtime, `
+      UPDATE public.agent_invite_code
+      SET ended_at = '2026-09-02T00:05:00Z', end_reason = 'rewritten rotation'
+      WHERE id = '${ids.invite}';
+    `, "terminal invite code lifecycle facts are immutable", "B13 invite terminal evidence rewrite");
+    expectPsqlFailure(runtime, `
+      UPDATE public.promotion_asset
+      SET revoked_at = '2026-09-02T00:05:00Z'
+      WHERE id = '${ids.promotion}';
+    `, "terminal promotion asset lifecycle facts are immutable", "B13 promotion terminal evidence rewrite");
+  } finally {
+    runPsql(replay, [], `
+      SET session_replication_role = replica;
+      DELETE FROM public.attribution_candidate
+      WHERE id IN ('${ids.candidate}', '${ids.rewrittenCandidate}');
+      DELETE FROM public.promotion_asset
+      WHERE id IN ('${ids.promotion}', '${ids.unusedPromotion}', '${ids.rewrittenPromotion}');
+      DELETE FROM public.agent_invite_code
+      WHERE id IN ('${ids.invite}', '${ids.unusedInvite}', '${ids.rewrittenInvite}');
+      DELETE FROM public.customer_profile WHERE id = '${ids.customer}';
+      DELETE FROM public.agent_profile WHERE id = '${ids.agent}';
+      DELETE FROM public.account WHERE id IN ('${ids.account}', '${ids.customerAccount}');
+      SET session_replication_role = origin;
+    `);
+  }
+
+  const residue = runPsql(replay, [
+    "-Atqc",
+    `SELECT count(*) FROM (
+       SELECT id FROM public.attribution_candidate
+       WHERE id IN ('${ids.candidate}', '${ids.rewrittenCandidate}')
+       UNION ALL SELECT id FROM public.promotion_asset
+       WHERE id IN ('${ids.promotion}', '${ids.unusedPromotion}', '${ids.rewrittenPromotion}')
+       UNION ALL SELECT id FROM public.agent_invite_code
+       WHERE id IN ('${ids.invite}', '${ids.unusedInvite}', '${ids.rewrittenInvite}')
+       UNION ALL SELECT id FROM public.customer_profile WHERE id = '${ids.customer}'
+       UNION ALL SELECT id FROM public.agent_profile WHERE id = '${ids.agent}'
+       UNION ALL SELECT id FROM public.account WHERE id IN ('${ids.account}', '${ids.customerAccount}')
+     ) AS fixture_residue`,
+  ], undefined, true);
+  if (residue !== "0") throw new Error("B13 promotion lifecycle test left fixture residue");
+
+  console.log("B13 invite, promotion and attribution-candidate terminal lifecycle guards verified");
+}
+
+function verifyB13WithdrawalGuards(replay) {
+  const runtime = { ...replay, username: "mall_runtime", password: `${replay.password}-runtime` };
+  const ids = {
+    agentAccount: "01J00000000000000000000341",
+    agent: "01J00000000000000000000342",
+    admin: "01J00000000000000000000343",
+    bank: "01J00000000000000000000344",
+    proofFile: "01J00000000000000000000345",
+    missingWithdrawal: "01J00000000000000000000346",
+    wrongWithdrawal: "01J00000000000000000000347",
+    wrongSnapshot: "01J00000000000000000000348",
+    wrongLedger: "01J00000000000000000000349",
+    duplicateWithdrawal: "01J0000000000000000000034A",
+    duplicateSnapshot: "01J0000000000000000000034B",
+    duplicateLedgerOne: "01J0000000000000000000034C",
+    duplicateLedgerTwo: "01J0000000000000000000034D",
+    rejectedWithdrawal: "01J0000000000000000000034E",
+    rejectedSnapshot: "01J0000000000000000000034F",
+    rejectedFreeze: "01J0000000000000000000034G",
+    rejectedRelease: "01J0000000000000000000034H",
+    paidWithdrawal: "01J0000000000000000000034J",
+    paidSnapshot: "01J0000000000000000000034K",
+    paidFreeze: "01J0000000000000000000034M",
+    paidLedger: "01J0000000000000000000034N",
+    paidProof: "01J0000000000000000000034P",
+    rewrittenWithdrawal: "01J0000000000000000000034Q",
+  };
+
+  runPsql(runtime, [], `
+    BEGIN;
+    INSERT INTO public.account (id, role, updated_at) VALUES
+      ('${ids.agentAccount}', 'AGENT_ADMIN', CURRENT_TIMESTAMP),
+      ('${ids.admin}', 'SUPER_ADMIN', CURRENT_TIMESTAMP);
+    INSERT INTO public.agent_profile (id, account_id, agent_no, name, updated_at)
+    VALUES ('${ids.agent}', '${ids.agentAccount}', 'B13-WITHDRAWAL', 'B13 withdrawal agent', CURRENT_TIMESTAMP);
+    INSERT INTO public.agent_bank_account (
+      id, agent_id, account_holder, bank_name, account_no_ciphertext,
+      account_no_hash, account_no_last4, encryption_key_id, updated_at
+    ) VALUES (
+      '${ids.bank}', '${ids.agent}', 'B13 account holder', 'B13 fixture bank',
+      decode('01020304', 'hex'), repeat('d', 64), '6789', 'b13-bank-key', CURRENT_TIMESTAMP
+    );
+    INSERT INTO public.file_asset (
+      id, object_key, original_name, mime_type, byte_size, sha256,
+      visibility, status, purpose, created_by_id
+    ) VALUES (
+      '${ids.proofFile}', 'private/b13/withdrawal-proof.png', 'withdrawal-proof.png',
+      'image/png', 1, repeat('e', 64), 'PRIVATE', 'READY', 'WITHDRAWAL_PROOF', '${ids.admin}'
+    );
+    COMMIT;
+  `);
+
+  try {
+    expectPsqlFailure(runtime, `
+      SELECT public.enforce_b13_withdrawal_consistency();
+    `, "permission denied for function enforce_b13_withdrawal_consistency", "B13 direct guard execution");
+
+    expectPsqlFailure(runtime, `
+      BEGIN;
+      INSERT INTO public.withdrawal (
+        id, withdrawal_no, agent_id, amount, available_before, frozen_after, updated_at
+      ) VALUES (
+        '${ids.missingWithdrawal}', 'WDB13MISSING001', '${ids.agent}',
+        10.00, 20.00, 10.00, CURRENT_TIMESTAMP
+      );
+      COMMIT;
+    `, "withdrawal requires exactly one immutable bank snapshot", "B13 missing withdrawal snapshot");
+
+    expectPsqlFailure(runtime, `
+      BEGIN;
+      INSERT INTO public.withdrawal (
+        id, withdrawal_no, agent_id, amount, available_before, frozen_after, updated_at
+      ) VALUES (
+        '${ids.wrongWithdrawal}', 'WDB13WRONG001', '${ids.agent}',
+        10.00, 20.00, 10.00, CURRENT_TIMESTAMP
+      );
+      INSERT INTO public.withdrawal_bank_snapshot (
+        id, withdrawal_id, source_bank_account_id, account_holder, bank_name,
+        account_no_ciphertext, account_no_last4, encryption_key_id
+      ) VALUES (
+        '${ids.wrongSnapshot}', '${ids.wrongWithdrawal}', '${ids.bank}',
+        'B13 account holder', 'B13 fixture bank', decode('01020304', 'hex'),
+        '6789', 'b13-bank-key'
+      );
+      INSERT INTO public.commission_ledger (
+        id, agent_id, withdrawal_id, ledger_type, expected_change,
+        available_change, frozen_change, reason, idempotency_key
+      ) VALUES (
+        '${ids.wrongLedger}', '${ids.agent}', '${ids.wrongWithdrawal}',
+        'WITHDRAWAL_FREEZE', 0.00, -9.00, 9.00, 'wrong freeze', 'b13-wrong-freeze'
+      );
+      COMMIT;
+    `, "withdrawal ledger amount must equal the immutable withdrawal amount", "B13 wrong withdrawal delta");
+
+    expectPsqlFailure(runtime, `
+      BEGIN;
+      INSERT INTO public.withdrawal (
+        id, withdrawal_no, agent_id, amount, available_before, frozen_after, updated_at
+      ) VALUES (
+        '${ids.duplicateWithdrawal}', 'WDB13DUPLICATE01', '${ids.agent}',
+        10.00, 20.00, 10.00, CURRENT_TIMESTAMP
+      );
+      INSERT INTO public.withdrawal_bank_snapshot (
+        id, withdrawal_id, source_bank_account_id, account_holder, bank_name,
+        account_no_ciphertext, account_no_last4, encryption_key_id
+      ) VALUES (
+        '${ids.duplicateSnapshot}', '${ids.duplicateWithdrawal}', '${ids.bank}',
+        'B13 account holder', 'B13 fixture bank', decode('01020304', 'hex'),
+        '6789', 'b13-bank-key'
+      );
+      INSERT INTO public.commission_ledger (
+        id, agent_id, withdrawal_id, ledger_type, expected_change,
+        available_change, frozen_change, reason, idempotency_key
+      ) VALUES
+        ('${ids.duplicateLedgerOne}', '${ids.agent}', '${ids.duplicateWithdrawal}',
+         'WITHDRAWAL_FREEZE', 0.00, -10.00, 10.00, 'first freeze', 'b13-freeze-one'),
+        ('${ids.duplicateLedgerTwo}', '${ids.agent}', '${ids.duplicateWithdrawal}',
+         'WITHDRAWAL_FREEZE', 0.00, -10.00, 10.00, 'second freeze', 'b13-freeze-two');
+      COMMIT;
+    `, "uq_commission_ledger_withdrawal_type", "B13 duplicate withdrawal freeze");
+
+    runPsql(runtime, [], `
+      BEGIN;
+      INSERT INTO public.withdrawal (
+        id, withdrawal_no, agent_id, amount, available_before, frozen_after, updated_at
+      ) VALUES (
+        '${ids.rejectedWithdrawal}', 'WDB13REJECTED001', '${ids.agent}',
+        10.00, 20.00, 10.00, CURRENT_TIMESTAMP
+      );
+      INSERT INTO public.withdrawal_bank_snapshot (
+        id, withdrawal_id, source_bank_account_id, account_holder, bank_name,
+        account_no_ciphertext, account_no_last4, encryption_key_id
+      ) VALUES (
+        '${ids.rejectedSnapshot}', '${ids.rejectedWithdrawal}', '${ids.bank}',
+        'B13 account holder', 'B13 fixture bank', decode('01020304', 'hex'),
+        '6789', 'b13-bank-key'
+      );
+      INSERT INTO public.commission_ledger (
+        id, agent_id, withdrawal_id, ledger_type, expected_change,
+        available_change, frozen_change, reason, idempotency_key
+      ) VALUES (
+        '${ids.rejectedFreeze}', '${ids.agent}', '${ids.rejectedWithdrawal}',
+        'WITHDRAWAL_FREEZE', 0.00, -10.00, 10.00, 'freeze', 'b13-rejected-freeze'
+      );
+      COMMIT;
+
+      BEGIN;
+      UPDATE public.withdrawal
+      SET status = 'REJECTED', review_reason = 'Fixture rejection',
+          reviewed_by_id = '${ids.admin}', reviewed_at = CURRENT_TIMESTAMP,
+          version = 2, updated_at = CURRENT_TIMESTAMP
+      WHERE id = '${ids.rejectedWithdrawal}';
+      INSERT INTO public.commission_ledger (
+        id, agent_id, withdrawal_id, ledger_type, expected_change,
+        available_change, frozen_change, reason, idempotency_key
+      ) VALUES (
+        '${ids.rejectedRelease}', '${ids.agent}', '${ids.rejectedWithdrawal}',
+        'WITHDRAWAL_RELEASE', 0.00, 10.00, -10.00, 'release', 'b13-rejected-release'
+      );
+      COMMIT;
+    `);
+
+    runPsql(runtime, [], `
+      BEGIN;
+      INSERT INTO public.withdrawal (
+        id, withdrawal_no, agent_id, amount, available_before, frozen_after, updated_at
+      ) VALUES (
+        '${ids.paidWithdrawal}', 'WDB13PAID000001', '${ids.agent}',
+        10.00, 20.00, 10.00, CURRENT_TIMESTAMP
+      );
+      INSERT INTO public.withdrawal_bank_snapshot (
+        id, withdrawal_id, source_bank_account_id, account_holder, bank_name,
+        account_no_ciphertext, account_no_last4, encryption_key_id
+      ) VALUES (
+        '${ids.paidSnapshot}', '${ids.paidWithdrawal}', '${ids.bank}',
+        'B13 account holder', 'B13 fixture bank', decode('01020304', 'hex'),
+        '6789', 'b13-bank-key'
+      );
+      INSERT INTO public.commission_ledger (
+        id, agent_id, withdrawal_id, ledger_type, expected_change,
+        available_change, frozen_change, reason, idempotency_key
+      ) VALUES (
+        '${ids.paidFreeze}', '${ids.agent}', '${ids.paidWithdrawal}',
+        'WITHDRAWAL_FREEZE', 0.00, -10.00, 10.00, 'freeze', 'b13-paid-freeze'
+      );
+      COMMIT;
+      UPDATE public.withdrawal
+      SET status = 'APPROVED', reviewed_by_id = '${ids.admin}', reviewed_at = CURRENT_TIMESTAMP,
+          version = 2, updated_at = CURRENT_TIMESTAMP
+      WHERE id = '${ids.paidWithdrawal}';
+    `);
+
+    expectPsqlFailure(runtime, `
+      BEGIN;
+      UPDATE public.withdrawal
+      SET status = 'PAID', paid_by_id = '${ids.admin}', paid_at = CURRENT_TIMESTAMP,
+          version = 3, updated_at = CURRENT_TIMESTAMP
+      WHERE id = '${ids.paidWithdrawal}';
+      INSERT INTO public.commission_ledger (
+        id, agent_id, withdrawal_id, ledger_type, expected_change,
+        available_change, frozen_change, reason, idempotency_key
+      ) VALUES (
+        '${ids.paidLedger}', '${ids.agent}', '${ids.paidWithdrawal}',
+        'WITHDRAWAL_PAID', 0.00, 0.00, -10.00, 'paid', 'b13-paid-ledger'
+      );
+      COMMIT;
+    `, "PAID withdrawal requires at least one payment proof", "B13 PAID without proof");
+
+    runPsql(runtime, [], `
+      BEGIN;
+      UPDATE public.withdrawal
+      SET status = 'PAID', paid_by_id = '${ids.admin}', paid_at = CURRENT_TIMESTAMP,
+          version = 3, updated_at = CURRENT_TIMESTAMP
+      WHERE id = '${ids.paidWithdrawal}';
+      INSERT INTO public.commission_ledger (
+        id, agent_id, withdrawal_id, ledger_type, expected_change,
+        available_change, frozen_change, reason, idempotency_key
+      ) VALUES (
+        '${ids.paidLedger}', '${ids.agent}', '${ids.paidWithdrawal}',
+        'WITHDRAWAL_PAID', 0.00, 0.00, -10.00, 'paid', 'b13-paid-ledger'
+      );
+      INSERT INTO public.withdrawal_proof (id, withdrawal_id, file_id)
+      VALUES ('${ids.paidProof}', '${ids.paidWithdrawal}', '${ids.proofFile}');
+      COMMIT;
+    `);
+
+    expectPsqlFailure(runtime, `
+      UPDATE public.withdrawal_bank_snapshot
+      SET bank_name = 'rewritten bank' WHERE id = '${ids.paidSnapshot}';
+    `, "permission denied for table withdrawal_bank_snapshot", "B13 runtime bank snapshot UPDATE");
+    expectPsqlFailure(runtime, `
+      DELETE FROM public.withdrawal_bank_snapshot WHERE id = '${ids.paidSnapshot}';
+    `, "permission denied for table withdrawal_bank_snapshot", "B13 runtime bank snapshot DELETE");
+    expectPsqlFailure(runtime, `
+      UPDATE public.commission_ledger
+      SET reason = 'rewritten' WHERE id = '${ids.paidLedger}';
+    `, "permission denied for table commission_ledger", "B13 runtime ledger UPDATE");
+    expectPsqlFailure(runtime, `
+      DELETE FROM public.commission_ledger WHERE id = '${ids.paidLedger}';
+    `, "permission denied for table commission_ledger", "B13 runtime ledger DELETE");
+    expectPsqlFailure(replay, `
+      UPDATE public.withdrawal_bank_snapshot
+      SET bank_name = 'rewritten bank' WHERE id = '${ids.paidSnapshot}';
+    `, "withdrawal bank snapshot is immutable", "B13 bank snapshot guard UPDATE");
+    expectPsqlFailure(runtime, `
+      UPDATE public.withdrawal SET id = '${ids.rewrittenWithdrawal}'
+      WHERE id = '${ids.paidWithdrawal}';
+    `, "withdrawal identity, amount and frozen balance snapshot are immutable", "B13 withdrawal primary-key rewrite");
+
+    runPsql(runtime, [], `
+      UPDATE public.agent_bank_account
+      SET bank_name = 'B13 replacement bank', account_no_ciphertext = decode('05060708', 'hex'),
+          account_no_hash = repeat('f', 64), account_no_last4 = '4321',
+          encryption_key_id = 'b13-bank-key-v2', version = 2, updated_at = CURRENT_TIMESTAMP
+      WHERE id = '${ids.bank}';
+    `);
+    const bankSnapshotPreflight = B13_PREDEPLOY_CHECKS.find(
+      (check) => check.key === "withdrawal-bank-snapshot",
+    );
+    if (!bankSnapshotPreflight) throw new Error("B13 bank-snapshot preflight is not registered");
+    const historicalSnapshotMismatch = runPsql(
+      replay,
+      ["-Atqc", bankSnapshotPreflight.sql],
+      undefined,
+      true,
+    );
+    if (historicalSnapshotMismatch === "0") {
+      throw new Error("B13 historical preflight did not observe a legitimate post-deploy bank rotation");
+    }
+    if (requiresB13HistoricalPreflight(B13_DEPLOYED_HISTORY)) {
+      throw new Error("B13 exact-history no-op path would rerun historical bank-snapshot predicates");
+    }
+
+    const finalState = runPsql(replay, [
+      "-Atqc",
+      `SELECT concat_ws('|',
+         (SELECT status FROM public.withdrawal WHERE id = '${ids.rejectedWithdrawal}'),
+         (SELECT count(*) FROM public.commission_ledger
+          WHERE withdrawal_id = '${ids.rejectedWithdrawal}' AND ledger_type = 'WITHDRAWAL_RELEASE'),
+         (SELECT status FROM public.withdrawal WHERE id = '${ids.paidWithdrawal}'),
+         (SELECT count(*) FROM public.commission_ledger
+          WHERE withdrawal_id = '${ids.paidWithdrawal}' AND ledger_type = 'WITHDRAWAL_PAID'
+            AND available_change = 0 AND frozen_change = -10.00),
+         (SELECT count(*) FROM public.withdrawal_proof WHERE withdrawal_id = '${ids.paidWithdrawal}'))`,
+    ], undefined, true);
+    if (finalState !== "REJECTED|1|PAID|1|1") {
+      throw new Error(`B13 withdrawal facts did not converge exactly: ${finalState}`);
+    }
+
+    runPsql(replay, [], `
+      BEGIN;
+      SET LOCAL ROLE mall_migrator;
+      DELETE FROM public.withdrawal_proof WHERE id = '${ids.paidProof}';
+      DELETE FROM public.commission_ledger
+      WHERE withdrawal_id IN ('${ids.rejectedWithdrawal}', '${ids.paidWithdrawal}');
+      DELETE FROM public.withdrawal_bank_snapshot
+      WHERE withdrawal_id IN ('${ids.rejectedWithdrawal}', '${ids.paidWithdrawal}');
+      DELETE FROM public.withdrawal
+      WHERE id IN ('${ids.rejectedWithdrawal}', '${ids.paidWithdrawal}');
+      DELETE FROM public.file_asset WHERE id = '${ids.proofFile}';
+      DELETE FROM public.agent_bank_account WHERE id = '${ids.bank}';
+      DELETE FROM public.agent_profile WHERE id = '${ids.agent}';
+      DELETE FROM public.account WHERE id IN ('${ids.agentAccount}', '${ids.admin}');
+      COMMIT;
+    `);
+  } finally {
+    runPsql(replay, [], `
+      SET session_replication_role = replica;
+      DELETE FROM public.withdrawal_proof WHERE id = '${ids.paidProof}';
+      DELETE FROM public.commission_ledger WHERE withdrawal_id IN (
+        '${ids.wrongWithdrawal}', '${ids.duplicateWithdrawal}',
+        '${ids.rejectedWithdrawal}', '${ids.paidWithdrawal}'
+      );
+      DELETE FROM public.withdrawal_bank_snapshot WHERE withdrawal_id IN (
+        '${ids.wrongWithdrawal}', '${ids.duplicateWithdrawal}',
+        '${ids.rejectedWithdrawal}', '${ids.paidWithdrawal}'
+      );
+      DELETE FROM public.withdrawal WHERE id IN (
+        '${ids.missingWithdrawal}', '${ids.wrongWithdrawal}', '${ids.duplicateWithdrawal}',
+        '${ids.rejectedWithdrawal}', '${ids.paidWithdrawal}', '${ids.rewrittenWithdrawal}'
+      );
+      DELETE FROM public.file_asset WHERE id = '${ids.proofFile}';
+      DELETE FROM public.agent_bank_account WHERE id = '${ids.bank}';
+      DELETE FROM public.agent_profile WHERE id = '${ids.agent}';
+      DELETE FROM public.account WHERE id IN ('${ids.agentAccount}', '${ids.admin}');
+      SET session_replication_role = origin;
+    `);
+  }
+
+  const residue = runPsql(replay, [
+    "-Atqc",
+    `SELECT count(*) FROM (
+       SELECT id FROM public.withdrawal WHERE id IN (
+         '${ids.missingWithdrawal}', '${ids.wrongWithdrawal}', '${ids.duplicateWithdrawal}',
+         '${ids.rejectedWithdrawal}', '${ids.paidWithdrawal}', '${ids.rewrittenWithdrawal}'
+       )
+       UNION ALL SELECT id FROM public.withdrawal_bank_snapshot WHERE id IN (
+         '${ids.wrongSnapshot}', '${ids.duplicateSnapshot}',
+         '${ids.rejectedSnapshot}', '${ids.paidSnapshot}'
+       )
+       UNION ALL SELECT id FROM public.commission_ledger WHERE id IN (
+         '${ids.wrongLedger}', '${ids.duplicateLedgerOne}', '${ids.duplicateLedgerTwo}',
+         '${ids.rejectedFreeze}', '${ids.rejectedRelease}', '${ids.paidFreeze}', '${ids.paidLedger}'
+       )
+       UNION ALL SELECT id FROM public.withdrawal_proof WHERE id = '${ids.paidProof}'
+       UNION ALL SELECT id FROM public.agent_bank_account WHERE id = '${ids.bank}'
+       UNION ALL SELECT id FROM public.agent_profile WHERE id = '${ids.agent}'
+       UNION ALL SELECT id FROM public.file_asset WHERE id = '${ids.proofFile}'
+       UNION ALL SELECT id FROM public.account WHERE id IN ('${ids.agentAccount}', '${ids.admin}')
+     ) AS fixture_residue`,
+  ], undefined, true);
+  if (residue !== "0") throw new Error("B13 withdrawal guard test left fixture residue");
+  console.log("B13 withdrawal freeze, reject, paid-proof, exact-delta, permissions and cleanup verified");
+}
+
+function verifyB13ChecksumTamperGate(replay) {
+  const expectedChecksum = "355311f6a5091f03bcb879f927ca78c984ec2cb26efb7f14bb4133161ccc2ea0";
+  const readHistory = () => runPsql(
+    replay,
+    ["-Atqc", B13_MIGRATION_HISTORY_SQL],
+    undefined,
+    true,
+  );
+  const readSchemaState = () => runPsql(replay, [
+    "-Atqc",
+    `SELECT concat_ws('|',
+       (SELECT count(*) FROM pg_constraint WHERE conname LIKE 'chk_b13_%'),
+       (SELECT count(*) FROM pg_trigger WHERE tgname LIKE 'trg_b13_%'),
+       (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public'
+          AND (p.proname LIKE 'enforce_b13_%' OR p.proname LIKE 'guard_b13_%')),
+       (SELECT count(*) FROM pg_class WHERE relname = 'uq_commission_ledger_withdrawal_type'))`,
+  ], undefined, true);
+  const historyBefore = readHistory();
+  if (!isApprovedB13Predecessor(historyBefore) || !isExactB13History(historyBefore)) {
+    throw new Error(
+      `B13 checksum test did not start from exact deployed history: ${historyBefore || "empty"}`,
+    );
+  }
+  const before = readSchemaState();
+
+  runPsql(replay, [], `
+    UPDATE public._prisma_migrations
+    SET checksum = repeat('0', 64)
+    WHERE migration_name = '0006_b13_agent_finance_guards';
+  `);
+  try {
+    const tamperedHistory = readHistory();
+    if (isApprovedB13Predecessor(tamperedHistory) || isExactB13History(tamperedHistory)) {
+      throw new Error("B13 deployment gate accepted a tampered 0006 migration checksum");
+    }
+    if (readSchemaState() !== before) {
+      throw new Error("B13 checksum rejection changed the deployed schema");
+    }
+  } finally {
+    runPsql(replay, [], `
+      UPDATE public._prisma_migrations
+      SET checksum = '${expectedChecksum}'
+      WHERE migration_name = '0006_b13_agent_finance_guards';
+    `);
+  }
+  const restoredHistory = readHistory();
+  if (restoredHistory !== B13_DEPLOYED_HISTORY) {
+    throw new Error(`B13 checksum test did not restore exact history: ${restoredHistory || "empty"}`);
+  }
+  console.log("B13 exact-history deployment gate rejected a tampered checksum without schema residue");
+}
+
 try {
   const replayRaw = process.env.REPLAY_DATABASE_URL || process.env.DIRECT_URL;
   if (!replayRaw) throw new Error("REPLAY_DATABASE_URL (or CI DIRECT_URL) is required");
@@ -1007,6 +2218,26 @@ try {
   verifyB10MigrationFailurePaths(replay, migratorConnection);
   verifyB12MigrationFailurePaths(replay, migratorConnection);
 
+  for (const migrationName of [
+    "0002_b9_inventory_fact_indexes",
+    "0003_b10_payment_fact_indexes",
+    "0004_b10_commission_position_trigger_fix",
+    "0005_b12_aftersale_refund_guards",
+  ]) {
+    runPsql(migratorConnection, ["-f", `prisma/migrations/${migrationName}/migration.sql`]);
+    resolveAppliedMigration(migratorConnection, migratorUrl.toString(), migrationName);
+  }
+  const b12History = runPsql(
+    replay,
+    ["-Atqc", B13_MIGRATION_HISTORY_SQL],
+    undefined,
+    true,
+  );
+  if (!requiresB13HistoricalPreflight(b12History)) {
+    throw new Error(`CI replay did not reach the exact B12 predecessor: ${b12History}`);
+  }
+  verifyB13MigrationFailurePaths(replay, migratorConnection);
+
   const deploy = prismaInvocation([
     "migrate",
     "deploy",
@@ -1022,10 +2253,15 @@ try {
 
   runPsql(replay, ["-f", "scripts/db/sql/post-bootstrap.sql"]);
   runPsql(replay, ["-At", "-f", "scripts/db/sql/verify.sql"]);
+  verifyB13ChecksumTamperGate(replay);
   verifyB9IndexPlans(migratorConnection);
   verifyB10IndexPlans(migratorConnection);
   verifyB10CommissionPositionRuntime(replay);
   await verifyB12RefundGuards(replay);
+  await verifyB13AgentRoleRace(replay);
+  await verifyB13CommissionGuards(replay);
+  verifyB13PromotionLifecycle(replay);
+  verifyB13WithdrawalGuards(replay);
   const diff = prismaInvocation([
     "migrate",
     "diff",

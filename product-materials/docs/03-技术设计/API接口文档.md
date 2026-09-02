@@ -4,9 +4,9 @@
 
 | 项目 | 内容 |
 |---|---|
-| 文档版本 | v2.4.10 |
-| 对应产品基线 | MVP/PRD v2.4.10、CH-001 至 CH-026；在线接口以 CH-026 为准 |
-| 接口阶段 | B0-B11 development 已完成并维持 `GO`。CH-026 已批准；OpenAPI `2.4.10-ch026` 实测为 173 paths / 198 operations / 198 unique operationId / 326 schemas / 706 schema refs / 2,726 local refs / 0 dangling refs。B12.0 精确 SHA 三项远端门禁已闭合，CH-027 已批准且仍有效；B12.1-B12.6 本地实现与本地验收已完成，B12.5/B12.6 未改变 API 统计。DB/E2E/全仓、完整真实纵向和精确清理通过，最终同 SHA 远端双绿待完成。B12 仍非 development `GO`；真实客户数据、staging、production、真实微信退款与真实物流集成均为 `NO-GO` |
+| 文档版本 | v2.4.11 |
+| 对应产品基线 | MVP/PRD v2.4.11、CH-001 至 CH-028；在线接口以 CH-028 为准 |
+| 接口阶段 | B0-B12 development 已完成并维持 `GO`。CH-028 已批准；OpenAPI 基线为 `2.4.11-ch028`，本地实测 `173 paths / 198 operations / 198 unique operationId / 327 schemas / 714 schema refs / 2,734 local refs / 0 dangling refs`，Redocly 0 warning，完整 manifest SHA-256 为 `128509f76f2e62ebe78cd0465205a94236f87f70904bf614664dd1b02548dc80`。B12 最终 SHA `8c3589afcf7bb0dd5a4b8711d418e4c61b1ad09c` 的普通 CI `33592754575` 与 Supabase rollback-only smoke `33594513127` 同 SHA 双绿，CH-027 已自动失效。B13.0 本地候选门禁已通过，但最终实现 SHA 的远端三门禁尚未执行，故 B13.0 未退出、B13.1 不得开始；B13 Agent `21 paths / 23 operations` 仍为预埋契约，业务实现尚未开放。B12 orphan `P2=1` 继续阻断 staging/真实数据；真实客户数据、staging、production、真实微信退款与真实物流集成均为 `NO-GO` |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
 | 更新时间 | 2026-09-02 |
 
@@ -919,17 +919,17 @@ CH-026 下所有 Admin 售后/退款写操作使用 `HASH_ONLY`；已有售后�
 |---|---|---|
 | `POST` | `/files/upload-intents` | 获取对象存储上传参数和 `file_id` |
 | `POST` | `/files/{file_id}/complete` | 校验类型、大小和哈希后确认上传 |
-| `GET` | `/files/{file_id}/download-url` | 按角色和业务对象返回短时签名 URL |
+| `GET` | `/files/{file_id}/download-url` | 按角色和业务对象返回短时签名 URL；Agent 仅可读取本人推广素材绑定的 QR |
 
-上传意图的 `purpose` 固定为 `PRODUCT_IMAGE/BRAND_LOGO/CATEGORY_ICON/BANNER/AFTERSALE_EVIDENCE/WITHDRAWAL_PROOF/PROMOTION_QR`。上传意图、完成确认和下载分别返回 `FileUploadIntentResponse`、`FileUploadCompleteResponse`、`FileDownloadUrlResponse`，不再使用同时带上传/下载字段的通用 DTO。任何包含签名 `upload_url`、签名 `download_url` 或短时请求头的成功响应都必须带 `Cache-Control: no-store, private` 与 `Pragma: no-cache`。挂接业务实体时必须复核文件 READY、purpose 与当前创建人/资源归属；只有前四类公开素材可转 PUBLIC，售后、提现与推广 QR 始终 PRIVATE 并通过短时签名 URL 使用。文件接口不得接受任意本地路径或由客户端指定存储桶权限。
+外部上传意图的 `purpose` 固定为 `PRODUCT_IMAGE/BRAND_LOGO/CATEGORY_ICON/BANNER/AFTERSALE_EVIDENCE/WITHDRAWAL_PROOF`。`PROMOTION_QR` 由服务端生成，不接受客户端 upload-intent/complete；生成推广素材时必须将 `READY/PRIVATE/PROMOTION_QR` 文件原子绑定，创建响应只返回 `file_id/status/visibility/purpose` 事实，不直接返回签名 URL。上传意图、完成确认和下载分别返回 `FileUploadIntentResponse`、`FileUploadCompleteResponse`、`FileDownloadUrlResponse`，不再使用同时带上传/下载字段的通用 DTO。任何包含签名 `upload_url`、签名 `download_url` 或短时请求头的成功响应都必须带 `Cache-Control: no-store, private` 与 `Pragma: no-cache`。挂接业务实体时必须复核文件 READY、purpose 与当前创建人/资源归属；只有前四类公开素材可转 PUBLIC，售后、提现与推广 QR 始终 PRIVATE 并通过短时签名 URL 使用。文件接口不得接受任意本地路径或由客户端指定存储桶权限。
 
 CH-006 文件契约统一如下：
 
-- `UploadIntentRequest` 必须提交 64 位小写十六进制 `sha256`；七类 purpose 只接受 `image/jpeg`、`image/png`，`size` 最大 5 MiB。上传签名 15 分钟过期。
+- `UploadIntentRequest` 必须提交 64 位小写十六进制 `sha256`；六类外部 purpose 只接受 `image/jpeg`、`image/png`，`size` 最大 5 MiB。上传签名 15 分钟过期。
 - `UploadCompleteRequest.sha256/size` 必须同时匹配 intent 与服务端从对象存储读取后的 MIME、文件魔数、大小和 SHA-256；任一不一致返回 `FILE_CONTENT_MISMATCH` 422，不把 PENDING 标为 READY。
 - bucket 默认私有；对象 key 只使用不含原文件名的 `staging/`、`public/`、`private/` 分区。仅 `public/*` 允许匿名 GET，私有素材只能通过 5 分钟签名下载 URL 访问。
 - PENDING/staging 满 24 小时才进入清理候选，Worker 删除前再次确认无 READY 记录和业务引用。数据库不新增 `completed_at` 或 `updated_at`；完成事实由 READY、最终对象 key、服务端实测 MIME/size/SHA-256、审计和闭合幂等响应联合表达，首次 `completed_at` 只保存在该响应及其幂等记录中。
-- 上传意图和 lifecycle preview 使用 `HASH_ONLY`，不得存签名 URL、签名请求头或 preview token。`GET /files/{file_id}/download-url` 不接受 `Idempotency-Key`、不创建幂等记录；其签名 URL 依靠鉴权、5 分钟 TTL、`Cache-Control: no-store, private`、`Pragma: no-cache` 以及禁止持久化/日志记录进行保护。文件 complete 在 B3.1 实现闭合策略 `FILE_UPLOAD_COMPLETE`：同键同请求精确重放，新键重复完成返回 409。
+- 上传意图和 lifecycle preview 使用 `HASH_ONLY`，不得存签名 URL、签名请求头或 preview token。`GET /files/{file_id}/download-url` 不接受 `Idempotency-Key`、不创建幂等记录；其签名 URL 依靠鉴权、5 分钟 TTL、`Cache-Control: no-store, private`、`Pragma: no-cache` 以及禁止持久化/日志记录进行保护。Agent realm 是本 GET 的唯一非 `/agent` 例外，只允许读取当前 Agent 本人 `promotion_asset.qr_file_id` 绑定的 `READY/PRIVATE/PROMOTION_QR`。文件 complete 在 B3.1 实现闭合策略 `FILE_UPLOAD_COMPLETE`：同键同请求精确重放，新键重复完成返回 409。
 
 ## 8. 幂等、事务与异步事件
 
@@ -1008,7 +1008,7 @@ Provider 回调先写入回调收件箱，再由幂等处理器消费；领域�
 - B9.1-B9.5 已完成。B9.3 代码与聚焦测试覆盖本人订单读取、If-Match/HASH_ONLY 取消、超时 Worker、全 payment_intent 状态 fail-closed、取消/超时唯一释放与并发锁序；关闭时履约轴保持 `NOT_STARTED`。B9.4 已完成 MP-08/10/11；B9.5 已将 `db:test-b9-store-orders`、`e2e:b9`、`e2e:b9:vertical` 接入普通 CI，并将 B9 repository smoke 接入 Supabase rollback-only。数据库 full `4 files / 29 tests`、B9 UI `12 passed / 28 designed skips`、真实 browser → Nest → PostgreSQL/Redis/MinIO → Worker `1/1`、全仓 `1,787 passed / 120 designed skips` 和精确清理均通过，三项原 P1 已关闭，最终复审为 `P0=0/P1=0/P2=1`。最终 SHA `19f9ad57190b28d11922db805b39af95b2f7ba3b` 的普通 CI Run `33230769777` 与 Supabase development rollback-only smoke Run `33233087710` 同 SHA 且均为 `completed/success`，B9 development `GO`，CH-019 已自动失效；唯一 P2 TR-020 不阻断 development，staging、production 与真实支付仍为 `NO-GO`。
 - CH-022 契约本地解析实测为 173 paths、198 operations、198 unique operationId、326 schemas、705 schema refs、2,678 local refs、0 dangling refs。CH-023 不改变任何在线契约或上述统计，0004 继续作为已部署的最小权限函数修复保留，B10.5/B10.6 未新增迁移。B10 最终 SHA `f5e59169b53a97704711c3aae3049e5b5d16a930` 的[普通 CI Run 33305811318](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33305811318)与[Supabase development rollback-only smoke Run 33306877575](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33306877575)同 SHA 且均成功，B10 development `GO`，CH-021 已自动失效；真实支付、staging 和 production 仍为 `NO-GO`。
 - CH-024 专属检查、生成与 Redocly lint 已通过，统计保持 `173/198/198/326/705/2,695/0`。B11.1-B11.4 历史实现证据保持；B11.5 本地真实纵向、严格客户端、API 回归、全仓门禁和最终远端同 SHA 双绿已完成。API 全量为 **81 files passed / 13 skipped；1,095 passed / 44 skipped**。B11 development `GO`，CH-025 已自动失效。
-- CH-026 契约解析实测为 173 paths、198 operations、198 unique operationId、326 schemas、706 schema refs、2,726 local refs、0 dangling refs，Redocly 0 warning。机器门禁覆盖 18 个售后/退款 operation、2 个金额补偿 operation、Store PREVIEW/CONFIRM 200/201、验货 PASS/ABNORMAL 判别联合、ULID、Store 限流/no-store、HASH_ONLY/If-Match、闭合原因/错误/证据/承运字段、Admin preview-confirm、来源闭合 retry，以及订单售后摘要和完整 `APPLY_AFTERSALE` 矩阵。B12.1-B12.6 本地实现与本地验收已完成，OpenAPI、统计和 generated contracts 契约形状未改变；完整 `RETURN_REFUND` 真实纵向、Callback、库存/佣金/订单收敛及精确清理通过。最终同 SHA 远端双绿尚未取得，仍不代表 B12 development `GO`。
+- CH-026 契约解析实测为 173 paths、198 operations、198 unique operationId、326 schemas、706 schema refs、2,726 local refs、0 dangling refs，Redocly 0 warning。机器门禁覆盖 18 个售后/退款 operation、2 个金额补偿 operation、Store PREVIEW/CONFIRM 200/201、验货 PASS/ABNORMAL 判别联合、ULID、Store 限流/no-store、HASH_ONLY/If-Match、闭合原因/错误/证据/承运字段、Admin preview-confirm、来源闭合 retry，以及订单售后摘要和完整 `APPLY_AFTERSALE` 矩阵。B12.1-B12.6 本地实现与本地验收已完成，OpenAPI、统计和 generated contracts 契约形状未改变；完整 `RETURN_REFUND` 真实纵向、Callback、库存/佣金/订单收敛及精确清理通过。最终实现 SHA `8c3589afcf7bb0dd5a4b8711d418e4c61b1ad09c` 的普通 CI `33592754575` 与 Supabase rollback-only smoke `33594513127` 同 SHA 双绿，B12 development `GO`，CH-027 已自动失效；B12 orphan `P2=1` 继续阻断 staging/真实数据。
 - B7.4 已实现注销后端：不合格 preview 返回 200、完整 blockers/impacts 及 null token/hash/expiry；合格预览才签发 5 分钟能力。confirm 后出现新阻断返回 422 且不消费能力、不产生部分去标识化；成功后在单事务清除登录主体/非交易 PII、结束绑定、使候选失效、匿名化代理隐私投影、写审计与 durable `PENDING account.anonymized` Outbox 事实，并将全部 session 留作 revoked tombstone。这里只证明事件事实已持久化，不宣称已投递或消费。全部旧 token 失效，HASH_ONLY 不重放完成响应；full 与受控 Supabase development rollback-only 门禁已通过，退出复审 `P0=0/P1=0`。
 - Product/SKU 固定创建状态、完整状态矩阵、恢复目标、不级联、首次 `published_at`、nullable 最低活动价、8 图、归档 SKU、零库存余额、不可变 code、201 SKU create 和四个新 422 均有契约及集成测试。
 - 非 `APPROVED` 提现无法请求完整银行卡号；短时授权不可跨提现单、跨会话或重复使用。

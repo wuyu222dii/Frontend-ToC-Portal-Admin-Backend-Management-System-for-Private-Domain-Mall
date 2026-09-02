@@ -32,7 +32,7 @@ BEGIN
     AND pg_get_userbyid(c.relowner) = 'mall_migrator'
     AND c.relname <> '_prisma_migrations'
     AND i.indpred IS NOT NULL;
-  IF actual <> 22 THEN RAISE EXCEPTION 'expected 22 partial indexes, found %', actual; END IF;
+  IF actual <> 23 THEN RAISE EXCEPTION 'expected 23 partial indexes, found %', actual; END IF;
 
   IF NOT EXISTS (
     SELECT 1
@@ -130,6 +130,23 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'B12 successful refund-attempt uniqueness index is missing or malformed';
   END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_index i
+    JOIN pg_class c ON c.oid = i.indrelid
+    JOIN pg_class ic ON ic.oid = i.indexrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = 'commission_ledger'
+      AND ic.relname = 'uq_commission_ledger_withdrawal_type'
+      AND i.indisunique
+      AND i.indnatts = 2
+      AND pg_get_indexdef(i.indexrelid, 1, true) = 'withdrawal_id'
+      AND pg_get_indexdef(i.indexrelid, 2, true) = 'ledger_type'
+      AND pg_get_expr(i.indpred, i.indrelid) = '(withdrawal_id IS NOT NULL)'
+  ) THEN
+    RAISE EXCEPTION 'B13 withdrawal ledger lifecycle uniqueness index is missing or malformed';
+  END IF;
 
   SELECT count(*) INTO actual
   FROM pg_constraint c
@@ -138,7 +155,15 @@ BEGIN
   WHERE n.nspname = 'public' AND c.contype = 'c'
     AND pg_get_userbyid(r.relowner) = 'mall_migrator'
     AND r.relname <> '_prisma_migrations';
-  IF actual <> 165 THEN RAISE EXCEPTION 'expected 165 CHECK constraints, found %', actual; END IF;
+  IF actual <> 175 THEN RAISE EXCEPTION 'expected 175 CHECK constraints, found %', actual; END IF;
+  SELECT count(*) INTO actual
+  FROM pg_constraint c
+  JOIN pg_class r ON r.oid = c.conrelid
+  JOIN pg_namespace n ON n.oid = r.relnamespace
+  WHERE n.nspname = 'public' AND c.contype = 'c'
+    AND c.conname LIKE 'chk_b13_%'
+    AND pg_get_userbyid(r.relowner) = 'mall_migrator';
+  IF actual <> 10 THEN RAISE EXCEPTION 'expected 10 B13 CHECK constraints, found %', actual; END IF;
 
   SELECT count(*) INTO actual
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -182,7 +207,7 @@ BEGIN
     JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public' AND NOT t.tgisinternal
     AND pg_get_userbyid(c.relowner) = 'mall_migrator';
-  IF actual <> 26 THEN RAISE EXCEPTION 'expected 26 user triggers, found %', actual; END IF;
+  IF actual <> 47 THEN RAISE EXCEPTION 'expected 47 user triggers, found %', actual; END IF;
 
   SELECT coalesce(sum(
     (CASE WHEN (t.tgtype & 4) <> 0 THEN 1 ELSE 0 END) +
@@ -194,12 +219,26 @@ BEGIN
     JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public' AND NOT t.tgisinternal
     AND pg_get_userbyid(c.relowner) = 'mall_migrator';
-  IF actual <> 50 THEN RAISE EXCEPTION 'expected 50 trigger event bindings, found %', actual; END IF;
+  IF actual <> 92 THEN RAISE EXCEPTION 'expected 92 trigger event bindings, found %', actual; END IF;
 
   SELECT count(*) INTO actual
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public' AND pg_get_userbyid(p.proowner) = 'mall_migrator';
-  IF actual <> 16 THEN RAISE EXCEPTION 'expected 16 migrator-owned functions, found %', actual; END IF;
+  IF actual <> 28 THEN RAISE EXCEPTION 'expected 28 migrator-owned functions, found %', actual; END IF;
+  SELECT count(*) INTO actual
+  FROM pg_proc p
+  JOIN pg_namespace n ON n.oid = p.pronamespace
+  JOIN pg_language l ON l.oid = p.prolang
+  WHERE n.nspname = 'public'
+    AND (p.proname LIKE 'enforce_b13_%' OR p.proname LIKE 'guard_b13_%')
+    AND pg_get_userbyid(p.proowner) = 'mall_migrator'
+    AND l.lanname = 'plpgsql'
+    AND p.prokind = 'f'
+    AND NOT p.prosecdef
+    AND p.proconfig IS NULL;
+  IF actual <> 12 THEN
+    RAISE EXCEPTION 'expected 12 owner-locked SECURITY INVOKER B13 guard functions, found %', actual;
+  END IF;
   SELECT md5(string_agg(concat_ws(E'\x1f',
     p.proname,
     pg_get_function_identity_arguments(p.oid),
@@ -218,8 +257,8 @@ BEGIN
   JOIN pg_namespace n ON n.oid = p.pronamespace
   JOIN pg_language l ON l.oid = p.prolang
   WHERE n.nspname = 'public' AND pg_get_userbyid(p.proowner) = 'mall_migrator';
-  IF actual_hash <> 'f50cb72196e16f0a5505eb53dcd461d1' THEN
-    RAISE EXCEPTION 'application function definitions differ from the frozen B12 baseline: %', actual_hash;
+  IF actual_hash <> 'af58e950c026d83e837f87edbef2f314' THEN
+    RAISE EXCEPTION 'application function definitions differ from the frozen B13 baseline: %', actual_hash;
   END IF;
 
   IF NOT EXISTS (
@@ -276,7 +315,7 @@ BEGIN
     t.tginitdeferred::text,
     t.tgattr::text,
     encode(t.tgargs, 'hex'),
-    coalesce(pg_get_expr(t.tgqual, t.tgrelid), ''),
+    pg_get_triggerdef(t.oid, false),
     coalesce(t.tgoldtable, ''),
     coalesce(t.tgnewtable, '')
   ), E'\x1d' ORDER BY c.relname, t.tgname)) INTO actual_hash
@@ -286,7 +325,7 @@ BEGIN
   JOIN pg_proc pf ON pf.oid = t.tgfoid
   WHERE n.nspname = 'public' AND NOT t.tgisinternal
     AND pg_get_userbyid(c.relowner) = 'mall_migrator';
-  IF actual_hash <> '5e1a4fbb1796c6b503e2ed77df474cc3' THEN
+  IF actual_hash <> '3d1547c613fd1f82c139a94dc0b2cc95' THEN
     RAISE EXCEPTION 'application trigger definitions differ from the frozen baseline: %', actual_hash;
   END IF;
 
@@ -304,7 +343,7 @@ BEGIN
   JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public' AND k.contype = 'c'
     AND pg_get_userbyid(c.relowner) = 'mall_migrator';
-  IF actual_hash <> 'f9ccb3ef39e9eace14c49fc01a6e119d' THEN
+  IF actual_hash <> 'aa50500fa26840d5728dedae27b5c9b1' THEN
     RAISE EXCEPTION 'application CHECK definitions differ from the frozen baseline: %', actual_hash;
   END IF;
 
@@ -325,7 +364,7 @@ BEGIN
   JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public' AND i.indpred IS NOT NULL
     AND pg_get_userbyid(c.relowner) = 'mall_migrator';
-  IF actual_hash <> 'ad8fe12c0942686b13f55e244cfa2f27' THEN
+  IF actual_hash <> 'e0fdfdd16fcbb5640ce584f3a9981ceb' THEN
     RAISE EXCEPTION 'partial-index definitions differ from the frozen baseline: %', actual_hash;
   END IF;
   IF EXISTS (
@@ -338,6 +377,25 @@ BEGIN
       AND has_function_privilege(denied.role_name, p.oid, 'EXECUTE')
   ) THEN
     RAISE EXCEPTION 'a Data API role can execute an application function';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    LEFT JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) privilege
+      ON TRUE
+    LEFT JOIN pg_roles grantee_role ON grantee_role.oid = privilege.grantee
+    WHERE n.nspname = 'public'
+      AND (p.proname LIKE 'enforce_b13_%' OR p.proname LIKE 'guard_b13_%')
+      AND privilege.privilege_type = 'EXECUTE'
+      AND (
+        privilege.grantee = 0
+        OR grantee_role.rolname IN (
+          'mall_runtime', 'authenticator', 'anon', 'authenticated', 'service_role'
+        )
+      )
+  ) THEN
+    RAISE EXCEPTION 'a runtime, PUBLIC, or Data API role can execute a B13 guard function';
   END IF;
 
   IF NOT EXISTS (
@@ -406,7 +464,7 @@ BEGIN
     AND pg_get_userbyid(p.proowner) = 'mall_migrator'
     AND has_function_privilege('mall_runtime', p.oid, 'EXECUTE');
   IF actual <> 16 THEN
-    RAISE EXCEPTION 'expected mall_runtime EXECUTE on 16 application functions, found %', actual;
+    RAISE EXCEPTION 'expected mall_runtime EXECUTE on 16 non-B13 application functions, found %', actual;
   END IF;
 
   IF to_regclass('public._prisma_migrations') IS NULL THEN
@@ -419,31 +477,42 @@ BEGIN
   IF (
     SELECT count(*) FROM public._prisma_migrations
     WHERE migration_name = '0001_initial'
+      AND checksum = 'f1e192fc6a93710e855770a27ed2de04665288fd9ab188652c0fd5f7683ba71b'
       AND finished_at IS NOT NULL
       AND rolled_back_at IS NULL
   ) <> 1 OR (
     SELECT count(*) FROM public._prisma_migrations
     WHERE migration_name = '0002_b9_inventory_fact_indexes'
+      AND checksum = '9c933d256e0cbe7c33acdd801b6385bae6f892ff3db10978c40e37ea2f89f5d0'
       AND finished_at IS NOT NULL
       AND rolled_back_at IS NULL
   ) <> 1 OR (
     SELECT count(*) FROM public._prisma_migrations
     WHERE migration_name = '0003_b10_payment_fact_indexes'
+      AND checksum = '0d5109a6d0eab2598f2c6c98bbeca265bdd32733e7d89f8eb78eff67caedb836'
       AND finished_at IS NOT NULL
       AND rolled_back_at IS NULL
   ) <> 1 OR (
     SELECT count(*) FROM public._prisma_migrations
     WHERE migration_name = '0004_b10_commission_position_trigger_fix'
+      AND checksum = '8d4c391af114c4691d2be80ae8bb44efc1c70658f5268ad4de7221a29d5ee102'
       AND finished_at IS NOT NULL
       AND rolled_back_at IS NULL
   ) <> 1 OR (
     SELECT count(*) FROM public._prisma_migrations
     WHERE migration_name = '0005_b12_aftersale_refund_guards'
+      AND checksum = '95f362667bdc6a0b751ae636d91a139a71a3f40155ba764937db01d5bbce412b'
       AND finished_at IS NOT NULL
       AND rolled_back_at IS NULL
   ) <> 1 OR (
     SELECT count(*) FROM public._prisma_migrations
-  ) <> 5 OR EXISTS (
+    WHERE migration_name = '0006_b13_agent_finance_guards'
+      AND checksum = '355311f6a5091f03bcb879f927ca78c984ec2cb26efb7f14bb4133161ccc2ea0'
+      AND finished_at IS NOT NULL
+      AND rolled_back_at IS NULL
+  ) <> 1 OR (
+    SELECT count(*) FROM public._prisma_migrations
+  ) <> 6 OR EXISTS (
     SELECT 1 FROM public._prisma_migrations
     WHERE finished_at IS NULL
       OR rolled_back_at IS NOT NULL
@@ -452,10 +521,11 @@ BEGIN
         '0002_b9_inventory_fact_indexes',
         '0003_b10_payment_fact_indexes',
         '0004_b10_commission_position_trigger_fix',
-        '0005_b12_aftersale_refund_guards'
+        '0005_b12_aftersale_refund_guards',
+        '0006_b13_agent_finance_guards'
       )
   ) THEN
-    RAISE EXCEPTION 'expected the exact completed 0001 -> 0002 -> 0003 -> 0004 -> 0005 B12 migration history';
+    RAISE EXCEPTION 'expected the exact completed 0001 -> 0002 -> 0003 -> 0004 -> 0005 -> 0006 B13 migration history';
   END IF;
   IF has_table_privilege('mall_runtime', 'public._prisma_migrations', 'SELECT')
     OR has_table_privilege('mall_runtime', 'public._prisma_migrations', 'INSERT')
@@ -747,14 +817,14 @@ END $$;
 SELECT json_build_object(
   'tables', 76,
   'enums', 59,
-  'partial_indexes', 22,
-  'check_constraints', 165,
+  'partial_indexes', 23,
+  'check_constraints', 175,
   'rls_tables', 76,
   'runtime_policies', 76,
   'runtime_policy_shape_verified', true,
-  'user_triggers', 26,
-  'trigger_event_bindings', 50,
-  'owned_functions', 16,
+  'user_triggers', 47,
+  'trigger_event_bindings', 92,
+  'owned_functions', 28,
   'native_definition_fingerprints_verified', true,
   'runtime_function_execute', 16,
   'supabase_data_api_roles', 4,

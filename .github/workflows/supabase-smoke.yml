@@ -82,6 +82,63 @@ jobs:
                 )] | length > 0
               '
 
+      - name: Require the matching development migration
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROJECT_REF: ${{ inputs.project_ref }}
+          TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          smoke_created_at="$(
+            gh api --method GET \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              --jq '.created_at'
+          )"
+          artifact_name="supabase-migration-$TARGET_SHA-$PROJECT_REF"
+          mapfile -t migration_run_ids < <(
+            gh api --method GET \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/supabase-migrate.yml/runs" \
+              -f branch=main \
+              -f event=workflow_dispatch \
+              -f head_sha="$TARGET_SHA" \
+              -f per_page=100 \
+              -f status=completed \
+              | jq --arg sha "$TARGET_SHA" --arg before "$smoke_created_at" -r '
+                  [.workflow_runs[] | select(
+                    .head_sha == $sha
+                    and .head_branch == "main"
+                    and .event == "workflow_dispatch"
+                    and .status == "completed"
+                    and .conclusion == "success"
+                    and .updated_at <= $before
+                  )]
+                  | sort_by(.updated_at)
+                  | reverse
+                  | .[].id
+                '
+          )
+
+          matched_run_id=""
+          for run_id in "${migration_run_ids[@]}"; do
+            if gh api --method GET \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts" \
+              -f per_page=100 \
+              | jq --arg name "$artifact_name" --exit-status '
+                  [.artifacts[] | select(
+                    .name == $name
+                    and .expired == false
+                  )] | length == 1
+                ' >/dev/null; then
+              matched_run_id="$run_id"
+              break
+            fi
+          done
+
+          test -n "$matched_run_id" || {
+            echo "No successful earlier migration run attests this target SHA and development project" >&2
+            exit 1
+          }
+          echo "Using migration attestation from workflow run $matched_run_id"
+
       - name: Set up pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:

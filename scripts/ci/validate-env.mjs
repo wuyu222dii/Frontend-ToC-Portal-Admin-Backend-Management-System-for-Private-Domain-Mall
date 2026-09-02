@@ -20,6 +20,9 @@ const required = [
   "FIELD_ENCRYPTION_KEY_ID",
   "FIELD_PREVIOUS_ENCRYPTION_KEYS_JSON",
   "AUDIT_IP_HASH_KEY_BASE64",
+  "BANK_ACCOUNT_HASH_KEY_BASE64",
+  "BANK_ACCOUNT_HASH_KEY_ID",
+  "BANK_ACCOUNT_PREVIOUS_HASH_KEYS_JSON",
   "IDEMPOTENCY_HASH_KEY_BASE64",
   "IDEMPOTENCY_HASH_KEY_ID",
   "IDEMPOTENCY_PREVIOUS_HASH_KEYS_JSON",
@@ -34,6 +37,12 @@ const required = [
   "AUTH_ACCESS_TOKEN_TTL_SECONDS",
   "AUTH_PREAUTH_TOKEN_TTL_SECONDS",
   "AUTH_SESSION_TTL_SECONDS",
+  "AGENT_AUTH_TOKEN_AUDIENCE",
+  "AGENT_ACCESS_TOKEN_TTL_SECONDS",
+  "AGENT_SESSION_TTL_SECONDS",
+  "AGENT_LOGIN_RATE_LIMIT_MAX",
+  "AGENT_LOGIN_RATE_LIMIT_WINDOW_SECONDS",
+  "STORE_PROMOTION_PUBLIC_BASE_URL",
   "STORE_AUTH_TOKEN_AUDIENCE",
   "STORE_IDENTITY_PROVIDER",
   "STORE_PHONE_PROVIDER",
@@ -159,6 +168,7 @@ try {
   const redis = parseUrl("REDIS_URL", ["redis:", "rediss:"]);
   const storage = parseUrl("S3_ENDPOINT", ["http:", "https:"]);
   const publicStorage = parseUrl("S3_PUBLIC_BASE_URL", ["http:", "https:"]);
+  const promotionBase = parseUrl("STORE_PROMOTION_PUBLIC_BASE_URL", ["http:", "https:"]);
   const runtimeUsername = decodeComponent(runtime.username, "DATABASE_URL username");
   const migratorUsername = decodeComponent(migrator.username, "DIRECT_URL username");
   const runtimePassword = decodeComponent(runtime.password, "DATABASE_URL password");
@@ -222,6 +232,16 @@ try {
         url.protocol !== "https:") {
       throw new Error(`remote and production ${name} values must use https`);
     }
+  }
+  if (!promotionBase.hostname || promotionBase.username || promotionBase.password ||
+      promotionBase.search !== "" || promotionBase.hash !== "" ||
+      process.env.STORE_PROMOTION_PUBLIC_BASE_URL.length > 500) {
+    throw new Error("STORE_PROMOTION_PUBLIC_BASE_URL must be a credential-free URL without query or fragment");
+  }
+  const localPromotionHosts = new Set(["127.0.0.1", "localhost", "[::1]"]);
+  if ((process.env.NODE_ENV === "production" || !localPromotionHosts.has(promotionBase.hostname)) &&
+      promotionBase.protocol !== "https:") {
+    throw new Error("remote and production STORE_PROMOTION_PUBLIC_BASE_URL values must use https");
   }
   if (!/^(?!\d{1,3}(?:\.\d{1,3}){3}$)[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(process.env.S3_BUCKET) ||
       process.env.S3_BUCKET.includes("..")) {
@@ -287,16 +307,29 @@ try {
     "STORE_PHONE_HASH_KEY_BASE64",
     "STORE_PHONE_PREVIOUS_HASH_KEYS_JSON",
   );
+  const bankAccountHashKeys = readKeyRing(
+    "BANK_ACCOUNT_HASH_KEY_ID",
+    "BANK_ACCOUNT_HASH_KEY_BASE64",
+    "BANK_ACCOUNT_PREVIOUS_HASH_KEYS_JSON",
+  );
   for (const [name, value] of [
     ["AUTH_TOKEN_ISSUER", process.env.AUTH_TOKEN_ISSUER],
     ["AUTH_TOKEN_AUDIENCE", process.env.AUTH_TOKEN_AUDIENCE],
     ["STORE_AUTH_TOKEN_AUDIENCE", process.env.STORE_AUTH_TOKEN_AUDIENCE],
+    ["AGENT_AUTH_TOKEN_AUDIENCE", process.env.AGENT_AUTH_TOKEN_AUDIENCE],
   ]) {
     if (!/^[A-Za-z0-9._:/-]{3,120}$/.test(value)) throw new Error(`${name} has an invalid format`);
   }
   if (process.env.STORE_AUTH_TOKEN_AUDIENCE !== "qingxu-store" ||
       process.env.STORE_AUTH_TOKEN_AUDIENCE === process.env.AUTH_TOKEN_AUDIENCE) {
     throw new Error("STORE_AUTH_TOKEN_AUDIENCE must be qingxu-store and differ from AUTH_TOKEN_AUDIENCE");
+  }
+  if (process.env.AGENT_AUTH_TOKEN_AUDIENCE !== "qingxu-agent-web" ||
+      process.env.AGENT_AUTH_TOKEN_AUDIENCE === process.env.AUTH_TOKEN_AUDIENCE ||
+      process.env.AGENT_AUTH_TOKEN_AUDIENCE === process.env.STORE_AUTH_TOKEN_AUDIENCE) {
+    throw new Error(
+      "AGENT_AUTH_TOKEN_AUDIENCE must be qingxu-agent-web and differ from Admin/Store audiences",
+    );
   }
   for (const name of ["STORE_IDENTITY_PROVIDER", "STORE_PHONE_PROVIDER"]) {
     const value = process.env[name];
@@ -358,6 +391,13 @@ try {
   ]) {
     readBoundedInteger(name, minimum, maximum);
   }
+  const agentAccessTtl = readBoundedInteger("AGENT_ACCESS_TOKEN_TTL_SECONDS", 300, 3_600);
+  const agentSessionTtl = readBoundedInteger("AGENT_SESSION_TTL_SECONDS", 3_600, 2_592_000);
+  if (agentSessionTtl < agentAccessTtl) {
+    throw new Error("AGENT_SESSION_TTL_SECONDS must be greater than or equal to AGENT_ACCESS_TOKEN_TTL_SECONDS");
+  }
+  readBoundedInteger("AGENT_LOGIN_RATE_LIMIT_MAX", 1, 1_000);
+  readBoundedInteger("AGENT_LOGIN_RATE_LIMIT_WINDOW_SECONDS", 1, 86_400);
   const purposeKeys = [
     ...fieldEncryptionKeys.map(({ key }) => key),
     auditIpHashKey,
@@ -365,12 +405,13 @@ try {
     ...authSigningKeys.map(({ key }) => key),
     ...authSecretHashKeys.map(({ key }) => key),
     ...storePhoneHashKeys.map(({ key }) => key),
+    ...bankAccountHashKeys.map(({ key }) => key),
     ...(paymentMockSigningKey ? [paymentMockSigningKey] : []),
   ];
   if (purposeKeys.some((key, index) => purposeKeys.some((candidate, candidateIndex) =>
     index !== candidateIndex && key.equals(candidate)))) {
     throw new Error(
-      "authentication, Store phone, payment Mock, field encryption, audit, and idempotency keys must be independent",
+      "authentication, Store phone, bank account, payment Mock, field encryption, audit, and idempotency keys must be independent",
     );
   }
   readBoundedInteger("WORKER_POLL_INTERVAL_MS", 100, 60_000);

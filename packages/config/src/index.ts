@@ -40,6 +40,9 @@ export interface PlatformRuntimeConfig {
   banner: {
     targetOrigins: readonly string[];
   };
+  promotion: {
+    publicBaseUrl: string;
+  };
   database: {
     url: string;
     poolMax: number;
@@ -49,6 +52,7 @@ export interface PlatformRuntimeConfig {
     allowInsecureLocalhost: boolean;
   };
   encryption: {
+    bankAccountHashKeys: SecurityKeyRingConfig;
     fieldKeys: SecurityKeyRingConfig;
     ipHashKey: Buffer;
     idempotencyHashKeys: {
@@ -85,6 +89,13 @@ export interface PlatformRuntimeConfig {
     secretHashKeys: SecurityKeyRingConfig;
     sessionTtlSeconds: number;
     signingKeys: SecurityKeyRingConfig;
+  };
+  agent: {
+    accessTokenTtlSeconds: number;
+    authTokenAudience: string;
+    loginRateLimitMax: number;
+    loginRateLimitWindowSeconds: number;
+    sessionTtlSeconds: number;
   };
   store: {
     authTokenAudience: string;
@@ -345,6 +356,37 @@ function readBannerTargetOrigins(source: NodeJS.ProcessEnv): readonly string[] {
     throw new Error('BANNER_TARGET_ORIGINS must not contain duplicates');
   }
   return origins;
+}
+
+function readPromotionPublicBaseUrl(
+  source: NodeJS.ProcessEnv,
+  required: boolean,
+  environment: RuntimeEnvironment,
+): string {
+  const raw = source.STORE_PROMOTION_PUBLIC_BASE_URL?.trim();
+  if (!raw) {
+    if (!required) return 'https://example.invalid';
+    throw new Error('STORE_PROMOTION_PUBLIC_BASE_URL is required');
+  }
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error('STORE_PROMOTION_PUBLIC_BASE_URL must be a valid HTTP URL');
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('STORE_PROMOTION_PUBLIC_BASE_URL must use HTTP or HTTPS');
+  }
+  if (!url.hostname || url.username || url.password || url.search || url.hash || raw.length > 500) {
+    throw new Error(
+      'STORE_PROMOTION_PUBLIC_BASE_URL must be a credential-free URL without query or fragment of at most 500 characters',
+    );
+  }
+  const localHosts = new Set(['127.0.0.1', 'localhost', '[::1]']);
+  if ((environment === 'production' || !localHosts.has(url.hostname)) && url.protocol !== 'https:') {
+    throw new Error('Remote and production STORE_PROMOTION_PUBLIC_BASE_URL values must use HTTPS');
+  }
+  return raw.replace(/\/$/, '');
 }
 
 function hasHostBits(bytes: readonly number[], prefixLength: number): boolean {
@@ -862,6 +904,51 @@ function readStoreConfig(
   };
 }
 
+function readAgentConfig(
+  source: NodeJS.ProcessEnv,
+  required: boolean,
+  adminAudience: string,
+  storeAudience: string,
+): PlatformRuntimeConfig['agent'] {
+  const authTokenAudience = readIdentifier(source, 'AGENT_AUTH_TOKEN_AUDIENCE', 'qingxu-agent-web', required);
+  if (required && authTokenAudience !== 'qingxu-agent-web') {
+    throw new Error('AGENT_AUTH_TOKEN_AUDIENCE must be qingxu-agent-web');
+  }
+  if (authTokenAudience === adminAudience || authTokenAudience === storeAudience) {
+    throw new Error('AGENT_AUTH_TOKEN_AUDIENCE must differ from admin and Store audiences');
+  }
+  const accessTokenTtlSeconds = readInteger(
+    source,
+    'AGENT_ACCESS_TOKEN_TTL_SECONDS',
+    900,
+    300,
+    3_600,
+  );
+  const sessionTtlSeconds = readInteger(
+    source,
+    'AGENT_SESSION_TTL_SECONDS',
+    604_800,
+    3_600,
+    2_592_000,
+  );
+  if (sessionTtlSeconds < accessTokenTtlSeconds) {
+    throw new Error('AGENT_SESSION_TTL_SECONDS must be greater than or equal to AGENT_ACCESS_TOKEN_TTL_SECONDS');
+  }
+  return {
+    accessTokenTtlSeconds,
+    authTokenAudience,
+    loginRateLimitMax: readInteger(source, 'AGENT_LOGIN_RATE_LIMIT_MAX', 10, 1, 1_000),
+    loginRateLimitWindowSeconds: readInteger(
+      source,
+      'AGENT_LOGIN_RATE_LIMIT_WINDOW_SECONDS',
+      900,
+      1,
+      86_400,
+    ),
+    sessionTtlSeconds,
+  };
+}
+
 export function loadPlatformConfig(
   source: NodeJS.ProcessEnv,
   options: LoadPlatformConfigOptions,
@@ -899,6 +986,12 @@ export function loadPlatformConfig(
     previousName: 'STORE_PHONE_PREVIOUS_HASH_KEYS_JSON',
     required: requireAuthentication,
   });
+  const bankAccountHashKeys = readSecurityKeyRing(source, {
+    currentIdName: 'BANK_ACCOUNT_HASH_KEY_ID',
+    currentKeyName: 'BANK_ACCOUNT_HASH_KEY_BASE64',
+    previousName: 'BANK_ACCOUNT_PREVIOUS_HASH_KEYS_JSON',
+    required: requireAuthentication,
+  });
   const databaseConnection = readRuntimeDatabaseConnection(source, requireDatabase, environment);
   const redisUrl = readRuntimeRedisUrl(source, requireDatabase, environment);
   const storage = readStorageConfig(source, requireStorage, environment);
@@ -918,6 +1011,7 @@ export function loadPlatformConfig(
       ...[signingKeys.current, ...signingKeys.previous].map(({ key }) => key),
       ...[secretHashKeys.current, ...secretHashKeys.previous].map(({ key }) => key),
       ...[phoneHashKeys.current, ...phoneHashKeys.previous].map(({ key }) => key),
+      ...[bankAccountHashKeys.current, ...bankAccountHashKeys.previous].map(({ key }) => key),
     ];
     if (purposeKeys.some((key, index) => purposeKeys.some((candidate, candidateIndex) =>
       index !== candidateIndex && key.equals(candidate)))) {
@@ -932,6 +1026,7 @@ export function loadPlatformConfig(
             ...[signingKeys.current, ...signingKeys.previous].map(({ key }) => key),
             ...[secretHashKeys.current, ...secretHashKeys.previous].map(({ key }) => key),
             ...[phoneHashKeys.current, ...phoneHashKeys.previous].map(({ key }) => key),
+            ...[bankAccountHashKeys.current, ...bankAccountHashKeys.previous].map(({ key }) => key),
           ]
         : []),
     ];
@@ -947,6 +1042,8 @@ export function loadPlatformConfig(
     requireAuthentication,
   );
   const store = readStoreConfig(source, requireAuthentication, environment, adminAudience, phoneHashKeys);
+  const agent = readAgentConfig(source, requireAuthentication, adminAudience, store.authTokenAudience);
+  const promotion = readPromotionPublicBaseUrl(source, requireAuthentication, environment);
 
   return {
     environment,
@@ -954,6 +1051,7 @@ export function loadPlatformConfig(
     port: readInteger(source, portName, SERVICE_DEFAULT_PORTS[options.service], 1, 65_535),
     http: { trustedProxyCidrs: readTrustedProxyCidrs(source) },
     banner: { targetOrigins: readBannerTargetOrigins(source) },
+    promotion: { publicBaseUrl: promotion },
     database: {
       ...databaseConnection,
       poolMax: readInteger(
@@ -972,6 +1070,7 @@ export function loadPlatformConfig(
       ),
     },
     encryption: {
+      bankAccountHashKeys,
       fieldKeys,
       ipHashKey,
       idempotencyHashKeys,
@@ -988,6 +1087,7 @@ export function loadPlatformConfig(
       sessionTtlSeconds: readInteger(source, 'AUTH_SESSION_TTL_SECONDS', 604_800, 3_600, 2_592_000),
       signingKeys,
     },
+    agent,
     store,
     worker: {
       pollIntervalMs: readInteger(source, 'WORKER_POLL_INTERVAL_MS', 1_000, 100, 60_000),

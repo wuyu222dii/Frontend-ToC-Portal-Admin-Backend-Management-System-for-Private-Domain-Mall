@@ -17,7 +17,7 @@
     "store:phone-hash:verify": "STORE_PHONE_HASH_MAINTENANCE_MODE=VERIFY_CURRENT pnpm build:packages && STORE_PHONE_HASH_MAINTENANCE_MODE=VERIFY_CURRENT pnpm --filter @qingxu/api exec tsx src/store-profile/store-phone-hash-maintenance.cli.ts",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "config:check": "node scripts/ci/validate-env.mjs",
-    "contracts:check": "node scripts/ci/check-ch026-contract.mjs",
+    "contracts:check": "node scripts/ci/check-ch028-contract.mjs",
     "contracts:generate": "pnpm --filter @qingxu/contracts generate",
     "contracts:lint": "redocly lint product-materials/docs/03-技术设计/openapi.yaml --config .redocly.yaml",
     "dev:admin": "pnpm --filter @qingxu/admin-web dev",

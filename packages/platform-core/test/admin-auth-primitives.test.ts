@@ -10,9 +10,11 @@ import {
   hashPassword,
   hmacAuthenticationSecret,
   signAccessToken,
+  signAgentAccessToken,
   signStoreAccessToken,
   signPreAuthToken,
   verifyAccessToken,
+  verifyAgentAccessToken,
   verifyStoreAccessToken,
   verifyPasswordHash,
   verifyPreAuthToken,
@@ -146,5 +148,75 @@ describe('administrator authentication primitives', () => {
       restriction: 'NONE',
       tokenId: 'access:01J00000000000000000000004',
     }, 900)).toThrow('Store access token principal is invalid');
+  });
+
+  it('keeps Agent access tokens isolated and supports restricted temporary sessions', () => {
+    const agentConfiguration: AuthTokenConfiguration = { ...configuration, audience: 'qingxu-agent-web' };
+    const agentAccess = signAgentAccessToken(agentConfiguration, {
+      accountId: '01J00000000000000000000000',
+      sessionId: '01J00000000000000000000002',
+      role: 'AGENT_ADMIN',
+      permissions: [],
+      assurance: 'PASSWORD',
+      restriction: 'NONE',
+      tokenId: 'access:01J00000000000000000000003',
+    }, 900);
+    expect(verifyAgentAccessToken(agentConfiguration, agentAccess.token)).toMatchObject({
+      assurance: 'PASSWORD',
+      role: 'AGENT_ADMIN',
+      restriction: 'NONE',
+      permissions: [],
+    });
+
+    const restrictedAccess = signAgentAccessToken(agentConfiguration, {
+      accountId: '01J00000000000000000000000',
+      sessionId: '01J00000000000000000000004',
+      role: 'AGENT_ADMIN',
+      permissions: [],
+      assurance: 'PASSWORD',
+      restriction: 'CHANGE_PASSWORD_ONLY',
+      tokenId: 'access:01J00000000000000000000005',
+    }, 300);
+    expect(verifyAgentAccessToken(agentConfiguration, restrictedAccess.token)).toMatchObject({
+      role: 'AGENT_ADMIN',
+      restriction: 'CHANGE_PASSWORD_ONLY',
+    });
+
+    expect(() => verifyAccessToken(configuration, agentAccess.token)).toThrow();
+    expect(() => verifyStoreAccessToken({ ...configuration, audience: 'qingxu-store' }, agentAccess.token))
+      .toThrow();
+    expect(() => verifyAgentAccessToken(configuration, agentAccess.token)).toThrow();
+
+    const adminAccess = signAccessToken(configuration, {
+      accountId: '01J00000000000000000000000',
+      sessionId: '01J00000000000000000000002',
+      role: 'SUPER_ADMIN',
+      permissions: [],
+      assurance: 'MFA',
+      restriction: 'NONE',
+      tokenId: 'access:01J00000000000000000000007',
+    }, 900);
+    const storeConfiguration = { ...configuration, audience: 'qingxu-store' };
+    const storeAccess = signStoreAccessToken(storeConfiguration, {
+      accountId: '01J00000000000000000000000',
+      sessionId: '01J00000000000000000000002',
+      role: 'CUSTOMER',
+      permissions: [],
+      assurance: 'WECHAT',
+      restriction: 'NONE',
+      tokenId: 'access:01J00000000000000000000008',
+    }, 900);
+    expect(() => verifyAgentAccessToken(agentConfiguration, adminAccess.token)).toThrow();
+    expect(() => verifyAgentAccessToken(agentConfiguration, storeAccess.token)).toThrow();
+
+    expect(() => signAgentAccessToken(agentConfiguration, {
+      accountId: '01J00000000000000000000000',
+      sessionId: '01J00000000000000000000002',
+      role: 'SUPER_ADMIN',
+      permissions: [],
+      assurance: 'MFA',
+      restriction: 'NONE',
+      tokenId: 'access:01J00000000000000000000006',
+    }, 900)).toThrow('Agent access token principal is invalid');
   });
 });

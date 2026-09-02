@@ -949,7 +949,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 当前代理账号、会话与权限摘要 */
+        /** 当前代理身份和商品授权模式摘要 */
         get: operations["getAgentAuthCurrent"];
         put?: never;
         post?: never;
@@ -983,7 +983,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 当前授权且已上架商品与各 SKU 当前预计比例 */
+        /** 当前授权且已上架商品与各 SKU 当前预计比例；服务端固定只返回 ACTIVE 商品 */
         get: operations["getAgentProducts"];
         put?: never;
         post?: never;
@@ -1019,7 +1019,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 为商城主页或当前授权商品生成推广素材 */
+        /**
+         * 为商城主页或当前授权商品生成推广素材
+         * @description 服务端生成 QR 图像，并在同一事务中将 READY/PRIVATE/PROMOTION_QR 文件与新推广素材原子绑定。响应仅返回文件事实，不返回签名下载 URL；下载时必须通过 GET /files/{file_id}/download-url 重新鉴权。
+         */
         post: operations["postAgentPromotionAssets"];
         delete?: never;
         options?: never;
@@ -3245,7 +3248,7 @@ export interface paths {
         put?: never;
         /**
          * 获取对象存储上传参数和 file_id
-         * @description 七类 purpose 均仅接受 image/jpeg 或 image/png，单文件最大 5 MiB（5242880 bytes），请求必须提交预期 SHA-256。上传签名有效 15 分钟；对象先写入不含原文件名的 staging/ 键。上传意图响应包含短时签名 URL，幂等仅使用 HASH_ONLY，不得缓存响应体。
+         * @description 六类外部上传 purpose 均仅接受 image/jpeg 或 image/png，单文件最大 5 MiB（5242880 bytes），请求必须提交预期 SHA-256。PROMOTION_QR 只能由服务端生成，不接受客户端上传意图。上传签名有效 15 分钟；对象先写入不含原文件名的 staging/ 键。上传意图响应包含短时签名 URL，幂等仅使用 HASH_ONLY，不得缓存响应体。
          */
         post: operations["postFilesUploadIntents"];
         delete?: never;
@@ -3265,7 +3268,7 @@ export interface paths {
         put?: never;
         /**
          * 校验类型、大小和哈希后确认上传
-         * @description 请求 sha256/size 必须同时与上传意图及服务端读取对象后的实测 MIME、魔数、大小和 SHA-256 一致；不一致返回 422 FILE_CONTENT_MISMATCH。PRODUCT_IMAGE、BRAND_LOGO、CATEGORY_ICON、BANNER 移至 public/；AFTERSALE_EVIDENCE、WITHDRAWAL_PROOF、PROMOTION_QR 移至 private/；对象键均不含原文件名。FILE_UPLOAD_COMPLETE 使用闭合幂等策略：同 Idempotency-Key 精确重放，已完成文件使用新键重复提交返回 409；不得在数据库新增 completed_at 列。
+         * @description 请求 sha256/size 必须同时与上传意图及服务端读取对象后的实测 MIME、魔数、大小和 SHA-256 一致；不一致返回 422 FILE_CONTENT_MISMATCH。PRODUCT_IMAGE、BRAND_LOGO、CATEGORY_ICON、BANNER 移至 public/；AFTERSALE_EVIDENCE、WITHDRAWAL_PROOF 移至 private/；对象键均不含原文件名。PROMOTION_QR 由服务端直接生成并原子落为 READY/PRIVATE，不使用本客户端 complete operation。FILE_UPLOAD_COMPLETE 使用闭合幂等策略：同 Idempotency-Key 精确重放，已完成文件使用新键重复提交返回 409；不得在数据库新增 completed_at 列。
          */
         post: operations["postFilesByFileIdComplete"];
         delete?: never;
@@ -3283,7 +3286,7 @@ export interface paths {
         };
         /**
          * 按角色和业务对象返回短时签名 URL
-         * @description 仅 READY 且通过角色和业务归属校验的文件可下载：CUSTOMER 只能读取由本账户创建的 AFTERSALE_EVIDENCE；SUPER_ADMIN 可读取本人创建且 purpose 通过角色校验的私有文件，跨创建者读取仅限已绑定至任一 aftersale_evidence 且实测为 READY/PRIVATE/AFTERSALE_EVIDENCE、对象键精确为 private/{file_id} 的文件，不得因 SUPER_ADMIN 角色放宽其他跨账户私有文件。private/ 对象返回有效期 5 分钟的签名 URL；公开素材的稳定地址由 FileUploadCompleteResponse.public_url 提供。本 GET operation 不接受 Idempotency-Key、不创建幂等记录；响应必须 no-store/private，且不得持久化或记录签名 URL。存储桶默认私有，仅 public/* 允许匿名 GET，private/* 始终禁止匿名访问。PENDING 或 staging/ 满 24 小时仅进入清理候选，删除前必须再次确认没有 READY 引用。
+         * @description 仅 READY 且通过角色和业务归属校验的文件可下载：CUSTOMER 只能读取由本账户创建的 AFTERSALE_EVIDENCE；SUPER_ADMIN 可读取本人创建且 purpose 通过角色校验的私有文件，跨创建者读取仅限已绑定至任一 aftersale_evidence 且实测为 READY/PRIVATE/AFTERSALE_EVIDENCE、对象键精确为 private/{file_id} 的文件，不得因 SUPER_ADMIN 角色放宽其他跨账户私有文件。AGENT_ADMIN 仅可通过 agentBearerAuth 读取实测为 READY/PRIVATE/PROMOTION_QR、对象键精确为 private/{file_id}，且已作为 qr_file_id 绑定至当前 Agent 本人 promotion_asset 的文件；Agent token 不得下载其他 purpose 或其他 Agent 的 QR。private/ 对象返回有效期 5 分钟的签名 URL；公开素材的稳定地址由 FileUploadCompleteResponse.public_url 提供。本 GET operation 不接受 Idempotency-Key、不创建幂等记录；响应必须 no-store/private，且不得持久化或记录签名 URL。存储桶默认私有，仅 public/* 允许匿名 GET，private/* 始终禁止匿名访问。PENDING 或 staging/ 满 24 小时仅进入清理候选，删除前必须再次确认没有 READY 引用。
          */
         get: operations["getFilesByFileIdDownloadUrl"];
         put?: never;
@@ -3448,18 +3451,45 @@ export interface components {
             /** Format: date-time */
             expires_at: string;
         };
-        AuthSessionData: {
+        AgentSessionData: {
+            /** @description JWT aud 固定为 qingxu-agent-web；仅 AGENT_ADMIN 可接受。 */
             access_token: string;
+            /** @description 仅代理安全会话存储使用；服务端只保存哈希并在 refresh 时轮换。 */
             refresh_token: string;
+            account_id: string;
+            session_id: string;
+            /** @constant */
+            role: "AGENT_ADMIN";
             /** @constant */
             mfa_required: false;
-            /** @enum {string} */
-            assurance: "WECHAT" | "PASSWORD" | "MFA";
+            /** @constant */
+            assurance: "PASSWORD";
+            /** @constant */
+            restriction: "NONE";
             /** Format: date-time */
             expires_at: string;
         };
+        AgentSessionResponse: {
+            /** @constant */
+            code: "OK";
+            /** @constant */
+            message: "success";
+            data: components["schemas"]["AgentSessionData"];
+            request_id: string;
+        };
         RestrictedAgentSessionData: {
+            /** @description JWT aud 固定为 qingxu-agent-web；不含 refresh token，且只允许改密和注销。 */
             access_token: string;
+            account_id: string;
+            session_id: string;
+            /** @constant */
+            role: "AGENT_ADMIN";
+            /** @constant */
+            mfa_required: false;
+            /** @constant */
+            assurance: "PASSWORD";
+            /** @constant */
+            restriction: "CHANGE_PASSWORD_ONLY";
             /** @constant */
             must_change_password: true;
             /** @constant */
@@ -3468,20 +3498,20 @@ export interface components {
             /** Format: date-time */
             expires_at: string;
         };
+        RestrictedAgentSessionResponse: {
+            /** @constant */
+            code: "OK";
+            /** @constant */
+            message: "success";
+            data: components["schemas"]["RestrictedAgentSessionData"];
+            request_id: string;
+        };
         AdminLoginPreAuthResponse: {
             /** @constant */
             code: "OK";
             /** @constant */
             message: "success";
             data: components["schemas"]["AuthPreauthData"];
-            request_id: string;
-        };
-        SessionAuthResponse: {
-            /** @constant */
-            code: "OK";
-            /** @constant */
-            message: "success";
-            data: components["schemas"]["AuthSessionData"];
             request_id: string;
         };
         StoreSessionView: {
@@ -3504,14 +3534,6 @@ export interface components {
             /** @constant */
             message: "success";
             data: components["schemas"]["StoreSessionView"];
-            request_id: string;
-        };
-        AgentLoginResponse: {
-            /** @constant */
-            code: "OK";
-            /** @constant */
-            message: "success";
-            data: components["schemas"]["AuthSessionData"] | components["schemas"]["RestrictedAgentSessionData"];
             request_id: string;
         };
         AttributionCandidateSummary: {
@@ -3803,6 +3825,7 @@ export interface components {
         BankAccountWriteRequest: {
             account_holder: string;
             bank_name: string;
+            /** @description 服务端先去除 ASCII 空格和连字符，再校验为 6-32 位数字；请求可使用分隔符，明文只在写入事务内存在。 */
             account_number: string;
         };
         ShipmentLineInput: {
@@ -4211,7 +4234,7 @@ export interface components {
         };
         UploadIntentRequest: {
             /** @enum {string} */
-            purpose: "PRODUCT_IMAGE" | "BRAND_LOGO" | "CATEGORY_ICON" | "BANNER" | "AFTERSALE_EVIDENCE" | "WITHDRAWAL_PROOF" | "PROMOTION_QR";
+            purpose: "PRODUCT_IMAGE" | "BRAND_LOGO" | "CATEGORY_ICON" | "BANNER" | "AFTERSALE_EVIDENCE" | "WITHDRAWAL_PROOF";
             filename: string;
             /** @enum {string} */
             mime_type: "image/jpeg" | "image/png";
@@ -4596,28 +4619,22 @@ export interface components {
             };
             request_id: string;
         };
-        AccountCurrentView: {
-            account_id: string;
+        /** @description 仅返回当前代理 ID、编号、名称、状态和商品授权模式；不得包含密码、token、权限或银行卡明文。 */
+        AgentCurrentView: {
+            agent_id: string;
+            agent_no: string;
+            name: string;
             /** @enum {string} */
-            role: "SUPER_ADMIN" | "AGENT_ADMIN" | "CUSTOMER";
+            status: "ACTIVE" | "DISABLED";
             /** @enum {string} */
-            status: "ACTIVE" | "DISABLED" | "DELETION_PENDING" | "ANONYMIZED";
-            session_id: string;
-            /** @enum {string} */
-            assurance: "WECHAT" | "PASSWORD" | "MFA";
-            /** @enum {string} */
-            restriction: "NONE" | "CHANGE_PASSWORD_ONLY";
-            /** Format: date-time */
-            mfa_verified_at?: string | null;
-            permissions: string[];
-            version: number;
+            product_authorization_mode: "ALL_ACTIVE_PRODUCTS" | "CUSTOM_WHITELIST";
         };
-        AccountCurrentResponse: {
+        AgentCurrentResponse: {
             /** @constant */
             code: "OK";
             /** @constant */
             message: "success";
-            data: components["schemas"]["AccountCurrentView"];
+            data: components["schemas"]["AgentCurrentView"];
             request_id: string;
         };
         ProfileView: {
@@ -5657,8 +5674,16 @@ export interface components {
                 target_id?: string | null;
                 /** Format: uri */
                 public_url: string;
-                /** Format: uri */
-                qr_download_url?: string | null;
+                /** @description 服务端生成并与 promotion_asset 原子绑定的私有 QR 文件事实；下载 URL 必须另行重新鉴权获取。 */
+                qr_file: {
+                    file_id: string;
+                    /** @constant */
+                    status: "READY";
+                    /** @constant */
+                    visibility: "PRIVATE";
+                    /** @constant */
+                    purpose: "PROMOTION_QR";
+                };
                 attribution_eligible: boolean;
                 /** Format: date-time */
                 expires_at: string | null;
@@ -6255,6 +6280,11 @@ export interface components {
             };
             request_id: string;
         };
+        /**
+         * @description 一次性秘密首次签发或幂等重放脱敏状态；服务端不得持久化或再次披露秘密。
+         * @enum {string}
+         */
+        OneTimeDisclosureState: "FIRST_ISSUE" | "REPLAY_REDACTED";
         AgentPasswordResetResponse: {
             /** @constant */
             code: "OK";
@@ -6262,12 +6292,25 @@ export interface components {
             message: "success";
             data: {
                 agent: components["schemas"]["AgentView"];
-                /** @description 仅在本次 no-store 响应中展示一次，不进入日志、缓存或幂等响应体。 */
+                /** @description 仅本次 no-store 响应展示一次，不保存或进入日志、缓存。 */
                 temporary_password: string;
                 /** Format: date-time */
                 expires_at: string;
                 /** @constant */
                 must_change_password: true;
+                disclosure_state: components["schemas"]["OneTimeDisclosureState"] & "FIRST_ISSUE";
+                /** @constant */
+                reissue_required: false;
+            } | {
+                agent: components["schemas"]["AgentView"];
+                temporary_password: null;
+                /** Format: date-time */
+                expires_at: string | null;
+                /** @constant */
+                must_change_password: true;
+                disclosure_state: components["schemas"]["OneTimeDisclosureState"] & "REPLAY_REDACTED";
+                /** @constant */
+                reissue_required: true;
             };
             request_id: string;
         };
@@ -6278,13 +6321,27 @@ export interface components {
             message: "success";
             data: {
                 agent: components["schemas"]["AgentView"];
-                /** @description 仅在本次 no-store 响应中展示一次，不进入日志、缓存或幂等响应体。 */
+                /** @description 仅本次 no-store 响应展示一次，不保存或进入日志、缓存。 */
                 temporary_password: string;
                 /** Format: date-time */
                 expires_at: string;
                 /** @constant */
                 must_change_password: true;
                 initial_invite_code: components["schemas"]["IssuedInviteCodeView"];
+                disclosure_state: components["schemas"]["OneTimeDisclosureState"] & "FIRST_ISSUE";
+                /** @constant */
+                reissue_required: false;
+            } | {
+                agent: components["schemas"]["AgentView"];
+                temporary_password: null;
+                /** Format: date-time */
+                expires_at: string | null;
+                /** @constant */
+                must_change_password: true;
+                initial_invite_code: null;
+                disclosure_state: components["schemas"]["OneTimeDisclosureState"] & "REPLAY_REDACTED";
+                /** @constant */
+                reissue_required: true;
             };
             request_id: string;
         };
@@ -6412,7 +6469,7 @@ export interface components {
             data: {
                 file_id: string;
                 /** @enum {string} */
-                purpose: "PRODUCT_IMAGE" | "BRAND_LOGO" | "CATEGORY_ICON" | "BANNER" | "AFTERSALE_EVIDENCE" | "WITHDRAWAL_PROOF" | "PROMOTION_QR";
+                purpose: "PRODUCT_IMAGE" | "BRAND_LOGO" | "CATEGORY_ICON" | "BANNER" | "AFTERSALE_EVIDENCE" | "WITHDRAWAL_PROOF";
                 /** @constant */
                 status: "PENDING";
                 /** Format: uri */
@@ -6431,7 +6488,7 @@ export interface components {
             data: {
                 file_id: string;
                 /** @enum {string} */
-                purpose: "PRODUCT_IMAGE" | "BRAND_LOGO" | "CATEGORY_ICON" | "BANNER" | "AFTERSALE_EVIDENCE" | "WITHDRAWAL_PROOF" | "PROMOTION_QR";
+                purpose: "PRODUCT_IMAGE" | "BRAND_LOGO" | "CATEGORY_ICON" | "BANNER" | "AFTERSALE_EVIDENCE" | "WITHDRAWAL_PROOF";
                 /** @constant */
                 status: "READY";
                 /**
@@ -7411,6 +7468,23 @@ export interface components {
                     /** @constant */
                     existing_bindings_unchanged: true;
                 };
+                disclosure_state: components["schemas"]["OneTimeDisclosureState"] & "FIRST_ISSUE";
+                /** @constant */
+                reissue_required: false;
+            } | {
+                agent_id: string;
+                new_invite_code: null;
+                old_code_invalidated: {
+                    invite_code_id: string;
+                    code_masked: string;
+                    /** Format: date-time */
+                    invalidated_at: string;
+                    /** @constant */
+                    existing_bindings_unchanged: true;
+                };
+                disclosure_state: components["schemas"]["OneTimeDisclosureState"] & "REPLAY_REDACTED";
+                /** @constant */
+                reissue_required: true;
             };
             request_id: string;
         };
@@ -9697,7 +9771,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AgentLoginResponse"];
+                    "application/json": components["schemas"]["AgentSessionResponse"] | components["schemas"]["RestrictedAgentSessionResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -9733,7 +9807,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SessionAuthResponse"];
+                    "application/json": components["schemas"]["AgentSessionResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -9799,7 +9873,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SessionAuthResponse"];
+                    "application/json": components["schemas"]["AgentSessionResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -9893,7 +9967,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AccountCurrentResponse"];
+                    "application/json": components["schemas"]["AgentCurrentResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -9945,8 +10019,6 @@ export interface operations {
                 brand_id?: string;
                 /** @description 一级分类 ID */
                 category_id?: string;
-                /** @description 实体状态 */
-                status?: "DRAFT" | "ACTIVE" | "INACTIVE" | "ARCHIVED";
                 /** @description 筛选含推荐 SKU 的商品 */
                 recommended?: boolean;
             };

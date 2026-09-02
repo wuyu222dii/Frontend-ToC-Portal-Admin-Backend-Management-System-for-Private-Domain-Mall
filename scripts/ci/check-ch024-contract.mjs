@@ -29,6 +29,10 @@ const expectedLocalReferenceCount = Number.parseInt(
   process.env.QINGXU_CONTRACT_EXPECTED_LOCAL_REFERENCES ?? '2695',
   10,
 );
+const expectedSchemaCount = Number.parseInt(
+  process.env.QINGXU_CONTRACT_EXPECTED_SCHEMA_COUNT ?? '326',
+  10,
+);
 const ordinaryAftersalesEnabled = process.env.QINGXU_CONTRACT_ORDINARY_AFTERSALES_ENABLED === '1';
 const returnAddressInStoreBusinessErrors =
   process.env.QINGXU_CONTRACT_RETURN_ADDRESS_IN_STORE_ERRORS !== '0';
@@ -338,7 +342,7 @@ try {
   );
 
   const schemas = document.components.schemas;
-  assert.equal(Object.keys(schemas).length, 326, 'OpenAPI schema count drifted');
+  assert.equal(Object.keys(schemas).length, expectedSchemaCount, 'OpenAPI schema count drifted');
   assert.equal(document.components.headers.CacheControlNoStore.required, undefined,
     'legacy non-Store no-store wire must remain optional');
   assert.equal(document.components.headers.PragmaNoCache.required, undefined,

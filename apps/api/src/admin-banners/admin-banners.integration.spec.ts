@@ -86,10 +86,13 @@ function runtimeForMode(): DatabaseRuntime {
 function config(): PlatformRuntimeConfig {
   return {
     authentication: {} as PlatformRuntimeConfig['authentication'],
+    agent: {} as PlatformRuntimeConfig['agent'],
     store: {} as PlatformRuntimeConfig['store'],
     banner: { targetOrigins: ['https://allowed.example.test'] },
+    promotion: { publicBaseUrl: 'https://mall.example.test' },
     database: {} as PlatformRuntimeConfig['database'],
     encryption: {
+      bankAccountHashKeys: { current: { id: 'bank', key: Buffer.alloc(32, 0x54) }, previous: [] },
       fieldKeys: { current: { id: 'field', key: Buffer.alloc(32, 0x51) }, previous: [] },
       idempotencyHashKeys: { current: { id: 'b5-banner-v1', key: Buffer.alloc(32, 0x52) }, previous: [] },
       ipHashKey: Buffer.alloc(32, 0x53),

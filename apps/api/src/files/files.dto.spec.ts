@@ -6,7 +6,7 @@ import { parseFileId, parseUploadCompleteBody, parseUploadIntentBody } from './f
 const sha256 = 'a'.repeat(64);
 
 describe('file request DTOs', () => {
-  it('accepts only the seven frozen image intent purposes', () => {
+  it('accepts only the six external image intent purposes', () => {
     expect(parseUploadIntentBody({
       filename: 'brand-logo.png',
       mime_type: 'image/png',
@@ -22,6 +22,7 @@ describe('file request DTOs', () => {
     { filename: ' ', mime_type: 'image/png', purpose: 'BRAND_LOGO', sha256, size: 1 },
     { filename: 'logo\n.png', mime_type: 'image/png', purpose: 'BRAND_LOGO', sha256, size: 1 },
     { filename: 'logo.gif', mime_type: 'image/gif', purpose: 'BRAND_LOGO', sha256, size: 1 },
+    { filename: 'qr.png', mime_type: 'image/png', purpose: 'PROMOTION_QR', sha256, size: 1 },
     { filename: 'logo.png', mime_type: 'image/png', purpose: 'UNREGISTERED', sha256, size: 1 },
     { filename: 'logo.png', mime_type: 'image/png', purpose: 'BRAND_LOGO', sha256: 'A'.repeat(64), size: 1 },
     { filename: 'logo.png', mime_type: 'image/png', purpose: 'BRAND_LOGO', sha256, size: 5_242_881 },

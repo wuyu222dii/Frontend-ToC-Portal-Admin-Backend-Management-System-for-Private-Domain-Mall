@@ -2,7 +2,7 @@
 
 本目录集中管理三端商城的需求、方案、技术、风控、开发文档和可点击原型。
 
-当前交付状态：B0 至 B11 development 均已通过。B10 历史批次与最终双绿证据继续保留；B11 最终 SHA `c8e42c44a6a31099c00070294a85f628913165df` 的[普通 CI Run `33379627199`](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33379627199)与[Supabase development rollback-only smoke Run `33385726528`](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33385726528)均成功且 head SHA 相同，B11 development `GO`，CH-025 已自动失效。当前产品/API 基线为 `v2.4.10 / 2.4.10-ch026`；B12.0 精确 SHA 的普通 CI、Supabase development migration 与 rollback-only smoke 三项远端门禁已闭合，CH-027 已批准且仍有效。B12.1-B12.6 本地实现与本地验收已完成，完整 `RETURN_REFUND` 真实纵向、DB/E2E/全仓及精确清理门禁均已通过；最终实现 SHA 的普通 CI 与 Supabase rollback-only 同 SHA 双绿尚未取得。B12 仍非 development `GO`。仅允许 Mock Provider 和脱敏 development；第三方物流、自动确认、多包裹、真实支付/退款、真实客户数据、staging 和 production 继续 `NO-GO`。
+当前交付状态：B0 至 B12 development 均已通过。B11 历史批次与最终双绿证据继续保留；B12 最终 SHA `8c3589afcf7bb0dd5a4b8711d418e4c61b1ad09c` 的[普通 CI Run `33592754575`](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33592754575)与[Supabase development rollback-only smoke Run `33594513127`](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33594513127)均成功且 head SHA 相同，B12 development `GO`，CH-027 已自动失效。当前 B13.0 本地候选门禁已通过，产品/API 基线为 `v2.4.11 / 2.4.11-ch028`；最终实现 SHA 的普通 CI -> development migration -> rollback-only smoke 三绿尚未执行，故 B13.0 未退出、B13.1 不得开始。CH-029 仅覆盖 B13.1-B13.9 脱敏 development。B12 orphan `P2=1` 仍阻断 staging/真实数据；第三方物流、自动确认、多包裹、真实支付/退款、真实客户数据、staging 和 production 继续 `NO-GO`。
 
 ## 目录
 
@@ -30,4 +30,5 @@
 - [B10 支付、对账与迟到支付退款](docs/05-开发管理/B10-支付对账与迟到支付退款.md)
 - [B11 订单履约与物流](docs/05-开发管理/B11-订单履约与物流.md)
 - [B12 售后验货与普通退款](docs/05-开发管理/B12-售后验货与普通退款.md)
+- [B13 一级代理经营与资金闭环](docs/05-开发管理/B13-一级代理经营与资金闭环.md)
 - [三端可点击原型](prototype/README.md)

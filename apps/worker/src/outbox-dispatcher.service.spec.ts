@@ -13,6 +13,7 @@ import {
 
 const config: PlatformRuntimeConfig = {
   banner: { targetOrigins: [] },
+  promotion: { publicBaseUrl: 'https://example.invalid' },
   authentication: {
     accessTokenTtlSeconds: 900,
     audience: 'disabled',
@@ -34,6 +35,7 @@ const config: PlatformRuntimeConfig = {
     allowInsecureLocalhost: false,
   },
   encryption: {
+    bankAccountHashKeys: { current: { id: 'disabled-bank', key: Buffer.alloc(32, 4) }, previous: [] },
     fieldKeys: { current: { id: 'test', key: Buffer.alloc(32) }, previous: [] },
     ipHashKey: Buffer.alloc(32, 1),
     idempotencyHashKeys: {
@@ -42,6 +44,13 @@ const config: PlatformRuntimeConfig = {
     },
   },
   payment: { mockSigningKey: Buffer.alloc(32, 3), provider: 'MOCK', providerTimeoutMs: 1_000 },
+  agent: {
+    accessTokenTtlSeconds: 900,
+    authTokenAudience: 'qingxu-agent-web',
+    loginRateLimitMax: 10,
+    loginRateLimitWindowSeconds: 900,
+    sessionTtlSeconds: 604_800,
+  },
   redis: { url: 'redis://:runtime-test-password@127.0.0.1:6379/0' },
   store: {
     authTokenAudience: 'qingxu-store',

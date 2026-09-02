@@ -5,6 +5,7 @@ import type { ObjectStoragePort } from '@qingxu/storage';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { FileObjectLeaseManager } from './file-object-lease';
+import type { UploadIntentInput } from './files.dto';
 import { FileAssetsService } from './files.service';
 import type { FilesRequestContext } from './files.request';
 
@@ -50,10 +51,13 @@ function asset(overrides: Partial<FileAssetSnapshot> = {}): FileAssetSnapshot {
 function config(): PlatformRuntimeConfig {
   return {
     banner: { targetOrigins: [] },
+    promotion: { publicBaseUrl: 'https://mall.example.test' },
     authentication: {} as PlatformRuntimeConfig['authentication'],
+    agent: {} as PlatformRuntimeConfig['agent'],
     store: {} as PlatformRuntimeConfig['store'],
     database: {} as PlatformRuntimeConfig['database'],
     encryption: {
+      bankAccountHashKeys: { current: { id: 'bank', key: Buffer.alloc(32, 4) }, previous: [] },
       fieldKeys: { current: { id: 'field', key: Buffer.alloc(32, 1) }, previous: [] },
       idempotencyHashKeys: { current: { id: 'idem', key: Buffer.alloc(32, 2) }, previous: [] },
       ipHashKey: Buffer.alloc(32, 3),
@@ -159,6 +163,33 @@ describe('FileAssetsService orchestration', () => {
     expect(f.internals.audit.append).toHaveBeenCalledOnce();
     expect(f.internals.idempotency.complete).toHaveBeenCalledWith(expect.anything(), expect.anything(),
       expect.objectContaining({ storage: 'HASH_ONLY' }));
+  });
+
+  it('keeps server-generated PROMOTION_QR outside every external upload path', async () => {
+    const deniedIntent = fixture();
+    await expect(deniedIntent.service.createUploadIntent(request(), {
+      filename: 'promotion-qr.png', mimeType: 'image/png', purpose: 'PROMOTION_QR', sha256, size: 12,
+    } as unknown as UploadIntentInput, idempotencyKey)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    expect(deniedIntent.storage.presignPut).not.toHaveBeenCalled();
+    expect(deniedIntent.internals.assets.createPendingInTransaction).not.toHaveBeenCalled();
+
+    const deniedComplete = fixture([{ kind: 'execute' }]);
+    deniedComplete.internals.assets.getOwned.mockResolvedValue(asset({ purpose: 'PROMOTION_QR' }));
+    await expect(deniedComplete.service.completeUpload(
+      request(), fileId, { sha256, size: 12 }, idempotencyKey,
+    )).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    expect(deniedComplete.leases.acquire).not.toHaveBeenCalled();
+    expect(deniedComplete.storage.inspectAndHash).not.toHaveBeenCalled();
+
+    const deniedReplay = fixture([{ kind: 'replay', record: {} }]);
+    deniedReplay.internals.idempotency.fileUploadCompleteReplay.mockReturnValue({
+      ...envelope(),
+      data: { ...envelope().data, public_url: null, purpose: 'PROMOTION_QR' },
+    });
+    await expect(deniedReplay.service.completeUpload(
+      request(), fileId, { sha256, size: 12 }, idempotencyKey,
+    )).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    expect(deniedReplay.leases.acquire).not.toHaveBeenCalled();
   });
 
   it('allows CUSTOMER actors only for their own AFTERSALE_EVIDENCE lifecycle', async () => {

@@ -296,6 +296,26 @@ describe('B12.1 file CUSTOMER and SUPER_ADMIN HTTP authentication boundary', () 
     expect(redisEval).toHaveBeenCalledTimes(_role === 'CUSTOMER' ? 3 : 0);
   });
 
+  it('rejects client-supplied PROMOTION_QR before upload service dispatch', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/files/upload-intents')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('Idempotency-Key', IDEMPOTENCY_KEY)
+      .set('X-Request-Id', REQUEST_ID)
+      .send({
+        filename: 'promotion-qr.png',
+        mime_type: 'image/png',
+        purpose: 'PROMOTION_QR',
+        sha256: SHA256,
+        size: 12,
+      })
+      .expect(400);
+
+    expect(response.body.code).toBe('INVALID_ARGUMENT');
+    expectNoServiceDispatch();
+    expectNoStore(response);
+  });
+
   it('rate-limits CUSTOMER evidence routes before service dispatch with an accurate Retry-After', async () => {
     redisEval.mockResolvedValue([121, 17]);
 

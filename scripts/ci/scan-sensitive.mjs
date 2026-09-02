@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import process from "node:process";
 
 const files = execFileSync("git", ["-c", "core.quotepath=false", "ls-files", "--cached", "--others", "--exclude-standard"], {
   encoding: "utf8",
@@ -15,7 +16,11 @@ const syntheticPrototypePhoneFiles = new Set([
   "product-materials/prototype/app.js",
   "product-materials/prototype/verify-prototype.cjs",
 ]);
-const syntheticStorePhoneFixtures = new Map([
+const syntheticPhoneFixtures = new Map([
+  ["apps/api/src/admin-agents/admin-agents.dto.spec.ts", new Set(["13900001234"])],
+  ["apps/api/src/admin-agents/admin-agents.routes.e2e.spec.ts", new Set(["13812345678"])],
+  ["apps/api/src/agent-auth/agent-auth.integration.spec.ts", new Set(["13800138000"])],
+  ["apps/api/src/platform/security/agent-security.spec.ts", new Set(["13900001234"])],
   ["apps/api/src/store-address/store-address.dto.spec.ts", new Set(["13800000000"])],
   ["apps/api/src/store-address/store-address.routes.e2e.spec.ts", new Set(["13800000000"])],
   ["apps/api/src/store-address/store-address.service.spec.ts", new Set(["13800006821"])],
@@ -41,6 +46,29 @@ const syntheticStorePhoneFixtures = new Map([
 const exactSyntheticSecrets = new Map([
   ["apps/api/src/admin-auth/admin-auth.controller.spec.ts", new Set([
     "password: '12345678'",
+    "password: 'password123'",
+  ])],
+  ["apps/api/src/agent-auth/agent-auth.controller.spec.ts", new Set([
+    "password: 'temporary-password'",
+    "current_password: 'temporary-password'",
+    "new_password: 'new-secure-password'",
+  ])],
+  ["apps/api/src/agent-auth/agent-auth.dto.spec.ts", new Set([
+    "password: 'temporary-password'",
+    "current_password: 'temporary-password'",
+    "new_password: 'new-secure-password'",
+    "password: 'password'",
+    "current_password: 'current-password'",
+  ])],
+  ["apps/api/src/agent-auth/agent-auth.routes.e2e.spec.ts", new Set([
+    "password: 'temporary-password-1'",
+    "current_password: 'temporary-password-1'",
+    "new_password: 'temporary-password-1'",
+    "new_password: 'new-password-123'",
+    "current_password: 'current-password-1'",
+  ])],
+  ["apps/api/src/agent-auth/agent-auth.service.spec.ts", new Set([
+    "NEW_PASSWORD = 'new-secure-password'",
   ])],
   ["apps/api/src/admin-auth/admin-auth.integration.spec.ts", new Set([
     "password: 'B2-invalid-password'",
@@ -95,7 +123,7 @@ for (const file of textFiles) {
     for (const match of matches) {
       if (label === "fixture phone number" && (
         (syntheticPrototypePhoneFiles.has(file) && syntheticPrototypePhones.has(match[0]))
-        || syntheticStorePhoneFixtures.get(file)?.has(match[0])
+        || syntheticPhoneFixtures.get(file)?.has(match[0])
       )) {
         allowlisted.push(`${file}: ${match[0]}`);
       } else if (exactSyntheticSecrets.get(file)?.has(match[0])) {
@@ -108,7 +136,9 @@ for (const file of textFiles) {
 }
 
 if (findings.length > 0) {
-  console.error(`sensitive content scan failed:\n${findings.join("\n")}`);
+  process.stderr.write(`sensitive content scan failed:\n${findings.join("\n")}\n`);
   process.exit(1);
 }
-console.log(`sensitive content scan passed (${textFiles.length} text files; ${allowlisted.length} documented synthetic fixture matches)`);
+process.stdout.write(
+  `sensitive content scan passed (${textFiles.length} text files; ${allowlisted.length} documented synthetic fixture matches)\n`,
+);

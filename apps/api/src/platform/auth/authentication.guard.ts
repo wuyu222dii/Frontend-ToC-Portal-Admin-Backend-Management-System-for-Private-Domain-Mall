@@ -1,10 +1,16 @@
 import { CanActivate, ExecutionContext, Inject, Injectable, Optional } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { PlatformRuntimeConfig } from '@qingxu/config';
-import { AdminAuthRepository, StoreAuthRepository, type DatabaseRuntime } from '@qingxu/database';
+import {
+  AdminAuthRepository,
+  AgentAuthRepository,
+  StoreAuthRepository,
+  type DatabaseRuntime,
+} from '@qingxu/database';
 import {
   ApplicationError,
   verifyAccessToken,
+  verifyAgentAccessToken,
   verifyPreAuthToken,
   verifyStoreAccessToken,
 } from '@qingxu/platform-core';
@@ -16,6 +22,10 @@ import { API_DATABASE_RUNTIME } from '../database/api-database-runtime';
 import { REQUIRED_PRE_AUTH_ACTION, type PreAuthAction } from './pre-auth.metadata';
 import { OPTIONAL_STORE_AUTHENTICATION } from './optional-store-authentication.metadata';
 import { NO_STORE_RESPONSE } from '../http/no-store.decorator';
+import {
+  AGENT_AUTHENTICATION_REALM,
+  ALLOW_RESTRICTED_AGENT_SESSION,
+} from './agent-realm.metadata';
 import { CUSTOMER_OR_SUPER_ADMIN } from './customer-or-super-admin.metadata';
 
 interface AuthenticationRequest extends PrincipalRequest {
@@ -38,6 +48,7 @@ function bearerToken(request: AuthenticationRequest): string {
 @Injectable()
 export class AuthenticationGuard implements CanActivate {
   private readonly repository: AdminAuthRepository;
+  private readonly agentRepository: AgentAuthRepository;
   private readonly storeRepository: StoreAuthRepository;
 
   constructor(
@@ -46,7 +57,17 @@ export class AuthenticationGuard implements CanActivate {
     @Optional() @Inject(API_DATABASE_RUNTIME) private readonly database?: DatabaseRuntime,
   ) {
     this.repository = database ? new AdminAuthRepository(database.prisma) : undefined as never;
+    this.agentRepository = database ? new AgentAuthRepository(database.prisma) : undefined as never;
     this.storeRepository = database ? new StoreAuthRepository(database.prisma) : undefined as never;
+  }
+
+  private get agentTokenConfig() {
+    if (!this.config) throw new ApplicationError('INTERNAL_ERROR', 'Authentication runtime is unavailable');
+    return {
+      audience: this.config.agent.authTokenAudience,
+      issuer: this.config.authentication.issuer,
+      keys: this.config.authentication.signingKeys,
+    };
   }
 
   private get storeTokenConfig() {
@@ -87,6 +108,14 @@ export class AuthenticationGuard implements CanActivate {
       CUSTOMER_OR_SUPER_ADMIN,
       [handler, controller],
     ) === true;
+    const agentRealm = this.reflector.getAllAndOverride<boolean | undefined>(
+      AGENT_AUTHENTICATION_REALM,
+      [handler, controller],
+    ) === true;
+    const allowRestrictedAgentSession = this.reflector.getAllAndOverride<boolean | undefined>(
+      ALLOW_RESTRICTED_AGENT_SESSION,
+      [handler, controller],
+    ) === true;
     if (this.reflector.getAllAndOverride<boolean | undefined>(NO_STORE_RESPONSE, [handler, controller]) === true) {
       const response = context.switchToHttp().getResponse<{ setHeader(name: string, value: string): void }>();
       response.setHeader('Cache-Control', 'no-store, private');
@@ -99,6 +128,13 @@ export class AuthenticationGuard implements CanActivate {
       requiredRoles?.length !== 2 || !requiredRoles.includes('CUSTOMER') ||
       !requiredRoles.includes('SUPER_ADMIN'))) {
       throw new ApplicationError('PERMISSION_DENIED', 'Customer or administrator authentication policy is invalid');
+    }
+    if (agentRealm && (isPublic || requiredPreAuth !== undefined || optionalStoreAuthentication ||
+      customerOrSuperAdmin || requiredRoles?.length !== 1 || requiredRoles[0] !== 'AGENT_ADMIN')) {
+      throw new ApplicationError('PERMISSION_DENIED', 'Agent authentication policy is invalid');
+    }
+    if (allowRestrictedAgentSession && !agentRealm) {
+      throw new ApplicationError('PERMISSION_DENIED', 'Restricted Agent session policy is invalid');
     }
 
     const request = context.switchToHttp().getRequest<AuthenticationRequest>();
@@ -144,7 +180,43 @@ export class AuthenticationGuard implements CanActivate {
       return this.authenticateStoreBearer(request, token);
     }
 
+    if (agentRealm) {
+      return this.authenticateAgentBearer(request, token, allowRestrictedAgentSession);
+    }
+
     return this.authenticateAdminBearer(request, token);
+  }
+
+  private async authenticateAgentBearer(
+    request: AuthenticationRequest,
+    token: string,
+    allowRestrictedSession: boolean,
+  ): Promise<true> {
+    if (!this.config || !this.database || !this.agentRepository) {
+      throw new ApplicationError('AUTH_REQUIRED', 'Authentication is required');
+    }
+    request.authorizationToken = token;
+    const claims = this.verifyAgentAccess(token);
+    const session = await this.agentRepository.getCurrentSession({
+      sessionId: claims.sessionId,
+      accessJti: claims.tokenId,
+    });
+    if (session === null || session.accountId !== claims.accountId || session.restriction !== claims.restriction) {
+      throw new ApplicationError('AUTH_REQUIRED', 'Agent session is not active');
+    }
+    request.agentSession = session;
+    request.principal = {
+      accountId: session.accountId,
+      assurance: 'PASSWORD',
+      permissions: [],
+      restriction: session.restriction,
+      role: 'AGENT_ADMIN',
+      sessionId: session.sessionId,
+    };
+    if (session.restriction === 'CHANGE_PASSWORD_ONLY' && !allowRestrictedSession) {
+      throw new ApplicationError('PASSWORD_CHANGE_REQUIRED', 'Agent must change the temporary password');
+    }
+    return true;
   }
 
   private async authenticateAdminBearer(request: AuthenticationRequest, token = bearerToken(request)): Promise<true> {
@@ -212,6 +284,14 @@ export class AuthenticationGuard implements CanActivate {
   private verifyStoreAccess(token: string) {
     try {
       return verifyStoreAccessToken(this.storeTokenConfig, token);
+    } catch {
+      throw new ApplicationError('AUTH_REQUIRED', 'Authentication is required');
+    }
+  }
+
+  private verifyAgentAccess(token: string) {
+    try {
+      return verifyAgentAccessToken(this.agentTokenConfig, token);
     } catch {
       throw new ApplicationError('AUTH_REQUIRED', 'Authentication is required');
     }

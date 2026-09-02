@@ -17,7 +17,8 @@ function objectWithFields(value: unknown, required: readonly string[], optional:
 
 function stringField(body: PlainBody, field: string, minimum = 0, maximum?: number): string {
   const value = body[field];
-  if (typeof value !== 'string' || value.length < minimum || (maximum !== undefined && value.length > maximum)) {
+  const length = typeof value === 'string' ? Array.from(value).length : -1;
+  if (typeof value !== 'string' || length < minimum || (maximum !== undefined && length > maximum)) {
     throw new ApplicationError('INVALID_ARGUMENT', `${field} is invalid`);
   }
   return value;
@@ -31,19 +32,22 @@ function ulidField(body: PlainBody, field: string): string {
 
 export function parseLoginBody(value: unknown) {
   const body = objectWithFields(value, ['login_name', 'password']);
-  return { loginName: stringField(body, 'login_name', 1), password: stringField(body, 'password', 8) };
+  return {
+    loginName: stringField(body, 'login_name', 1, 80),
+    password: stringField(body, 'password', 8, 128),
+  };
 }
 
 export function parseRefreshBody(value: unknown) {
   const body = objectWithFields(value, ['refresh_token']);
-  return { refreshToken: stringField(body, 'refresh_token', 20, 2_048) };
+  return { refreshToken: stringField(body, 'refresh_token', 20, 512) };
 }
 
 export function parseChangePasswordBody(value: unknown) {
   const body = objectWithFields(value, ['current_password', 'new_password']);
   return {
-    currentPassword: stringField(body, 'current_password'),
-    newPassword: stringField(body, 'new_password', 12),
+    currentPassword: stringField(body, 'current_password', 8, 128),
+    newPassword: stringField(body, 'new_password', 12, 128),
   };
 }
 

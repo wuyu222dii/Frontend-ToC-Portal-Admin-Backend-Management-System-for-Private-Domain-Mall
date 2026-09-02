@@ -9,6 +9,7 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import type { PlatformRuntimeConfig } from '@qingxu/config';
 
 import { AdminCatalogModule } from './admin-catalog/admin-catalog.module';
+import { AdminAgentsModule } from './admin-agents/admin-agents.module';
 import { AdminAftersalesModule } from './admin-aftersales/admin-aftersales.module';
 import { AdminAuthModule } from './admin-auth/admin-auth.module';
 import { AdminBannersModule } from './admin-banners/admin-banners.module';
@@ -16,6 +17,7 @@ import { AdminInventoryModule } from './admin-inventory/admin-inventory.module';
 import { AdminOrdersModule } from './admin-orders/admin-orders.module';
 import { AdminPaymentsModule } from './admin-payments/admin-payments.module';
 import { AdminProductsModule } from './admin-products/admin-products.module';
+import { AgentAuthModule } from './agent-auth/agent-auth.module';
 import { HealthModule } from './health/health.module';
 import { FilesModule } from './files/files.module';
 import { RbacGuard } from './platform/access/rbac.guard';
@@ -39,6 +41,7 @@ import { StorePaymentsModule } from './store-payments/store-payments.module';
 
 @Module({
   imports: [
+    AdminAgentsModule,
     AdminAftersalesModule,
     AdminAuthModule,
     AdminBannersModule,
@@ -47,6 +50,7 @@ import { StorePaymentsModule } from './store-payments/store-payments.module';
     AdminOrdersModule,
     AdminPaymentsModule,
     AdminProductsModule,
+    AgentAuthModule,
     FilesModule,
     HealthModule,
     StoreAddressModule,

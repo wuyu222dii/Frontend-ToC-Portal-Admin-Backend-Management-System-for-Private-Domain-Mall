@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Prisma } from '../.generated/prisma/client';
 import {
   IdempotencyRepository,
+  type CacheableAgentResourceResponse,
   type CacheableBannerResourceResponse,
   type CacheableCatalogResourceResponse,
   type CacheableFileUploadCompleteResponse,
@@ -221,6 +222,27 @@ function bannerResponse(
   };
 }
 
+function agentResponse(
+  override: Partial<CacheableAgentResourceResponse> = {},
+): CacheableAgentResourceResponse {
+  return {
+    code: 'OK',
+    data: {
+      agent_id: generateUlid(),
+      agent_no: `AGT-${generateUlid()}`,
+      contact_name: 'Agent operator',
+      contact_phone_tail: '8000',
+      name: 'North region agent',
+      product_authorization_mode: 'ALL_ACTIVE_PRODUCTS',
+      status: 'ACTIVE',
+      version: 1,
+    },
+    message: 'success',
+    request_id: 'req_0123456789abcdef0123456789abcdef',
+    ...override,
+  };
+}
+
 function transactionStub(): DatabaseTransaction {
   return {
     $queryRawUnsafe: vi.fn(async () => [{ acquired: 1 }]),
@@ -422,6 +444,80 @@ describe('IdempotencyRepository', () => {
       response_body_hash: responseHash(currentHashKey, responseBody),
       response_status: 201,
     } as never)).toEqual(responseBody);
+  });
+
+  it('stores and exactly replays a closed Agent resource response with a legacy agent number', async () => {
+    const transaction = transactionStub();
+    const responseBody = agentResponse();
+    responseBody.data.agent_no = 'AGT-000001';
+
+    await repository().complete(transaction, baseClaim, {
+      policy: 'AGENT_RESOURCE_RESPONSE',
+      responseBody,
+      responseStatus: 200,
+      storage: 'CACHEABLE',
+    });
+
+    expect(transaction.idempotencyRecord.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        resource_id: responseBody.data.agent_id,
+        response_body: responseBody,
+        response_body_hash: responseHash(currentHashKey, responseBody),
+      }),
+    }));
+    expect(repository().agentResourceReplay({
+      ...recordContext(),
+      expires_at: new Date('2099-08-14T00:00:00.000Z'),
+      resource_id: responseBody.data.agent_id,
+      response_body: responseBody,
+      response_body_hash: responseHash(currentHashKey, responseBody),
+      response_status: 200,
+    } as never)).toEqual(responseBody);
+  });
+
+  it('rejects a tampered Agent replay identity, body HMAC or response status', () => {
+    const responseBody = agentResponse();
+    const record = {
+      ...recordContext(),
+      expires_at: new Date('2099-08-14T00:00:00.000Z'),
+      resource_id: responseBody.data.agent_id,
+      response_body: responseBody,
+      response_body_hash: responseHash(currentHashKey, responseBody),
+      response_status: 200,
+    };
+
+    for (const override of [
+      { resource_id: generateUlid() },
+      { response_body_hash: '0'.repeat(64) },
+      { response_status: 201 },
+      { response_body: { ...responseBody, data: { ...responseBody.data, name: 'Tampered agent' } } },
+    ]) {
+      expect(() => repository().agentResourceReplay({ ...record, ...override } as never))
+        .toThrow('unexpected error');
+    }
+  });
+
+  it.each([
+    (() => {
+      const response = agentResponse();
+      return { ...response, data: { ...response.data, temporary_password: 'Tmp!private-value' } };
+    })(),
+    (() => {
+      const response = agentResponse();
+      return { ...response, data: { ...response.data, invite_code: 'AGT-private-invite-code' } };
+    })(),
+    (() => {
+      const response = agentResponse();
+      return { ...response, data: { ...response.data, contact_phone: phoneFixture } };
+    })(),
+    { ...agentResponse(), access_token: 'private-access-token' },
+  ])('rejects Agent cache content that leaks a secret or non-contract field', async (responseBody) => {
+    await expect(repository().complete(transactionStub(), baseClaim, {
+      policy: 'AGENT_RESOURCE_RESPONSE',
+      responseBody,
+      responseStatus: 200,
+      storage: 'CACHEABLE',
+    } as never)).rejects.toThrow('valid Agent response');
   });
 
   it.each([

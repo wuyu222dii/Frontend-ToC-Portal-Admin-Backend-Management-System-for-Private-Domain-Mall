@@ -46,4 +46,29 @@ describe('AdminAuthController', () => {
       '00000000-0000-4000-8000-000000000000', context())).toThrowError(ApplicationError);
     expect(service.login).not.toHaveBeenCalled();
   });
+
+  it('enforces the shared credential length bounds before service dispatch', () => {
+    const service = { login: vi.fn() } as unknown as AdminAuthService;
+    const controller = new AdminAuthController(service);
+    expect(() => controller.login({ login_name: 'admin', password: 'p'.repeat(129) },
+      '00000000-0000-4000-8000-000000000000', context())).toThrowError(ApplicationError);
+    expect(() => controller.login({ login_name: 'a'.repeat(81), password: 'password123' },
+      '00000000-0000-4000-8000-000000000000', context())).toThrowError(ApplicationError);
+    expect(service.login).not.toHaveBeenCalled();
+  });
+
+  it('counts shared string bounds as Unicode code points', () => {
+    const service = { login: vi.fn() } as unknown as AdminAuthService;
+    const controller = new AdminAuthController(service);
+    const loginName = '\u{1F642}'.repeat(80);
+    const request = context();
+    controller.login({ login_name: loginName, password: 'password123' },
+      '00000000-0000-4000-8000-000000000000', request);
+    expect(service.login).toHaveBeenCalledWith(
+      { loginName, password: 'password123' },
+      '00000000-0000-4000-8000-000000000000',
+      request.requestId,
+      undefined,
+    );
+  });
 });

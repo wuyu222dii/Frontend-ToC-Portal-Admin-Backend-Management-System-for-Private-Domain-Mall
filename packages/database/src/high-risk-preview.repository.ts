@@ -15,6 +15,7 @@ export const ACCOUNT_ANONYMIZE_PREVIEW_TTL_MS = 300_000;
 
 export type HighRiskPreviewTargetType =
   | 'ACCOUNT'
+  | 'AGENT'
   | 'AFTERSALE'
   | 'BRAND'
   | 'CATEGORY'
@@ -26,6 +27,8 @@ export type HighRiskPreviewTargetType =
   | 'SKU';
 export type HighRiskPreviewAction =
   | 'ACCOUNT.ANONYMIZE'
+  | 'AGENT.DISABLE'
+  | 'AGENT.PASSWORD_RESET'
   | 'AFTERSALE.REFUND'
   | 'AFTERSALE.REJECT'
   | 'AFTERSALE.REJECT_AFTER_RETURN'
@@ -92,6 +95,8 @@ const HASH_KEY_ID = /^[A-Za-z0-9._:-]{3,80}$/;
 const MAX_PREVIOUS_HASH_KEYS = 3;
 const PREVIEW_ACTION = new Set<HighRiskPreviewAction>([
   'ACCOUNT.ANONYMIZE',
+  'AGENT.DISABLE',
+  'AGENT.PASSWORD_RESET',
   'AFTERSALE.REFUND',
   'AFTERSALE.REJECT',
   'AFTERSALE.REJECT_AFTER_RETURN',
@@ -114,6 +119,7 @@ const PREVIEW_ACTION = new Set<HighRiskPreviewAction>([
 ]);
 const PREVIEW_TARGET_TYPE = new Set<HighRiskPreviewTargetType>([
   'ACCOUNT',
+  'AGENT',
   'AFTERSALE',
   'BRAND',
   'CATEGORY',

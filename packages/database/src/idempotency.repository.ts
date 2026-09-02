@@ -72,6 +72,11 @@ export type IdempotencyResult =
       responseBody: CacheableBannerResourceResponse;
     })
   | (IdempotencyResultBase & {
+      storage: 'CACHEABLE';
+      policy: 'AGENT_RESOURCE_RESPONSE';
+      responseBody: CacheableAgentResourceResponse;
+    })
+  | (IdempotencyResultBase & {
       storage: 'HASH_ONLY';
       resourceId?: string;
       responseForHash: unknown;
@@ -213,6 +218,24 @@ export interface CacheableBannerResourceResponse {
   request_id: string;
 }
 
+export interface CacheableAgentView {
+  agent_id: string;
+  agent_no: string;
+  name: string;
+  contact_name: string | null;
+  contact_phone_tail: string | null;
+  status: 'ACTIVE' | 'DISABLED';
+  product_authorization_mode: 'ALL_ACTIVE_PRODUCTS' | 'CUSTOM_WHITELIST';
+  version: number;
+}
+
+export interface CacheableAgentResourceResponse {
+  code: 'OK';
+  message: 'success';
+  data: CacheableAgentView;
+  request_id: string;
+}
+
 const COMMAND_RESPONSE_TOP_LEVEL_FIELDS = new Set(['code', 'data', 'message', 'request_id']);
 const COMMAND_RESPONSE_DATA_FIELDS = new Set([
   'occurred_at',
@@ -295,9 +318,21 @@ const BANNER_VIEW_FIELDS = new Set([
   'title',
   'version',
 ]);
+const AGENT_VIEW_FIELDS = new Set([
+  'agent_id',
+  'agent_no',
+  'contact_name',
+  'contact_phone_tail',
+  'name',
+  'product_authorization_mode',
+  'status',
+  'version',
+]);
 const CATALOG_STATUS = new Set(['ACTIVE', 'ARCHIVED', 'DRAFT', 'INACTIVE']);
 const SKU_STATUS = new Set(['ACTIVE', 'ARCHIVED', 'INACTIVE']);
 const BANNER_STATUS = new Set(['ACTIVE', 'ARCHIVED', 'DRAFT', 'INACTIVE']);
+const AGENT_STATUS = new Set(['ACTIVE', 'DISABLED']);
+const AGENT_AUTHORIZATION_MODE = new Set(['ALL_ACTIVE_PRODUCTS', 'CUSTOM_WHITELIST']);
 const POSITIVE_MONEY = /^(?:0\.(?:0[1-9]|[1-9][0-9])|[1-9][0-9]{0,15}\.[0-9]{2})$/;
 const FILE_PURPOSE = new Set<CacheableFilePurpose>([
   'PRODUCT_IMAGE',
@@ -531,6 +566,27 @@ function isCacheableBannerResourceResponse(value: unknown): value is CacheableBa
   return isCacheableBannerView(value.data);
 }
 
+function isCacheableAgentView(value: unknown): value is CacheableAgentView {
+  if (!isExactPlainObject(value, AGENT_VIEW_FIELDS)) return false;
+  return isValidUlid(value.agent_id) &&
+    isBoundedNonBlankString(value.agent_no, 32) &&
+    isBoundedNonBlankString(value.name, 120) &&
+    (value.contact_name === null ||
+      (typeof value.contact_name === 'string' && Array.from(value.contact_name).length <= 80)) &&
+    (value.contact_phone_tail === null ||
+      (typeof value.contact_phone_tail === 'string' && /^[0-9]{4}$/.test(value.contact_phone_tail))) &&
+    typeof value.status === 'string' && AGENT_STATUS.has(value.status) &&
+    typeof value.product_authorization_mode === 'string' &&
+      AGENT_AUTHORIZATION_MODE.has(value.product_authorization_mode) &&
+    isPositiveInteger(value.version);
+}
+
+function isCacheableAgentResourceResponse(value: unknown): value is CacheableAgentResourceResponse {
+  if (!isExactPlainObject(value, CATALOG_RESPONSE_TOP_LEVEL_FIELDS) || value.code !== 'OK' ||
+    value.message !== 'success' || !REQUEST_ID.test(String(value.request_id))) return false;
+  return isCacheableAgentView(value.data);
+}
+
 function isCacheableSkuSpec(value: unknown): value is CacheableSkuSpec {
   if (!isExactPlainObject(value, SKU_SPEC_FIELDS) || !Array.isArray(value.attributes) ||
     value.attributes.length === 0) return false;
@@ -618,11 +674,13 @@ function isCacheableFileUploadCompleteResponse(
 
 function cacheableResourceId(
   response: CacheableCommandResponse | CacheableFileUploadCompleteResponse |
-    CacheableCatalogResourceResponse | CacheableProductCatalogResponse | CacheableBannerResourceResponse,
+    CacheableCatalogResourceResponse | CacheableProductCatalogResponse | CacheableBannerResourceResponse |
+    CacheableAgentResourceResponse,
 ): string {
   if (isCacheableCommandResponse(response)) return response.data.resource_id;
   if (isCacheableFileUploadCompleteResponse(response)) return response.data.file_id;
   if (isCacheableBannerResourceResponse(response)) return response.data.banner_id;
+  if (isCacheableAgentResourceResponse(response)) return response.data.agent_id;
   if (isCacheableProductCatalogResponse(response)) {
     return 'product_id' in response.data ? response.data.product_id : response.data.sku_id;
   }
@@ -679,6 +737,10 @@ function validateResult(result: IdempotencyResult): void {
     result.responseStatus !== 200 && result.responseStatus !== 201) {
     throw new TypeError('BANNER_RESOURCE_RESPONSE responses must use HTTP status 200 or 201');
   }
+  if (result.storage === 'CACHEABLE' && result.policy === 'AGENT_RESOURCE_RESPONSE' &&
+    result.responseStatus !== 200) {
+    throw new TypeError('AGENT_RESOURCE_RESPONSE responses must use HTTP status 200');
+  }
   if (result.storage === 'CACHEABLE') {
     if (result.policy === 'COMMAND_RESPONSE') {
       if (!isCacheableCommandResponse(result.responseBody)) {
@@ -701,6 +763,10 @@ function validateResult(result: IdempotencyResult): void {
     } else if (result.policy === 'BANNER_RESOURCE_RESPONSE') {
       if (!isCacheableBannerResourceResponse(result.responseBody)) {
         throw new TypeError('Only a valid banner response may use the BANNER_RESOURCE_RESPONSE cache policy');
+      }
+    } else if (result.policy === 'AGENT_RESOURCE_RESPONSE') {
+      if (!isCacheableAgentResourceResponse(result.responseBody)) {
+        throw new TypeError('Only a valid Agent response may use the AGENT_RESOURCE_RESPONSE cache policy');
       }
     } else {
       throw new TypeError('CACHEABLE idempotency policy is not registered');
@@ -829,12 +895,15 @@ export class IdempotencyRepository {
     const catalogResponse = isCacheableCatalogResourceResponse(response);
     const productCatalogResponse = isCacheableProductCatalogResponse(response);
     const bannerResponse = isCacheableBannerResourceResponse(response);
+    const agentResponse = isCacheableAgentResourceResponse(response);
     if (record.response_status < 200 || record.response_status > 299 ||
-      (!commandResponse && !fileCompleteResponse && !catalogResponse && !productCatalogResponse && !bannerResponse) ||
+      (!commandResponse && !fileCompleteResponse && !catalogResponse && !productCatalogResponse && !bannerResponse &&
+        !agentResponse) ||
       (fileCompleteResponse && record.response_status !== 200) ||
       (catalogResponse && record.response_status !== 200 && record.response_status !== 201) ||
       (productCatalogResponse && record.response_status !== 200 && record.response_status !== 201) ||
       (bannerResponse && record.response_status !== 200 && record.response_status !== 201) ||
+      (agentResponse && record.response_status !== 200) ||
       integrityContext === undefined ||
       record.resource_id !== cacheableResourceId(response) ||
       !this.responseHashMatches(record.response_body, integrityContext, record.response_body_hash)) {
@@ -894,6 +963,14 @@ export class IdempotencyRepository {
     this.assertReplayIntegrity(record);
     if (!isCacheableBannerResourceResponse(record.response_body)) {
       throw new ApplicationError('INTERNAL_ERROR', 'Idempotency record is not a banner response');
+    }
+    return record.response_body;
+  }
+
+  agentResourceReplay(record: IdempotencyRecord): CacheableAgentResourceResponse {
+    this.assertReplayIntegrity(record);
+    if (!isCacheableAgentResourceResponse(record.response_body)) {
+      throw new ApplicationError('INTERNAL_ERROR', 'Idempotency record is not an Agent response');
     }
     return record.response_body;
   }

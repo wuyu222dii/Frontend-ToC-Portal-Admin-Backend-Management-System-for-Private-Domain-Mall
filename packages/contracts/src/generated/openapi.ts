@@ -900,7 +900,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 首次或重置后强制改密 */
+        /**
+         * 首次或重置后强制改密
+         * @description 服务端必须先验证 current_password。验证成功后，new_password 必须与 current_password 不同；同值固定返回 400 INVALID_ARGUMENT，且不得清除 must_change_password、撤销受限 session、创建或签发普通 session、access token 或 refresh token，也不得产生其他业务或认证副作用。
+         */
         post: operations["postAgentAuthChangeTemporaryPassword"];
         delete?: never;
         options?: never;
@@ -2802,7 +2805,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** HR-01 预览停用对会话、邀请码、候选和待付款订单影响 */
+        /**
+         * HR-01 预览停用对会话、邀请码、候选和待付款订单影响
+         * @description impact 数量是预览事务时点估算，不构成确认身份；确认仍绑定动作、目标、管理员会话和资源版本，并在共享锁序下处理确认时的当前事实，允许支付先提交或停用先提交安全收敛。
+         */
         post: operations["postAdminAgentsByAgentIdStatusChangePreview"];
         delete?: never;
         options?: never;
@@ -2853,7 +2859,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 预览会话撤销与临时密码影响 */
+        /**
+         * 预览会话撤销与临时密码影响
+         * @description impact 数量是预览事务时点估算，不构成确认身份；确认仍绑定动作、目标、管理员会话和资源版本，并在账户与会话锁下撤销确认时全部有效 PASSWORD 会话。
+         */
         post: operations["postAdminAgentsByAgentIdPasswordResetPreview"];
         delete?: never;
         options?: never;
@@ -4220,6 +4229,7 @@ export interface components {
             action: "ACTIVATE" | "DEACTIVATE";
         };
         AgentCreateRequest: {
+            /** @description 服务端统一转为小写后保存和限流；只允许 ASCII 字母、数字、点、下划线和连字号。 */
             login_name: string;
             name: string;
             contact_name: string;
@@ -6294,7 +6304,10 @@ export interface components {
                 agent: components["schemas"]["AgentView"];
                 /** @description 仅本次 no-store 响应展示一次，不保存或进入日志、缓存。 */
                 temporary_password: string;
-                /** Format: date-time */
+                /**
+                 * Format: date-time
+                 * @description 一次性披露页面的安全交接截止时间（签发后 10 分钟）；客户端届时必须丢弃明文。该字段不宣称临时密码服务端按时失效；强制改密由 must_change_password 与 CHANGE_PASSWORD_ONLY 会话执行。
+                 */
                 expires_at: string;
                 /** @constant */
                 must_change_password: true;
@@ -6323,7 +6336,10 @@ export interface components {
                 agent: components["schemas"]["AgentView"];
                 /** @description 仅本次 no-store 响应展示一次，不保存或进入日志、缓存。 */
                 temporary_password: string;
-                /** Format: date-time */
+                /**
+                 * Format: date-time
+                 * @description 一次性披露页面的安全交接截止时间（签发后 10 分钟）；客户端届时必须丢弃明文。该字段不宣称临时密码服务端按时失效；强制改密由 must_change_password 与 CHANGE_PASSWORD_ONLY 会话执行。
+                 */
                 expires_at: string;
                 /** @constant */
                 must_change_password: true;
@@ -7628,6 +7644,30 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
+        /** @description B13.1 Agent 认证接口的敏感错误；不得缓存或回显密码、token、邀请码或账户枚举信息。 */
+        AgentAuthSensitiveError: {
+            headers: {
+                "Cache-Control": components["headers"]["AgentCacheControlNoStoreRequired"];
+                Pragma: components["headers"]["AgentPragmaNoCacheRequired"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
+        /** @description B13.1 Agent 登录或认证命令触发限流；不得缓存，Redis 不可用时 fail closed。 */
+        AgentAuthRateLimited: {
+            headers: {
+                "Cache-Control": components["headers"]["AgentCacheControlNoStoreRequired"];
+                Pragma: components["headers"]["AgentPragmaNoCacheRequired"];
+                /** @description 距当前 Agent 登录限流窗口结束或认证锁定结束的剩余整数秒。 */
+                "Retry-After": number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
         /** @description B7 Store 敏感操作的通用错误；不得缓存或回显被拒绝的敏感值。 */
         StoreSensitiveError: {
             headers: {
@@ -7996,6 +8036,10 @@ export interface components {
         StoreCacheControlNoStoreRequired: "no-store, private";
         /** @description Store 个性化或敏感响应必返的兼容禁止缓存指令。 */
         StorePragmaNoCacheRequired: "no-cache";
+        /** @description B13.1 Agent 认证敏感错误响应必返的禁止缓存指令。 */
+        AgentCacheControlNoStoreRequired: "no-store, private";
+        /** @description B13.1 Agent 认证敏感错误响应必返的兼容禁止缓存指令。 */
+        AgentPragmaNoCacheRequired: "no-cache";
     };
     pathItems: never;
 }
@@ -9774,14 +9818,14 @@ export interface operations {
                     "application/json": components["schemas"]["AgentSessionResponse"] | components["schemas"]["RestrictedAgentSessionResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["AgentAuthSensitiveError"];
+            401: components["responses"]["AgentAuthSensitiveError"];
+            403: components["responses"]["AgentAuthSensitiveError"];
+            404: components["responses"]["AgentAuthSensitiveError"];
+            409: components["responses"]["AgentAuthSensitiveError"];
+            422: components["responses"]["AgentAuthSensitiveError"];
+            429: components["responses"]["AgentAuthRateLimited"];
+            500: components["responses"]["AgentAuthSensitiveError"];
         };
     };
     postAgentAuthRefresh: {
@@ -9810,14 +9854,14 @@ export interface operations {
                     "application/json": components["schemas"]["AgentSessionResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["AgentAuthSensitiveError"];
+            401: components["responses"]["AgentAuthSensitiveError"];
+            403: components["responses"]["AgentAuthSensitiveError"];
+            404: components["responses"]["AgentAuthSensitiveError"];
+            409: components["responses"]["AgentAuthSensitiveError"];
+            422: components["responses"]["AgentAuthSensitiveError"];
+            429: components["responses"]["AgentAuthRateLimited"];
+            500: components["responses"]["AgentAuthSensitiveError"];
         };
     };
     postAgentAuthLogout: {
@@ -9834,20 +9878,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["CacheControlNoStore"];
+                    Pragma: components["headers"]["PragmaNoCache"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["CommandResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["AgentAuthSensitiveError"];
+            401: components["responses"]["AgentAuthSensitiveError"];
+            403: components["responses"]["AgentAuthSensitiveError"];
+            404: components["responses"]["AgentAuthSensitiveError"];
+            409: components["responses"]["AgentAuthSensitiveError"];
+            422: components["responses"]["AgentAuthSensitiveError"];
+            429: components["responses"]["AgentAuthRateLimited"];
+            500: components["responses"]["AgentAuthSensitiveError"];
         };
     };
     postAgentAuthChangeTemporaryPassword: {
@@ -9876,14 +9922,14 @@ export interface operations {
                     "application/json": components["schemas"]["AgentSessionResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["AgentAuthSensitiveError"];
+            401: components["responses"]["AgentAuthSensitiveError"];
+            403: components["responses"]["AgentAuthSensitiveError"];
+            404: components["responses"]["AgentAuthSensitiveError"];
+            409: components["responses"]["AgentAuthSensitiveError"];
+            422: components["responses"]["AgentAuthSensitiveError"];
+            429: components["responses"]["AgentAuthRateLimited"];
+            500: components["responses"]["AgentAuthSensitiveError"];
         };
     };
     postAgentAuthChangePassword: {
@@ -9912,14 +9958,14 @@ export interface operations {
                     "application/json": components["schemas"]["CommandResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["AgentAuthSensitiveError"];
+            401: components["responses"]["AgentAuthSensitiveError"];
+            403: components["responses"]["AgentAuthSensitiveError"];
+            404: components["responses"]["AgentAuthSensitiveError"];
+            409: components["responses"]["AgentAuthSensitiveError"];
+            422: components["responses"]["AgentAuthSensitiveError"];
+            429: components["responses"]["AgentAuthRateLimited"];
+            500: components["responses"]["AgentAuthSensitiveError"];
         };
     };
     postAgentAuthLogoutAll: {
@@ -9936,20 +9982,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["CacheControlNoStore"];
+                    Pragma: components["headers"]["PragmaNoCache"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["CommandResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["AgentAuthSensitiveError"];
+            401: components["responses"]["AgentAuthSensitiveError"];
+            403: components["responses"]["AgentAuthSensitiveError"];
+            404: components["responses"]["AgentAuthSensitiveError"];
+            409: components["responses"]["AgentAuthSensitiveError"];
+            422: components["responses"]["AgentAuthSensitiveError"];
+            429: components["responses"]["AgentAuthRateLimited"];
+            500: components["responses"]["AgentAuthSensitiveError"];
         };
     };
     getAgentAuthCurrent: {
@@ -9964,20 +10012,22 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["CacheControlNoStore"];
+                    Pragma: components["headers"]["PragmaNoCache"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["AgentCurrentResponse"];
                 };
             };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["StateConflict"];
-            422: components["responses"]["BusinessError"];
-            429: components["responses"]["RateLimited"];
-            500: components["responses"]["InternalError"];
+            400: components["responses"]["AgentAuthSensitiveError"];
+            401: components["responses"]["AgentAuthSensitiveError"];
+            403: components["responses"]["AgentAuthSensitiveError"];
+            404: components["responses"]["AgentAuthSensitiveError"];
+            409: components["responses"]["AgentAuthSensitiveError"];
+            422: components["responses"]["AgentAuthSensitiveError"];
+            429: components["responses"]["AgentAuthRateLimited"];
+            500: components["responses"]["AgentAuthSensitiveError"];
         };
     };
     getAgentDashboard: {

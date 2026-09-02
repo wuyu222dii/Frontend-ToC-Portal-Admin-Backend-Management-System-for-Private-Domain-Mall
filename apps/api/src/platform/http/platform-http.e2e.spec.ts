@@ -148,9 +148,18 @@ class PlatformProbeController {
   }
 }
 
+@Controller('agent/auth')
+class AgentAuthErrorProbeController {
+  @Post('filter-probe')
+  @Public()
+  probe(): { accepted: true } {
+    return { accepted: true };
+  }
+}
+
 @Module({
   imports: [AppModule],
-  controllers: [PlatformProbeController],
+  controllers: [AgentAuthErrorProbeController, PlatformProbeController],
   providers: [TestPrincipalMiddleware],
 })
 class PlatformHttpTestModule {}
@@ -220,6 +229,30 @@ describe('API platform HTTP pipeline (e2e)', () => {
       request_id: response.headers['x-request-id'],
     });
     expect(JSON.stringify(response.body)).not.toContain('controller exception');
+  });
+
+  it('marks malformed Agent authentication requests as private and non-cacheable', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/agent/auth/filter-probe')
+      .set('Content-Type', 'application/json')
+      .send('{"password":')
+      .expect(400);
+
+    expect(response.body.code).toBe('INVALID_ARGUMENT');
+    expect(response.headers['cache-control']).toBe('no-store, private');
+    expect(response.headers.pragma).toBe('no-cache');
+  });
+
+  it('marks malformed Admin Agent lifecycle requests as private and non-cacheable', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/admin/agents')
+      .set('Content-Type', 'application/json')
+      .send('{"login_name":')
+      .expect(400);
+
+    expect(response.body.code).toBe('INVALID_ARGUMENT');
+    expect(response.headers['cache-control']).toBe('no-store, private');
+    expect(response.headers.pragma).toBe('no-cache');
   });
 
   it('preserves readiness failures as a sanitized HTTP 503', async () => {

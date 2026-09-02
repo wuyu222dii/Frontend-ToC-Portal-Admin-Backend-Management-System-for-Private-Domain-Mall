@@ -19,7 +19,7 @@ function normalizeRecoveryCode(code: string): string {
 export function hmacAuthenticationSecret(
   value: string,
   key: Uint8Array,
-  domain: 'candidate-token' | 'challenge' | 'invite-code' | 'recovery-code' | 'refresh-token' | 'store-refresh-token' | 'totp-secret',
+  domain: 'agent-refresh-token' | 'candidate-token' | 'challenge' | 'invite-code' | 'recovery-code' | 'refresh-token' | 'store-refresh-token' | 'totp-secret',
 ): string {
   const minimumLength = domain === 'invite-code' ? 1 : 8;
   if (typeof value !== 'string' || value.length < minimumLength || value.length > 2_048) {
@@ -35,7 +35,7 @@ export function hmacAuthenticationSecret(
 export function hmacAuthenticationIdentity(
   value: unknown,
   key: Uint8Array,
-  domain: 'admin-login-source' | 'admin-login-subject' | 'store-mock-code',
+  domain: 'admin-login-source' | 'admin-login-subject' | 'agent-login-source' | 'agent-login-subject' | 'store-mock-code',
 ): string {
   return createHmac('sha256', keyBuffer(key))
     .update(`qingxu-auth:v1:${domain}\0`, 'utf8')
@@ -47,7 +47,7 @@ export function authenticationSecretHashMatches(
   value: string,
   expectedHash: string,
   key: Uint8Array,
-  domain: 'candidate-token' | 'challenge' | 'invite-code' | 'recovery-code' | 'refresh-token' | 'store-refresh-token' | 'totp-secret',
+  domain: 'agent-refresh-token' | 'candidate-token' | 'challenge' | 'invite-code' | 'recovery-code' | 'refresh-token' | 'store-refresh-token' | 'totp-secret',
 ): boolean {
   if (!/^[a-f0-9]{64}$/.test(expectedHash)) return false;
   const actual = Buffer.from(hmacAuthenticationSecret(value, key, domain), 'hex');

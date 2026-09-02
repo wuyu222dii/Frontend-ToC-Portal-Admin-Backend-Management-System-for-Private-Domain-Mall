@@ -2587,21 +2587,21 @@ paths:
                   -
                     "$ref": "#/components/schemas/RestrictedAgentSessionResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/AgentAuthRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
   /agent/auth/refresh:
     post:
       tags:
@@ -2631,21 +2631,21 @@ paths:
               schema:
                 "$ref": "#/components/schemas/AgentSessionResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/AgentAuthRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
   /agent/auth/logout:
     post:
       tags:
@@ -2661,31 +2661,41 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/CacheControlNoStore"
+            Pragma:
+              "$ref": "#/components/headers/PragmaNoCache"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/CommandResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/AgentAuthRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
   /agent/auth/change-temporary-password:
     post:
       tags:
         - "Agent"
       summary: "首次或重置后强制改密"
+      description: >-
+        服务端必须先验证 current_password。验证成功后，new_password 必须与
+        current_password 不同；同值固定返回 400 INVALID_ARGUMENT，且不得清除
+        must_change_password、撤销受限 session、创建或签发普通 session、access token
+        或 refresh token，也不得产生其他业务或认证副作用。
       operationId: "postAgentAuthChangeTemporaryPassword"
       security:
         -
@@ -2712,21 +2722,21 @@ paths:
               schema:
                 "$ref": "#/components/schemas/AgentSessionResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/AgentAuthRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
   /agent/auth/change-password:
     post:
       tags:
@@ -2758,21 +2768,21 @@ paths:
               schema:
                 "$ref": "#/components/schemas/CommandResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/AgentAuthRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
   /agent/auth/logout-all:
     post:
       tags:
@@ -2788,26 +2798,31 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/CacheControlNoStore"
+            Pragma:
+              "$ref": "#/components/headers/PragmaNoCache"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/CommandResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/AgentAuthRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
   /agent/auth/current:
     get:
       tags:
@@ -2821,26 +2836,31 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/CacheControlNoStore"
+            Pragma:
+              "$ref": "#/components/headers/PragmaNoCache"
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/AgentCurrentResponse"
         400:
-          "$ref": "#/components/responses/BadRequest"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         401:
-          "$ref": "#/components/responses/Unauthorized"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         403:
-          "$ref": "#/components/responses/Forbidden"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         404:
-          "$ref": "#/components/responses/NotFound"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         409:
-          "$ref": "#/components/responses/StateConflict"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         422:
-          "$ref": "#/components/responses/BusinessError"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
         429:
-          "$ref": "#/components/responses/RateLimited"
+          "$ref": "#/components/responses/AgentAuthRateLimited"
         500:
-          "$ref": "#/components/responses/InternalError"
+          "$ref": "#/components/responses/AgentAuthSensitiveError"
   /agent/dashboard:
     get:
       tags:
@@ -8869,6 +8889,7 @@ paths:
           schema:
             type: "string"
             minLength: 1
+            maxLength: 120
           description: "匹配代理号、名称或登录名"
         -
           name: "status"
@@ -9208,6 +9229,7 @@ paths:
       tags:
         - "Admin"
       summary: "HR-01 预览停用对会话、邀请码、候选和待付款订单影响"
+      description: "impact 数量是预览事务时点估算，不构成确认身份；确认仍绑定动作、目标、管理员会话和资源版本，并在共享锁序下处理确认时的当前事实，允许支付先提交或停用先提交安全收敛。"
       operationId: "postAdminAgentsByAgentIdStatusChangePreview"
       security:
         -
@@ -9363,6 +9385,7 @@ paths:
       tags:
         - "Admin"
       summary: "预览会话撤销与临时密码影响"
+      description: "impact 数量是预览事务时点估算，不构成确认身份；确认仍绑定动作、目标、管理员会话和资源版本，并在账户与会话锁下撤销确认时全部有效 PASSWORD 会话。"
       operationId: "postAdminAgentsByAgentIdPasswordResetPreview"
       security:
         -
@@ -10975,6 +10998,16 @@ components:
       required: true
       schema:
         const: "no-cache"
+    AgentCacheControlNoStoreRequired:
+      description: "B13.1 Agent 认证敏感错误响应必返的禁止缓存指令。"
+      required: true
+      schema:
+        const: "no-store, private"
+    AgentPragmaNoCacheRequired:
+      description: "B13.1 Agent 认证敏感错误响应必返的兼容禁止缓存指令。"
+      required: true
+      schema:
+        const: "no-cache"
   responses:
     BadRequest:
       description: "参数或签名头格式错误"
@@ -11002,6 +11035,35 @@ components:
             "$ref": "#/components/schemas/ErrorResponse"
     StateConflict:
       description: "状态、版本、幂等请求哈希或唯一约束冲突；固定冲突码包括 CH-006 的 SOFT_DELETED_KEY_RESERVED，以及 CH-024 的 SHIPMENT_STATE_CONFLICT、ORDER_NOT_RECEIVABLE。"
+      content:
+        application/json:
+          schema:
+            "$ref": "#/components/schemas/ErrorResponse"
+    AgentAuthSensitiveError:
+      description: "B13.1 Agent 认证接口的敏感错误；不得缓存或回显密码、token、邀请码或账户枚举信息。"
+      headers:
+        Cache-Control:
+          "$ref": "#/components/headers/AgentCacheControlNoStoreRequired"
+        Pragma:
+          "$ref": "#/components/headers/AgentPragmaNoCacheRequired"
+      content:
+        application/json:
+          schema:
+            "$ref": "#/components/schemas/ErrorResponse"
+    AgentAuthRateLimited:
+      description: "B13.1 Agent 登录或认证命令触发限流；不得缓存，Redis 不可用时 fail closed。"
+      headers:
+        Cache-Control:
+          "$ref": "#/components/headers/AgentCacheControlNoStoreRequired"
+        Pragma:
+          "$ref": "#/components/headers/AgentPragmaNoCacheRequired"
+        Retry-After:
+          description: "距当前 Agent 登录限流窗口结束或认证锁定结束的剩余整数秒。"
+          required: true
+          schema:
+            type: "integer"
+            minimum: 1
+            maximum: 900
       content:
         application/json:
           schema:
@@ -11875,10 +11937,13 @@ components:
         login_name:
           type: "string"
           minLength: 1
+          maxLength: 80
         password:
           type: "string"
           format: "password"
           minLength: 8
+          maxLength: 128
+          writeOnly: true
     RefreshTokenRequest:
       type: "object"
       additionalProperties: false
@@ -11888,6 +11953,8 @@ components:
         refresh_token:
           type: "string"
           minLength: 20
+          maxLength: 512
+          writeOnly: true
     StoreRefreshTokenRequest:
       type: "object"
       additionalProperties: false
@@ -11909,10 +11976,15 @@ components:
         current_password:
           type: "string"
           format: "password"
+          minLength: 8
+          maxLength: 128
+          writeOnly: true
         new_password:
           type: "string"
           format: "password"
           minLength: 12
+          maxLength: 128
+          writeOnly: true
     AuthPreauthData:
       type: "object"
       additionalProperties: false
@@ -14191,6 +14263,8 @@ components:
           type: "string"
           minLength: 3
           maxLength: 80
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{2,79}$"
+          description: "服务端统一转为小写后保存和限流；只允许 ASCII 字母、数字、点、下划线和连字号。"
         name:
           type: "string"
           minLength: 1
@@ -14202,6 +14276,7 @@ components:
           type:
             - "string"
             - "null"
+          pattern: "^[0-9]{11}$"
           writeOnly: true
         product_authorization_mode:
           type: "string"
@@ -14225,6 +14300,7 @@ components:
           type:
             - "string"
             - "null"
+          pattern: "^[0-9]{11}$"
           writeOnly: true
       minProperties: 1
     UploadIntentRequest:
@@ -19655,6 +19731,7 @@ components:
                 expires_at:
                   type: "string"
                   format: "date-time"
+                  description: "一次性披露页面的安全交接截止时间（签发后 10 分钟）；客户端届时必须丢弃明文。该字段不宣称临时密码服务端按时失效；强制改密由 must_change_password 与 CHANGE_PASSWORD_ONLY 会话执行。"
                 must_change_password:
                   const: true
                 disclosure_state:
@@ -19720,6 +19797,7 @@ components:
                 expires_at:
                   type: "string"
                   format: "date-time"
+                  description: "一次性披露页面的安全交接截止时间（签发后 10 分钟）；客户端届时必须丢弃明文。该字段不宣称临时密码服务端按时失效；强制改密由 must_change_password 与 CHANGE_PASSWORD_ONLY 会话执行。"
                 must_change_password:
                   const: true
                 initial_invite_code:

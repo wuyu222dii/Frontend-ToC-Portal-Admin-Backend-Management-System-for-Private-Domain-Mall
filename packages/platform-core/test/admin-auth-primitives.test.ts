@@ -8,6 +8,7 @@ import {
   createTotpSecret,
   generateRecoveryCodes,
   hashPassword,
+  hmacAuthenticationIdentity,
   hmacAuthenticationSecret,
   signAccessToken,
   signAgentAccessToken,
@@ -52,6 +53,21 @@ describe('administrator authentication primitives', () => {
     expect(authenticationSecretHashMatches(codes[1] as string, digest, key, 'recovery-code')).toBe(false);
     const totpDigest = hmacAuthenticationSecret('ABCDEFGHIJKLMNOP', key, 'totp-secret');
     expect(authenticationSecretHashMatches('ABCDEFGHIJKLMNOP', totpDigest, key, 'totp-secret')).toBe(true);
+  });
+
+  it('keeps Agent refresh and login rate-limit digests isolated from other authentication realms', () => {
+    const key = Buffer.alloc(32, 23);
+    const refreshToken = 'rfr_agent_test_token_material';
+    const agentRefreshHash = hmacAuthenticationSecret(refreshToken, key, 'agent-refresh-token');
+
+    expect(agentRefreshHash).not.toBe(hmacAuthenticationSecret(refreshToken, key, 'refresh-token'));
+    expect(agentRefreshHash).not.toBe(hmacAuthenticationSecret(refreshToken, key, 'store-refresh-token'));
+    expect(authenticationSecretHashMatches(refreshToken, agentRefreshHash, key, 'agent-refresh-token')).toBe(true);
+    expect(authenticationSecretHashMatches(refreshToken, agentRefreshHash, key, 'refresh-token')).toBe(false);
+    expect(hmacAuthenticationIdentity('agent@example.test', key, 'agent-login-subject'))
+      .not.toBe(hmacAuthenticationIdentity('agent@example.test', key, 'admin-login-subject'));
+    expect(hmacAuthenticationIdentity({ ip: '203.0.113.10' }, key, 'agent-login-source'))
+      .not.toBe(hmacAuthenticationIdentity({ ip: '203.0.113.10' }, key, 'admin-login-source'));
   });
 
   it('accepts RFC 6238 current and adjacent time steps and reports the accepted timestep', async () => {

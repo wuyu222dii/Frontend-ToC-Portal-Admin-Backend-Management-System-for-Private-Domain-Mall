@@ -18,6 +18,7 @@ describe('application errors', () => {
     ]);
 
     expect(error.httpStatus).toBe(400);
+    expect(getApplicationErrorHttpStatus('PASSWORD_CHANGE_REQUIRED')).toBe(403);
     expect(getApplicationErrorHttpStatus('RESOURCE_VERSION_CONFLICT')).toBe(409);
     expect(getApplicationErrorHttpStatus('SHIPMENT_STATE_CONFLICT')).toBe(409);
     expect(getApplicationErrorHttpStatus('ORDER_NOT_RECEIVABLE')).toBe(409);
@@ -50,6 +51,7 @@ describe('application errors', () => {
   });
 
   it.each([
+    ['PASSWORD_CHANGE_REQUIRED', 'Password change is required'],
     ['SHIPMENT_STATE_CONFLICT', 'The shipment state conflicts with this request'],
     ['ORDER_NOT_RECEIVABLE', 'The order cannot be confirmed as received'],
     ['AFTERSALE_PREVIEW_EXPIRED', 'The aftersale preview has expired'],

@@ -505,8 +505,10 @@ try {
     type: 'object',
     additionalProperties: false,
     required: ['refresh_token'],
-    properties: { refresh_token: { type: 'string', minLength: 20 } },
-  }, 'shared admin/agent refresh request must retain the CH-014 wire shape');
+    properties: {
+      refresh_token: { type: 'string', minLength: 20, maxLength: 512, writeOnly: true },
+    },
+  }, 'shared admin/agent refresh request must retain its fields and bounded secret shape');
   for (const path of ['/agent/auth/refresh', '/admin/auth/refresh']) {
     assert.equal(document.paths[path].post.requestBody.content['application/json'].schema.$ref,
       '#/components/schemas/RefreshTokenRequest', `${path} must not use the Store DTO`);

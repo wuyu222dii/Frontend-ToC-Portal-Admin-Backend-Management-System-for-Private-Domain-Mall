@@ -329,6 +329,27 @@ describe('AuditRepository', () => {
     expect(transaction.auditLog.create).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    ['CONTINUE_REFUND', 'RETURN_EXCEPTION', 'REFUNDING_AFTER_RETURN'],
+    ['RECORD_INSPECTION', 'WAITING_RECEIPT', 'REFUNDING_AFTER_RETURN'],
+    ['REJECT_AFTER_RETURN', 'RETURN_EXCEPTION', 'REJECTED_AFTER_RETURN'],
+  ])('accepts the closed B12 aftersale audit action %s', async (action, beforeStatus, afterStatus) => {
+    const transaction = transactionStub();
+    await new AuditRepository(ipHashKey).append(transaction, {
+      ...baseInput,
+      action,
+      after: { status: afterStatus, version: 4 },
+      before: { status: beforeStatus, version: 3 },
+      module: 'aftersale',
+      objectType: 'aftersale',
+      summaryPolicy: 'STATUS_VERSION',
+    });
+
+    expect(transaction.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ action }),
+    }));
+  });
+
   it('NONE policy rejects caller-defined summary keys', async () => {
     await expect(new AuditRepository(ipHashKey).append(transactionStub(), {
       ...baseInput,

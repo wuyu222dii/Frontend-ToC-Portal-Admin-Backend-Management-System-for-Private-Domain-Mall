@@ -45,7 +45,21 @@ interface Fixture {
   productId: string;
   skuId: string;
   walletId: string;
+  zeroApprovedAftersaleItemId: string;
+  zeroApprovedBalanceId: string;
+  zeroApprovedCommissionPositionId: string;
+  zeroApprovedCommissionSnapshotId: string;
+  zeroApprovedOrderItemId: string;
+  zeroApprovedSkuId: string;
 }
+
+/**
+ * Every integration fixture is expected to live entirely inside the
+ * transaction guarded by the rollback sentinel.  Keep the parent IDs so the
+ * afterAll check can detect an accidental out-of-transaction write (for
+ * example a refund attempt or ledger fact written through a fresh client).
+ */
+const registeredFixtures = new Map<string, Fixture>();
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim();
@@ -87,7 +101,7 @@ function runtimeForMode(): DatabaseRuntime {
 
 function fixture(now: Date): Fixture {
   const id = (offset: number) => generateUlid(now.getTime() - offset);
-  return {
+  const value: Fixture = {
     actorId: id(24_000),
     aftersaleId: id(8_000),
     aftersaleItemId: id(7_000),
@@ -109,16 +123,102 @@ function fixture(now: Date): Fixture {
     productId: id(16_000),
     skuId: id(14_000),
     walletId: id(21_000),
+    zeroApprovedAftersaleItemId: id(7_500),
+    zeroApprovedBalanceId: id(12_000),
+    zeroApprovedCommissionPositionId: id(5_500),
+    zeroApprovedCommissionSnapshotId: id(6_500),
+    zeroApprovedOrderItemId: id(9_000),
+    zeroApprovedSkuId: id(15_000),
   };
+  registeredFixtures.set(value.orderId, value);
+  return value;
+}
+
+async function assertNoFixtureFacts(runtime: DatabaseRuntime): Promise<void> {
+  const fixtures = [...registeredFixtures.values()];
+  if (fixtures.length === 0) return;
+
+  const ids = <K extends keyof Fixture>(key: K): string[] =>
+    [...new Set(fixtures.map((value) => value[key]))];
+  const orderIds = ids('orderId');
+  const accountIds = [...new Set(fixtures.flatMap((value) => [value.actorId, value.agentAccountId,
+    value.customerAccountId]))];
+  const agentIds = ids('agentId');
+  const customerIds = ids('customerId');
+  const brandIds = ids('brandId');
+  const categoryIds = ids('categoryId');
+  const productIds = ids('productId');
+  const skuIds = [...new Set(fixtures.flatMap((value) => [value.skuId, value.zeroApprovedSkuId]))];
+  const orderItemIds = [...new Set(fixtures.flatMap((value) => [
+    value.orderItemId,
+    value.zeroApprovedOrderItemId,
+  ]))];
+  const paymentIntentIds = ids('paymentIntentId');
+  const paymentAttemptIds = ids('paymentAttemptId');
+  const commissionRuleVersionIds = ids('commissionRuleVersionId');
+  const commissionSnapshotIds = [...new Set(fixtures.flatMap((value) => [
+    value.commissionSnapshotId,
+    value.zeroApprovedCommissionSnapshotId,
+  ]))];
+  const commissionPositionIds = [...new Set(fixtures.flatMap((value) => [
+    value.commissionPositionId,
+    value.zeroApprovedCommissionPositionId,
+  ]))];
+  const balanceIds = [...new Set(fixtures.flatMap((value) => [value.balanceId, value.zeroApprovedBalanceId]))];
+  const walletIds = ids('walletId');
+  const aftersaleIds = ids('aftersaleId');
+  const aftersaleItemIds = [...new Set(fixtures.flatMap((value) => [
+    value.aftersaleItemId,
+    value.zeroApprovedAftersaleItemId,
+  ]))];
+
+  const counts = await Promise.all([
+    runtime.prisma.account.count({ where: { id: { in: accountIds } } }),
+    runtime.prisma.customerProfile.count({ where: { id: { in: customerIds } } }),
+    runtime.prisma.agentProfile.count({ where: { id: { in: agentIds } } }),
+    runtime.prisma.agentWallet.count({ where: { id: { in: walletIds } } }),
+    runtime.prisma.brand.count({ where: { id: { in: brandIds } } }),
+    runtime.prisma.category.count({ where: { id: { in: categoryIds } } }),
+    runtime.prisma.product.count({ where: { id: { in: productIds } } }),
+    runtime.prisma.sku.count({ where: { id: { in: skuIds } } }),
+    runtime.prisma.inventoryBalance.count({ where: { id: { in: balanceIds } } }),
+    runtime.prisma.salesOrder.count({ where: { id: { in: orderIds } } }),
+    runtime.prisma.orderItem.count({ where: { id: { in: orderItemIds } } }),
+    runtime.prisma.paymentIntent.count({ where: { id: { in: paymentIntentIds } } }),
+    runtime.prisma.paymentAttempt.count({ where: { id: { in: paymentAttemptIds } } }),
+    runtime.prisma.commissionRuleVersion.count({ where: { id: { in: commissionRuleVersionIds } } }),
+    runtime.prisma.orderItemCommissionSnapshot.count({ where: { id: { in: commissionSnapshotIds } } }),
+    runtime.prisma.orderItemCommissionPosition.count({ where: { id: { in: commissionPositionIds } } }),
+    runtime.prisma.aftersale.count({ where: { id: { in: aftersaleIds } } }),
+    runtime.prisma.aftersaleItem.count({ where: { id: { in: aftersaleItemIds } } }),
+    // Child facts created by the repository are identified through their
+    // stable order/aftersale/SKU/agent parents rather than generated IDs.
+    runtime.prisma.refund.count({ where: { order_id: { in: orderIds } } }),
+    runtime.prisma.refundAttempt.count({ where: { refund: { order_id: { in: orderIds } } } }),
+    runtime.prisma.refundItem.count({ where: { refund: { order_id: { in: orderIds } } } }),
+    runtime.prisma.manualCompensation.count({ where: { order_id: { in: orderIds } } }),
+    runtime.prisma.inventoryLedger.count({ where: { sku_id: { in: skuIds } } }),
+    runtime.prisma.commissionLedger.count({ where: { agent_id: { in: agentIds } } }),
+  ]);
+  if (counts.some((count) => count !== 0)) {
+    throw new TypeError(`B12.4 Admin refund fixture residue after rollback: ${JSON.stringify(counts)}`);
+  }
 }
 
 async function seedPaidRefundFixture(
   transaction: DatabaseTransaction,
   ids: Fixture,
   now: Date,
-  input: { commissionState?: 'AVAILABLE' | 'EXPECTED'; withAftersale: boolean },
+  input: {
+    commissionState?: 'AVAILABLE' | 'EXPECTED';
+    primaryQuantity?: number;
+    withAftersale: boolean;
+  },
 ): Promise<void> {
   const commissionState = input.commissionState ?? 'EXPECTED';
+  const primaryQuantity = input.primaryQuantity ?? 2;
+  const primaryAmount = new Prisma.Decimal(primaryQuantity).mul('10.00');
+  const primaryCommission = primaryAmount.mul('0.10');
   await transaction.account.createMany({
     data: [{
       created_at: now,
@@ -168,7 +268,7 @@ async function seedPaidRefundFixture(
   });
   await transaction.agentWallet.create({
     data: {
-      available_balance: new Prisma.Decimal(commissionState === 'AVAILABLE' ? '2.00' : '0.00'),
+      available_balance: commissionState === 'AVAILABLE' ? primaryCommission : new Prisma.Decimal('0.00'),
       agent_id: ids.agentId,
       frozen_balance: new Prisma.Decimal('0.00'),
       id: ids.walletId,
@@ -255,18 +355,18 @@ async function seedPaidRefundFixture(
   });
   await transaction.orderItem.create({
     data: {
-      aftersale_reserved_amount: input.withAftersale ? new Prisma.Decimal('20.00') : new Prisma.Decimal('0.00'),
-      aftersale_reserved_qty: input.withAftersale ? 2 : 0,
+      aftersale_reserved_amount: input.withAftersale ? primaryAmount : new Prisma.Decimal('0.00'),
+      aftersale_reserved_qty: input.withAftersale ? primaryQuantity : 0,
       brand_name_snapshot: `B124 Brand ${ids.brandId}`,
       category_id: ids.categoryId,
       category_name_snapshot: `B124 Category ${ids.categoryId}`,
       created_at: now,
       id: ids.orderItemId,
-      line_paid_amount: new Prisma.Decimal('20.00'),
+      line_paid_amount: primaryAmount,
       order_id: ids.orderId,
       product_id: ids.productId,
       product_name_snapshot: `B124 Product ${ids.productId}`,
-      quantity: 2,
+      quantity: primaryQuantity,
       sku_code_snapshot: `B124-SKU-${ids.skuId}`,
       sku_id: ids.skuId,
       sku_name_snapshot: 'B12.4 Refund SKU',
@@ -319,12 +419,12 @@ async function seedPaidRefundFixture(
       agent_id: ids.agentId,
       category_id_snapshot: ids.categoryId,
       category_name_snapshot: `B124 Category ${ids.categoryId}`,
-      commission_base: new Prisma.Decimal('20.00'),
+      commission_base: primaryAmount,
       created_at: now,
       effective_rate: new Prisma.Decimal('10.0000'),
       id: ids.commissionSnapshotId,
       order_item_id: ids.orderItemId,
-      original_commission: new Prisma.Decimal('2.00'),
+      original_commission: primaryCommission,
       product_id_snapshot: ids.productId,
       rule_version_id: ids.commissionRuleVersionId,
       sku_id_snapshot: ids.skuId,
@@ -334,9 +434,9 @@ async function seedPaidRefundFixture(
   await transaction.orderItemCommissionPosition.create({
     data: {
       available_at: commissionState === 'AVAILABLE' ? now : null,
-      expected_remaining: new Prisma.Decimal(commissionState === 'AVAILABLE' ? '0.00' : '2.00'),
+      expected_remaining: commissionState === 'AVAILABLE' ? new Prisma.Decimal('0.00') : primaryCommission,
       id: ids.commissionPositionId,
-      original_commission: new Prisma.Decimal('2.00'),
+      original_commission: primaryCommission,
       reversed_total: new Prisma.Decimal('0.00'),
       snapshot_id: ids.commissionSnapshotId,
       state: commissionState,
@@ -347,8 +447,8 @@ async function seedPaidRefundFixture(
     await transaction.commissionLedger.create({
       data: {
         agent_id: ids.agentId,
-        available_change: new Prisma.Decimal('2.00'),
-        expected_change: new Prisma.Decimal('-2.00'),
+        available_change: primaryCommission,
+        expected_change: primaryCommission.negated(),
         frozen_change: new Prisma.Decimal('0.00'),
         id: ids.completionCommissionLedgerId,
         idempotency_key: `complete:${ids.orderId}:${ids.commissionSnapshotId}`,
@@ -381,10 +481,10 @@ async function seedPaidRefundFixture(
         created_at: now,
         id: ids.aftersaleItemId,
         order_item_id: ids.orderItemId,
-        requested_amount: new Prisma.Decimal('20.00'),
-        requested_qty: 2,
-        reserved_amount: new Prisma.Decimal('20.00'),
-        reserved_qty: 2,
+        requested_amount: primaryAmount,
+        requested_qty: primaryQuantity,
+        reserved_amount: primaryAmount,
+        reserved_qty: primaryQuantity,
       },
     });
   }
@@ -418,6 +518,96 @@ async function createAndClaimAftersaleRefund(
   });
 }
 
+async function addZeroApprovedReturnLine(
+  transaction: DatabaseTransaction,
+  ids: Fixture,
+  now: Date,
+): Promise<void> {
+  await transaction.sku.create({
+    data: {
+      code: `B124-SKU-${ids.zeroApprovedSkuId}`,
+      created_at: now,
+      id: ids.zeroApprovedSkuId,
+      name: 'B12.4 Zero Approved SKU',
+      product_id: ids.productId,
+      retail_price: new Prisma.Decimal('10.00'),
+      status: 'ACTIVE',
+      updated_at: now,
+    },
+  });
+  await transaction.inventoryBalance.create({
+    data: {
+      id: ids.zeroApprovedBalanceId,
+      locked_qty: 0,
+      physical_qty: 3,
+      sku_id: ids.zeroApprovedSkuId,
+      updated_at: now,
+    },
+  });
+  await transaction.orderItem.create({
+    data: {
+      aftersale_reserved_amount: new Prisma.Decimal('10.00'),
+      aftersale_reserved_qty: 1,
+      brand_name_snapshot: `B124 Brand ${ids.brandId}`,
+      category_id: ids.categoryId,
+      category_name_snapshot: `B124 Category ${ids.categoryId}`,
+      created_at: now,
+      id: ids.zeroApprovedOrderItemId,
+      line_paid_amount: new Prisma.Decimal('10.00'),
+      order_id: ids.orderId,
+      product_id: ids.productId,
+      product_name_snapshot: `B124 Product ${ids.productId}`,
+      quantity: 1,
+      shipped_qty: 1,
+      sku_code_snapshot: `B124-SKU-${ids.zeroApprovedSkuId}`,
+      sku_id: ids.zeroApprovedSkuId,
+      sku_name_snapshot: 'B12.4 Zero Approved SKU',
+      unit_price: new Prisma.Decimal('10.00'),
+    },
+  });
+  await transaction.aftersaleItem.create({
+    data: {
+      aftersale_id: ids.aftersaleId,
+      created_at: now,
+      id: ids.zeroApprovedAftersaleItemId,
+      order_item_id: ids.zeroApprovedOrderItemId,
+      requested_amount: new Prisma.Decimal('10.00'),
+      requested_qty: 1,
+      reserved_amount: new Prisma.Decimal('10.00'),
+      reserved_qty: 1,
+    },
+  });
+  await transaction.orderItemCommissionSnapshot.create({
+    data: {
+      agent_id: ids.agentId,
+      category_id_snapshot: ids.categoryId,
+      category_name_snapshot: `B124 Category ${ids.categoryId}`,
+      commission_base: new Prisma.Decimal('10.00'),
+      created_at: now,
+      effective_rate: new Prisma.Decimal('10.0000'),
+      id: ids.zeroApprovedCommissionSnapshotId,
+      order_item_id: ids.zeroApprovedOrderItemId,
+      original_commission: new Prisma.Decimal('1.00'),
+      product_id_snapshot: ids.productId,
+      rule_version_id: ids.commissionRuleVersionId,
+      sku_id_snapshot: ids.zeroApprovedSkuId,
+      source_type: 'PLATFORM',
+    },
+  });
+  await transaction.orderItemCommissionPosition.create({
+    data: {
+      available_at: null,
+      expected_remaining: new Prisma.Decimal('1.00'),
+      id: ids.zeroApprovedCommissionPositionId,
+      original_commission: new Prisma.Decimal('1.00'),
+      reversed_total: new Prisma.Decimal('0.00'),
+      snapshot_id: ids.zeroApprovedCommissionSnapshotId,
+      state: 'EXPECTED',
+      updated_at: now,
+    },
+  });
+}
+
 databaseDescribe('B12.4 Admin ordinary refund database integration', () => {
   let runtime: DatabaseRuntime;
 
@@ -427,7 +617,12 @@ databaseDescribe('B12.4 Admin ordinary refund database integration', () => {
   }, 30_000);
 
   afterAll(async () => {
-    await runtime?.disconnect();
+    if (runtime === undefined) return;
+    try {
+      await assertNoFixtureFacts(runtime);
+    } finally {
+      await runtime.disconnect();
+    }
   });
 
   it('atomically closes a pre-shipment full refund, restores inventory and cancels EXPECTED commission once', async () => {
@@ -646,6 +841,224 @@ databaseDescribe('B12.4 Admin ordinary refund database integration', () => {
         .resolves.toMatchObject({ physical_qty: 4 });
       await expect(transaction.product.findUniqueOrThrow({ where: { id: ids.productId } }))
         .resolves.toMatchObject({ sales_count: 1 });
+      throw rollbackSentinel;
+    }, transactionOptions)).rejects.toBe(rollbackSentinel);
+  }, 90_000);
+
+  it('excludes a zero-approved return line from refund items, inventory, sales, and commission reversal', async () => {
+    const now = new Date();
+    const ids = fixture(now);
+    const inspectionId = generateUlid(now.getTime() + 1_000);
+    const inspectionItemId = generateUlid(now.getTime() + 2_000);
+    const zeroApprovedInspectionItemId = generateUlid(now.getTime() + 3_000);
+    const evidenceFileId = generateUlid(now.getTime() + 4_000);
+    const evidenceId = generateUlid(now.getTime() + 5_000);
+    const repository = new AdminRefundRepository(runtime.prisma);
+    await expect(runtime.withPrismaTransaction(async (transaction) => {
+      await seedPaidRefundFixture(transaction, ids, now, { primaryQuantity: 1, withAftersale: true });
+      await addZeroApprovedReturnLine(transaction, ids, now);
+      // CONTINUE_REFUND releases the zero-approved line's Order Item quota
+      // before the refund command sees the resolved inspection.
+      await transaction.orderItem.update({
+        data: {
+          aftersale_reserved_amount: new Prisma.Decimal('0.00'),
+          aftersale_reserved_qty: 0,
+          version: { increment: 1 },
+        },
+        where: { id: ids.zeroApprovedOrderItemId },
+      });
+      await transaction.salesOrder.update({
+        data: { fulfillment_status: 'DELIVERED', order_status: 'SHIPPING', updated_at: now },
+        where: { id: ids.orderId },
+      });
+      await transaction.orderItem.update({
+        data: { shipped_qty: 1 },
+        where: { id: ids.orderItemId },
+      });
+      await transaction.aftersale.update({
+        data: { status: 'REFUNDING_AFTER_RETURN', type: 'RETURN_REFUND', updated_at: now },
+        where: { id: ids.aftersaleId },
+      });
+      await transaction.fileAsset.create({
+        data: {
+          byte_size: 1n,
+          created_at: now,
+          created_by_id: ids.actorId,
+          id: evidenceFileId,
+          mime_type: 'image/png',
+          object_key: `private/b124/${evidenceFileId}`,
+          original_name: 'zero-approved-inspection.png',
+          purpose: 'AFTERSALE_EVIDENCE',
+          sha256: '2'.repeat(64),
+          status: 'READY',
+          visibility: 'PRIVATE',
+        },
+      });
+      await transaction.returnInspection.create({
+        data: {
+          abnormal_reason: 'One returned line was sent back to the customer',
+          aftersale_id: ids.aftersaleId,
+          created_at: now,
+          evidence_count: 1,
+          evidence_manifest: [evidenceFileId],
+          id: inspectionId,
+          inspected_at: now,
+          inspected_by_id: ids.actorId,
+          status: 'ABNORMAL',
+          updated_at: now,
+        },
+      });
+      await transaction.returnInspectionItem.createMany({
+        data: [{
+          approved_refund_qty: 1,
+          created_at: now,
+          id: inspectionItemId,
+          inspection_id: inspectionId,
+          order_item_id: ids.orderItemId,
+          received_qty: 1,
+          restock_qty: 1,
+          return_to_customer_qty: 0,
+        }, {
+          approved_refund_qty: 0,
+          created_at: now,
+          id: zeroApprovedInspectionItemId,
+          inspection_id: inspectionId,
+          order_item_id: ids.zeroApprovedOrderItemId,
+          received_qty: 1,
+          restock_qty: 0,
+          return_to_customer_qty: 1,
+        }],
+      });
+      await transaction.aftersaleEvidence.create({
+        data: {
+          aftersale_id: ids.aftersaleId,
+          created_at: now,
+          file_id: evidenceFileId,
+          id: evidenceId,
+          purpose: 'INSPECTION',
+          return_inspection_id: inspectionId,
+        },
+      });
+      await transaction.returnInspection.update({
+        data: {
+          resolution: 'CONTINUE_REFUND',
+          resolution_note: 'Refund only the approved return line',
+          resolved_at: now,
+          updated_at: now,
+          version: { increment: 1 },
+        },
+        where: { id: inspectionId },
+      });
+
+      const input = {
+        actorAccountId: ids.actorId,
+        aftersaleId: ids.aftersaleId,
+        items: [{ aftersaleItemId: ids.aftersaleItemId, quantity: 1 }],
+        reason: 'Refund the approved return line only',
+      };
+      const preview = await repository.previewAftersaleRefundInTransaction(transaction, input);
+      expect(preview).toMatchObject({
+        affectedCount: 1,
+        amount: '10.00',
+        items: [{
+          aftersaleItemId: ids.aftersaleItemId,
+          amount: '10.00',
+          autoRestock: false,
+          commissionReversal: '1.00',
+          inventoryRestockQuantity: 1,
+          orderItemId: ids.orderItemId,
+          quantity: 1,
+          skuId: ids.skuId,
+        }],
+      });
+      expect(preview.items.some((item) => item.aftersaleItemId === ids.zeroApprovedAftersaleItemId)).toBe(false);
+
+      const created = await repository.createAftersaleRefundInTransaction(transaction, {
+        ...input,
+        attemptIdempotencyKey: 'b124-zero-approved-line-attempt',
+        expectedVersion: preview.resourceVersion,
+        provider: 'MOCK',
+      }, { verifyPreview: (current) => expect(current).toEqual(preview) });
+      expect(created.items).toEqual(preview.items);
+      expect(await transaction.refundItem.findMany({
+        orderBy: { order_item_id: 'asc' },
+        where: { refund_id: created.refundId },
+      })).toEqual([expect.objectContaining({
+        aftersale_item_id: ids.aftersaleItemId,
+        amount: new Prisma.Decimal('10.00'),
+        order_item_id: ids.orderItemId,
+        quantity: 1,
+      })]);
+      expect(await transaction.refundItem.count({
+        where: { aftersale_item_id: ids.zeroApprovedAftersaleItemId },
+      })).toBe(0);
+      await transaction.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
+      const operation = await repository.claimRefundAttemptInTransaction(transaction, {
+        refundAttemptId: created.attemptId,
+        refundId: created.refundId,
+      });
+      const finalized = await repository.finalizeRefundAttemptInTransaction(transaction, {
+        operation,
+        result: {
+          kind: 'SUCCEEDED',
+          occurredAt: new Date(now.getTime() + 6_000),
+          providerEventId: `mock_zero_approved_event_${operation.attemptId}`,
+          providerRefundId: `mock_zero_approved_refund_${operation.refundId}`,
+        },
+      });
+      expect(finalized).toMatchObject({
+        changed: true,
+        kind: 'SUCCEEDED',
+        inventoryLedgerFacts: [{ ledgerType: 'RETURN_RESTOCK' }],
+      });
+      await expect(transaction.aftersale.findUniqueOrThrow({ where: { id: ids.aftersaleId } }))
+        .resolves.toMatchObject({ status: 'COMPLETED' });
+      await expect(transaction.salesOrder.findUniqueOrThrow({ where: { id: ids.orderId } }))
+        .resolves.toMatchObject({
+          fulfillment_status: 'DELIVERED',
+          order_status: 'SHIPPING',
+          refund_progress_status: 'PARTIAL',
+          refunded_amount: new Prisma.Decimal('10.00'),
+        });
+      await expect(transaction.orderItem.findUniqueOrThrow({ where: { id: ids.orderItemId } }))
+        .resolves.toMatchObject({
+          aftersale_reserved_amount: new Prisma.Decimal('0.00'),
+          aftersale_reserved_qty: 0,
+          refunded_amount: new Prisma.Decimal('10.00'),
+          refunded_qty: 1,
+        });
+      await expect(transaction.orderItem.findUniqueOrThrow({ where: { id: ids.zeroApprovedOrderItemId } }))
+        .resolves.toMatchObject({
+          aftersale_reserved_amount: new Prisma.Decimal('0.00'),
+          aftersale_reserved_qty: 0,
+          refunded_amount: new Prisma.Decimal('0.00'),
+          refunded_qty: 0,
+          version: 2,
+        });
+      await expect(transaction.aftersaleItem.findUniqueOrThrow({ where: { id: ids.zeroApprovedAftersaleItemId } }))
+        .resolves.toMatchObject({
+          refunded_amount: new Prisma.Decimal('0.00'),
+          refunded_qty: 0,
+        });
+      await expect(transaction.inventoryBalance.findUniqueOrThrow({ where: { id: ids.balanceId } }))
+        .resolves.toMatchObject({ physical_qty: 4 });
+      await expect(transaction.inventoryBalance.findUniqueOrThrow({ where: { id: ids.zeroApprovedBalanceId } }))
+        .resolves.toMatchObject({ physical_qty: 3, version: 1 });
+      await expect(transaction.product.findUniqueOrThrow({ where: { id: ids.productId } }))
+        .resolves.toMatchObject({ sales_count: 1 });
+      await expect(transaction.orderItemCommissionPosition.findUniqueOrThrow({
+        where: { id: ids.zeroApprovedCommissionPositionId },
+      })).resolves.toMatchObject({
+        expected_remaining: new Prisma.Decimal('1.00'),
+        reversed_total: new Prisma.Decimal('0.00'),
+        state: 'EXPECTED',
+        version: 1,
+      });
+      expect(await transaction.commissionLedger.count({ where: { refund_id: created.refundId } })).toBe(1);
+      expect(await transaction.commissionLedger.count({
+        where: { snapshot_id: ids.zeroApprovedCommissionSnapshotId },
+      })).toBe(0);
+      expect(await transaction.inventoryLedger.count({ where: { sku_id: ids.zeroApprovedSkuId } })).toBe(0);
       throw rollbackSentinel;
     }, transactionOptions)).rejects.toBe(rollbackSentinel);
   }, 90_000);

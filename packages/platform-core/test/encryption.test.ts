@@ -12,7 +12,7 @@ import {
 } from '../src';
 
 const encryptionKey = randomBytes(32);
-const hmacKey = randomBytes(32);
+const hmacKey = new Uint8Array(32).fill(42);
 const firstContext = createEncryptionContext('mfa_factor', generateUlid(), 'secret_ciphertext');
 const secondContext = createEncryptionContext('mfa_factor', generateUlid(), 'secret_ciphertext');
 
@@ -74,13 +74,13 @@ describe('AES-256-GCM envelope encryption', () => {
 });
 
 describe('IP address HMAC', () => {
-  it('is deterministic, irreversible in the stored value, and normalizes harmless casing', () => {
+  it('is deterministic, emits a fixed-width digest, and normalizes harmless casing', () => {
     const first = hmacSha256IpAddress(' 2001:DB8::1 ', hmacKey);
     const second = hmacSha256IpAddress('2001:db8::1', hmacKey);
 
     expect(first).toBe(second);
+    expect(first).toBe('5d44cb61352246ff00c1f6ef3f2f3a53240df190af41aa327baeb3c1cfd5388b');
     expect(first).toMatch(/^[a-f0-9]{64}$/);
-    expect(first).not.toContain('2001');
   });
 
   it('requires a non-empty address and a strong independent HMAC key', () => {

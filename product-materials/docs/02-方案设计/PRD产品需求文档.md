@@ -9,7 +9,7 @@
 | 文档版本 | v2.4.10 |
 | 对应阶段 | 三端标准 MVP |
 | 更新日期 | 2026-09-02 |
-| 当前状态 | B0 至 B11 development 已完成并维持 `GO`；B12.0 精确 SHA 的普通 CI、Supabase development migration 和 rollback-only smoke 已成功，CH-027 已批准。当前产品/API 基线为 `v2.4.10 / 2.4.10-ch026`；B12.1-B12.5 已实现并在 B12.5 验收后暂停，MP-13/14、ADM-12/13/16、generated contracts、严格响应解码器及五视口 E2E 已建立。B12.6 尚未开始，尚无 B12 最终远端双绿证据，B12 整体仍非 development `GO`，CH-027 仍有效。真实客户数据、真实微信支付/退款、真实物流、staging/production `NO-GO` |
+| 当前状态 | B0 至 B11 development 已完成并维持 `GO`；B12.0 精确 SHA 的普通 CI、Supabase development migration 和 rollback-only smoke 已成功，CH-027 已批准且仍有效。当前产品/API 基线为 `v2.4.10 / 2.4.10-ch026`；B12.1-B12.6 本地实现与本地验收已完成，B12 full DB `65/65`、两端 E2E `45 passed`、全仓单测 `2738 passed / 166 skips`、完整真实纵向 `1/1` 及精确清理通过。最终同 SHA 远端双绿待完成，B12 整体仍非 development `GO`；真实客户数据、真实微信支付/退款、真实物流、staging/production `NO-GO` |
 | 产品终端 | 消费者微信小程序、一级代理工作台、总部管理后台 |
 | 人员角色 | `CUSTOMER`、`AGENT_ADMIN`、`SUPER_ADMIN` |
 
@@ -32,7 +32,7 @@
 | v2.4.7 | 2026-08-28 | 落实 CH-020：结算报价凭证、待付款订单、库存预占、主动取消/超时释放与 0002 索引迁移 | 已归档；B9.0-B9.5 已完成并取得最终同 SHA 双绿，B9 development `GO`，CH-019 已自动失效 |
 | v2.4.8 | 2026-08-29 | 落实 CH-022：Mock 支付意图、结果消费、订单结算、关单对账、迟到支付自动退款与 0003 支付事实索引；CH-023 仅补充 0004 数据库函数权限修复 | 已归档；B10.0-B10.6 已完成，最终 SHA `f5e59169b53a97704711c3aae3049e5b5d16a930` 同 SHA 双绿，B10 development `GO`，CH-021 已自动失效 |
 | v2.4.9 | 2026-08-30 | 落实 CH-024：一单一包裹、总部人工物流、Store 本人物流/确认收货、Admin 订单/履约地址/发货/物流/兜底完成，以及完成时佣金一次入账；零迁移 | 已归档；B11 development `GO`，最终同 SHA 双绿已闭合 |
-| v2.4.10 | 2026-09-01 | 落实 CH-026：收紧 Store/Admin 售后、退货验货、普通退款/重试和纯金额补偿契约，准入 `0005_b12_aftersale_refund_guards` | 当前产品版本；B12.0-B12.5 已完成并在 B12.5 验收后暂停，B12.6 尚未开始，B12 尚未 `GO` |
+| v2.4.10 | 2026-09-01 | 落实 CH-026：收紧 Store/Admin 售后、退货验货、普通退款/重试和纯金额补偿契约，准入 `0005_b12_aftersale_refund_guards` | 当前产品版本；B12.0-B12.6 本地实现与本地验收已完成，最终同 SHA 远端双绿待完成，B12 尚未 `GO` |
 
 ### 文档使用约定
 
@@ -1573,8 +1573,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | 验收场景 AC | 116 | 0 |
 | 用户故事 US | 24 | 0 |
 
-当前准入结论：B0 至 B11 development 已通过并维持 `GO`。产品/API 基线为 `v2.4.10 / 2.4.10-ch026`；B12.0 三项远端门禁已闭合，CH-027 已批准。B12.1-B12.5 已完成并在 B12.5 验收后暂停；工程前端已覆盖 MP-13/14、ADM-12/13/16，并使用 generated contracts、严格响应解码器及五视口 E2E。B12.6 尚未开始，尚无 B12 最终实现 SHA 的普通 CI 与 Supabase rollback-only 双绿证据，B12 整体仍非 development `GO`，CH-027 仍有效。真实客户数据、真实支付/退款、真实物流、staging 和 production 均未放行。
+当前准入结论：B0 至 B11 development 已通过并维持 `GO`。产品/API 基线为 `v2.4.10 / 2.4.10-ch026`；B12.0 三项远端门禁已闭合，CH-027 已批准且仍有效。B12.1-B12.6 本地实现与本地验收已完成；工程前端已覆盖 MP-13/14、ADM-12/13/16，并使用 generated contracts、严格响应解码器及五视口 E2E。DB/E2E/全仓、完整真实纵向与精确清理通过；最终实现 SHA 的普通 CI、Supabase rollback-only 同 SHA 双绿待完成。B12 整体仍非 development `GO`；真实客户数据、真实支付/退款、真实物流、staging 和 production 均未放行。
 
 ---
 
-PRD 状态：`v2.4.10 / CH-026` 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24。B0 至 B11 development `GO`；B12.0-B12.5 已完成并在 B12.5 验收后暂停，B12.6 尚未开始，B12 仍非 development `GO`，CH-027 仍有效。真实客户数据、真实支付/退款、真实物流、staging/production 尚未放行。
+PRD 状态：`v2.4.10 / CH-026` 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24。B0 至 B11 development `GO`；B12.0-B12.6 本地实现与本地验收已完成，最终同 SHA 远端双绿待完成；B12 仍非 development `GO`，CH-027 仍有效。真实客户数据、真实支付/退款、真实物流、staging/production 尚未放行。

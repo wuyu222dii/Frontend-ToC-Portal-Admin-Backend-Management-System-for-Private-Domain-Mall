@@ -65,7 +65,6 @@ const uploadPending = ref(false);
 const message = ref('');
 const retryAfterSeconds = ref(0);
 const slowRequest = ref(false);
-const h5FileInput = ref<HTMLInputElement | null>(null);
 let generation = 0;
 let showGeneration = 0;
 let slowTimer: ReturnType<typeof setTimeout> | undefined;
@@ -380,30 +379,26 @@ async function uploadEvidenceBytes(
     } else message.value = '凭证上传失败，请重新选择 JPEG/PNG 图片。已成功上传的凭证仍会保留。';
   } finally {
     uploadPending.value = false;
-    if (h5FileInput.value) h5FileInput.value.value = '';
-  }
-}
-
-function h5FileSelected(event: Event): void {
-  const file = (event.target as HTMLInputElement).files?.[0];
-  if (file && (file.type === 'image/jpeg' || file.type === 'image/png')) {
-    const mimeType: 'image/jpeg' | 'image/png' = file.type;
-    void file.arrayBuffer().then((bytes) => uploadEvidenceBytes(file.name, mimeType, bytes));
-  } else if (file) {
-    message.value = '仅支持 JPEG 或 PNG 凭证。';
   }
 }
 
 function chooseEvidence(): void {
   if (formLocked.value || evidence.value.length >= 9) return;
-  // #ifdef H5
-  h5FileInput.value?.click();
-  // #endif
-  // #ifndef H5
   uni.chooseImage({
     count: 1,
     sizeType: ['compressed'],
     success: (result) => {
+      const browserFile = (result as unknown as { tempFiles?: unknown[] }).tempFiles?.[0];
+      if (typeof File !== 'undefined' && browserFile instanceof File) {
+        if (browserFile.type !== 'image/jpeg' && browserFile.type !== 'image/png') {
+          message.value = '仅支持 JPEG 或 PNG 凭证。';
+          return;
+        }
+        const mimeType = browserFile.type as 'image/jpeg' | 'image/png';
+        void browserFile.arrayBuffer().then((bytes) =>
+          uploadEvidenceBytes(browserFile.name, mimeType, bytes));
+        return;
+      }
       const path = result.tempFilePaths[0];
       if (!path) return;
       const name = path.split('/').at(-1) || 'evidence.jpg';
@@ -420,7 +415,6 @@ function chooseEvidence(): void {
       });
     },
   });
-  // #endif
 }
 
 function removeEvidence(fileId: string): void {
@@ -619,16 +613,6 @@ onUnload(() => {
           >
             {{ uploadPending ? '正在上传…' : '上传 JPEG / PNG 凭证' }}
           </button>
-          <!-- #ifdef H5 -->
-          <input
-            ref="h5FileInput"
-            class="hidden-file"
-            type="file"
-            accept="image/jpeg,image/png"
-            data-testid="aftersale-evidence-input"
-            @change="h5FileSelected"
-          >
-          <!-- #endif -->
         </section>
 
         <section
@@ -734,7 +718,6 @@ onUnload(() => {
 .evidence-list text { min-width: 0; overflow: hidden; font-size: 18rpx; text-overflow: ellipsis; white-space: nowrap; }
 .evidence-list button { flex: 0 0 auto; border: 0; color: var(--qx-store-danger); background: transparent; font-size: 18rpx; }
 .evidence-upload { width: 100%; min-height: 66rpx; margin-top: 16rpx; border: 1px dashed var(--qx-store-brand) !important; color: var(--qx-store-brand); background: #fff; font-size: 20rpx; }
-.hidden-file { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .preview-panel { display: grid; gap: 14rpx; border-color: #bad6c9; background: #f5faf7; }
 .pending-confirm-panel { display: grid; gap: 10rpx; border-color: #d8bc78; background: #fff9ec; }
 .pending-confirm-panel .apply-title { margin-bottom: 0; }

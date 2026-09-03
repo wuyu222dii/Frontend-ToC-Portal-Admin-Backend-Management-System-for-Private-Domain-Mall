@@ -23,7 +23,7 @@ export interface AppendAuditLogInput {
   reasonCode?: string;
   before?: unknown;
   after?: unknown;
-  summaryPolicy: 'ADDRESS_STATE' | 'NONE' | 'STATUS_VERSION';
+  summaryPolicy: 'ADDRESS_STATE' | 'AGENT_AUTHORIZATION' | 'NONE' | 'STATUS_VERSION';
   result: AuditResult;
   requestId: string;
   idempotencyKey?: string;
@@ -106,6 +106,7 @@ const AUDIT_OBJECT_TYPE = new Set([
   'account',
   'address',
   'agent',
+  'agent_invite_code',
   'aftersale',
   'banner',
   'binding',
@@ -202,6 +203,11 @@ function auditJson(
       key !== 'is_default' && key !== 'status' && key !== 'version')) {
       throw new TypeError('ADDRESS_STATE audit summaries require only status, version, and is_default');
     }
+  } else if (policy === 'AGENT_AUTHORIZATION') {
+    if (keys.length !== 3 || keys.some((key) =>
+      key !== 'mode' && key !== 'product_count' && key !== 'version')) {
+      throw new TypeError('AGENT_AUTHORIZATION summaries require mode, product_count, and version');
+    }
   } else if (keys.some((key) => key !== 'status' && key !== 'version')) {
     throw new TypeError('STATUS_VERSION audit summaries accept only status and version');
   }
@@ -212,6 +218,16 @@ function auditJson(
         throw new TypeError('Audit status summary must use an approved status');
       }
       output[key] = nested;
+    } else if (key === 'mode') {
+      if (nested !== 'ALL_ACTIVE_PRODUCTS' && nested !== 'CUSTOM_WHITELIST') {
+        throw new TypeError('Audit Agent authorization mode is invalid');
+      }
+      output[key] = nested;
+    } else if (key === 'product_count') {
+      if (!Number.isSafeInteger(nested) || Number(nested) < 0) {
+        throw new TypeError('Audit Agent authorization product count must be a non-negative integer');
+      }
+      output[key] = nested as number;
     } else if (key === 'version') {
       if (!Number.isSafeInteger(nested) || Number(nested) < 1) {
         throw new TypeError('Audit version summary must be a positive integer');
@@ -270,12 +286,16 @@ function assertStructuredMetadata(input: AppendAuditLogInput): void {
     throw new TypeError('Audit object type is not registered');
   }
   const isCustomerAddress = input.module === 'customer' && input.objectType === 'address';
+  const isAgentAuthorization = input.module === 'agent' && input.objectType === 'agent';
   if (input.summaryPolicy === 'ADDRESS_STATE' && !isCustomerAddress) {
     throw new TypeError('ADDRESS_STATE audit summaries are restricted to customer addresses');
   }
   if (isCustomerAddress && ['CREATE', 'DELETE', 'UPDATE'].includes(input.action) &&
     input.summaryPolicy !== 'ADDRESS_STATE') {
     throw new TypeError('Customer address writes require ADDRESS_STATE audit summaries');
+  }
+  if (input.summaryPolicy === 'AGENT_AUTHORIZATION' && !isAgentAuthorization) {
+    throw new TypeError('AGENT_AUTHORIZATION summaries are restricted to Agents');
   }
   if (!(isValidUlid(input.objectId) || UUID.test(input.objectId))) {
     throw new TypeError('Audit object ID must be a ULID or UUID');
@@ -306,7 +326,8 @@ function assertStructuredMetadata(input: AppendAuditLogInput): void {
   if (input.ipAddress !== undefined && isIP(input.ipAddress) === 0) {
     throw new TypeError('Audit IP address must be an IPv4 or IPv6 literal');
   }
-  if (input.summaryPolicy !== 'ADDRESS_STATE' && input.summaryPolicy !== 'NONE' &&
+  if (input.summaryPolicy !== 'ADDRESS_STATE' && input.summaryPolicy !== 'AGENT_AUTHORIZATION' &&
+    input.summaryPolicy !== 'NONE' &&
     input.summaryPolicy !== 'STATUS_VERSION') {
     throw new TypeError('Audit summary policy is invalid');
   }

@@ -13,6 +13,10 @@ const accountId = generateUlid(NOW.getTime() - 4_000);
 const agentId = generateUlid(NOW.getTime() - 3_000);
 const walletId = generateUlid(NOW.getTime() - 2_000);
 const inviteCodeId = generateUlid(NOW.getTime() - 1_000);
+const firstProductId = generateUlid(NOW.getTime() - 8_000);
+const secondProductId = generateUlid(NOW.getTime() - 7_000);
+const thirdProductId = generateUlid(NOW.getTime() - 6_000);
+const rotatedInviteCodeId = generateUlid(NOW.getTime() + 1_000);
 
 function accountRecord(overrides: Record<string, unknown> = {}) {
   return {
@@ -215,6 +219,101 @@ function lifecycleHarness(initialStatus: 'ACTIVE' | 'DISABLED' = 'ACTIVE') {
     profileDelegate,
     transaction: transactionStub as unknown as DatabaseTransaction,
     transactionStub,
+  };
+}
+
+function inviteRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    agent_id: agentId,
+    code_ciphertext: Buffer.from('encrypted-invite'),
+    code_hash: 'a'.repeat(64),
+    code_last4: 'ABCD',
+    created_at: new Date(NOW.getTime() - 20_000),
+    effective_at: new Date(NOW.getTime() - 20_000),
+    encryption_key_id: 'field-key-2026-09',
+    ended_at: null,
+    end_reason: null,
+    expires_at: new Date(NOW.getTime() + 86_400_000),
+    id: inviteCodeId,
+    status: 'ACTIVE',
+    ...overrides,
+  };
+}
+
+function b132Harness() {
+  let profile = agentRecord();
+  let invite = inviteRecord();
+  let whitelist: Record<string, unknown>[] = [];
+  const events: string[] = [];
+  const hydrate = () => ({ ...profile, account: { ...(profile.account as Record<string, unknown>) } });
+  const profileDelegate = {
+    findFirst: vi.fn(async () => hydrate()),
+    findUnique: vi.fn(async () => hydrate()),
+    updateMany: vi.fn(async ({ data, where }: {
+      data: Record<string, unknown>;
+      where: { id: string; version: number };
+    }) => {
+      if (where.id !== agentId || where.version !== profile.version) return { count: 0 };
+      const increment = (data.version as { increment?: number } | undefined)?.increment ?? 0;
+      profile = { ...profile, ...data, version: Number(profile.version) + increment };
+      return { count: 1 };
+    }),
+  };
+  const whitelistDelegate = {
+    createMany: vi.fn(async ({ data }: { data: Record<string, unknown>[] }) => ({ count: data.length })),
+    findMany: vi.fn(async () => whitelist),
+    updateMany: vi.fn(async () => ({ count: 1 })),
+  };
+  const inviteDelegate = {
+    create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => data),
+    findFirst: vi.fn(async () => null),
+    findMany: vi.fn(async () => [invite]),
+    findUnique: vi.fn(async () => invite),
+    updateMany: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+      invite = { ...invite, ...data };
+      return { count: 1 };
+    }),
+  };
+  const preservedFacts = {
+    commissionLedger: { updateMany: vi.fn() },
+    customerAgentBinding: { count: vi.fn(async () => 4), updateMany: vi.fn() },
+    orderItemCommissionSnapshot: { updateMany: vi.fn() },
+    promotionAsset: { count: vi.fn(async () => 2), updateMany: vi.fn() },
+    salesOrder: { updateMany: vi.fn() },
+  };
+  const transactionStub = {
+    $queryRaw: vi.fn(async (query: { strings?: readonly string[] }) => {
+      const sql = query.strings?.join(' ') ?? '';
+      if (sql.includes('public.product')) {
+        return [secondProductId, thirdProductId].map((id) => ({ id }));
+      }
+      if (sql.includes('agent_profile')) return [{ id: agentId }];
+      if (sql.includes('agent_invite_code')) return [{ id: inviteCodeId }];
+      if (sql.includes('account')) return [{ id: accountId }];
+      return [];
+    }),
+    $queryRawUnsafe: vi.fn(async (_query: string, namespace: string) => {
+      events.push(namespace);
+      return [{ acquired: 1 }];
+    }),
+    agentInviteCode: inviteDelegate,
+    agentProductWhitelist: whitelistDelegate,
+    agentProfile: profileDelegate,
+    attributionCandidate: {
+      count: vi.fn(async () => 3),
+      updateMany: vi.fn(async () => ({ count: 3 })),
+    },
+    ...preservedFacts,
+  };
+  return {
+    events,
+    inviteDelegate,
+    preservedFacts,
+    profileDelegate,
+    setWhitelist: (records: Record<string, unknown>[]) => { whitelist = records; },
+    transaction: transactionStub as unknown as DatabaseTransaction,
+    transactionStub,
+    whitelistDelegate,
   };
 }
 
@@ -553,5 +652,213 @@ describe('AdminAgentRepository', () => {
       agent: { status: 'ACTIVE', version: 2 },
       revokedSessionCount: 3,
     });
+  });
+
+  it('updates the canonical whitelist under Agent/Product locks by soft-deleting, reviving, and inserting rows', async () => {
+    const harness = b132Harness();
+    harness.setWhitelist([
+      { deleted_at: null, id: generateUlid(NOW.getTime() - 5_000), product_id: firstProductId },
+      { deleted_at: new Date(NOW.getTime() - 1_000), id: generateUlid(NOW.getTime() - 4_000),
+        product_id: secondProductId },
+    ]);
+
+    const result = await repository().updateProductAuthorizationInTransaction(harness.transaction, {
+      agentId,
+      expectedVersion: 1,
+      mode: 'CUSTOM_WHITELIST',
+      productIds: [thirdProductId, secondProductId],
+    });
+
+    expect(harness.events).toEqual([
+      'store-attribution-agent',
+      'agent-auth-account',
+      'store-attribution-product',
+      'store-attribution-product',
+    ]);
+    expect(harness.whitelistDelegate.updateMany).toHaveBeenNthCalledWith(1, {
+      data: { deleted_at: NOW },
+      where: {
+        agent_id: agentId,
+        deleted_at: null,
+        product_id: { notIn: [secondProductId, thirdProductId] },
+      },
+    });
+    expect(harness.whitelistDelegate.updateMany).toHaveBeenNthCalledWith(2, {
+      data: { deleted_at: null },
+      where: {
+        agent_id: agentId,
+        deleted_at: { not: null },
+        product_id: { in: [secondProductId, thirdProductId] },
+      },
+    });
+    expect(harness.whitelistDelegate.createMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({
+        agent_id: agentId,
+        deleted_at: null,
+        product_id: thirdProductId,
+      })],
+    });
+    expect(result).toEqual({
+      after: {
+        agentId,
+        mode: 'CUSTOM_WHITELIST',
+        productIds: [secondProductId, thirdProductId],
+        version: 2,
+      },
+      before: {
+        agentId,
+        mode: 'ALL_ACTIVE_PRODUCTS',
+        productIds: [],
+        version: 1,
+      },
+      occurredAt: NOW,
+    });
+    for (const delegate of Object.values(harness.preservedFacts)) expect(delegate.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('reads only live whitelist rows into the canonical product authorization snapshot', async () => {
+    const prismaStub = {
+      agentProfile: {
+        findFirst: vi.fn(async () => agentRecord({
+          product_authorization_mode: 'CUSTOM_WHITELIST',
+          product_whitelist: [
+            { deleted_at: NOW, id: generateUlid(), product_id: firstProductId },
+            { deleted_at: null, id: generateUlid(), product_id: thirdProductId },
+            { deleted_at: null, id: generateUlid(), product_id: secondProductId },
+          ],
+        })),
+      },
+    };
+
+    await expect(repository(prismaStub as unknown as PrismaClient).getProductAuthorization(agentId)).resolves.toEqual({
+      agentId,
+      mode: 'CUSTOM_WHITELIST',
+      productIds: [secondProductId, thirdProductId],
+      version: 1,
+    });
+  });
+
+  it('rotates the invite and invalidates only live candidates without rewriting promotion or historical finance facts', async () => {
+    const harness = b132Harness();
+    const result = await repository().rotateInviteCodeInTransaction(harness.transaction, {
+      agentId,
+      expectedVersion: 1,
+      inviteCode: {
+        ciphertext: Uint8Array.from([9, 8, 7]),
+        codeHash: 'b'.repeat(64),
+        encryptionKeyId: 'field-key-2026-09',
+        expiresAt: new Date(NOW.getTime() + 172_800_000),
+        last4: 'WXYZ',
+      },
+      inviteCodeId: rotatedInviteCodeId,
+    });
+
+    expect(harness.events).toEqual([
+      'store-attribution-agent',
+      'agent-auth-account',
+      'store-attribution-invite',
+      'admin-agent-invite',
+    ]);
+    expect(harness.inviteDelegate.updateMany).toHaveBeenCalledWith({
+      data: { ended_at: NOW, end_reason: 'ADMIN_ROTATED', status: 'ROTATED' },
+      where: { agent_id: agentId, id: inviteCodeId, status: 'ACTIVE' },
+    });
+    expect(harness.transactionStub.attributionCandidate.updateMany).toHaveBeenCalledWith({
+      data: { invalid_reason: 'INVITE_CODE_ROTATED', status: 'INVALIDATED', updated_at: NOW },
+      where: { expires_at: { gt: NOW }, invite_code_id: inviteCodeId, status: 'ACTIVE' },
+    });
+    expect(harness.inviteDelegate.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      agent_id: agentId,
+      code_ciphertext: Buffer.from([9, 8, 7]),
+      code_hash: 'b'.repeat(64),
+      id: rotatedInviteCodeId,
+      status: 'ACTIVE',
+    }) });
+    expect(result).toMatchObject({
+      agent: { id: agentId, version: 2 },
+      inviteCode: { codeMasked: '****WXYZ', id: rotatedInviteCodeId, status: 'ACTIVE', version: 2 },
+      invalidatedCandidateCount: 3,
+      previousInviteCode: { codeMasked: '****ABCD', id: inviteCodeId, version: 1 },
+    });
+    for (const delegate of Object.values(harness.preservedFacts)) expect(delegate.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('previews invite impact from live candidates/assets and current bindings without mutating them', async () => {
+    const harness = b132Harness();
+
+    await expect(repository().getInviteRotationImpactInTransaction(harness.transaction, {
+      agentId,
+      expiresAt: null,
+    })).resolves.toMatchObject({
+      activeCandidateCount: 3,
+      activePromotionAssetCount: 2,
+      agent: { id: agentId, version: 1 },
+      existingBindingCount: 4,
+      inviteCode: { id: inviteCodeId, status: 'ACTIVE', version: 1 },
+    });
+    expect(harness.transactionStub.attributionCandidate.count).toHaveBeenCalledWith({
+      where: { expires_at: { gt: NOW }, invite_code_id: inviteCodeId, status: 'ACTIVE' },
+    });
+    expect(harness.preservedFacts.promotionAsset.count).toHaveBeenCalledWith({ where: {
+      invite_code_id: inviteCodeId,
+      revoked_at: null,
+      status: 'ACTIVE',
+      OR: [{ expires_at: null }, { expires_at: { gt: NOW } }],
+    } });
+    for (const delegate of Object.values(harness.preservedFacts)) expect(delegate.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('maps expired invite administration inputs to a client error', async () => {
+    const harness = b132Harness();
+    const expired = new Date(NOW.getTime() - 1);
+
+    await expect(repository().getInviteRotationImpactInTransaction(harness.transaction, {
+      agentId,
+      expiresAt: expired,
+    })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    await expect(repository().rotateInviteCodeInTransaction(harness.transaction, {
+      agentId,
+      expectedVersion: 1,
+      inviteCode: { ...createInput().inviteCode, expiresAt: expired },
+      inviteCodeId: rotatedInviteCodeId,
+    })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    await expect(repository().updateInviteCodeStatusInTransaction(harness.transaction, {
+      agentId,
+      expectedVersion: 1,
+      expiresAt: expired,
+      status: 'ACTIVE',
+    })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+  });
+
+  it('preserves an omitted invite expiry and distinguishes an explicit null when changing status', async () => {
+    const harness = b132Harness();
+    const disabled = await repository().updateInviteCodeStatusInTransaction(harness.transaction, {
+      agentId,
+      expectedVersion: 1,
+      status: 'DISABLED',
+    });
+
+    expect(harness.inviteDelegate.updateMany).toHaveBeenNthCalledWith(1, {
+      data: expect.objectContaining({
+        ended_at: NOW,
+        end_reason: 'ADMIN_DISABLED',
+        expires_at: inviteRecord().expires_at,
+        status: 'DISABLED',
+      }),
+      where: { agent_id: agentId, id: inviteCodeId, status: 'ACTIVE' },
+    });
+    expect(disabled.after.expiresAt).toEqual(inviteRecord().expires_at);
+
+    const enabled = await repository().updateInviteCodeStatusInTransaction(harness.transaction, {
+      agentId,
+      expectedVersion: 2,
+      expiresAt: null,
+      status: 'ACTIVE',
+    });
+    expect(harness.inviteDelegate.updateMany).toHaveBeenNthCalledWith(2, {
+      data: { ended_at: null, end_reason: null, expires_at: null, status: 'ACTIVE' },
+      where: { agent_id: agentId, id: inviteCodeId, status: 'DISABLED' },
+    });
+    expect(enabled.after).toMatchObject({ expiresAt: null, status: 'ACTIVE', version: 3 });
   });
 });

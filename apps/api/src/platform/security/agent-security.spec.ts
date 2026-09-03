@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createAgentContactPhoneMaterial,
   createAgentInviteCodeMaterial,
+  decryptAgentInviteCode,
   generateAgentInviteCode,
   generateAgentTemporaryPassword,
 } from './agent-security';
@@ -59,5 +60,39 @@ describe('Agent security material', () => {
     expect(material.codeHash).toBe(hmacAuthenticationSecret(code, HASH_KEY.key, 'invite-code'));
     expect(decrypt(material.ciphertext, 'agent_invite_code', INVITE_ID, 'code_ciphertext')).toBe(code);
     expect(material.ciphertext.toString('utf8')).not.toContain(code);
+  });
+
+  it('decrypts an Agent invite code with its record AAD and current or previous field key', () => {
+    const code = generateAgentInviteCode();
+    const material = createAgentInviteCodeMaterial(INVITE_ID, code, FIELD_KEY, HASH_KEY);
+    expect(decryptAgentInviteCode(INVITE_ID, material.ciphertext, material.encryptionKeyId, {
+      current: { id: 'field-v2', key: Buffer.alloc(32, 0x52) },
+      previous: [FIELD_KEY],
+    })).toBe(code);
+    expect(() => decryptAgentInviteCode(AGENT_ID, material.ciphertext, material.encryptionKeyId, {
+      current: FIELD_KEY,
+      previous: [],
+    })).toThrow('could not be authenticated');
+  });
+
+  it('rejects malformed ciphertext and unavailable or duplicate field keys', () => {
+    const code = generateAgentInviteCode();
+    const material = createAgentInviteCodeMaterial(INVITE_ID, code, FIELD_KEY, HASH_KEY);
+    expect(() => decryptAgentInviteCode(INVITE_ID, Buffer.from('{}'), material.encryptionKeyId, {
+      current: FIELD_KEY,
+      previous: [],
+    })).toThrow('ciphertext is invalid');
+    expect(() => decryptAgentInviteCode(INVITE_ID, material.ciphertext, 'field-v2', {
+      current: FIELD_KEY,
+      previous: [],
+    })).toThrow('encryption key ID is invalid');
+    expect(() => decryptAgentInviteCode(INVITE_ID, material.ciphertext, material.encryptionKeyId, {
+      current: { id: 'field-v2', key: Buffer.alloc(32, 0x52) },
+      previous: [],
+    })).toThrow('field key is unavailable');
+    expect(() => decryptAgentInviteCode(INVITE_ID, material.ciphertext, material.encryptionKeyId, {
+      current: FIELD_KEY,
+      previous: [FIELD_KEY],
+    })).toThrow('key ring is invalid');
   });
 });

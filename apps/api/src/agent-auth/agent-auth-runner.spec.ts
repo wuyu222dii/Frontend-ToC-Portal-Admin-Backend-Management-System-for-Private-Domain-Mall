@@ -54,7 +54,7 @@ describe('B13 Agent gate runner', () => {
     });
   }
 
-  it('runs rollback validation without Redis and preserves the two target commands', () => {
+  it('runs rollback validation without Redis and preserves the three target commands', () => {
     const result = execute({
       B13_AGENT_AUTH_DATABASE_TEST_MODE: 'rollback',
       CI: 'true',
@@ -66,10 +66,11 @@ describe('B13 Agent gate runner', () => {
 
     expect(result.error).toBeUndefined();
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain('B13 Agent authentication rollback database checks passed.');
+    expect(result.stdout).toContain('B13 Agent rollback database checks passed.');
     expect(readFileSync(callsPath, 'utf8').trim().split('\n')).toEqual([
       'build:packages',
       '--filter @qingxu/api exec vitest run --no-file-parallelism src/agent-auth/agent-auth.integration.spec.ts',
+      '--filter @qingxu/database exec vitest run --no-file-parallelism src/agent-commerce.integration.spec.ts',
     ]);
   });
 
@@ -150,7 +151,7 @@ describe('B13 Agent gate runner', () => {
   it('propagates a target command failure and never reports a passing gate', () => {
     const result = execute({
       B13_AGENT_AUTH_DATABASE_TEST_MODE: 'rollback',
-      B13_RUNNER_FAIL_CALL: '2',
+      B13_RUNNER_FAIL_CALL: '3',
       CI: 'true',
       DATABASE_URL: `postgresql://mall_runtime:runtime-password@db.${projectRef}.supabase.co:5432/postgres?sslmode=verify-full&sslrootcert=${encodeURIComponent(caPath)}`,
       NODE_ENV: 'test',
@@ -159,15 +160,15 @@ describe('B13 Agent gate runner', () => {
     });
 
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain('command failed: pnpm --filter @qingxu/api exec vitest run');
+    expect(result.stderr).toContain('command failed: pnpm --filter @qingxu/database exec vitest run');
     expect(result.stdout).not.toContain('database checks passed');
-    expect(readFileSync(callsPath, 'utf8').trim().split('\n')).toHaveLength(2);
+    expect(readFileSync(callsPath, 'utf8').trim().split('\n')).toHaveLength(3);
   });
 
   it('keeps the protected rollback smoke ordered after B12 without a Redis secret', () => {
     const workflow = readFileSync(smokeWorkflowPath, 'utf8');
     const b12Index = workflow.indexOf('Run rollback-only B12 aftersales');
-    const b13Index = workflow.indexOf('Run rollback-only B13.1 Agent lifecycle and authentication smoke');
+    const b13Index = workflow.indexOf('Run rollback-only B13.1-B13.2 Agent authentication and commerce smoke');
     const nextStepIndex = workflow.indexOf('\n      - name:', b13Index + 1);
     const b13Step = workflow.slice(b13Index, nextStepIndex === -1 ? undefined : nextStepIndex);
 

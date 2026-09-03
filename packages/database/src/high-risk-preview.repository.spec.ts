@@ -74,6 +74,8 @@ function harness(initialNow = NOW) {
 describe('HighRiskPreviewRepository', () => {
   it.each([
     { action: 'AGENT.DISABLE', requestAction: 'DISABLE', targetType: 'AGENT' },
+    { action: 'AGENT.INVITE_ROTATE', requestAction: 'INVITE_ROTATE', targetType: 'AGENT' },
+    { action: 'AGENT.INVITE_STATUS', requestAction: 'INVITE_STATUS', targetType: 'AGENT' },
     { action: 'AGENT.PASSWORD_RESET', requestAction: 'PASSWORD_RESET', targetType: 'AGENT' },
     { action: 'AFTERSALE.REFUND', requestAction: 'REFUND', targetType: 'AFTERSALE' },
     { action: 'AFTERSALE.REJECT', requestAction: 'REJECT', targetType: 'AFTERSALE' },

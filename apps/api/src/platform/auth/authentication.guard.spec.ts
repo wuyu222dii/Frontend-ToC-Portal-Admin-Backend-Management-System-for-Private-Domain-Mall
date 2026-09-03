@@ -14,6 +14,7 @@ import { Public, RequireRoles } from '../access/rbac.metadata';
 import { AgentRealm, AllowRestrictedAgentSession } from './agent-realm.metadata';
 import { AuthenticationGuard } from './authentication.guard';
 import { RequireCustomerOrSuperAdmin } from './customer-or-super-admin.metadata';
+import { RequireFileDownloadAuthentication } from './file-download-realm.metadata';
 import { OptionalStoreAuthentication } from './optional-store-authentication.metadata';
 
 const ACCOUNT_ID = '01J00000000000000000000000';
@@ -74,6 +75,9 @@ class RealmFixture {
 
   @RequireCustomerOrSuperAdmin()
   customerOrSuperAdminRoute(): void {}
+
+  @RequireFileDownloadAuthentication()
+  fileDownloadRoute(): void {}
 
   @Public()
   @OptionalStoreAuthentication()
@@ -315,6 +319,29 @@ describe('AuthenticationGuard Store and Admin realm isolation', () => {
     });
     expect(request.accessSession).toBeUndefined();
     expect(request.storeSession).toBeUndefined();
+  });
+
+  it('accepts an unrestricted Agent session on the explicit file-download exception', async () => {
+    const session = { accountId: ACCOUNT_ID, agentId: AGENT_ID, restriction: 'NONE', sessionId: SESSION_ID };
+    const { guard } = runtimeWithAgentSession(session);
+    const { context, request } = contextFor('fileDownloadRoute', agentToken());
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(request.principal?.role).toBe('AGENT_ADMIN');
+    expect(request.agentSession).toBe(session);
+  });
+
+  it('preserves a restricted Agent error on the file-download exception', async () => {
+    const session = {
+      accountId: ACCOUNT_ID,
+      agentId: AGENT_ID,
+      restriction: 'CHANGE_PASSWORD_ONLY',
+      sessionId: SESSION_ID,
+    };
+    const { guard } = runtimeWithAgentSession(session);
+    const { context } = contextFor('fileDownloadRoute', agentToken('CHANGE_PASSWORD_ONLY'));
+
+    await expect(guard.canActivate(context)).rejects.toMatchObject({ code: 'PASSWORD_CHANGE_REQUIRED' });
   });
 
   it('does not infer the Agent realm from AGENT_ADMIN in a business-role policy', async () => {

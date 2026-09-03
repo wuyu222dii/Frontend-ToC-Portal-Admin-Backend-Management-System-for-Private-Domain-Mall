@@ -9,7 +9,7 @@
 | 文档版本 | v2.4.11 |
 | 对应阶段 | 三端标准 MVP |
 | 更新日期 | 2026-09-02 |
-| 当前状态 | B0 至 B12 development 已完成并维持 `GO`；B12 最终 SHA `8c3589afcf7bb0dd5a4b8711d418e4c61b1ad09c` 的普通 CI `33592754575` 与 Supabase rollback-only smoke `33594513127` 同 SHA 双绿，CH-027 已自动失效。B13.0 已在最终 SHA `250f4c8fabb08e170c012889c392461794ed8875` 取得同 SHA 三绿并退出；截至 2026-09-03，B13.1 本地候选已完成并暂停复审，B13.2 未准入。产品/API 基线保持 `v2.4.11 / CH-028`；CH-029 仅覆盖 B13.1-B13.9 脱敏 development。B12 orphan `P2=1` 继续阻断 staging/真实数据；后续代理业务仍按 B13.2-B13.9 分批准入，真实客户数据、真实微信支付/退款、真实物流、staging/production `NO-GO` |
+| 当前状态 | B0 至 B12 development 已完成并维持 `GO`；B12 最终 SHA `8c3589afcf7bb0dd5a4b8711d418e4c61b1ad09c` 的普通 CI `33592754575` 与 Supabase rollback-only smoke `33594513127` 同 SHA 双绿，CH-027 已自动失效。B13.0 已在最终 SHA `250f4c8fabb08e170c012889c392461794ed8875` 取得同 SHA 三绿并退出；截至 2026-09-03，B13.1 最终 SHA `a565a3c406ad2f1af498f9f58b556315d30262d6` 的普通 CI `33704252016`、development migration `33706364405` 与 rollback-only smoke `33706498758` 同 SHA 三绿，B13.1 已退出，B13.2 本地候选实现与最终复审已完成，复审结论为 `P0=0/P1=0/P2=0`，正在等待本批最终同 SHA 普通 CI -> development migration -> rollback-only smoke；B13.2 未退出；B13.3 未准入。产品/API 基线保持 `v2.4.11 / CH-028`；CH-029 仅覆盖 B13.1-B13.9 脱敏 development，B13 development 仍未标记 `GO`。B12 orphan `P2=1` 继续阻断 staging/真实数据；后续代理业务仍按 B13.3-B13.9 分批准入，真实客户数据、真实微信支付/退款、真实物流、staging/production `NO-GO` |
 | 产品终端 | 消费者微信小程序、一级代理工作台、总部管理后台 |
 | 人员角色 | `CUSTOMER`、`AGENT_ADMIN`、`SUPER_ADMIN` |
 
@@ -1574,8 +1574,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | 验收场景 AC | 116 | 0 |
 | 用户故事 US | 24 | 0 |
 
-当前准入结论：B0 至 B12 development 已通过并维持 `GO`。B12 最终实现 SHA `8c3589afcf7bb0dd5a4b8711d418e4c61b1ad09c` 的普通 CI `33592754575` 与 Supabase rollback-only smoke `33594513127` 同 SHA 双绿，CH-027 已自动失效。当前产品/API 基线为 `v2.4.11 / 2.4.11-ch028`；B13.0 已退出，B13.1 本地候选已完成并暂停复审，B13.2 未准入；CH-029 仅覆盖 B13.1-B13.9 脱敏 development。B12 orphan `P2=1` 继续阻断 staging/真实数据；真实客户数据、真实支付/退款、真实物流、staging 和 production 均未放行。
+当前准入结论：B0 至 B12 development 已通过并维持 `GO`。B12 最终实现 SHA `8c3589afcf7bb0dd5a4b8711d418e4c61b1ad09c` 的普通 CI `33592754575` 与 Supabase rollback-only smoke `33594513127` 同 SHA 双绿，CH-027 已自动失效。当前产品/API 基线为 `v2.4.11 / 2.4.11-ch028`；B13.0-B13.1 已退出，B13.1 最终 SHA `a565a3c406ad2f1af498f9f58b556315d30262d6` 同 SHA 三绿，B13.2 本地候选实现与最终复审已完成，复审结论为 `P0=0/P1=0/P2=0`，正在等待本批最终同 SHA 普通 CI -> development migration -> rollback-only smoke；B13.2 未退出；B13.3 未准入；CH-029 仅覆盖 B13.1-B13.9 脱敏 development，B13 development 仍非 `GO`。B12 orphan `P2=1` 继续阻断 staging/真实数据；真实客户数据、真实支付/退款、真实物流、staging 和 production 均未放行。
 
 ---
 
-PRD 状态：`v2.4.11 / CH-028` 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24。B0 至 B12 development `GO`；B13.0 已退出，B13.1 本地候选完成并暂停复审，代理业务按 B13.2-B13.9 继续分批准入，CH-029 仅覆盖脱敏 development。B12 orphan `P2=1` 继续阻断 staging/真实数据，真实客户数据、真实支付/退款、真实物流、staging/production 尚未放行。
+PRD 状态：`v2.4.11 / CH-028` 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24。B0 至 B12 development `GO`；B13.0-B13.1 已退出，B13.2 本地候选实现与最终复审已完成，复审结论为 `P0=0/P1=0/P2=0`，正在等待本批最终同 SHA 普通 CI -> development migration -> rollback-only smoke；B13.2 未退出；B13.3 未准入，后续代理业务按 B13.3-B13.9 继续分批准入，CH-029 仅覆盖脱敏 development；B13 development 仍非 `GO`。B12 orphan `P2=1` 继续阻断 staging/真实数据，真实客户数据、真实支付/退款、真实物流、staging/production 尚未放行。

@@ -5,6 +5,7 @@ export * from './admin-aftersale.repository';
 export * from './admin-refund.repository';
 export * from './audit.repository';
 export * from './agent-auth.repository';
+export * from './agent-commerce.repository';
 export * from './banner.repository';
 export * from './callback-inbox.repository';
 export * from './file-asset.repository';

@@ -12,6 +12,8 @@ const factorId = '01J00000000000000000000004';
 const idempotencyKey = '00000000-0000-4000-8000-000000000000';
 const requestId = 'req_0123456789abcdef0123456789abcdef';
 const occurredAt = new Date('2026-09-02T00:01:00.000Z');
+const inviteId = '01J00000000000000000000008';
+const productId = '01J00000000000000000000009';
 
 function config(): PlatformRuntimeConfig {
   return {
@@ -106,14 +108,22 @@ interface ServiceInternals {
     disableAgentInTransaction: ReturnType<typeof vi.fn>;
     getAgentDetail: ReturnType<typeof vi.fn>;
     getDisableImpactInTransaction: ReturnType<typeof vi.fn>;
+    getInviteRotationImpactInTransaction: ReturnType<typeof vi.fn>;
+    getInviteStatusImpactInTransaction: ReturnType<typeof vi.fn>;
     getPasswordResetImpactInTransaction: ReturnType<typeof vi.fn>;
+    getProductAuthorization: ReturnType<typeof vi.fn>;
     reactivateAgentInTransaction: ReturnType<typeof vi.fn>;
     resetAgentPasswordInTransaction: ReturnType<typeof vi.fn>;
+    rotateInviteCodeInTransaction: ReturnType<typeof vi.fn>;
+    updateInviteCodeStatusInTransaction: ReturnType<typeof vi.fn>;
+    updateProductAuthorizationInTransaction: ReturnType<typeof vi.fn>;
   };
   audit: { append: ReturnType<typeof vi.fn> };
   config: PlatformRuntimeConfig;
   database: DatabaseRuntime;
   idempotency: {
+    agentInviteRotateReplay: ReturnType<typeof vi.fn>;
+    agentProductAuthorizationReplay: ReturnType<typeof vi.fn>;
     assertHashOnlyReplay: ReturnType<typeof vi.fn>;
     claim: ReturnType<typeof vi.fn>;
     commandReplay: ReturnType<typeof vi.fn>;
@@ -141,6 +151,8 @@ function fixture(claims: unknown[] = [{ kind: 'execute' }]) {
   for (const result of claims) claim.mockResolvedValueOnce(result);
   internals.audit = { append: vi.fn().mockResolvedValue({}) };
   internals.idempotency = {
+    agentInviteRotateReplay: vi.fn(),
+    agentProductAuthorizationReplay: vi.fn(),
     assertHashOnlyReplay: vi.fn(),
     claim,
     commandReplay: vi.fn(),
@@ -181,9 +193,41 @@ function fixture(claims: unknown[] = [{ kind: 'execute' }]) {
       agent: agent(),
       pendingPaymentOrderCount: 4,
     }),
+    getInviteRotationImpactInTransaction: vi.fn().mockResolvedValue({
+      activeCandidateCount: 3,
+      activePromotionAssetCount: 2,
+      agent: agent(),
+      existingBindingCount: 4,
+      inviteCode: {
+        codeMasked: '****CODE',
+        expiresAt: null,
+        id: inviteId,
+        status: 'ACTIVE',
+        version: 1,
+      },
+    }),
+    getInviteStatusImpactInTransaction: vi.fn().mockResolvedValue({
+      activeCandidateCount: 3,
+      activePromotionAssetCount: 2,
+      agent: agent(),
+      existingBindingCount: 4,
+      inviteCode: {
+        codeMasked: '****CODE',
+        expiresAt: null,
+        id: inviteId,
+        status: 'ACTIVE',
+        version: 1,
+      },
+    }),
     getPasswordResetImpactInTransaction: vi.fn().mockResolvedValue({
       activeSessionCount: 2,
       agent: agent(),
+    }),
+    getProductAuthorization: vi.fn().mockResolvedValue({
+      agentId,
+      mode: 'ALL_ACTIVE_PRODUCTS',
+      productIds: [],
+      version: 1,
     }),
     reactivateAgentInTransaction: vi.fn().mockResolvedValue({
       accountVersion: 3,
@@ -196,6 +240,51 @@ function fixture(claims: unknown[] = [{ kind: 'execute' }]) {
       agent: agent({ accountVersion: 2, version: 2 }),
       occurredAt,
       revokedSessionCount: 2,
+    }),
+    rotateInviteCodeInTransaction: vi.fn().mockImplementation(
+      async (_transaction: unknown, input: { inviteCodeId: string; inviteCode: { expiresAt: Date | null } }) => ({
+        agent: agent({ version: 2 }),
+        inviteCode: {
+          codeMasked: '****NEWW',
+          expiresAt: input.inviteCode.expiresAt,
+          id: input.inviteCodeId,
+          status: 'ACTIVE',
+          version: 2,
+        },
+        invalidatedCandidateCount: 3,
+        occurredAt,
+        previousInviteCode: {
+          codeMasked: '****CODE',
+          expiresAt: null,
+          id: inviteId,
+          status: 'ACTIVE',
+          version: 1,
+        },
+      }),
+    ),
+    updateInviteCodeStatusInTransaction: vi.fn().mockResolvedValue({
+      after: {
+        codeMasked: '****CODE',
+        expiresAt: null,
+        id: inviteId,
+        status: 'DISABLED',
+        version: 2,
+      },
+      agent: agent({ version: 2 }),
+      before: {
+        codeMasked: '****CODE',
+        expiresAt: null,
+        id: inviteId,
+        status: 'ACTIVE',
+        version: 1,
+      },
+      invalidatedCandidateCount: 3,
+      occurredAt,
+    }),
+    updateProductAuthorizationInTransaction: vi.fn().mockResolvedValue({
+      after: { agentId, mode: 'CUSTOM_WHITELIST', productIds: [productId], version: 2 },
+      before: { agentId, mode: 'ALL_ACTIVE_PRODUCTS', productIds: [], version: 1 },
+      occurredAt,
     }),
   };
   return { internals, service, transaction };
@@ -508,5 +597,198 @@ describe('AdminAgentsService B13.1 orchestration', () => {
     expect(completion).toMatchObject({ resourceId: agentId, responseStatus: 200, storage: 'HASH_ONLY' });
     expect(completion).not.toHaveProperty('responseBody');
     expect(JSON.stringify(completion)).not.toContain(result.preview_token);
+  });
+});
+
+describe('AdminAgentsService B13.2 authorization and invite-code orchestration', () => {
+  it('reads and atomically updates a canonical product authorization with exact replay data', async () => {
+    const f = fixture();
+    await expect(f.service.productAuthorization(agentId)).resolves.toEqual({
+      agent_id: agentId,
+      mode: 'ALL_ACTIVE_PRODUCTS',
+      product_ids: [],
+      version: 1,
+    });
+
+    const result = await f.service.updateProductAuthorization(
+      requestContext(),
+      agentId,
+      { mode: 'CUSTOM_WHITELIST', productIds: [productId] },
+      1,
+      idempotencyKey,
+    );
+
+    expect(result.envelope.data).toEqual({
+      agent_id: agentId,
+      mode: 'CUSTOM_WHITELIST',
+      product_ids: [productId],
+      version: 2,
+    });
+    expect(f.internals.agents.updateProductAuthorizationInTransaction).toHaveBeenCalledWith(f.transaction, {
+      agentId,
+      expectedVersion: 1,
+      mode: 'CUSTOM_WHITELIST',
+      productIds: [productId],
+    });
+    expect(f.internals.audit.append).toHaveBeenCalledWith(f.transaction, expect.objectContaining({
+      action: 'UPDATE',
+      after: { mode: 'CUSTOM_WHITELIST', product_count: 1, version: 2 },
+      before: { mode: 'ALL_ACTIVE_PRODUCTS', product_count: 0, version: 1 },
+      summaryPolicy: 'AGENT_AUTHORIZATION',
+    }));
+    expect(f.internals.outbox.append).toHaveBeenCalledWith(f.transaction, expect.objectContaining({
+      eventType: 'agent.product_authorization_updated',
+      payload: expect.objectContaining({ resource_version: 2 }),
+    }));
+    expect(f.internals.idempotency.complete).toHaveBeenCalledWith(f.transaction, expect.anything(), {
+      policy: 'AGENT_PRODUCT_AUTHORIZATION_RESPONSE',
+      responseBody: result.envelope,
+      responseStatus: 200,
+      storage: 'CACHEABLE',
+    });
+  });
+
+  it('binds invite rotation preview-confirm and caches only the redacted replay', async () => {
+    const f = fixture([{ kind: 'execute' }, { kind: 'execute' }]);
+    const request = requestContext();
+    const expiresAt = new Date('2026-10-01T00:00:00.000Z');
+    const preview = await f.service.previewInviteCodeRotation(
+      request,
+      agentId,
+      { expiresAt, reason: 'Rotate compromised invite' },
+      idempotencyKey,
+    );
+    const result = await f.service.rotateInviteCode(
+      request,
+      agentId,
+      {
+        confirmationHash: preview.confirmation_hash,
+        expiresAt,
+        previewToken: preview.preview_token,
+        reason: 'Rotate compromised invite',
+      },
+      1,
+      '00000000-0000-4000-8000-000000000001',
+    );
+
+    expect(preview).toMatchObject({
+      impact: { affected_count: 6 },
+      resource_etag: '"1"',
+    });
+    expect(result.envelope.data).toMatchObject({
+      agent_id: agentId,
+      disclosure_state: 'FIRST_ISSUE',
+      new_invite_code: { expires_at: expiresAt.toISOString(), status: 'ACTIVE', version: 2 },
+      old_code_invalidated: {
+        code_masked: '****CODE',
+        existing_bindings_unchanged: true,
+        invalidated_at: occurredAt.toISOString(),
+        invite_code_id: inviteId,
+      },
+      reissue_required: false,
+    });
+    const issuedInvite = result.envelope.data.new_invite_code;
+    if (issuedInvite === null) throw new TypeError('Expected first-issue invite code');
+    const disclosedCode = issuedInvite.code;
+    expect(disclosedCode).toMatch(/^AGT-[A-Za-z0-9_-]{16}$/);
+    expect(f.internals.previews.consumeInTransaction).toHaveBeenCalledWith(f.transaction, {
+      action: 'AGENT.INVITE_ROTATE',
+      actorId: accountId,
+      confirmationHash: preview.confirmation_hash,
+      previewToken: preview.preview_token,
+      request: { expires_at: expiresAt.toISOString(), reason: 'Rotate compromised invite' },
+      resourceVersion: 1,
+      sessionId,
+      targetId: agentId,
+      targetType: 'AGENT',
+    });
+    const persisted = f.internals.agents.rotateInviteCodeInTransaction.mock.calls[0]?.[1] as {
+      inviteCode: { ciphertext: Uint8Array; codeHash: string };
+    };
+    expect(Buffer.from(persisted.inviteCode.ciphertext).toString('utf8')).not.toContain(disclosedCode);
+    expect(persisted.inviteCode.codeHash).not.toBe(disclosedCode);
+    const completion = f.internals.idempotency.complete.mock.calls[1]?.[2] as Record<string, unknown>;
+    expect(completion).toMatchObject({ policy: 'AGENT_INVITE_ROTATE_REPLAY', storage: 'CACHEABLE' });
+    expect(completion).toMatchObject({ responseBody: { data: {
+      disclosure_state: 'REPLAY_REDACTED', new_invite_code: null, reissue_required: true,
+    } } });
+    expect(JSON.stringify(completion)).not.toContain(disclosedCode);
+    expect(f.internals.audit.append).toHaveBeenCalledWith(f.transaction, expect.objectContaining({
+      action: 'ROTATE', objectId: inviteId, objectType: 'agent_invite_code', reason: 'Rotate compromised invite',
+    }));
+    expect(f.internals.outbox.append).toHaveBeenCalledWith(f.transaction, expect.objectContaining({
+      eventType: 'agent.invite_rotated',
+    }));
+  });
+
+  it('returns the cached redacted rotation without consuming or rotating again', async () => {
+    const f = fixture([{ kind: 'replay', record: { resource_id: agentId } }]);
+    const replay = {
+      code: 'OK' as const,
+      data: {
+        agent_id: agentId,
+        disclosure_state: 'REPLAY_REDACTED' as const,
+        new_invite_code: null,
+        old_code_invalidated: {
+          code_masked: '****CODE',
+          existing_bindings_unchanged: true as const,
+          invalidated_at: occurredAt.toISOString(),
+          invite_code_id: inviteId,
+        },
+        reissue_required: true as const,
+      },
+      message: 'success' as const,
+      request_id: requestId,
+    };
+    f.internals.idempotency.agentInviteRotateReplay.mockReturnValue(replay);
+
+    const result = await f.service.rotateInviteCode(
+      requestContext(), agentId, confirmationInput, 1, idempotencyKey,
+    );
+
+    expect(result.envelope).toEqual(replay);
+    expect(f.internals.previews.consumeInTransaction).not.toHaveBeenCalled();
+    expect(f.internals.agents.rotateInviteCodeInTransaction).not.toHaveBeenCalled();
+    expect(f.internals.audit.append).not.toHaveBeenCalled();
+    expect(f.internals.outbox.append).not.toHaveBeenCalled();
+    expect(f.internals.idempotency.complete).not.toHaveBeenCalled();
+  });
+
+  it('binds invite status preview-confirm and writes the invite status command once', async () => {
+    const f = fixture([{ kind: 'execute' }, { kind: 'execute' }]);
+    const request = requestContext();
+    const action = { reason: 'Disable campaign invite', status: 'DISABLED' as const };
+    const preview = await f.service.previewInviteCodeStatus(request, agentId, action, idempotencyKey);
+    const result = await f.service.updateInviteCodeStatus(request, agentId, {
+      ...action,
+      confirmationHash: preview.confirmation_hash,
+      previewToken: preview.preview_token,
+    }, 1, '00000000-0000-4000-8000-000000000001');
+
+    expect(f.internals.previews.issueInTransaction).toHaveBeenCalledWith(f.transaction, expect.objectContaining({
+      action: 'AGENT.INVITE_STATUS', request: action, resourceVersion: 1,
+    }));
+    expect(f.internals.previews.consumeInTransaction).toHaveBeenCalledWith(f.transaction, expect.objectContaining({
+      action: 'AGENT.INVITE_STATUS', request: action, resourceVersion: 1,
+    }));
+    expect(f.internals.agents.updateInviteCodeStatusInTransaction).toHaveBeenCalledWith(f.transaction, {
+      agentId,
+      expectedVersion: 1,
+      status: 'DISABLED',
+    });
+    expect(result.envelope.data).toMatchObject({
+      resource_id: agentId,
+      resource_type: 'agent',
+      status: 'DISABLED',
+      version: 2,
+    });
+    expect(f.internals.audit.append).toHaveBeenCalledWith(f.transaction, expect.objectContaining({
+      action: 'DISABLE', objectId: inviteId, objectType: 'agent_invite_code',
+    }));
+    expect(f.internals.outbox.append).toHaveBeenCalledWith(f.transaction, expect.objectContaining({
+      eventType: 'agent.invite_status_updated',
+    }));
+    expect(f.internals.idempotency.complete).toHaveBeenNthCalledWith(2, f.transaction, expect.anything(),
+      expect.objectContaining({ policy: 'COMMAND_RESPONSE', storage: 'CACHEABLE' }));
   });
 });

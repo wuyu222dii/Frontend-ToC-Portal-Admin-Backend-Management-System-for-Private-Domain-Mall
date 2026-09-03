@@ -6,10 +6,15 @@ import {
   AdminAgentRepository,
   type AdminAgentDetail,
   type AdminAgentDisableImpact,
+  type AdminAgentInviteImpact,
+  type AdminAgentInviteSnapshot,
   type AdminAgentListItem,
   type AdminAgentPasswordResetImpact,
+  type AdminAgentProductAuthorizationSnapshot,
   type AdminAgentSnapshot,
   AuditRepository,
+  type CacheableAgentInviteRotateReplay,
+  type CacheableAgentProductAuthorizationResponse,
   type CacheableAgentResourceResponse,
   type CacheableCommandResponse,
   type DatabaseRuntime,
@@ -42,6 +47,9 @@ import type {
   AdminAgentUpdateInput,
   AgentStatusActionInput,
   HighRiskConfirmationInput,
+  InviteRotationActionInput,
+  InviteStatusActionInput,
+  ProductAuthorizationInput,
   ReasonActionInput,
 } from './admin-agents.dto';
 import { adminAgentRequestIp, type AdminAgentRequestContext } from './admin-agents.request';
@@ -51,13 +59,26 @@ const ROUTES = {
   create: '/admin/agents',
   disable: '/admin/agents/{agent_id}/status-changes',
   disablePreview: '/admin/agents/{agent_id}/status-change-preview',
+  inviteRotate: '/admin/agents/{agent_id}/invite-code/rotate',
+  inviteRotatePreview: '/admin/agents/{agent_id}/invite-code/rotate-preview',
+  inviteStatus: '/admin/agents/{agent_id}/invite-code',
+  inviteStatusPreview: '/admin/agents/{agent_id}/invite-code/status-preview',
   passwordReset: '/admin/agents/{agent_id}/password-resets',
   passwordResetPreview: '/admin/agents/{agent_id}/password-reset-preview',
+  productAuthorization: '/admin/agents/{agent_id}/product-authorization',
   reactivate: '/admin/agents/{agent_id}/reactivate',
   update: '/admin/agents/{agent_id}',
 } as const;
 
-type AgentLifecycleEvent = 'created' | 'disabled' | 'password_reset' | 'reactivated' | 'updated';
+type AgentLifecycleEvent =
+  | 'created'
+  | 'disabled'
+  | 'invite_rotated'
+  | 'invite_status_updated'
+  | 'password_reset'
+  | 'product_authorization_updated'
+  | 'reactivated'
+  | 'updated';
 
 @Injectable()
 export class AdminAgentsService {
@@ -92,6 +113,50 @@ export class AdminAgentsService {
   async detail(agentId: string) {
     this.runtime();
     return this.detailView(await this.agents.getAgentDetail(agentId));
+  }
+
+  async productAuthorization(agentId: string) {
+    this.runtime();
+    return this.productAuthorizationView(await this.agents.getProductAuthorization(agentId));
+  }
+
+  async updateProductAuthorization(
+    request: AdminAgentRequestContext,
+    agentId: string,
+    input: ProductAuthorizationInput,
+    expectedVersion: number,
+    idempotencyKey: string,
+  ) {
+    const { database } = this.runtime();
+    const requestBody = this.productAuthorizationRequestBody(input);
+    const claim = this.claim(request, idempotencyKey, 'PATCH', ROUTES.productAuthorization,
+      { agent_id: agentId }, { ...requestBody, expected_version: expectedVersion });
+    return runSerializableTransaction(database.prisma, async (transaction) => {
+      const claimed = await this.idempotency.claim(transaction, claim);
+      if (claimed.kind === 'replay') {
+        const replay = this.idempotency.agentProductAuthorizationReplay(claimed.record);
+        if (replay.data.agent_id !== agentId) {
+          throw new ApplicationError('INTERNAL_ERROR', 'Agent authorization replay target is invalid');
+        }
+        return preEnvelopedResponse(replay);
+      }
+      const changed = await this.agents.updateProductAuthorizationInTransaction(transaction, {
+        agentId,
+        expectedVersion,
+        mode: input.mode,
+        productIds: input.productIds,
+      });
+      const response = this.productAuthorizationResponse(request.requestId, changed.after);
+      await this.appendAuthorizationAudit(transaction, request, idempotencyKey, changed.before, changed.after);
+      await this.appendOutboxVersion(transaction, agentId, changed.after.version, 'product_authorization_updated');
+      await this.idempotency.complete(transaction, claim, {
+        policy: 'AGENT_PRODUCT_AUTHORIZATION_RESPONSE',
+        responseBody: response,
+        responseStatus: 200,
+        storage: 'CACHEABLE',
+      });
+      return preEnvelopedResponse(response);
+    });
   }
 
   async create(
@@ -387,16 +452,200 @@ export class AdminAgentsService {
     };
   }
 
+  async previewInviteCodeRotation(
+    request: AdminAgentRequestContext,
+    agentId: string,
+    input: InviteRotationActionInput,
+    idempotencyKey: string,
+  ) {
+    const requestBody = this.inviteRotationRequestBody(input);
+    return this.issuePreview(request, agentId, idempotencyKey, ROUTES.inviteRotatePreview, requestBody,
+      'AGENT.INVITE_ROTATE', async (transaction) => {
+        const impact = await this.agents.getInviteRotationImpactInTransaction(transaction, {
+          agentId,
+          expiresAt: input.expiresAt ?? null,
+        });
+        return { agent: impact.agent, view: this.inviteRotationImpactView(impact) };
+      });
+  }
+
+  async rotateInviteCode(
+    request: AdminAgentRequestContext,
+    agentId: string,
+    input: InviteRotationActionInput & HighRiskConfirmationInput,
+    expectedVersion: number,
+    idempotencyKey: string,
+  ) {
+    const { config, database } = this.runtime();
+    const inviteCodeId = generateUlid();
+    const inviteCode = generateAgentInviteCode();
+    const inviteCodeMaterial = createAgentInviteCodeMaterial(
+      inviteCodeId,
+      inviteCode,
+      config.encryption.fieldKeys.current,
+      config.authentication.secretHashKeys.current,
+    );
+    const requestBody = this.inviteRotationRequestBody(input);
+    const claim = this.claim(request, idempotencyKey, 'POST', ROUTES.inviteRotate, { agent_id: agentId }, {
+      ...requestBody,
+      confirmation_hash: input.confirmationHash,
+      expected_version: expectedVersion,
+      preview_token: input.previewToken,
+    });
+    return runSerializableTransaction(database.prisma, async (transaction) => {
+      const claimed = await this.idempotency.claim(transaction, claim);
+      if (claimed.kind === 'replay') {
+        const replay = this.idempotency.agentInviteRotateReplay(claimed.record);
+        if (replay.data.agent_id !== agentId) {
+          throw new ApplicationError('INTERNAL_ERROR', 'Invite rotation replay target is invalid');
+        }
+        return preEnvelopedResponse(replay);
+      }
+      await this.previews.consumeInTransaction(transaction, {
+        action: 'AGENT.INVITE_ROTATE',
+        actorId: request.principal.accountId,
+        confirmationHash: input.confirmationHash,
+        previewToken: input.previewToken,
+        request: requestBody,
+        resourceVersion: expectedVersion,
+        sessionId: request.accessSession.sessionId,
+        targetId: agentId,
+        targetType: 'AGENT',
+      });
+      const changed = await this.agents.rotateInviteCodeInTransaction(transaction, {
+        agentId,
+        expectedVersion,
+        inviteCode: {
+          ...inviteCodeMaterial,
+          expiresAt: input.expiresAt ?? null,
+        },
+        inviteCodeId,
+      });
+      const invalidated = this.invalidatedInviteView(changed.previousInviteCode, changed.occurredAt);
+      const response = {
+        code: 'OK' as const,
+        data: {
+          agent_id: agentId,
+          disclosure_state: 'FIRST_ISSUE' as const,
+          new_invite_code: {
+            code: inviteCode,
+            expires_at: changed.inviteCode.expiresAt?.toISOString() ?? null,
+            invite_code_id: changed.inviteCode.id,
+            status: 'ACTIVE' as const,
+            version: changed.inviteCode.version,
+          },
+          old_code_invalidated: invalidated,
+          reissue_required: false as const,
+        },
+        message: 'success' as const,
+        request_id: request.requestId,
+      };
+      const replay: CacheableAgentInviteRotateReplay = {
+        code: 'OK',
+        data: {
+          agent_id: agentId,
+          disclosure_state: 'REPLAY_REDACTED',
+          new_invite_code: null,
+          old_code_invalidated: invalidated,
+          reissue_required: true,
+        },
+        message: 'success',
+        request_id: request.requestId,
+      };
+      await this.appendInviteAudit(transaction, request, idempotencyKey, 'ROTATE',
+        changed.previousInviteCode, { ...changed.previousInviteCode, status: 'ROTATED', version: changed.agent.version },
+        input.reason);
+      await this.appendOutboxVersion(transaction, agentId, changed.agent.version, 'invite_rotated');
+      await this.idempotency.complete(transaction, claim, {
+        policy: 'AGENT_INVITE_ROTATE_REPLAY',
+        responseBody: replay,
+        responseStatus: 200,
+        storage: 'CACHEABLE',
+      });
+      return preEnvelopedResponse(response);
+    });
+  }
+
+  async previewInviteCodeStatus(
+    request: AdminAgentRequestContext,
+    agentId: string,
+    input: InviteStatusActionInput,
+    idempotencyKey: string,
+  ) {
+    const requestBody = this.inviteStatusRequestBody(input);
+    return this.issuePreview(request, agentId, idempotencyKey, ROUTES.inviteStatusPreview, requestBody,
+      'AGENT.INVITE_STATUS', async (transaction) => {
+        const impact = await this.agents.getInviteStatusImpactInTransaction(transaction, {
+          agentId,
+          ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
+          status: input.status,
+        });
+        return { agent: impact.agent, view: this.inviteStatusImpactView(impact, input) };
+      });
+  }
+
+  async updateInviteCodeStatus(
+    request: AdminAgentRequestContext,
+    agentId: string,
+    input: InviteStatusActionInput & HighRiskConfirmationInput,
+    expectedVersion: number,
+    idempotencyKey: string,
+  ) {
+    const { database } = this.runtime();
+    const requestBody = this.inviteStatusRequestBody(input);
+    const claim = this.claim(request, idempotencyKey, 'PATCH', ROUTES.inviteStatus, { agent_id: agentId }, {
+      ...requestBody,
+      confirmation_hash: input.confirmationHash,
+      expected_version: expectedVersion,
+      preview_token: input.previewToken,
+    });
+    return runSerializableTransaction(database.prisma, async (transaction) => {
+      const replay = this.commandReplay(await this.idempotency.claim(transaction, claim), agentId);
+      if (replay !== null) return preEnvelopedResponse(replay);
+      await this.previews.consumeInTransaction(transaction, {
+        action: 'AGENT.INVITE_STATUS',
+        actorId: request.principal.accountId,
+        confirmationHash: input.confirmationHash,
+        previewToken: input.previewToken,
+        request: requestBody,
+        resourceVersion: expectedVersion,
+        sessionId: request.accessSession.sessionId,
+        targetId: agentId,
+        targetType: 'AGENT',
+      });
+      const changed = await this.agents.updateInviteCodeStatusInTransaction(transaction, {
+        agentId,
+        expectedVersion,
+        ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
+        status: input.status,
+      });
+      const response = this.statusCommandResponse(
+        request.requestId,
+        agentId,
+        input.status,
+        changed.agent.version,
+        changed.occurredAt,
+      );
+      await this.appendInviteAudit(transaction, request, idempotencyKey,
+        input.status === 'ACTIVE' ? 'ENABLE' : 'DISABLE', changed.before, changed.after, input.reason);
+      await this.appendOutboxVersion(transaction, agentId, changed.agent.version, 'invite_status_updated');
+      await this.completeCommand(transaction, claim, response);
+      return preEnvelopedResponse(response);
+    });
+  }
+
   private async issuePreview(
     request: AdminAgentRequestContext,
     agentId: string,
     idempotencyKey: string,
     route: string,
     requestBody: unknown,
-    action: 'AGENT.DISABLE' | 'AGENT.PASSWORD_RESET',
+    action: 'AGENT.DISABLE' | 'AGENT.INVITE_ROTATE' | 'AGENT.INVITE_STATUS' | 'AGENT.PASSWORD_RESET',
     impact: (transaction: DatabaseTransaction) => Promise<{
       agent: AdminAgentSnapshot;
-      view: { affected_count: number; metrics: Array<{ key: string; label: string; before: string; after: string }>;
+      view: { affected_count: number; metrics: Array<{
+        key: string; label: string; before: string | null; after: string | null;
+      }>;
         warnings: string[] };
     }>,
   ) {
@@ -469,8 +718,53 @@ export class AdminAgentsService {
     };
   }
 
-  private metric(key: string, label: string, before: number, after: number) {
-    return { after: String(after), before: String(before), key, label };
+  private inviteRotationImpactView(impact: AdminAgentInviteImpact) {
+    return {
+      affected_count: 1 + impact.activeCandidateCount + impact.activePromotionAssetCount,
+      metrics: [
+        this.metric('invite_status', '邀请码状态', impact.inviteCode.status, 'ROTATED'),
+        this.metric('eligible_candidates', '可归因候选', impact.activeCandidateCount, 0),
+        this.metric('eligible_promotion_assets', '可用推广素材', impact.activePromotionAssetCount, 0),
+        this.metric('existing_bindings', '已有客户绑定', impact.existingBindingCount, impact.existingBindingCount),
+      ],
+      warnings: [
+        '旧邀请码与其未确认候选立即失效。',
+        '已有客户绑定、历史订单和佣金事实保持不变。',
+      ],
+    };
+  }
+
+  private inviteStatusImpactView(impact: AdminAgentInviteImpact, input: InviteStatusActionInput) {
+    const disablesAttribution = input.status === 'DISABLED';
+    const resultingExpiry = input.expiresAt === undefined ? impact.inviteCode.expiresAt : input.expiresAt;
+    return {
+      affected_count: 1 + impact.activeCandidateCount + impact.activePromotionAssetCount,
+      metrics: [
+        this.metric('invite_status', '邀请码状态', impact.inviteCode.status, input.status),
+        this.metric('expires_at', '有效期', impact.inviteCode.expiresAt?.toISOString() ?? null,
+          resultingExpiry?.toISOString() ?? null),
+        this.metric('eligible_candidates', '可归因候选', impact.activeCandidateCount,
+          disablesAttribution ? 0 : impact.activeCandidateCount),
+        this.metric('eligible_promotion_assets', '可用推广素材', impact.activePromotionAssetCount,
+          disablesAttribution ? 0 : impact.activePromotionAssetCount),
+        this.metric('existing_bindings', '已有客户绑定', impact.existingBindingCount, impact.existingBindingCount),
+      ],
+      warnings: ['已有客户绑定、历史订单和佣金事实保持不变。'],
+    };
+  }
+
+  private metric(
+    key: string,
+    label: string,
+    before: number | string | null,
+    after: number | string | null,
+  ) {
+    return {
+      after: after === null ? null : String(after),
+      before: before === null ? null : String(before),
+      key,
+      label,
+    };
   }
 
   private agentView(agent: AdminAgentSnapshot) {
@@ -541,6 +835,31 @@ export class AdminAgentsService {
     return { code: 'OK', data: this.agentView(agent), message: 'success', request_id: requestId };
   }
 
+  private productAuthorizationView(authorization: AdminAgentProductAuthorizationSnapshot) {
+    return {
+      agent_id: authorization.agentId,
+      mode: authorization.mode,
+      product_ids: authorization.productIds,
+      version: authorization.version,
+    };
+  }
+
+  private productAuthorizationResponse(
+    requestId: string,
+    authorization: AdminAgentProductAuthorizationSnapshot,
+  ): CacheableAgentProductAuthorizationResponse {
+    return { code: 'OK', data: this.productAuthorizationView(authorization), message: 'success', request_id: requestId };
+  }
+
+  private invalidatedInviteView(invite: AdminAgentInviteSnapshot, invalidatedAt: Date) {
+    return {
+      code_masked: invite.codeMasked,
+      existing_bindings_unchanged: true as const,
+      invalidated_at: invalidatedAt.toISOString(),
+      invite_code_id: invite.id,
+    };
+  }
+
   private commandResponse(
     requestId: string,
     agent: AdminAgentSnapshot,
@@ -554,6 +873,27 @@ export class AdminAgentsService {
         resource_type: 'agent',
         status: agent.status,
         version: agent.version,
+      },
+      message: 'success',
+      request_id: requestId,
+    };
+  }
+
+  private statusCommandResponse(
+    requestId: string,
+    agentId: string,
+    status: 'ACTIVE' | 'DISABLED',
+    version: number,
+    occurredAt: Date,
+  ): CacheableCommandResponse {
+    return {
+      code: 'OK',
+      data: {
+        occurred_at: occurredAt.toISOString(),
+        resource_id: agentId,
+        resource_type: 'agent',
+        status,
+        version,
       },
       message: 'success',
       request_id: requestId,
@@ -633,20 +973,84 @@ export class AdminAgentsService {
     });
   }
 
+  private appendAuthorizationAudit(
+    transaction: DatabaseTransaction,
+    request: AdminAgentRequestContext,
+    idempotencyKey: string,
+    before: AdminAgentProductAuthorizationSnapshot,
+    after: AdminAgentProductAuthorizationSnapshot,
+  ) {
+    const ipAddress = adminAgentRequestIp(request);
+    return this.audit.append(transaction, {
+      action: 'UPDATE',
+      actorAccountId: request.principal.accountId,
+      actorRole: 'SUPER_ADMIN',
+      after: { mode: after.mode, product_count: after.productIds.length, version: after.version },
+      before: { mode: before.mode, product_count: before.productIds.length, version: before.version },
+      idempotencyKey,
+      ...(ipAddress === undefined ? {} : { ipAddress }),
+      module: 'agent',
+      objectId: after.agentId,
+      objectType: 'agent',
+      requestId: request.requestId,
+      result: 'SUCCESS',
+      resultCode: 'OK',
+      summaryPolicy: 'AGENT_AUTHORIZATION',
+    });
+  }
+
+  private appendInviteAudit(
+    transaction: DatabaseTransaction,
+    request: AdminAgentRequestContext,
+    idempotencyKey: string,
+    action: 'DISABLE' | 'ENABLE' | 'ROTATE',
+    before: AdminAgentInviteSnapshot,
+    after: AdminAgentInviteSnapshot,
+    reason: string,
+  ) {
+    const ipAddress = adminAgentRequestIp(request);
+    return this.audit.append(transaction, {
+      action,
+      actorAccountId: request.principal.accountId,
+      actorRole: 'SUPER_ADMIN',
+      after: { status: after.status, version: after.version },
+      before: { status: before.status, version: before.version },
+      idempotencyKey,
+      ...(ipAddress === undefined ? {} : { ipAddress }),
+      module: 'agent',
+      objectId: before.id,
+      objectType: 'agent_invite_code',
+      reason,
+      requestId: request.requestId,
+      result: 'SUCCESS',
+      resultCode: 'OK',
+      summaryPolicy: 'STATUS_VERSION',
+    });
+  }
+
   private appendOutbox(
     transaction: DatabaseTransaction,
     agent: AdminAgentSnapshot,
     event: AgentLifecycleEvent,
   ) {
+    return this.appendOutboxVersion(transaction, agent.id, agent.version, event);
+  }
+
+  private appendOutboxVersion(
+    transaction: DatabaseTransaction,
+    agentId: string,
+    version: number,
+    event: AgentLifecycleEvent,
+  ) {
     return this.outbox.append(transaction, {
-      aggregateId: agent.id,
+      aggregateId: agentId,
       aggregateType: 'agent',
       eventType: `agent.${event}`,
       payload: {
         event_version: 1,
-        resource_id: agent.id,
+        resource_id: agentId,
         resource_type: 'agent',
-        resource_version: agent.version,
+        resource_version: version,
       },
     });
   }
@@ -690,6 +1094,29 @@ export class AdminAgentsService {
 
   private reasonRequestBody(input: ReasonActionInput) {
     return { reason: input.reason };
+  }
+
+  private productAuthorizationRequestBody(input: ProductAuthorizationInput) {
+    return { mode: input.mode, product_ids: input.productIds };
+  }
+
+  private inviteRotationRequestBody(input: InviteRotationActionInput) {
+    return {
+      ...(input.expiresAt === undefined
+        ? {}
+        : { expires_at: input.expiresAt === null ? null : input.expiresAt.toISOString() }),
+      reason: input.reason,
+    };
+  }
+
+  private inviteStatusRequestBody(input: InviteStatusActionInput) {
+    return {
+      ...(input.expiresAt === undefined
+        ? {}
+        : { expires_at: input.expiresAt === null ? null : input.expiresAt.toISOString() }),
+      reason: input.reason,
+      status: input.status,
+    };
   }
 
   private runtime(): { config: PlatformRuntimeConfig; database: DatabaseRuntime } {

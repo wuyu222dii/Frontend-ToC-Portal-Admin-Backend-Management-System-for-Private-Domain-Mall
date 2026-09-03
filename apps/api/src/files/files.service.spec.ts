@@ -10,6 +10,7 @@ import { FileAssetsService } from './files.service';
 import type { FilesRequestContext } from './files.request';
 
 const accountId = '01J00000000000000000000000';
+const agentId = '01J00000000000000000000005';
 const sessionId = '01J00000000000000000000001';
 const fileId = '01J00000000000000000000002';
 const requestId = 'req_0123456789abcdef0123456789abcdef';
@@ -37,6 +38,16 @@ function request(role: 'CUSTOMER' | 'SUPER_ADMIN' = 'SUPER_ADMIN'): FilesRequest
     principal: { accountId, assurance: 'MFA', permissions: [], restriction: 'NONE', role, sessionId },
     requestId,
   };
+}
+
+function agentRequest(): FilesRequestContext {
+  return {
+    agentSession: { accountId, agentId, restriction: 'NONE', sessionId },
+    principal: {
+      accountId, assurance: 'PASSWORD', permissions: [], restriction: 'NONE', role: 'AGENT_ADMIN', sessionId,
+    },
+    requestId,
+  } as unknown as FilesRequestContext;
 }
 
 function asset(overrides: Partial<FileAssetSnapshot> = {}): FileAssetSnapshot {
@@ -76,6 +87,7 @@ function config(): PlatformRuntimeConfig {
 }
 
 interface ServiceInternals {
+  agentCommerce: { getAgentPromotionQrDownloadable: ReturnType<typeof vi.fn> };
   assets: { createPendingInTransaction: ReturnType<typeof vi.fn>;
     getAdminDownloadable: ReturnType<typeof vi.fn>;
     getOwned: ReturnType<typeof vi.fn>;
@@ -113,6 +125,7 @@ function fixture(claimResults: unknown[] = [{ kind: 'execute' }]) {
   const leases = { acquire: vi.fn().mockResolvedValue({ assertOwned, release }) } as unknown as FileObjectLeaseManager;
   const service = new FileAssetsService(config(), database, storage, leases);
   const internals = service as unknown as ServiceInternals;
+  internals.agentCommerce = { getAgentPromotionQrDownloadable: vi.fn() };
   const claim = vi.fn();
   for (const value of claimResults) claim.mockResolvedValueOnce(value);
   internals.assets = {
@@ -387,6 +400,28 @@ describe('FileAssetsService orchestration', () => {
     await expect(f.service.downloadUrl(request('CUSTOMER'), fileId)).resolves.toMatchObject({ file_id: fileId });
     expect(f.internals.assets.getOwned).toHaveBeenCalledWith({ actorId: accountId, fileId });
     expect(f.internals.assets.getAdminDownloadable).not.toHaveBeenCalled();
+  });
+
+  it('allows an Agent to download only its bound private promotion QR', async () => {
+    const f = fixture();
+    f.internals.agentCommerce.getAgentPromotionQrDownloadable.mockResolvedValue(asset({
+      objectKey: `private/${fileId}`,
+      purpose: 'PROMOTION_QR',
+      status: 'READY',
+      visibility: 'PRIVATE',
+    }));
+
+    await expect(f.service.downloadUrl(agentRequest(), fileId)).resolves.toMatchObject({ file_id: fileId });
+    expect(f.internals.agentCommerce.getAgentPromotionQrDownloadable).toHaveBeenCalledWith({
+      accountId,
+      agentId,
+      fileId,
+    });
+    expect(f.internals.assets.getAdminDownloadable).not.toHaveBeenCalled();
+    expect(f.internals.assets.getOwned).not.toHaveBeenCalled();
+    expect(f.internals.audit.append).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      actorRole: 'AGENT_ADMIN',
+    }));
   });
 
   it('does not sign an Admin download when the file is neither owned nor bound as aftersale evidence', async () => {

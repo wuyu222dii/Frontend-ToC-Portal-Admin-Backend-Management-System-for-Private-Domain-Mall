@@ -8,7 +8,7 @@ const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 const mode = process.env.B13_AGENT_AUTH_DATABASE_TEST_MODE;
 
 function fail(message) {
-  process.stderr.write(`B13 Agent authentication database test refused: ${message}\n`);
+  process.stderr.write(`B13 Agent database test refused: ${message}\n`);
   process.exit(1);
 }
 
@@ -97,6 +97,7 @@ if (mode === 'full') {
 }
 
 process.env.B13_AGENT_AUTH_DATABASE_TEST_MODE = mode;
+process.env.B132_AGENT_COMMERCE_DATABASE_TEST_MODE = mode;
 
 run(['build:packages']);
 run([
@@ -108,5 +109,14 @@ run([
   '--no-file-parallelism',
   'src/agent-auth/agent-auth.integration.spec.ts',
 ]);
+run([
+  '--filter',
+  '@qingxu/database',
+  'exec',
+  'vitest',
+  'run',
+  '--no-file-parallelism',
+  'src/agent-commerce.integration.spec.ts',
+]);
 
-process.stdout.write(`B13 Agent authentication ${mode} database checks passed.\n`);
+process.stdout.write(`B13 Agent ${mode} database checks passed.\n`);

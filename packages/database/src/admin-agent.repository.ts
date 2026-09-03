@@ -1,4 +1,4 @@
-import { ApplicationError, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, generateUlid, isValidUlid } from '@qingxu/platform-core';
 
 import { Prisma, type PrismaClient } from '../.generated/prisma/client';
 import type { AgentStatus, ProductAuthorizationMode } from '../.generated/prisma/enums';
@@ -152,6 +152,71 @@ export interface AdminAgentLifecycleResult {
   occurredAt: Date;
 }
 
+export interface AdminAgentProductAuthorizationSnapshot {
+  agentId: string;
+  mode: ProductAuthorizationMode;
+  productIds: string[];
+  version: number;
+}
+
+export interface UpdateAdminAgentProductAuthorizationInput {
+  agentId: string;
+  expectedVersion: number;
+  mode: ProductAuthorizationMode;
+  productIds: readonly string[];
+}
+
+export interface AdminAgentProductAuthorizationChange {
+  before: AdminAgentProductAuthorizationSnapshot;
+  after: AdminAgentProductAuthorizationSnapshot;
+  occurredAt: Date;
+}
+
+export interface AdminAgentInviteImpactInput {
+  agentId: string;
+  expiresAt: Date | null;
+}
+
+export interface AdminAgentInviteStatusImpactInput {
+  agentId: string;
+  status: 'ACTIVE' | 'DISABLED';
+  expiresAt?: Date | null;
+}
+
+export interface AdminAgentInviteImpact {
+  agent: AdminAgentSnapshot;
+  inviteCode: AdminAgentInviteSnapshot;
+  activeCandidateCount: number;
+  activePromotionAssetCount: number;
+  existingBindingCount: number;
+}
+
+export interface RotateAdminAgentInviteCodeInput extends AdminAgentLifecycleInput {
+  inviteCodeId: string;
+  inviteCode: AdminAgentInviteMaterial;
+}
+
+export interface AdminAgentInviteRotationResult {
+  agent: AdminAgentSnapshot;
+  previousInviteCode: AdminAgentInviteSnapshot;
+  inviteCode: AdminAgentInviteSnapshot;
+  invalidatedCandidateCount: number;
+  occurredAt: Date;
+}
+
+export interface UpdateAdminAgentInviteCodeStatusInput extends AdminAgentLifecycleInput {
+  status: 'ACTIVE' | 'DISABLED';
+  expiresAt?: Date | null;
+}
+
+export interface AdminAgentInviteStatusResult {
+  agent: AdminAgentSnapshot;
+  before: AdminAgentInviteSnapshot;
+  after: AdminAgentInviteSnapshot;
+  invalidatedCandidateCount: number;
+  occurredAt: Date;
+}
+
 const AGENT_LIST_INCLUDE = {
   account: {
     select: {
@@ -174,8 +239,33 @@ const AGENT_DETAIL_INCLUDE = {
   },
 } satisfies Prisma.AgentProfileInclude;
 
+const AGENT_AUTHORIZATION_INCLUDE = {
+  ...AGENT_LIST_INCLUDE,
+  product_whitelist: {
+    orderBy: [{ product_id: 'asc' as const }, { id: 'asc' as const }],
+    select: { deleted_at: true, id: true, product_id: true },
+  },
+} satisfies Prisma.AgentProfileInclude;
+
+const INVITE_SELECT = {
+  agent_id: true,
+  code_ciphertext: true,
+  code_hash: true,
+  code_last4: true,
+  created_at: true,
+  effective_at: true,
+  encryption_key_id: true,
+  ended_at: true,
+  end_reason: true,
+  expires_at: true,
+  id: true,
+  status: true,
+} satisfies Prisma.AgentInviteCodeSelect;
+
 type AgentListRecord = Prisma.AgentProfileGetPayload<{ include: typeof AGENT_LIST_INCLUDE }>;
 type AgentDetailRecord = Prisma.AgentProfileGetPayload<{ include: typeof AGENT_DETAIL_INCLUDE }>;
+type AgentAuthorizationRecord = Prisma.AgentProfileGetPayload<{ include: typeof AGENT_AUTHORIZATION_INCLUDE }>;
+type AgentInviteRecord = Prisma.AgentInviteCodeGetPayload<{ select: typeof INVITE_SELECT }>;
 type AgentRecord = AgentListRecord | AgentDetailRecord;
 
 const LIST_FIELDS = new Set([
@@ -207,6 +297,11 @@ const UPDATE_FIELDS = new Set(['agentId', 'expectedVersion', 'patch']);
 const UPDATE_PATCH_FIELDS = new Set(['contactName', 'contactPhone', 'name']);
 const LIFECYCLE_FIELDS = new Set(['agentId', 'expectedVersion']);
 const RESET_FIELDS = new Set(['agentId', 'expectedVersion', 'passwordHash']);
+const PRODUCT_AUTHORIZATION_FIELDS = new Set(['agentId', 'expectedVersion', 'mode', 'productIds']);
+const INVITE_IMPACT_FIELDS = new Set(['agentId', 'expiresAt']);
+const INVITE_STATUS_IMPACT_FIELDS = new Set(['agentId', 'expiresAt', 'status']);
+const INVITE_ROTATION_FIELDS = new Set(['agentId', 'expectedVersion', 'inviteCode', 'inviteCodeId']);
+const INVITE_STATUS_FIELDS = new Set(['agentId', 'expectedVersion', 'expiresAt', 'status']);
 const HEX_64 = /^[a-f0-9]{64}$/;
 const PHONE_LAST4 = /^[0-9]{4}$/;
 const INVITE_LAST4 = /^\S{4}$/u;
@@ -349,6 +444,78 @@ function validateResetInput(input: ResetAdminAgentPasswordInput): void {
   requirePasswordHash(input.passwordHash);
 }
 
+function normalizedProductIds(mode: ProductAuthorizationMode, productIds: readonly string[]): string[] {
+  if (!AUTHORIZATION_MODE.has(mode)) throw new TypeError('Agent authorization mode is invalid');
+  if (!Array.isArray(productIds)) throw new TypeError('Agent authorization product IDs must be an array');
+  for (const productId of productIds) requireUlid(productId, 'Agent authorization Product ID');
+  if (new Set(productIds).size !== productIds.length) {
+    throw new TypeError('Agent authorization Product IDs must not contain duplicates');
+  }
+  if (mode === 'ALL_ACTIVE_PRODUCTS' && productIds.length !== 0) {
+    throw new TypeError('All-products authorization must not contain Product IDs');
+  }
+  return [...productIds].sort();
+}
+
+function validateProductAuthorizationInput(input: UpdateAdminAgentProductAuthorizationInput): string[] {
+  requireExactFields(input, PRODUCT_AUTHORIZATION_FIELDS, 'Agent product authorization input');
+  requireUlid(input.agentId, 'Agent ID');
+  requireVersion(input.expectedVersion);
+  return normalizedProductIds(input.mode, input.productIds);
+}
+
+function validateInviteExpiry(expiresAt: Date | null, label: string): void {
+  if (expiresAt !== null) requireDate(expiresAt, label);
+}
+
+function validateInviteImpactInput(input: AdminAgentInviteImpactInput): void {
+  requireExactFields(input, INVITE_IMPACT_FIELDS, 'Agent invite rotation impact input');
+  requireUlid(input.agentId, 'Agent ID');
+  validateInviteExpiry(input.expiresAt, 'Agent invite-code expiry');
+}
+
+function validateInviteStatusImpactInput(input: AdminAgentInviteStatusImpactInput): void {
+  if (!hasOnlyFields(input, INVITE_STATUS_IMPACT_FIELDS) ||
+    !Object.prototype.hasOwnProperty.call(input, 'agentId') ||
+    !Object.prototype.hasOwnProperty.call(input, 'status')) {
+    throw new TypeError('Agent invite status impact input contains unsupported or missing fields');
+  }
+  requireUlid(input.agentId, 'Agent ID');
+  if (input.status !== 'ACTIVE' && input.status !== 'DISABLED') {
+    throw new TypeError('Agent invite-code status is invalid');
+  }
+  if (input.expiresAt !== undefined) validateInviteExpiry(input.expiresAt, 'Agent invite-code expiry');
+}
+
+function validateInviteRotationInput(input: RotateAdminAgentInviteCodeInput, now: Date): void {
+  requireExactFields(input, INVITE_ROTATION_FIELDS, 'Agent invite rotation input');
+  requireUlid(input.agentId, 'Agent ID');
+  requireUlid(input.inviteCodeId, 'Agent invite-code ID');
+  requireVersion(input.expectedVersion);
+  requireExactFields(input.inviteCode, INVITE_FIELDS, 'Agent invite-code material');
+  if (!HEX_64.test(input.inviteCode.codeHash)) throw new TypeError('Agent invite-code hash is invalid');
+  requireEncryptedValue(input.inviteCode, INVITE_LAST4, 'Agent invite code', INVITE_FIELDS);
+  validateInviteExpiry(input.inviteCode.expiresAt, 'Agent invite-code expiry');
+  if (input.inviteCode.expiresAt !== null && input.inviteCode.expiresAt.getTime() <= now.getTime()) {
+    throw invalidArgument('Agent invite-code expiry must be in the future');
+  }
+}
+
+function validateInviteStatusInput(input: UpdateAdminAgentInviteCodeStatusInput): void {
+  if (!hasOnlyFields(input, INVITE_STATUS_FIELDS) ||
+    !Object.prototype.hasOwnProperty.call(input, 'agentId') ||
+    !Object.prototype.hasOwnProperty.call(input, 'expectedVersion') ||
+    !Object.prototype.hasOwnProperty.call(input, 'status')) {
+    throw new TypeError('Agent invite status input contains unsupported or missing fields');
+  }
+  requireUlid(input.agentId, 'Agent ID');
+  requireVersion(input.expectedVersion);
+  if (input.status !== 'ACTIVE' && input.status !== 'DISABLED') {
+    throw new TypeError('Agent invite-code status is invalid');
+  }
+  if (input.expiresAt !== undefined) validateInviteExpiry(input.expiresAt, 'Agent invite-code expiry');
+}
+
 function notFound(): ApplicationError {
   return new ApplicationError('RESOURCE_NOT_FOUND', 'Agent does not exist');
 }
@@ -359,6 +526,10 @@ function versionConflict(): ApplicationError {
 
 function stateConflict(message: string): ApplicationError {
   return new ApplicationError('STATE_CONFLICT', message);
+}
+
+function invalidArgument(message: string): ApplicationError {
+  return new ApplicationError('INVALID_ARGUMENT', message);
 }
 
 function storedDataError(message: string): ApplicationError {
@@ -410,7 +581,7 @@ function agentSnapshot(record: AgentRecord): AdminAgentSnapshot {
 }
 
 function inviteSnapshot(
-  record: AgentDetailRecord['invite_codes'][number],
+  record: AgentInviteRecord,
   agentVersion: number,
   now: Date,
 ): AdminAgentInviteSnapshot {
@@ -423,6 +594,21 @@ function inviteSnapshot(
     status,
     expiresAt: record.expires_at,
     version: agentVersion,
+  };
+}
+
+function productAuthorizationSnapshot(record: AgentAuthorizationRecord): AdminAgentProductAuthorizationSnapshot {
+  const agent = agentSnapshot(record);
+  return {
+    agentId: agent.id,
+    mode: agent.productAuthorizationMode,
+    productIds: agent.productAuthorizationMode === 'ALL_ACTIVE_PRODUCTS'
+      ? []
+      : record.product_whitelist
+        .filter(({ deleted_at: deletedAt }) => deletedAt === null)
+        .map(({ product_id: productId }) => productId)
+        .sort(),
+    version: agent.version,
   };
 }
 
@@ -589,6 +775,257 @@ export class AdminAgentRepository {
         totalPaidAmount: money(paidWithdrawalTotal, 'Paid withdrawal total'),
         latestWithdrawalAt: latestWithdrawal._max.created_at,
       },
+    };
+  }
+
+  async getProductAuthorization(agentId: string): Promise<AdminAgentProductAuthorizationSnapshot> {
+    requireUlid(agentId, 'Agent ID');
+    const record = await this.prisma.agentProfile.findFirst({
+      include: AGENT_AUTHORIZATION_INCLUDE,
+      where: {
+        account: { is: { deleted_at: null, role: 'AGENT_ADMIN' } },
+        deleted_at: null,
+        id: agentId,
+      },
+    });
+    if (!record) throw notFound();
+    return productAuthorizationSnapshot(record);
+  }
+
+  async updateProductAuthorizationInTransaction(
+    transaction: DatabaseTransaction,
+    input: UpdateAdminAgentProductAuthorizationInput,
+  ): Promise<AdminAgentProductAuthorizationChange> {
+    const productIds = validateProductAuthorizationInput(input);
+    const occurredAt = this.currentTime();
+    const current = await this.lockAgent(transaction, input.agentId);
+    if (current.version !== input.expectedVersion) throw versionConflict();
+    await this.lockProducts(transaction, productIds);
+
+    await transaction.$queryRaw(Prisma.sql`
+      SELECT id FROM public.agent_product_whitelist
+      WHERE agent_id = ${input.agentId}
+      ORDER BY product_id ASC, id ASC
+      FOR UPDATE
+    `);
+    const existing = await transaction.agentProductWhitelist.findMany({
+      orderBy: [{ product_id: 'asc' }, { id: 'asc' }],
+      select: { deleted_at: true, id: true, product_id: true },
+      where: { agent_id: input.agentId },
+    });
+    const before: AdminAgentProductAuthorizationSnapshot = {
+      agentId: input.agentId,
+      mode: current.product_authorization_mode,
+      productIds: current.product_authorization_mode === 'ALL_ACTIVE_PRODUCTS'
+        ? []
+        : existing.filter(({ deleted_at: deletedAt }) => deletedAt === null)
+          .map(({ product_id: productId }) => productId),
+      version: current.version,
+    };
+
+    await transaction.agentProductWhitelist.updateMany({
+      data: { deleted_at: occurredAt },
+      where: {
+        agent_id: input.agentId,
+        deleted_at: null,
+        ...(productIds.length === 0 ? {} : { product_id: { notIn: productIds } }),
+      },
+    });
+    if (productIds.length > 0) {
+      await transaction.agentProductWhitelist.updateMany({
+        data: { deleted_at: null },
+        where: {
+          agent_id: input.agentId,
+          deleted_at: { not: null },
+          product_id: { in: productIds },
+        },
+      });
+      const existingProductIds = new Set(existing.map(({ product_id: productId }) => productId));
+      const missing = productIds.filter((productId) => !existingProductIds.has(productId));
+      if (missing.length > 0) {
+        const inserted = await transaction.agentProductWhitelist.createMany({
+          data: missing.map((productId) => ({
+            agent_id: input.agentId,
+            created_at: occurredAt,
+            deleted_at: null,
+            id: generateUlid(occurredAt.getTime()),
+            product_id: productId,
+          })),
+        });
+        if (inserted.count !== missing.length) {
+          throw storedDataError('Agent product authorization could not be persisted');
+        }
+      }
+    }
+    const changed = await transaction.agentProfile.updateMany({
+      data: {
+        product_authorization_mode: input.mode,
+        updated_at: occurredAt,
+        version: { increment: 1 },
+      },
+      where: { deleted_at: null, id: input.agentId, version: input.expectedVersion },
+    });
+    if (changed.count !== 1) throw versionConflict();
+    return {
+      after: {
+        agentId: input.agentId,
+        mode: input.mode,
+        productIds,
+        version: input.expectedVersion + 1,
+      },
+      before,
+      occurredAt,
+    };
+  }
+
+  async getInviteRotationImpactInTransaction(
+    transaction: DatabaseTransaction,
+    input: AdminAgentInviteImpactInput,
+  ): Promise<AdminAgentInviteImpact> {
+    validateInviteImpactInput(input);
+    const now = this.currentTime();
+    if (input.expiresAt !== null && input.expiresAt.getTime() <= now.getTime()) {
+      throw invalidArgument('Agent invite-code expiry must be in the future');
+    }
+    const agent = await this.findAgent(transaction, input.agentId);
+    const invite = await this.findInvite(transaction, input.agentId, true, now);
+    return this.calculateInviteImpact(transaction, agent, invite, now);
+  }
+
+  async getInviteStatusImpactInTransaction(
+    transaction: DatabaseTransaction,
+    input: AdminAgentInviteStatusImpactInput,
+  ): Promise<AdminAgentInviteImpact> {
+    validateInviteStatusImpactInput(input);
+    const now = this.currentTime();
+    const agent = await this.findAgent(transaction, input.agentId);
+    const invite = await this.findInvite(transaction, input.agentId, false, now);
+    const expiresAt = input.expiresAt === undefined ? invite.expires_at : input.expiresAt;
+    this.assertInviteExpiry(invite, input.status, expiresAt, now);
+    return this.calculateInviteImpact(transaction, agent, invite, now);
+  }
+
+  async rotateInviteCodeInTransaction(
+    transaction: DatabaseTransaction,
+    input: RotateAdminAgentInviteCodeInput,
+  ): Promise<AdminAgentInviteRotationResult> {
+    const occurredAt = this.currentTime();
+    validateInviteRotationInput(input, occurredAt);
+    const current = await this.lockAgent(transaction, input.agentId);
+    if (current.version !== input.expectedVersion) throw versionConflict();
+    const previous = await this.lockInvite(transaction, input.agentId, true, occurredAt);
+    if (previous.id === input.inviteCodeId) throw new TypeError('New Agent invite-code ID must be distinct');
+
+    await acquireTransactionLock(transaction, 'admin-agent-invite', [input.inviteCode.codeHash]);
+    const collision = await transaction.agentInviteCode.findFirst({
+      select: { id: true },
+      where: { OR: [{ code_hash: input.inviteCode.codeHash }, { id: input.inviteCodeId }] },
+    });
+    if (collision) throw stateConflict('Agent invite code is already reserved');
+    const previousSnapshot = inviteSnapshot(previous, current.version, occurredAt);
+    if (previous.status === 'ACTIVE' || previous.status === 'DISABLED') {
+      const invalidated = await transaction.agentInviteCode.updateMany({
+        data: { ended_at: occurredAt, end_reason: 'ADMIN_ROTATED', status: 'ROTATED' },
+        where: { agent_id: input.agentId, id: previous.id, status: previous.status },
+      });
+      if (invalidated.count !== 1) throw stateConflict('Agent invite code changed');
+    }
+    const invalidatedCandidates = await transaction.attributionCandidate.updateMany({
+      data: { invalid_reason: 'INVITE_CODE_ROTATED', status: 'INVALIDATED', updated_at: occurredAt },
+      where: {
+        expires_at: { gt: occurredAt },
+        invite_code_id: previous.id,
+        status: 'ACTIVE',
+      },
+    });
+    await transaction.agentInviteCode.create({
+      data: {
+        agent_id: input.agentId,
+        code_ciphertext: Buffer.from(input.inviteCode.ciphertext),
+        code_hash: input.inviteCode.codeHash,
+        code_last4: input.inviteCode.last4,
+        created_at: occurredAt,
+        effective_at: occurredAt,
+        encryption_key_id: input.inviteCode.encryptionKeyId,
+        ended_at: null,
+        end_reason: null,
+        expires_at: input.inviteCode.expiresAt,
+        id: input.inviteCodeId,
+        status: 'ACTIVE',
+      },
+    });
+    const changed = await transaction.agentProfile.updateMany({
+      data: { updated_at: occurredAt, version: { increment: 1 } },
+      where: { deleted_at: null, id: input.agentId, version: input.expectedVersion },
+    });
+    if (changed.count !== 1) throw versionConflict();
+    const agent = await this.reloadAgent(transaction, input.agentId);
+    return {
+      agent,
+      inviteCode: {
+        codeMasked: `****${input.inviteCode.last4}`,
+        expiresAt: input.inviteCode.expiresAt,
+        id: input.inviteCodeId,
+        status: 'ACTIVE',
+        version: agent.version,
+      },
+      invalidatedCandidateCount: count(invalidatedCandidates.count, 'Invalidated Agent candidate count'),
+      occurredAt,
+      previousInviteCode: previousSnapshot,
+    };
+  }
+
+  async updateInviteCodeStatusInTransaction(
+    transaction: DatabaseTransaction,
+    input: UpdateAdminAgentInviteCodeStatusInput,
+  ): Promise<AdminAgentInviteStatusResult> {
+    validateInviteStatusInput(input);
+    const occurredAt = this.currentTime();
+    const current = await this.lockAgent(transaction, input.agentId);
+    if (current.version !== input.expectedVersion) throw versionConflict();
+    const invite = await this.lockInvite(transaction, input.agentId, false, occurredAt);
+    const expiresAt = input.expiresAt === undefined ? invite.expires_at : input.expiresAt;
+    this.assertInviteExpiry(invite, input.status, expiresAt, occurredAt);
+    const before = inviteSnapshot(invite, current.version, occurredAt);
+    const disabling = input.status === 'DISABLED';
+    const changedInvite = await transaction.agentInviteCode.updateMany({
+      data: {
+        ended_at: disabling ? invite.ended_at ?? occurredAt : null,
+        end_reason: disabling ? invite.end_reason ?? 'ADMIN_DISABLED' : null,
+        expires_at: expiresAt,
+        status: input.status,
+      },
+      where: { agent_id: input.agentId, id: invite.id, status: invite.status },
+    });
+    if (changedInvite.count !== 1) throw stateConflict('Agent invite code changed');
+    const invalidatedCandidates = disabling
+      ? await transaction.attributionCandidate.updateMany({
+          data: { invalid_reason: 'INVITE_CODE_DISABLED', status: 'INVALIDATED', updated_at: occurredAt },
+          where: {
+            expires_at: { gt: occurredAt },
+            invite_code_id: invite.id,
+            status: 'ACTIVE',
+          },
+        })
+      : { count: 0 };
+    const changedAgent = await transaction.agentProfile.updateMany({
+      data: { updated_at: occurredAt, version: { increment: 1 } },
+      where: { deleted_at: null, id: input.agentId, version: input.expectedVersion },
+    });
+    if (changedAgent.count !== 1) throw versionConflict();
+    const agent = await this.reloadAgent(transaction, input.agentId);
+    return {
+      after: {
+        codeMasked: `****${invite.code_last4}`,
+        expiresAt,
+        id: invite.id,
+        status: input.status,
+        version: agent.version,
+      },
+      agent,
+      before,
+      invalidatedCandidateCount: count(invalidatedCandidates.count, 'Invalidated Agent candidate count'),
+      occurredAt,
     };
   }
 
@@ -887,6 +1324,121 @@ export class AdminAgentRepository {
     });
     const agent = await this.reloadAgent(transaction, input.agentId);
     return { agent, accountVersion: agent.accountVersion, revokedSessionCount: revoked.count, occurredAt: now };
+  }
+
+  private async lockProducts(transaction: DatabaseTransaction, productIds: readonly string[]): Promise<void> {
+    for (const productId of productIds) {
+      await acquireTransactionLock(transaction, 'store-attribution-product', [productId]);
+    }
+    if (productIds.length === 0) return;
+    const rows = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id FROM public.product
+      WHERE id IN (${Prisma.join(productIds)})
+      ORDER BY id ASC
+      FOR UPDATE
+    `);
+    const found = new Set(rows.map(({ id }) => id));
+    if (rows.length !== productIds.length || productIds.some((productId) => !found.has(productId))) {
+      throw stateConflict('Agent product authorization contains an unavailable Product');
+    }
+  }
+
+  private async findInvite(
+    transaction: DatabaseTransaction,
+    agentId: string,
+    allowTerminal: boolean,
+    now: Date,
+  ): Promise<AgentInviteRecord> {
+    const mutable = await transaction.agentInviteCode.findMany({
+      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+      select: INVITE_SELECT,
+      take: 2,
+      where: { agent_id: agentId, status: { in: ['ACTIVE', 'DISABLED'] } },
+    });
+    if (mutable.length > 1) throw storedDataError('Agent has multiple mutable invite codes');
+    const invite = mutable[0] ?? (allowTerminal
+      ? await transaction.agentInviteCode.findFirst({
+          orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+          select: INVITE_SELECT,
+          where: { agent_id: agentId },
+        })
+      : null);
+    if (!invite) throw stateConflict('Agent has no manageable invite code');
+    if (invite.agent_id !== agentId || invite.effective_at.getTime() > now.getTime()) {
+      throw storedDataError('Agent invite code has an invalid owner or effective time');
+    }
+    return invite;
+  }
+
+  private async lockInvite(
+    transaction: DatabaseTransaction,
+    agentId: string,
+    allowTerminal: boolean,
+    now: Date,
+  ): Promise<AgentInviteRecord> {
+    const initial = await this.findInvite(transaction, agentId, allowTerminal, now);
+    await acquireTransactionLock(transaction, 'store-attribution-invite', [initial.id]);
+    const rows = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id FROM public.agent_invite_code WHERE id = ${initial.id} FOR UPDATE
+    `);
+    if (rows.length !== 1 || rows[0]?.id !== initial.id) {
+      throw stateConflict('Agent invite code changed');
+    }
+    const invite = await transaction.agentInviteCode.findUnique({
+      select: INVITE_SELECT,
+      where: { id: initial.id },
+    });
+    if (!invite || invite.agent_id !== agentId || invite.effective_at.getTime() > now.getTime() ||
+      (!allowTerminal && invite.status !== 'ACTIVE' && invite.status !== 'DISABLED')) {
+      throw stateConflict('Agent invite code changed');
+    }
+    return invite;
+  }
+
+  private assertInviteExpiry(
+    invite: AgentInviteRecord,
+    status: 'ACTIVE' | 'DISABLED',
+    expiresAt: Date | null,
+    now: Date,
+  ): void {
+    if (expiresAt !== null && expiresAt.getTime() <= invite.effective_at.getTime()) {
+      throw invalidArgument('Agent invite-code expiry must be later than its effective time');
+    }
+    if (status === 'ACTIVE' && expiresAt !== null && expiresAt.getTime() <= now.getTime()) {
+      throw invalidArgument('An active Agent invite-code expiry must be in the future');
+    }
+  }
+
+  private async calculateInviteImpact(
+    transaction: DatabaseTransaction,
+    record: AgentListRecord,
+    invite: AgentInviteRecord,
+    now: Date,
+  ): Promise<AdminAgentInviteImpact> {
+    if (invite.agent_id !== record.id) throw storedDataError('Agent invite code owner is invalid');
+    const [activeCandidateCount, activePromotionAssetCount, existingBindingCount] = await Promise.all([
+      transaction.attributionCandidate.count({
+        where: { expires_at: { gt: now }, invite_code_id: invite.id, status: 'ACTIVE' },
+      }),
+      transaction.promotionAsset.count({
+        where: {
+          invite_code_id: invite.id,
+          revoked_at: null,
+          status: 'ACTIVE',
+          OR: [{ expires_at: null }, { expires_at: { gt: now } }],
+        },
+      }),
+      transaction.customerAgentBinding.count({
+        where: { agent_id: record.id, ended_at: null },
+      }),
+    ]);
+    return {
+      activeCandidateCount: count(activeCandidateCount, 'Active invite candidate count'),
+      activePromotionAssetCount: count(activePromotionAssetCount, 'Active invite promotion-asset count'),
+      agent: agentSnapshot(record),
+      existingBindingCount: count(existingBindingCount, 'Existing Agent binding count'),
+      inviteCode: inviteSnapshot(invite, record.version, now),
+    };
   }
 
   private async findAgent(transaction: DatabaseTransaction, agentId: string): Promise<AgentListRecord> {

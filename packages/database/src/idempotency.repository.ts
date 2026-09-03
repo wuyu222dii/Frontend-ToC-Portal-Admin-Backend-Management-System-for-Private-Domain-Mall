@@ -77,6 +77,16 @@ export type IdempotencyResult =
       responseBody: CacheableAgentResourceResponse;
     })
   | (IdempotencyResultBase & {
+      storage: 'CACHEABLE';
+      policy: 'AGENT_PRODUCT_AUTHORIZATION_RESPONSE';
+      responseBody: CacheableAgentProductAuthorizationResponse;
+    })
+  | (IdempotencyResultBase & {
+      storage: 'CACHEABLE';
+      policy: 'AGENT_INVITE_ROTATE_REPLAY';
+      responseBody: CacheableAgentInviteRotateReplay;
+    })
+  | (IdempotencyResultBase & {
       storage: 'HASH_ONLY';
       resourceId?: string;
       responseForHash: unknown;
@@ -236,6 +246,36 @@ export interface CacheableAgentResourceResponse {
   request_id: string;
 }
 
+export interface CacheableAgentProductAuthorizationResponse {
+  code: 'OK';
+  message: 'success';
+  data: {
+    agent_id: string;
+    mode: 'ALL_ACTIVE_PRODUCTS' | 'CUSTOM_WHITELIST';
+    product_ids: string[];
+    version: number;
+  };
+  request_id: string;
+}
+
+export interface CacheableAgentInviteRotateReplay {
+  code: 'OK';
+  message: 'success';
+  data: {
+    agent_id: string;
+    new_invite_code: null;
+    old_code_invalidated: {
+      invite_code_id: string;
+      code_masked: string;
+      invalidated_at: string;
+      existing_bindings_unchanged: true;
+    };
+    disclosure_state: 'REPLAY_REDACTED';
+    reissue_required: true;
+  };
+  request_id: string;
+}
+
 const COMMAND_RESPONSE_TOP_LEVEL_FIELDS = new Set(['code', 'data', 'message', 'request_id']);
 const COMMAND_RESPONSE_DATA_FIELDS = new Set([
   'occurred_at',
@@ -327,6 +367,20 @@ const AGENT_VIEW_FIELDS = new Set([
   'product_authorization_mode',
   'status',
   'version',
+]);
+const AGENT_PRODUCT_AUTHORIZATION_FIELDS = new Set(['agent_id', 'mode', 'product_ids', 'version']);
+const AGENT_INVITE_ROTATE_FIELDS = new Set([
+  'agent_id',
+  'disclosure_state',
+  'new_invite_code',
+  'old_code_invalidated',
+  'reissue_required',
+]);
+const INVALIDATED_INVITE_FIELDS = new Set([
+  'code_masked',
+  'existing_bindings_unchanged',
+  'invalidated_at',
+  'invite_code_id',
 ]);
 const CATALOG_STATUS = new Set(['ACTIVE', 'ARCHIVED', 'DRAFT', 'INACTIVE']);
 const SKU_STATUS = new Set(['ACTIVE', 'ARCHIVED', 'INACTIVE']);
@@ -587,6 +641,35 @@ function isCacheableAgentResourceResponse(value: unknown): value is CacheableAge
   return isCacheableAgentView(value.data);
 }
 
+function isCacheableAgentProductAuthorizationResponse(
+  value: unknown,
+): value is CacheableAgentProductAuthorizationResponse {
+  if (!isExactPlainObject(value, CATALOG_RESPONSE_TOP_LEVEL_FIELDS) || value.code !== 'OK' ||
+    value.message !== 'success' || !REQUEST_ID.test(String(value.request_id)) ||
+    !isExactPlainObject(value.data, AGENT_PRODUCT_AUTHORIZATION_FIELDS) ||
+    !isValidUlid(value.data.agent_id) ||
+    typeof value.data.mode !== 'string' || !AGENT_AUTHORIZATION_MODE.has(value.data.mode) ||
+    !Array.isArray(value.data.product_ids) ||
+    value.data.product_ids.some((productId) => typeof productId !== 'string' || !isValidUlid(productId)) ||
+    new Set(value.data.product_ids).size !== value.data.product_ids.length ||
+    !isPositiveInteger(value.data.version)) return false;
+  return value.data.mode !== 'ALL_ACTIVE_PRODUCTS' || value.data.product_ids.length === 0;
+}
+
+function isCacheableAgentInviteRotateReplay(value: unknown): value is CacheableAgentInviteRotateReplay {
+  if (!isExactPlainObject(value, CATALOG_RESPONSE_TOP_LEVEL_FIELDS) || value.code !== 'OK' ||
+    value.message !== 'success' || !REQUEST_ID.test(String(value.request_id)) ||
+    !isExactPlainObject(value.data, AGENT_INVITE_ROTATE_FIELDS) ||
+    !isValidUlid(value.data.agent_id) || value.data.new_invite_code !== null ||
+    value.data.disclosure_state !== 'REPLAY_REDACTED' || value.data.reissue_required !== true ||
+    !isExactPlainObject(value.data.old_code_invalidated, INVALIDATED_INVITE_FIELDS)) return false;
+  const oldCode = value.data.old_code_invalidated;
+  return isValidUlid(oldCode.invite_code_id) &&
+    isBoundedNonBlankString(oldCode.code_masked, 128) &&
+    typeof oldCode.invalidated_at === 'string' && ISO_TIMESTAMP.test(oldCode.invalidated_at) &&
+    oldCode.existing_bindings_unchanged === true;
+}
+
 function isCacheableSkuSpec(value: unknown): value is CacheableSkuSpec {
   if (!isExactPlainObject(value, SKU_SPEC_FIELDS) || !Array.isArray(value.attributes) ||
     value.attributes.length === 0) return false;
@@ -675,12 +758,15 @@ function isCacheableFileUploadCompleteResponse(
 function cacheableResourceId(
   response: CacheableCommandResponse | CacheableFileUploadCompleteResponse |
     CacheableCatalogResourceResponse | CacheableProductCatalogResponse | CacheableBannerResourceResponse |
-    CacheableAgentResourceResponse,
+    CacheableAgentResourceResponse | CacheableAgentProductAuthorizationResponse |
+    CacheableAgentInviteRotateReplay,
 ): string {
   if (isCacheableCommandResponse(response)) return response.data.resource_id;
   if (isCacheableFileUploadCompleteResponse(response)) return response.data.file_id;
   if (isCacheableBannerResourceResponse(response)) return response.data.banner_id;
   if (isCacheableAgentResourceResponse(response)) return response.data.agent_id;
+  if (isCacheableAgentProductAuthorizationResponse(response)) return response.data.agent_id;
+  if (isCacheableAgentInviteRotateReplay(response)) return response.data.agent_id;
   if (isCacheableProductCatalogResponse(response)) {
     return 'product_id' in response.data ? response.data.product_id : response.data.sku_id;
   }
@@ -741,6 +827,11 @@ function validateResult(result: IdempotencyResult): void {
     result.responseStatus !== 200) {
     throw new TypeError('AGENT_RESOURCE_RESPONSE responses must use HTTP status 200');
   }
+  if (result.storage === 'CACHEABLE' &&
+    (result.policy === 'AGENT_PRODUCT_AUTHORIZATION_RESPONSE' ||
+      result.policy === 'AGENT_INVITE_ROTATE_REPLAY') && result.responseStatus !== 200) {
+    throw new TypeError(`${result.policy} responses must use HTTP status 200`);
+  }
   if (result.storage === 'CACHEABLE') {
     if (result.policy === 'COMMAND_RESPONSE') {
       if (!isCacheableCommandResponse(result.responseBody)) {
@@ -767,6 +858,14 @@ function validateResult(result: IdempotencyResult): void {
     } else if (result.policy === 'AGENT_RESOURCE_RESPONSE') {
       if (!isCacheableAgentResourceResponse(result.responseBody)) {
         throw new TypeError('Only a valid Agent response may use the AGENT_RESOURCE_RESPONSE cache policy');
+      }
+    } else if (result.policy === 'AGENT_PRODUCT_AUTHORIZATION_RESPONSE') {
+      if (!isCacheableAgentProductAuthorizationResponse(result.responseBody)) {
+        throw new TypeError('Only a valid authorization response may use the Agent authorization cache policy');
+      }
+    } else if (result.policy === 'AGENT_INVITE_ROTATE_REPLAY') {
+      if (!isCacheableAgentInviteRotateReplay(result.responseBody)) {
+        throw new TypeError('Only a redacted invite rotation may use the invite replay cache policy');
       }
     } else {
       throw new TypeError('CACHEABLE idempotency policy is not registered');
@@ -896,14 +995,18 @@ export class IdempotencyRepository {
     const productCatalogResponse = isCacheableProductCatalogResponse(response);
     const bannerResponse = isCacheableBannerResourceResponse(response);
     const agentResponse = isCacheableAgentResourceResponse(response);
+    const agentAuthorizationResponse = isCacheableAgentProductAuthorizationResponse(response);
+    const inviteRotateReplay = isCacheableAgentInviteRotateReplay(response);
     if (record.response_status < 200 || record.response_status > 299 ||
       (!commandResponse && !fileCompleteResponse && !catalogResponse && !productCatalogResponse && !bannerResponse &&
-        !agentResponse) ||
+        !agentResponse && !agentAuthorizationResponse && !inviteRotateReplay) ||
       (fileCompleteResponse && record.response_status !== 200) ||
       (catalogResponse && record.response_status !== 200 && record.response_status !== 201) ||
       (productCatalogResponse && record.response_status !== 200 && record.response_status !== 201) ||
       (bannerResponse && record.response_status !== 200 && record.response_status !== 201) ||
       (agentResponse && record.response_status !== 200) ||
+      (agentAuthorizationResponse && record.response_status !== 200) ||
+      (inviteRotateReplay && record.response_status !== 200) ||
       integrityContext === undefined ||
       record.resource_id !== cacheableResourceId(response) ||
       !this.responseHashMatches(record.response_body, integrityContext, record.response_body_hash)) {
@@ -971,6 +1074,22 @@ export class IdempotencyRepository {
     this.assertReplayIntegrity(record);
     if (!isCacheableAgentResourceResponse(record.response_body)) {
       throw new ApplicationError('INTERNAL_ERROR', 'Idempotency record is not an Agent response');
+    }
+    return record.response_body;
+  }
+
+  agentProductAuthorizationReplay(record: IdempotencyRecord): CacheableAgentProductAuthorizationResponse {
+    this.assertReplayIntegrity(record);
+    if (!isCacheableAgentProductAuthorizationResponse(record.response_body)) {
+      throw new ApplicationError('INTERNAL_ERROR', 'Idempotency record is not an Agent authorization response');
+    }
+    return record.response_body;
+  }
+
+  agentInviteRotateReplay(record: IdempotencyRecord): CacheableAgentInviteRotateReplay {
+    this.assertReplayIntegrity(record);
+    if (!isCacheableAgentInviteRotateReplay(record.response_body)) {
+      throw new ApplicationError('INTERNAL_ERROR', 'Idempotency record is not a redacted invite rotation');
     }
     return record.response_body;
   }

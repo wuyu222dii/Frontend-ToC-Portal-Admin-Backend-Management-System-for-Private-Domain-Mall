@@ -6,6 +6,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { Prisma } from '../.generated/prisma/client';
 import {
   IdempotencyRepository,
+  type CacheableAgentInviteRotateReplay,
+  type CacheableAgentProductAuthorizationResponse,
   type CacheableAgentResourceResponse,
   type CacheableBannerResourceResponse,
   type CacheableCatalogResourceResponse,
@@ -240,6 +242,40 @@ function agentResponse(
     message: 'success',
     request_id: 'req_0123456789abcdef0123456789abcdef',
     ...override,
+  };
+}
+
+function agentAuthorizationResponse(): CacheableAgentProductAuthorizationResponse {
+  return {
+    code: 'OK',
+    data: {
+      agent_id: generateUlid(),
+      mode: 'CUSTOM_WHITELIST',
+      product_ids: [generateUlid(), generateUlid()],
+      version: 2,
+    },
+    message: 'success',
+    request_id: 'req_0123456789abcdef0123456789abcdef',
+  };
+}
+
+function agentInviteRotateReplay(): CacheableAgentInviteRotateReplay {
+  return {
+    code: 'OK',
+    data: {
+      agent_id: generateUlid(),
+      disclosure_state: 'REPLAY_REDACTED',
+      new_invite_code: null,
+      old_code_invalidated: {
+        code_masked: '****CODE',
+        existing_bindings_unchanged: true,
+        invalidated_at: '2026-09-03T00:00:00.000Z',
+        invite_code_id: generateUlid(),
+      },
+      reissue_required: true,
+    },
+    message: 'success',
+    request_id: 'req_0123456789abcdef0123456789abcdef',
   };
 }
 
@@ -495,6 +531,58 @@ describe('IdempotencyRepository', () => {
       expect(() => repository().agentResourceReplay({ ...record, ...override } as never))
         .toThrow('unexpected error');
     }
+  });
+
+  it('stores and exactly replays a closed Agent product-authorization response', async () => {
+    const transaction = transactionStub();
+    const responseBody = agentAuthorizationResponse();
+    await repository().complete(transaction, baseClaim, {
+      policy: 'AGENT_PRODUCT_AUTHORIZATION_RESPONSE',
+      responseBody,
+      responseStatus: 200,
+      storage: 'CACHEABLE',
+    });
+    expect(transaction.idempotencyRecord.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ resource_id: responseBody.data.agent_id, response_body: responseBody }),
+    }));
+    expect(repository().agentProductAuthorizationReplay({
+      ...recordContext(),
+      expires_at: new Date('2099-08-14T00:00:00.000Z'),
+      resource_id: responseBody.data.agent_id,
+      response_body: responseBody,
+      response_body_hash: responseHash(currentHashKey, responseBody),
+      response_status: 200,
+    } as never)).toEqual(responseBody);
+  });
+
+  it('stores only the redacted Agent invite rotation replay and rejects a plaintext code', async () => {
+    const transaction = transactionStub();
+    const responseBody = agentInviteRotateReplay();
+    await repository().complete(transaction, baseClaim, {
+      policy: 'AGENT_INVITE_ROTATE_REPLAY',
+      responseBody,
+      responseStatus: 200,
+      storage: 'CACHEABLE',
+    });
+    expect(JSON.stringify(vi.mocked(transaction.idempotencyRecord.upsert).mock.calls[0]?.[0]))
+      .not.toContain('AGT-private');
+    expect(repository().agentInviteRotateReplay({
+      ...recordContext(),
+      expires_at: new Date('2099-08-14T00:00:00.000Z'),
+      resource_id: responseBody.data.agent_id,
+      response_body: responseBody,
+      response_body_hash: responseHash(currentHashKey, responseBody),
+      response_status: 200,
+    } as never)).toEqual(responseBody);
+    await expect(repository().complete(transactionStub(), baseClaim, {
+      policy: 'AGENT_INVITE_ROTATE_REPLAY',
+      responseBody: {
+        ...responseBody,
+        data: { ...responseBody.data, new_invite_code: { code: 'AGT-private' } },
+      },
+      responseStatus: 200,
+      storage: 'CACHEABLE',
+    } as never)).rejects.toThrow('redacted invite rotation');
   });
 
   it.each([

@@ -6,7 +6,13 @@ import {
   parseAdminAgentListQuery,
   parseAdminAgentUpdateBody,
   parseAgentStatusConfirmationBody,
+  parseInviteRotationActionBody,
+  parseInviteStatusConfirmationBody,
+  parseProductAuthorizationBody,
 } from './admin-agents.dto';
+
+const PRODUCT_A = '01J00000000000000000000001';
+const PRODUCT_B = '01J00000000000000000000002';
 
 describe('Admin Agent DTO parsing', () => {
   it('normalizes a bounded ASCII login name and optional contact values', () => {
@@ -70,5 +76,65 @@ describe('Admin Agent DTO parsing', () => {
     expect(() => parseAdminAgentEmptyBody({ unexpected: true })).toThrow();
     expect(() => parseAdminAgentEmptyBody({})).not.toThrow();
     expect(() => parseAdminAgentEmptyBody(undefined)).not.toThrow();
+  });
+
+  it('closes and canonicalizes an Agent product whitelist', () => {
+    expect(parseProductAuthorizationBody({
+      mode: 'CUSTOM_WHITELIST',
+      product_ids: [PRODUCT_B, PRODUCT_A],
+    })).toEqual({ mode: 'CUSTOM_WHITELIST', productIds: [PRODUCT_A, PRODUCT_B] });
+    expect(parseProductAuthorizationBody({
+      mode: 'ALL_ACTIVE_PRODUCTS',
+      product_ids: [],
+    })).toEqual({ mode: 'ALL_ACTIVE_PRODUCTS', productIds: [] });
+    expect(() => parseProductAuthorizationBody({
+      mode: 'CUSTOM_WHITELIST',
+      product_ids: [PRODUCT_A, PRODUCT_A],
+    })).toThrow();
+    expect(() => parseProductAuthorizationBody({
+      mode: 'ALL_ACTIVE_PRODUCTS',
+      product_ids: [PRODUCT_A],
+    })).toThrow();
+  });
+
+  it('preserves omitted, null, and normalized invite-code expiries in closed actions', () => {
+    expect(parseInviteRotationActionBody({ reason: 'Rotate compromised invite' }))
+      .toEqual({ reason: 'Rotate compromised invite' });
+    expect(parseInviteRotationActionBody({
+      expires_at: '2026-09-03T12:30:00+12:00',
+      reason: 'Rotate compromised invite',
+    })).toEqual({ expiresAt: new Date('2026-09-03T00:30:00.000Z'), reason: 'Rotate compromised invite' });
+    expect(parseInviteStatusConfirmationBody({
+      confirmation_hash: 'a'.repeat(64),
+      expires_at: null,
+      preview_token: `pvw_${'x'.repeat(32)}`,
+      reason: 'Disable campaign invite',
+      status: 'DISABLED',
+    })).toEqual({
+      confirmationHash: 'a'.repeat(64),
+      expiresAt: null,
+      previewToken: `pvw_${'x'.repeat(32)}`,
+      reason: 'Disable campaign invite',
+      status: 'DISABLED',
+    });
+    expect(() => parseInviteRotationActionBody({
+      expires_at: 'not-a-date',
+      reason: 'Rotate compromised invite',
+    })).toThrow();
+    expect(() => parseInviteRotationActionBody({
+      expires_at: '2026-02-30T00:00:00Z',
+      reason: 'Rotate compromised invite',
+    })).toThrow();
+    expect(() => parseInviteRotationActionBody({
+      expires_at: '9999-12-31T23:59:59-14:00',
+      reason: 'Rotate compromised invite',
+    })).toThrow();
+    expect(() => parseInviteStatusConfirmationBody({
+      confirmation_hash: 'a'.repeat(64),
+      extra: true,
+      preview_token: `pvw_${'x'.repeat(32)}`,
+      reason: 'Disable campaign invite',
+      status: 'DISABLED',
+    })).toThrow();
   });
 });

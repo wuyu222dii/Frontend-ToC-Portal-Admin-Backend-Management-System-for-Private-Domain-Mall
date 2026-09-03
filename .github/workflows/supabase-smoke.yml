@@ -259,7 +259,7 @@ jobs:
           DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
         run: pnpm db:test-b12-aftersales
 
-      - name: Run rollback-only B13.1 Agent lifecycle and authentication smoke
+      - name: Run rollback-only B13.1-B13.2 Agent authentication and commerce smoke
         env:
           B13_AGENT_AUTH_DATABASE_TEST_MODE: rollback
           DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}

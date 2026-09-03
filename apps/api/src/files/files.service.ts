@@ -3,6 +3,7 @@ import { isIP } from 'node:net';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import type { PlatformRuntimeConfig } from '@qingxu/config';
 import {
+  AgentCommerceRepository,
   AuditRepository,
   buildFinalObjectKey,
   buildStagingObjectKey,
@@ -58,6 +59,7 @@ function mapStorageError(error: unknown): never {
 export class FileAssetsService {
   private readonly logger = new Logger('FileAssetsService');
   private readonly assets!: FileAssetRepository;
+  private readonly agentCommerce!: AgentCommerceRepository;
   private readonly audit!: AuditRepository;
   private readonly idempotency!: IdempotencyRepository;
   private readonly outbox!: OutboxRepository;
@@ -70,6 +72,7 @@ export class FileAssetsService {
   ) {
     if (config && database) {
       this.assets = new FileAssetRepository(database.prisma);
+      this.agentCommerce = new AgentCommerceRepository(database.prisma);
       this.audit = new AuditRepository(config.encryption.ipHashKey);
       this.idempotency = new IdempotencyRepository(config.encryption.idempotencyHashKeys);
       this.outbox = new OutboxRepository(database);
@@ -307,7 +310,13 @@ export class FileAssetsService {
     const { config, database, storage } = this.runtime();
     const asset = request.principal.role === 'SUPER_ADMIN'
       ? await this.assets.getAdminDownloadable({ actorId: request.principal.accountId, fileId })
-      : await this.assets.getOwned({ actorId: request.principal.accountId, fileId });
+      : request.principal.role === 'AGENT_ADMIN' && request.agentSession
+        ? await this.agentCommerce.getAgentPromotionQrDownloadable({
+            accountId: request.principal.accountId,
+            agentId: request.agentSession.agentId,
+            fileId,
+          })
+        : await this.assets.getOwned({ actorId: request.principal.accountId, fileId });
     this.authorizePurpose(request, asset.purpose);
     if (asset.status !== 'READY') {
       throw new ApplicationError('STATE_CONFLICT', 'Only ready file assets can be downloaded');
@@ -360,6 +369,7 @@ export class FileAssetsService {
 
   private authorizePurpose(request: FilesRequestContext, purpose: string): void {
     if (request.principal.role === 'SUPER_ADMIN' ||
+      (request.principal.role === 'AGENT_ADMIN' && purpose === 'PROMOTION_QR') ||
       (request.principal.role === 'CUSTOMER' && purpose === 'AFTERSALE_EVIDENCE')) return;
     throw new ApplicationError('PERMISSION_DENIED', 'File purpose is not available to this role');
   }
@@ -381,7 +391,7 @@ export class FileAssetsService {
     database: DatabaseRuntime;
     storage: ObjectStoragePort;
   } {
-    if (!this.config || !this.database || !this.storage || !this.assets || !this.audit || !this.idempotency ||
+    if (!this.config || !this.database || !this.storage || !this.assets || !this.agentCommerce || !this.audit || !this.idempotency ||
       !this.outbox) {
       throw new ApplicationError('INTERNAL_ERROR', 'File runtime is unavailable');
     }

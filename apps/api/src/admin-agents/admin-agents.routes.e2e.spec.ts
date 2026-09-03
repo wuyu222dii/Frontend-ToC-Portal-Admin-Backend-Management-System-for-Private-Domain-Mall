@@ -104,6 +104,12 @@ const disable = vi.fn();
 const reactivate = vi.fn();
 const previewPasswordReset = vi.fn();
 const resetPassword = vi.fn();
+const productAuthorization = vi.fn();
+const updateProductAuthorization = vi.fn();
+const previewInviteCodeRotation = vi.fn();
+const rotateInviteCode = vi.fn();
+const previewInviteCodeStatus = vi.fn();
+const updateInviteCodeStatus = vi.fn();
 const service = {
   create,
   detail,
@@ -111,9 +117,15 @@ const service = {
   list,
   previewDisable,
   previewPasswordReset,
+  previewInviteCodeRotation,
+  previewInviteCodeStatus,
+  productAuthorization,
   reactivate,
   resetPassword,
+  rotateInviteCode,
   update,
+  updateInviteCodeStatus,
+  updateProductAuthorization,
 };
 const findUnique = vi.fn();
 const database = {
@@ -181,6 +193,26 @@ function resetConfirmationBody() {
   };
 }
 
+function productAuthorizationBody() {
+  return { mode: 'CUSTOM_WHITELIST', product_ids: ['01J0000000000000000000000A'] };
+}
+
+function inviteRotationBody() {
+  return { expires_at: '2026-10-01T00:00:00.000Z', reason: '  Rotate campaign invite  ' };
+}
+
+function inviteRotationConfirmationBody() {
+  return { confirmation_hash: HASH, preview_token: PREVIEW_TOKEN, ...inviteRotationBody() };
+}
+
+function inviteStatusBody() {
+  return { expires_at: null, reason: '  Disable campaign invite  ', status: 'DISABLED' };
+}
+
+function inviteStatusConfirmationBody() {
+  return { confirmation_hash: HASH, preview_token: PREVIEW_TOKEN, ...inviteStatusBody() };
+}
+
 function expectNoStore(response: { headers: Record<string, string | string[] | undefined> }): void {
   expect(response.headers['cache-control']).toBe('no-store, private');
   expect(response.headers.pragma).toBe('no-cache');
@@ -196,6 +228,12 @@ function expectNoDispatch(): void {
   expect(reactivate).not.toHaveBeenCalled();
   expect(previewPasswordReset).not.toHaveBeenCalled();
   expect(resetPassword).not.toHaveBeenCalled();
+  expect(productAuthorization).not.toHaveBeenCalled();
+  expect(updateProductAuthorization).not.toHaveBeenCalled();
+  expect(previewInviteCodeRotation).not.toHaveBeenCalled();
+  expect(rotateInviteCode).not.toHaveBeenCalled();
+  expect(previewInviteCodeStatus).not.toHaveBeenCalled();
+  expect(updateInviteCodeStatus).not.toHaveBeenCalled();
 }
 
 @Module({
@@ -238,11 +276,17 @@ describe('B13.1 Admin Agent management HTTP boundary', () => {
     reactivate.mockResolvedValue({ resource_id: AGENT_ID, status: 'ACTIVE', version: 5 });
     previewPasswordReset.mockResolvedValue({ preview_token: PREVIEW_TOKEN });
     resetPassword.mockResolvedValue({ agent: { agent_id: AGENT_ID }, disclosure_state: 'FIRST_ISSUE' });
+    productAuthorization.mockResolvedValue({ agent_id: AGENT_ID, mode: 'ALL_ACTIVE_PRODUCTS', product_ids: [] });
+    updateProductAuthorization.mockResolvedValue({ agent_id: AGENT_ID, mode: 'CUSTOM_WHITELIST' });
+    previewInviteCodeRotation.mockResolvedValue({ preview_token: PREVIEW_TOKEN });
+    rotateInviteCode.mockResolvedValue({ agent_id: AGENT_ID, disclosure_state: 'FIRST_ISSUE' });
+    previewInviteCodeStatus.mockResolvedValue({ preview_token: PREVIEW_TOKEN });
+    updateInviteCodeStatus.mockResolvedValue({ resource_id: AGENT_ID, status: 'DISABLED' });
   });
 
   afterAll(async () => app.close());
 
-  it('maps all nine admitted routes and dispatches exact DTO, version and confirmation values', async () => {
+  it('maps all admitted routes and dispatches exact DTO, version and confirmation values', async () => {
     await request(app.getHttpServer())
       .get('/api/v1/admin/agents')
       .set('Authorization', adminBearer)
@@ -389,9 +433,100 @@ describe('B13.1 Admin Agent management HTTP boundary', () => {
       KEY,
     );
     expectNoStore(reset);
+
+    await request(app.getHttpServer())
+      .get(`/api/v1/admin/agents/${AGENT_ID}/product-authorization`)
+      .set('Authorization', adminBearer)
+      .expect(200);
+    expect(productAuthorization).toHaveBeenCalledWith(AGENT_ID);
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/agents/${AGENT_ID}/product-authorization`)
+      .set('Authorization', adminBearer)
+      .set('Idempotency-Key', KEY)
+      .set('If-Match', '"5"')
+      .send(productAuthorizationBody())
+      .expect(200);
+    expect(updateProductAuthorization).toHaveBeenCalledWith(
+      expect.objectContaining({ principal: expect.objectContaining({ role: 'SUPER_ADMIN' }) }),
+      AGENT_ID,
+      { mode: 'CUSTOM_WHITELIST', productIds: ['01J0000000000000000000000A'] },
+      5,
+      KEY,
+    );
+
+    const rotationPreview = await request(app.getHttpServer())
+      .post(`/api/v1/admin/agents/${AGENT_ID}/invite-code/rotate-preview`)
+      .set('Authorization', adminBearer)
+      .set('Idempotency-Key', KEY)
+      .send(inviteRotationBody())
+      .expect(200);
+    expect(previewInviteCodeRotation).toHaveBeenCalledWith(
+      expect.objectContaining({ principal: expect.objectContaining({ role: 'SUPER_ADMIN' }) }),
+      AGENT_ID,
+      { expiresAt: new Date('2026-10-01T00:00:00.000Z'), reason: 'Rotate campaign invite' },
+      KEY,
+    );
+    expectNoStore(rotationPreview);
+
+    const rotated = await request(app.getHttpServer())
+      .post(`/api/v1/admin/agents/${AGENT_ID}/invite-code/rotate`)
+      .set('Authorization', adminBearer)
+      .set('Idempotency-Key', KEY)
+      .set('If-Match', '"5"')
+      .send(inviteRotationConfirmationBody())
+      .expect(200);
+    expect(rotateInviteCode).toHaveBeenCalledWith(
+      expect.objectContaining({ principal: expect.objectContaining({ role: 'SUPER_ADMIN' }) }),
+      AGENT_ID,
+      {
+        confirmationHash: HASH,
+        expiresAt: new Date('2026-10-01T00:00:00.000Z'),
+        previewToken: PREVIEW_TOKEN,
+        reason: 'Rotate campaign invite',
+      },
+      5,
+      KEY,
+    );
+    expectNoStore(rotated);
+
+    const inviteStatusPreview = await request(app.getHttpServer())
+      .post(`/api/v1/admin/agents/${AGENT_ID}/invite-code/status-preview`)
+      .set('Authorization', adminBearer)
+      .set('Idempotency-Key', KEY)
+      .send(inviteStatusBody())
+      .expect(200);
+    expect(previewInviteCodeStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ principal: expect.objectContaining({ role: 'SUPER_ADMIN' }) }),
+      AGENT_ID,
+      { expiresAt: null, reason: 'Disable campaign invite', status: 'DISABLED' },
+      KEY,
+    );
+    expectNoStore(inviteStatusPreview);
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/admin/agents/${AGENT_ID}/invite-code`)
+      .set('Authorization', adminBearer)
+      .set('Idempotency-Key', KEY)
+      .set('If-Match', '"5"')
+      .send(inviteStatusConfirmationBody())
+      .expect(200);
+    expect(updateInviteCodeStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ principal: expect.objectContaining({ role: 'SUPER_ADMIN' }) }),
+      AGENT_ID,
+      {
+        confirmationHash: HASH,
+        expiresAt: null,
+        previewToken: PREVIEW_TOKEN,
+        reason: 'Disable campaign invite',
+        status: 'DISABLED',
+      },
+      5,
+      KEY,
+    );
   });
 
-  it('requires a SUPER_ADMIN bearer on all nine admitted routes', async () => {
+  it('requires a SUPER_ADMIN bearer on all admitted routes', async () => {
     const probes = [
       () => request(app.getHttpServer()).get('/api/v1/admin/agents'),
       () => request(app.getHttpServer()).post('/api/v1/admin/agents')
@@ -409,6 +544,17 @@ describe('B13.1 Admin Agent management HTTP boundary', () => {
         .set('Idempotency-Key', KEY).send({ reason: 'Credential rotation' }),
       () => request(app.getHttpServer()).post(`/api/v1/admin/agents/${AGENT_ID}/password-resets`)
         .set('Idempotency-Key', KEY).set('If-Match', '"4"').send(resetConfirmationBody()),
+      () => request(app.getHttpServer()).get(`/api/v1/admin/agents/${AGENT_ID}/product-authorization`),
+      () => request(app.getHttpServer()).patch(`/api/v1/admin/agents/${AGENT_ID}/product-authorization`)
+        .set('Idempotency-Key', KEY).set('If-Match', '"5"').send(productAuthorizationBody()),
+      () => request(app.getHttpServer()).post(`/api/v1/admin/agents/${AGENT_ID}/invite-code/rotate-preview`)
+        .set('Idempotency-Key', KEY).send(inviteRotationBody()),
+      () => request(app.getHttpServer()).post(`/api/v1/admin/agents/${AGENT_ID}/invite-code/rotate`)
+        .set('Idempotency-Key', KEY).set('If-Match', '"5"').send(inviteRotationConfirmationBody()),
+      () => request(app.getHttpServer()).post(`/api/v1/admin/agents/${AGENT_ID}/invite-code/status-preview`)
+        .set('Idempotency-Key', KEY).send(inviteStatusBody()),
+      () => request(app.getHttpServer()).patch(`/api/v1/admin/agents/${AGENT_ID}/invite-code`)
+        .set('Idempotency-Key', KEY).set('If-Match', '"5"').send(inviteStatusConfirmationBody()),
     ];
 
     for (const probe of probes) {
@@ -448,6 +594,16 @@ describe('B13.1 Admin Agent management HTTP boundary', () => {
         .set('Authorization', adminBearer).send({ reason: 'Credential rotation' }),
       () => request(app.getHttpServer()).post(`/api/v1/admin/agents/${AGENT_ID}/password-resets`)
         .set('Authorization', adminBearer).set('If-Match', '"4"').send(resetConfirmationBody()),
+      () => request(app.getHttpServer()).patch(`/api/v1/admin/agents/${AGENT_ID}/product-authorization`)
+        .set('Authorization', adminBearer).set('If-Match', '"5"').send(productAuthorizationBody()),
+      () => request(app.getHttpServer()).post(`/api/v1/admin/agents/${AGENT_ID}/invite-code/rotate-preview`)
+        .set('Authorization', adminBearer).send(inviteRotationBody()),
+      () => request(app.getHttpServer()).post(`/api/v1/admin/agents/${AGENT_ID}/invite-code/rotate`)
+        .set('Authorization', adminBearer).set('If-Match', '"5"').send(inviteRotationConfirmationBody()),
+      () => request(app.getHttpServer()).post(`/api/v1/admin/agents/${AGENT_ID}/invite-code/status-preview`)
+        .set('Authorization', adminBearer).send(inviteStatusBody()),
+      () => request(app.getHttpServer()).patch(`/api/v1/admin/agents/${AGENT_ID}/invite-code`)
+        .set('Authorization', adminBearer).set('If-Match', '"5"').send(inviteStatusConfirmationBody()),
     ];
 
     for (const probe of probes) {
@@ -457,7 +613,7 @@ describe('B13.1 Admin Agent management HTTP boundary', () => {
     expectNoDispatch();
   });
 
-  it('requires If-Match on all four versioned Agent management commands', async () => {
+  it('requires If-Match on all versioned Agent management commands', async () => {
     const probes = [
       () => request(app.getHttpServer()).patch(`/api/v1/admin/agents/${AGENT_ID}`)
         .set('Authorization', adminBearer).set('Idempotency-Key', KEY).send({ name: 'Updated Agent' }),
@@ -467,6 +623,12 @@ describe('B13.1 Admin Agent management HTTP boundary', () => {
         .set('Authorization', adminBearer).set('Idempotency-Key', KEY).send({}),
       () => request(app.getHttpServer()).post(`/api/v1/admin/agents/${AGENT_ID}/password-resets`)
         .set('Authorization', adminBearer).set('Idempotency-Key', KEY).send(resetConfirmationBody()),
+      () => request(app.getHttpServer()).patch(`/api/v1/admin/agents/${AGENT_ID}/product-authorization`)
+        .set('Authorization', adminBearer).set('Idempotency-Key', KEY).send(productAuthorizationBody()),
+      () => request(app.getHttpServer()).post(`/api/v1/admin/agents/${AGENT_ID}/invite-code/rotate`)
+        .set('Authorization', adminBearer).set('Idempotency-Key', KEY).send(inviteRotationConfirmationBody()),
+      () => request(app.getHttpServer()).patch(`/api/v1/admin/agents/${AGENT_ID}/invite-code`)
+        .set('Authorization', adminBearer).set('Idempotency-Key', KEY).send(inviteStatusConfirmationBody()),
     ];
 
     for (const probe of probes) {
@@ -498,6 +660,21 @@ describe('B13.1 Admin Agent management HTTP boundary', () => {
       () => request(app.getHttpServer()).post(`/api/v1/admin/agents/${AGENT_ID}/password-resets`)
         .set('Authorization', adminBearer).set('Idempotency-Key', KEY).set('If-Match', '"4"')
         .send({ ...resetConfirmationBody(), extra: true }),
+      () => request(app.getHttpServer()).patch(`/api/v1/admin/agents/${AGENT_ID}/product-authorization`)
+        .set('Authorization', adminBearer).set('Idempotency-Key', KEY).set('If-Match', '"5"')
+        .send({ ...productAuthorizationBody(), extra: true }),
+      () => request(app.getHttpServer()).post(`/api/v1/admin/agents/${AGENT_ID}/invite-code/rotate-preview`)
+        .set('Authorization', adminBearer).set('Idempotency-Key', KEY)
+        .send({ ...inviteRotationBody(), extra: true }),
+      () => request(app.getHttpServer()).post(`/api/v1/admin/agents/${AGENT_ID}/invite-code/rotate`)
+        .set('Authorization', adminBearer).set('Idempotency-Key', KEY).set('If-Match', '"5"')
+        .send({ ...inviteRotationConfirmationBody(), extra: true }),
+      () => request(app.getHttpServer()).post(`/api/v1/admin/agents/${AGENT_ID}/invite-code/status-preview`)
+        .set('Authorization', adminBearer).set('Idempotency-Key', KEY)
+        .send({ ...inviteStatusBody(), extra: true }),
+      () => request(app.getHttpServer()).patch(`/api/v1/admin/agents/${AGENT_ID}/invite-code`)
+        .set('Authorization', adminBearer).set('Idempotency-Key', KEY).set('If-Match', '"5"')
+        .send({ ...inviteStatusConfirmationBody(), extra: true }),
     ];
 
     for (const probe of probes) {
@@ -531,6 +708,27 @@ describe('B13.1 Admin Agent management HTTP boundary', () => {
       () => request(app.getHttpServer()).post(`/api/v1/admin/agents/${AGENT_ID}/password-resets?debug=true`)
         .set('Authorization', adminBearer).set('Idempotency-Key', KEY).set('If-Match', '"4"')
         .send(resetConfirmationBody()),
+      () => request(app.getHttpServer()).get(
+        `/api/v1/admin/agents/${AGENT_ID}/product-authorization?debug=true`,
+      ).set('Authorization', adminBearer),
+      () => request(app.getHttpServer()).patch(
+        `/api/v1/admin/agents/${AGENT_ID}/product-authorization?debug=true`,
+      ).set('Authorization', adminBearer).set('Idempotency-Key', KEY).set('If-Match', '"5"')
+        .send(productAuthorizationBody()),
+      () => request(app.getHttpServer()).post(
+        `/api/v1/admin/agents/${AGENT_ID}/invite-code/rotate-preview?debug=true`,
+      ).set('Authorization', adminBearer).set('Idempotency-Key', KEY).send(inviteRotationBody()),
+      () => request(app.getHttpServer()).post(
+        `/api/v1/admin/agents/${AGENT_ID}/invite-code/rotate?debug=true`,
+      ).set('Authorization', adminBearer).set('Idempotency-Key', KEY).set('If-Match', '"5"')
+        .send(inviteRotationConfirmationBody()),
+      () => request(app.getHttpServer()).post(
+        `/api/v1/admin/agents/${AGENT_ID}/invite-code/status-preview?debug=true`,
+      ).set('Authorization', adminBearer).set('Idempotency-Key', KEY).send(inviteStatusBody()),
+      () => request(app.getHttpServer()).patch(
+        `/api/v1/admin/agents/${AGENT_ID}/invite-code?debug=true`,
+      ).set('Authorization', adminBearer).set('Idempotency-Key', KEY).set('If-Match', '"5"')
+        .send(inviteStatusConfirmationBody()),
     ];
 
     for (const probe of probes) {
@@ -552,6 +750,12 @@ describe('B13.1 Admin Agent management HTTP boundary', () => {
         .set('Idempotency-Key', KEY).send({ reason: 'Credential rotation' }),
       () => request(app.getHttpServer()).post(`/api/v1/admin/agents/${AGENT_ID}/password-resets`)
         .set('Idempotency-Key', KEY).set('If-Match', '"4"').send(resetConfirmationBody()),
+      () => request(app.getHttpServer()).post(`/api/v1/admin/agents/${AGENT_ID}/invite-code/rotate-preview`)
+        .set('Idempotency-Key', KEY).send(inviteRotationBody()),
+      () => request(app.getHttpServer()).post(`/api/v1/admin/agents/${AGENT_ID}/invite-code/rotate`)
+        .set('Idempotency-Key', KEY).set('If-Match', '"5"').send(inviteRotationConfirmationBody()),
+      () => request(app.getHttpServer()).post(`/api/v1/admin/agents/${AGENT_ID}/invite-code/status-preview`)
+        .set('Idempotency-Key', KEY).send(inviteStatusBody()),
     ];
 
     for (const probe of probes) {

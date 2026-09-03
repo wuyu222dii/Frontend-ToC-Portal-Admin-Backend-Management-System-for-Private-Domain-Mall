@@ -101,19 +101,19 @@ try {
     'B13 Agent database gate package alias drifted');
   const ciB13Step = workflowStep(
     ciWorkflow,
-    'Test B13.1 Agent lifecycle and authentication with PostgreSQL and Redis',
+    'Test B13.1-B13.2 Agent authentication and commerce with PostgreSQL and Redis',
   );
   assert.match(ciB13Step, /B13_AGENT_AUTH_DATABASE_TEST_MODE: full/);
   assert.match(ciB13Step, /run: pnpm db:test-b13-agent/);
   const smokeB12Step = smokeWorkflow.indexOf('Run rollback-only B12 aftersales');
   const smokeB13StepIndex = smokeWorkflow.indexOf(
-    'Run rollback-only B13.1 Agent lifecycle and authentication smoke',
+    'Run rollback-only B13.1-B13.2 Agent authentication and commerce smoke',
   );
   assert.ok(smokeB12Step >= 0 && smokeB13StepIndex > smokeB12Step,
     'B13 rollback smoke must run after B12');
   const smokeB13Step = workflowStep(
     smokeWorkflow,
-    'Run rollback-only B13.1 Agent lifecycle and authentication smoke',
+    'Run rollback-only B13.1-B13.2 Agent authentication and commerce smoke',
   );
   assert.match(smokeB13Step, /B13_AGENT_AUTH_DATABASE_TEST_MODE: rollback/);
   assert.match(smokeB13Step, /DATABASE_URL: \$\{\{ secrets\.SUPABASE_RUNTIME_URL \}\}/);
@@ -127,6 +127,10 @@ try {
   assert.match(b13Runner,
     /if \(mode === 'full'\) \{[\s\S]+REDIS_URL is required for full mode[\s\S]+\} else \{/,
     'B13 runner must require Redis only inside its full branch');
+  assert.match(b13Runner, /B132_AGENT_COMMERCE_DATABASE_TEST_MODE = mode/,
+    'B13 runner must bind B13.2 commerce checks to the selected gate mode');
+  assert.match(b13Runner, /src\/agent-commerce\.integration\.spec\.ts/,
+    'B13 runner must execute the B13.2 commerce integration check');
   const rollbackBranch = b13Runner.slice(b13Runner.indexOf('} else {', b13Runner.indexOf("if (mode === 'full')")));
   assert.doesNotMatch(rollbackBranch, /REDIS_URL/,
     'B13 rollback runner branch must remain independent of Redis');

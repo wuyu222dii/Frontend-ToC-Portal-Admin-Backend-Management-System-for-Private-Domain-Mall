@@ -346,9 +346,7 @@ export class StoreAttributionRepository {
     const publicTarget = asset.target_type === 'STOREFRONT'
       ? asset.target_product_id === null && product === null
       : asset.target_type === 'PRODUCT' && asset.target_product_id !== null && product !== null &&
-        product.id === asset.target_product_id && product.status === 'ACTIVE' && product.deleted_at === null &&
-        product.brand.status === 'ACTIVE' && product.brand.deleted_at === null &&
-        product.category.status === 'ACTIVE' && product.category.deleted_at === null && product.skus.length === 1;
+        product.id === asset.target_product_id;
     if (!publicTarget) throw unavailablePromotion();
 
     const now = currentDate(this.now);
@@ -360,12 +358,16 @@ export class StoreAttributionRepository {
       (asset.invite_code.expires_at === null || asset.invite_code.expires_at.getTime() > now.getTime());
     const assetActive = asset.status === 'ACTIVE' && asset.revoked_at === null &&
       (asset.expires_at === null || asset.expires_at.getTime() > now.getTime());
+    const productActive = asset.target_type === 'STOREFRONT' || (product !== null &&
+      product.status === 'ACTIVE' && product.deleted_at === null &&
+      product.brand.status === 'ACTIVE' && product.brand.deleted_at === null &&
+      product.category.status === 'ACTIVE' && product.category.deleted_at === null && product.skus.length === 1);
     const productAuthorized = asset.target_type === 'STOREFRONT' || (product !== null &&
       (asset.agent.product_authorization_mode === 'ALL_ACTIVE_PRODUCTS' ||
         (asset.agent.product_authorization_mode === 'CUSTOM_WHITELIST' && product.whitelist_entries.length === 1)));
     return {
       agentId: asset.agent.id,
-      attributionEligible: agentActive && inviteActive && assetActive && productAuthorized,
+      attributionEligible: agentActive && inviteActive && assetActive && productActive && productAuthorized,
       displayName: asset.agent.name,
       inviteCodeId: asset.invite_code.id,
       promotionAssetId: asset.id,

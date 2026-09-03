@@ -59,6 +59,27 @@ describe('AuditRepository', () => {
     }));
   });
 
+  it('stores a bounded Agent authorization summary and an invite-code lifecycle object', async () => {
+    const transaction = transactionStub();
+    await new AuditRepository(ipHashKey).append(transaction, {
+      ...baseInput,
+      after: { mode: 'CUSTOM_WHITELIST', product_count: 2, version: 4 },
+      before: { mode: 'ALL_ACTIVE_PRODUCTS', product_count: 0, version: 3 },
+      module: 'agent',
+      objectType: 'agent',
+      summaryPolicy: 'AGENT_AUTHORIZATION',
+    });
+    await new AuditRepository(ipHashKey).append(transaction, {
+      ...baseInput,
+      action: 'ROTATE',
+      after: { status: 'ROTATED', version: 4 },
+      before: { status: 'ACTIVE', version: 3 },
+      module: 'agent',
+      objectType: 'agent_invite_code',
+    });
+    expect(transaction.auditLog.create).toHaveBeenCalledTimes(2);
+  });
+
   it('requires an independent strong HMAC key', () => {
     expect(() => new AuditRepository(Buffer.alloc(16))).toThrow('HMAC key must contain at least 32 bytes');
   });

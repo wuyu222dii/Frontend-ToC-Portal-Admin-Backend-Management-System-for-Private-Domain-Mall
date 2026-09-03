@@ -10,7 +10,7 @@
 
 三个原型均为纯静态文件，可直接用浏览器打开，不需要安装依赖或启动服务。所有数据均为原型演示数据。
 
-当前产品/API 基线为 `v2.4.11/CH-028`、OpenAPI `2.4.11-ch028`。B0-B12 development `GO`；B12 最终 SHA `8c3589afcf7bb0dd5a4b8711d418e4c61b1ad09c` 的普通 CI `33592754575` 与 Supabase rollback-only smoke `33594513127` 同 SHA 双绿，CH-027 已自动失效。B13.0 已退出，B13.1 后端本地候选已完成并暂停复审，B13.2 未准入；CH-029 仅覆盖后续脱敏 development。本目录只保留既有 MP-13/14、ADM-12/13/16 静态画板说明，不构成 B13.7/B13.8 工程页面、真实客户数据、真实物流/资金链路或 staging/production 的验收证据。
+当前产品/API 基线为 `v2.4.11/CH-028`、OpenAPI `2.4.11-ch028`。B0-B12 development `GO`；B12 最终 SHA `8c3589afcf7bb0dd5a4b8711d418e4c61b1ad09c` 的普通 CI `33592754575` 与 Supabase rollback-only smoke `33594513127` 同 SHA 双绿，CH-027 已自动失效。B13.0-B13.1 已退出，B13.1 最终 SHA `a565a3c406ad2f1af498f9f58b556315d30262d6` 同 SHA 三绿，B13.2 本地候选实现与最终复审已完成，复审结论为 `P0=0/P1=0/P2=0`，正在等待本批最终同 SHA 普通 CI -> development migration -> rollback-only smoke；B13.2 未退出；B13.3 未准入；CH-029 仅覆盖后续脱敏 development，B13 development 仍非 `GO`。本目录只保留既有 MP-13/14、ADM-12/13/16 静态画板说明，不构成 B13.7/B13.8 工程页面、真实客户数据、真实物流/资金链路或 staging/production 的验收证据。
 
 ## 验收脚本
 

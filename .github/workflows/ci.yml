@@ -331,7 +331,7 @@ jobs:
           B12_STORE_AFTERSALE_DATABASE_TEST_MODE: full
         run: pnpm db:test-b12-aftersales
 
-      - name: Test B13.1 Agent lifecycle and authentication with PostgreSQL and Redis
+      - name: Test B13.1-B13.2 Agent authentication and commerce with PostgreSQL and Redis
         env:
           B13_AGENT_AUTH_DATABASE_TEST_MODE: full
         run: pnpm db:test-b13-agent

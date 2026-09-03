@@ -13,6 +13,7 @@ import {
 
 import { NoStore } from '../admin-auth/no-store.decorator';
 import { RequireCustomerOrSuperAdmin } from '../platform/auth/customer-or-super-admin.metadata';
+import { RequireFileDownloadAuthentication } from '../platform/auth/file-download-realm.metadata';
 import { IdempotencyKey } from '../platform/http/idempotency-key.decorator';
 import type { PrincipalRequest } from '../platform/access/principal';
 import { FilesCustomerRateLimitGuard } from './files-customer-rate-limit.guard';
@@ -21,12 +22,11 @@ import { parseFileId, parseUploadCompleteBody, parseUploadIntentBody } from './f
 import { requireFilesRequest } from './files.request';
 
 @Controller('files')
-@RequireCustomerOrSuperAdmin()
 @UseGuards(FilesCustomerRateLimitGuard)
 export class FilesController {
   constructor(@Inject(FileAssetsService) private readonly files: FileAssetsService) {}
 
-  @Post('upload-intents') @HttpCode(HttpStatus.OK) @NoStore()
+  @Post('upload-intents') @HttpCode(HttpStatus.OK) @NoStore() @RequireCustomerOrSuperAdmin()
   createUploadIntent(
     @Body() body: unknown,
     @IdempotencyKey() idempotencyKey: string,
@@ -39,7 +39,7 @@ export class FilesController {
     );
   }
 
-  @Post(':file_id/complete') @HttpCode(HttpStatus.OK) @NoStore()
+  @Post(':file_id/complete') @HttpCode(HttpStatus.OK) @NoStore() @RequireCustomerOrSuperAdmin()
   completeUpload(
     @Param('file_id') fileIdValue: string,
     @Body() body: unknown,
@@ -54,7 +54,7 @@ export class FilesController {
     );
   }
 
-  @Get(':file_id/download-url') @NoStore()
+  @Get(':file_id/download-url') @NoStore() @RequireFileDownloadAuthentication()
   downloadUrl(@Param('file_id') fileIdValue: string, @Req() rawRequest: PrincipalRequest) {
     return this.files.downloadUrl(requireFilesRequest(rawRequest), parseFileId(fileIdValue));
   }

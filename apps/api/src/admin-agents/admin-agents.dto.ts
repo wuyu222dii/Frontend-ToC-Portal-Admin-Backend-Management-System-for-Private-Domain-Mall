@@ -38,6 +38,22 @@ export interface ReasonActionInput {
   reason: string;
 }
 
+export interface ProductAuthorizationInput {
+  mode: ProductAuthorizationMode;
+  productIds: string[];
+}
+
+export interface InviteRotationActionInput {
+  expiresAt?: Date | null;
+  reason: string;
+}
+
+export interface InviteStatusActionInput {
+  expiresAt?: Date | null;
+  reason: string;
+  status: 'ACTIVE' | 'DISABLED';
+}
+
 export interface HighRiskConfirmationInput {
   confirmationHash: string;
   previewToken: string;
@@ -53,6 +69,7 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1_000;
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/;
 
 function invalid(message: string): never {
   throw new ApplicationError('INVALID_ARGUMENT', message);
@@ -123,6 +140,27 @@ function shanghaiBoundary(value: unknown, field: string, nextDay: boolean): Date
 
 function reason(value: unknown): string {
   return boundedText(value, 'reason', 2, 500);
+}
+
+function nullableTimestamp(value: unknown): Date | null {
+  if (value === null) return null;
+  if (typeof value !== 'string') return invalid('expires_at is invalid');
+  const match = RFC3339.exec(value);
+  if (match === null) return invalid('expires_at is invalid');
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, offsetHourText, offsetMinuteText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const monthDays = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  const parsed = new Date(value);
+  if (month < 1 || month > 12 || day < 1 || day > (monthDays[month - 1] ?? 0) ||
+    Number(hourText) > 23 || Number(minuteText) > 59 || Number(secondText) > 59 ||
+    Number(offsetHourText ?? 0) > 23 || Number(offsetMinuteText ?? 0) > 59 ||
+    !Number.isFinite(parsed.getTime()) || parsed.getUTCFullYear() < 0 || parsed.getUTCFullYear() > 9_999) {
+    return invalid('expires_at is invalid');
+  }
+  return parsed;
 }
 
 function confirmationFields(body: PlainRecord): HighRiskConfirmationInput {
@@ -228,6 +266,68 @@ export function parseReasonActionBody(value: unknown): ReasonActionInput {
 export function parseReasonConfirmationBody(value: unknown): ReasonActionInput & HighRiskConfirmationInput {
   const body = closedBody(value, ['reason', 'preview_token', 'confirmation_hash']);
   return { ...confirmationFields(body), reason: reason(body.reason) };
+}
+
+export function parseProductAuthorizationBody(value: unknown): ProductAuthorizationInput {
+  const body = closedBody(value, ['mode', 'product_ids']);
+  if (typeof body.mode !== 'string' ||
+    !AUTHORIZATION_MODES.has(body.mode as ProductAuthorizationMode)) {
+    return invalid('mode is invalid');
+  }
+  if (!Array.isArray(body.product_ids) ||
+    body.product_ids.some((productId) => typeof productId !== 'string' || !isValidUlid(productId)) ||
+    new Set(body.product_ids).size !== body.product_ids.length) {
+    return invalid('product_ids is invalid');
+  }
+  if (body.mode === 'ALL_ACTIVE_PRODUCTS' && body.product_ids.length !== 0) {
+    return invalid('product_ids must be empty for ALL_ACTIVE_PRODUCTS');
+  }
+  return {
+    mode: body.mode as ProductAuthorizationMode,
+    productIds: [...body.product_ids].sort() as string[],
+  };
+}
+
+export function parseInviteRotationActionBody(value: unknown): InviteRotationActionInput {
+  const body = closedBody(value, ['reason'], ['expires_at']);
+  return {
+    ...(Object.hasOwn(body, 'expires_at') ? { expiresAt: nullableTimestamp(body.expires_at) } : {}),
+    reason: reason(body.reason),
+  };
+}
+
+export function parseInviteRotationConfirmationBody(
+  value: unknown,
+): InviteRotationActionInput & HighRiskConfirmationInput {
+  const body = closedBody(value, ['reason', 'preview_token', 'confirmation_hash'], ['expires_at']);
+  return {
+    ...confirmationFields(body),
+    ...(Object.hasOwn(body, 'expires_at') ? { expiresAt: nullableTimestamp(body.expires_at) } : {}),
+    reason: reason(body.reason),
+  };
+}
+
+export function parseInviteStatusActionBody(value: unknown): InviteStatusActionInput {
+  const body = closedBody(value, ['status', 'reason'], ['expires_at']);
+  if (body.status !== 'ACTIVE' && body.status !== 'DISABLED') return invalid('status is invalid');
+  return {
+    ...(Object.hasOwn(body, 'expires_at') ? { expiresAt: nullableTimestamp(body.expires_at) } : {}),
+    reason: reason(body.reason),
+    status: body.status,
+  };
+}
+
+export function parseInviteStatusConfirmationBody(
+  value: unknown,
+): InviteStatusActionInput & HighRiskConfirmationInput {
+  const body = closedBody(value, ['status', 'reason', 'preview_token', 'confirmation_hash'], ['expires_at']);
+  if (body.status !== 'ACTIVE' && body.status !== 'DISABLED') return invalid('status is invalid');
+  return {
+    ...confirmationFields(body),
+    ...(Object.hasOwn(body, 'expires_at') ? { expiresAt: nullableTimestamp(body.expires_at) } : {}),
+    reason: reason(body.reason),
+    status: body.status,
+  };
 }
 
 export function parseAdminAgentEmptyQuery(value: unknown): void {

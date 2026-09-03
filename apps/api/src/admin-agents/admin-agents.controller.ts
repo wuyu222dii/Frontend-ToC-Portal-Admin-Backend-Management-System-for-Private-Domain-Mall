@@ -26,6 +26,11 @@ import {
   parseAdminAgentUpdateBody,
   parseAgentStatusActionBody,
   parseAgentStatusConfirmationBody,
+  parseInviteRotationActionBody,
+  parseInviteRotationConfirmationBody,
+  parseInviteStatusActionBody,
+  parseInviteStatusConfirmationBody,
+  parseProductAuthorizationBody,
   parseReasonActionBody,
   parseReasonConfirmationBody,
 } from './admin-agents.dto';
@@ -61,6 +66,31 @@ export class AdminAgentsController {
   detail(@Param('agent_id') agentId: string, @Query() query: unknown) {
     parseAdminAgentEmptyQuery(query);
     return this.agents.detail(parseAdminAgentId(agentId));
+  }
+
+  @Get(':agent_id/product-authorization')
+  productAuthorization(@Param('agent_id') agentId: string, @Query() query: unknown) {
+    parseAdminAgentEmptyQuery(query);
+    return this.agents.productAuthorization(parseAdminAgentId(agentId));
+  }
+
+  @Patch(':agent_id/product-authorization')
+  updateProductAuthorization(
+    @Param('agent_id') agentId: string,
+    @Body() body: unknown,
+    @Query() query: unknown,
+    @IfMatchVersion() expectedVersion: number,
+    @IdempotencyKey() key: string,
+    @Req() request: PrincipalRequest,
+  ) {
+    parseAdminAgentEmptyQuery(query);
+    return this.agents.updateProductAuthorization(
+      requireAdminAgentRequest(request),
+      parseAdminAgentId(agentId),
+      parseProductAuthorizationBody(body),
+      expectedVersion,
+      key,
+    );
   }
 
   @Patch(':agent_id')
@@ -168,6 +198,78 @@ export class AdminAgentsController {
       requireAdminAgentRequest(request),
       parseAdminAgentId(agentId),
       parseReasonConfirmationBody(body),
+      expectedVersion,
+      key,
+    );
+  }
+
+  @Post(':agent_id/invite-code/rotate-preview') @HttpCode(HttpStatus.OK) @NoStore()
+  previewInviteCodeRotation(
+    @Param('agent_id') agentId: string,
+    @Body() body: unknown,
+    @Query() query: unknown,
+    @IdempotencyKey() key: string,
+    @Req() request: PrincipalRequest,
+  ) {
+    parseAdminAgentEmptyQuery(query);
+    return this.agents.previewInviteCodeRotation(
+      requireAdminAgentRequest(request),
+      parseAdminAgentId(agentId),
+      parseInviteRotationActionBody(body),
+      key,
+    );
+  }
+
+  @Post(':agent_id/invite-code/rotate') @HttpCode(HttpStatus.OK) @NoStore()
+  rotateInviteCode(
+    @Param('agent_id') agentId: string,
+    @Body() body: unknown,
+    @Query() query: unknown,
+    @IfMatchVersion() expectedVersion: number,
+    @IdempotencyKey() key: string,
+    @Req() request: PrincipalRequest,
+  ) {
+    parseAdminAgentEmptyQuery(query);
+    return this.agents.rotateInviteCode(
+      requireAdminAgentRequest(request),
+      parseAdminAgentId(agentId),
+      parseInviteRotationConfirmationBody(body),
+      expectedVersion,
+      key,
+    );
+  }
+
+  @Post(':agent_id/invite-code/status-preview') @HttpCode(HttpStatus.OK) @NoStore()
+  previewInviteCodeStatus(
+    @Param('agent_id') agentId: string,
+    @Body() body: unknown,
+    @Query() query: unknown,
+    @IdempotencyKey() key: string,
+    @Req() request: PrincipalRequest,
+  ) {
+    parseAdminAgentEmptyQuery(query);
+    return this.agents.previewInviteCodeStatus(
+      requireAdminAgentRequest(request),
+      parseAdminAgentId(agentId),
+      parseInviteStatusActionBody(body),
+      key,
+    );
+  }
+
+  @Patch(':agent_id/invite-code')
+  updateInviteCodeStatus(
+    @Param('agent_id') agentId: string,
+    @Body() body: unknown,
+    @Query() query: unknown,
+    @IfMatchVersion() expectedVersion: number,
+    @IdempotencyKey() key: string,
+    @Req() request: PrincipalRequest,
+  ) {
+    parseAdminAgentEmptyQuery(query);
+    return this.agents.updateInviteCodeStatus(
+      requireAdminAgentRequest(request),
+      parseAdminAgentId(agentId),
+      parseInviteStatusConfirmationBody(body),
       expectedVersion,
       key,
     );

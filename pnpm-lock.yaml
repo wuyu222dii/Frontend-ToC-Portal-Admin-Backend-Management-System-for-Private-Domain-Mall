@@ -135,6 +135,9 @@ importers:
       pg:
         specifier: 8.16.3
         version: 8.16.3
+      qrcode:
+        specifier: ^1.5.4
+        version: 1.5.4
       redis:
         specifier: 6.1.0
         version: 6.1.0
@@ -154,6 +157,9 @@ importers:
       '@types/pg':
         specifier: 8.21.0
         version: 8.21.0
+      '@types/qrcode':
+        specifier: ^1.5.6
+        version: 1.5.6
       '@types/supertest':
         specifier: 7.2.1
         version: 7.2.1

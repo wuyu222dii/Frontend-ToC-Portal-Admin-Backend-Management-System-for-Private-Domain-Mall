@@ -27,6 +27,7 @@ import {
   ALLOW_RESTRICTED_AGENT_SESSION,
 } from './agent-realm.metadata';
 import { CUSTOMER_OR_SUPER_ADMIN } from './customer-or-super-admin.metadata';
+import { FILE_DOWNLOAD_AUTHENTICATION } from './file-download-realm.metadata';
 
 interface AuthenticationRequest extends PrincipalRequest {
   headers: Record<string, string | string[] | undefined>;
@@ -112,6 +113,10 @@ export class AuthenticationGuard implements CanActivate {
       AGENT_AUTHENTICATION_REALM,
       [handler, controller],
     ) === true;
+    const fileDownloadAuthentication = this.reflector.getAllAndOverride<boolean | undefined>(
+      FILE_DOWNLOAD_AUTHENTICATION,
+      [handler, controller],
+    ) === true;
     const allowRestrictedAgentSession = this.reflector.getAllAndOverride<boolean | undefined>(
       ALLOW_RESTRICTED_AGENT_SESSION,
       [handler, controller],
@@ -125,13 +130,19 @@ export class AuthenticationGuard implements CanActivate {
       throw new ApplicationError('PERMISSION_DENIED', 'Optional Store authentication policy is invalid');
     }
     if (customerOrSuperAdmin && (isPublic || requiredPreAuth !== undefined || optionalStoreAuthentication ||
-      requiredRoles?.length !== 2 || !requiredRoles.includes('CUSTOMER') ||
+      fileDownloadAuthentication || requiredRoles?.length !== 2 || !requiredRoles.includes('CUSTOMER') ||
       !requiredRoles.includes('SUPER_ADMIN'))) {
       throw new ApplicationError('PERMISSION_DENIED', 'Customer or administrator authentication policy is invalid');
     }
     if (agentRealm && (isPublic || requiredPreAuth !== undefined || optionalStoreAuthentication ||
       customerOrSuperAdmin || requiredRoles?.length !== 1 || requiredRoles[0] !== 'AGENT_ADMIN')) {
       throw new ApplicationError('PERMISSION_DENIED', 'Agent authentication policy is invalid');
+    }
+    if (fileDownloadAuthentication && (isPublic || requiredPreAuth !== undefined || optionalStoreAuthentication ||
+      customerOrSuperAdmin || agentRealm || requiredRoles?.length !== 3 ||
+      !requiredRoles.includes('CUSTOMER') || !requiredRoles.includes('SUPER_ADMIN') ||
+      !requiredRoles.includes('AGENT_ADMIN'))) {
+      throw new ApplicationError('PERMISSION_DENIED', 'File download authentication policy is invalid');
     }
     if (allowRestrictedAgentSession && !agentRealm) {
       throw new ApplicationError('PERMISSION_DENIED', 'Restricted Agent session policy is invalid');
@@ -171,6 +182,10 @@ export class AuthenticationGuard implements CanActivate {
 
     if (customerOrSuperAdmin) {
       return this.authenticateCustomerOrSuperAdmin(request, token);
+    }
+
+    if (fileDownloadAuthentication) {
+      return this.authenticateFileDownload(request, token);
     }
 
     if (requiredRoles?.includes('CUSTOMER')) {
@@ -252,6 +267,20 @@ export class AuthenticationGuard implements CanActivate {
       verifyStoreAccessToken(this.storeTokenConfig, token);
     } catch {
       return this.authenticateAdminBearer(request, token);
+    }
+    return this.authenticateStoreBearer(request, token);
+  }
+
+  private async authenticateFileDownload(request: AuthenticationRequest, token: string): Promise<true> {
+    try {
+      verifyStoreAccessToken(this.storeTokenConfig, token);
+    } catch {
+      try {
+        verifyAgentAccessToken(this.agentTokenConfig, token);
+      } catch {
+        return this.authenticateAdminBearer(request, token);
+      }
+      return this.authenticateAgentBearer(request, token, false);
     }
     return this.authenticateStoreBearer(request, token);
   }

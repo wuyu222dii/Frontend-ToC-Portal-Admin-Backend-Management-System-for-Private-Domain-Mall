@@ -18,6 +18,7 @@ import { AdminOrdersModule } from './admin-orders/admin-orders.module';
 import { AdminPaymentsModule } from './admin-payments/admin-payments.module';
 import { AdminProductsModule } from './admin-products/admin-products.module';
 import { AgentAuthModule } from './agent-auth/agent-auth.module';
+import { AgentCommerceModule } from './agent-commerce/agent-commerce.module';
 import { HealthModule } from './health/health.module';
 import { FilesModule } from './files/files.module';
 import { RbacGuard } from './platform/access/rbac.guard';
@@ -51,6 +52,7 @@ import { StorePaymentsModule } from './store-payments/store-payments.module';
     AdminPaymentsModule,
     AdminProductsModule,
     AgentAuthModule,
+    AgentCommerceModule,
     FilesModule,
     HealthModule,
     StoreAddressModule,

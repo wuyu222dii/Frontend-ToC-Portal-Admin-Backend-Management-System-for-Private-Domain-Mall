@@ -304,6 +304,7 @@ async function restorePendingApplication(): Promise<boolean> {
 async function restoreAndLoadApplication(): Promise<void> {
   if (!isUlid(orderId.value)) return;
   const currentShow = ++showGeneration;
+  state.value = 'loading';
   if (!await restorePendingApplication() || currentShow !== showGeneration) return;
   await loadOrder();
 }

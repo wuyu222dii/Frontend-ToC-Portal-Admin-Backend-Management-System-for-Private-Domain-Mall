@@ -250,6 +250,13 @@ class MockMiniappAftersaleBackend {
   private async handle(route: Route): Promise<void> {
     const call = this.record(route);
 
+    if (call.path === '/api/v1/store/home' && call.method === 'GET') {
+      await fulfill(route, 200, success({
+        banners: [], categories: [], hot_products: [], new_products: [],
+        section_status: { banners: 'READY', categories: 'READY', hot_products: 'READY', new_products: 'READY' },
+      }));
+      return;
+    }
     if (call.path === '/api/v1/store/legal-documents' && call.method === 'GET') {
       await fulfill(route, 200, success({
         user_agreement: { type: 'USER_AGREEMENT', document_version: 'b12-user', title: '用户协议', content_url: 'https://example.invalid/user', required: true },
@@ -297,6 +304,13 @@ class MockMiniappAftersaleBackend {
     }
 
     expect(call.headers.authorization).toBe(`Bearer ${ACCESS_TOKEN}`);
+    if (call.path === '/api/v1/store/auth/logout' && call.method === 'POST') {
+      await fulfill(route, 200, success({
+        resource_type: 'CUSTOMER_SESSION', resource_id: CUSTOMER_ID, status: 'REVOKED', version: 2,
+        occurred_at: '2026-09-03T12:00:00.000Z',
+      }));
+      return;
+    }
     if (call.path === `/api/v1/store/orders/${ORDER_ID}` && call.method === 'GET') {
       if (this.orderDelayOnceMs > 0) {
         const delay = this.orderDelayOnceMs;
@@ -623,6 +637,8 @@ test('MP-13 preserves a lost confirm through logout and same-account reauthentic
   await page.getByTestId('aftersale-preview-submit').click();
   await page.getByTestId('aftersale-confirm-submit').click();
   await expect(page.getByTestId('aftersale-confirm-recovery')).toBeVisible();
+  await expect.poll(() => backend.callsFor('/api/v1/store/aftersales', 'POST')
+    .filter(({ body }) => body?.action === 'CONFIRM').length).toBe(1);
   const firstConfirm = backend.callsFor('/api/v1/store/aftersales', 'POST')
     .find(({ body }) => body?.action === 'CONFIRM');
 

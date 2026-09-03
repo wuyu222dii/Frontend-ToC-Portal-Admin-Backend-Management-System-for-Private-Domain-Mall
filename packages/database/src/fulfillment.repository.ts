@@ -2527,6 +2527,13 @@ export class FulfillmentRepository {
     input: AdminFulfillmentOrderListInput,
   ): Promise<AdminFulfillmentOrderListResult> {
     validateListInput(input);
+    if (input.agentId !== undefined) {
+      const agent = await transaction.agentProfile.findUnique({
+        select: { id: true },
+        where: { id: input.agentId },
+      });
+      if (agent === null) throw new ApplicationError('RESOURCE_NOT_FOUND', 'Agent not found');
+    }
     const where = listWhere(input);
     const total = await transaction.salesOrder.count({ where });
     const records = await transaction.salesOrder.findMany({

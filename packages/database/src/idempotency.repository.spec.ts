@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Prisma } from '../.generated/prisma/client';
 import {
   IdempotencyRepository,
+  type CacheableAdminCustomerResponse,
   type CacheableAgentInviteRotateReplay,
   type CacheableAgentProductAuthorizationResponse,
   type CacheableAgentResourceResponse,
@@ -273,6 +274,40 @@ function agentInviteRotateReplay(): CacheableAgentInviteRotateReplay {
         invite_code_id: generateUlid(),
       },
       reissue_required: true,
+    },
+    message: 'success',
+    request_id: 'req_0123456789abcdef0123456789abcdef',
+  };
+}
+
+function adminCustomerResponse(): CacheableAdminCustomerResponse {
+  const customerId = generateUlid();
+  return {
+    code: 'OK',
+    data: {
+      account_status: 'ACTIVE',
+      binding: {
+        agent_id: generateUlid(),
+        agent_name: 'North region agent',
+        binding_id: generateUlid(),
+        customer_id: customerId,
+        customer_version: 2,
+        started_at: '2026-09-03T00:00:00.000Z',
+      },
+      city: 'Hangzhou',
+      consumption_amount: '128.00',
+      consumption_count: 2,
+      customer_alias: 'customer_0123456789abcdef0123456789',
+      customer_id: customerId,
+      deletion_request_status: null,
+      last_order_id: generateUlid(),
+      last_product_name: 'Daily wash',
+      last_purchase_at: '2026-09-03T01:00:00.000Z',
+      management_note_present: false,
+      nickname_masked: 'Q**',
+      phone_masked: '*** **** 8000',
+      registered_at: '2026-09-01T00:00:00.000Z',
+      version: 2,
     },
     message: 'success',
     request_id: 'req_0123456789abcdef0123456789abcdef',
@@ -583,6 +618,56 @@ describe('IdempotencyRepository', () => {
       responseStatus: 200,
       storage: 'CACHEABLE',
     } as never)).rejects.toThrow('redacted invite rotation');
+  });
+
+  it('stores and exactly replays a closed Admin customer response', async () => {
+    const transaction = transactionStub();
+    const responseBody = adminCustomerResponse();
+    await repository().complete(transaction, baseClaim, {
+      policy: 'ADMIN_CUSTOMER_RESPONSE',
+      responseBody,
+      responseStatus: 200,
+      storage: 'CACHEABLE',
+    });
+    expect(transaction.idempotencyRecord.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        resource_id: responseBody.data.customer_id,
+        response_body: responseBody,
+      }),
+    }));
+    expect(repository().adminCustomerReplay({
+      ...recordContext(),
+      expires_at: new Date('2099-08-14T00:00:00.000Z'),
+      resource_id: responseBody.data.customer_id,
+      response_body: responseBody,
+      response_body_hash: responseHash(currentHashKey, responseBody),
+      response_status: 200,
+    } as never)).toEqual(responseBody);
+  });
+
+  it('rejects sensitive or cross-customer fields in an Admin customer cache entry', async () => {
+    const responseBody = adminCustomerResponse();
+    await expect(repository().complete(transactionStub(), baseClaim, {
+      policy: 'ADMIN_CUSTOMER_RESPONSE',
+      responseBody: {
+        ...responseBody,
+        data: { ...responseBody.data, phone_ciphertext: cardFixture },
+      },
+      responseStatus: 200,
+      storage: 'CACHEABLE',
+    } as never)).rejects.toThrow('valid Admin customer response');
+    await expect(repository().complete(transactionStub(), baseClaim, {
+      policy: 'ADMIN_CUSTOMER_RESPONSE',
+      responseBody: {
+        ...responseBody,
+        data: {
+          ...responseBody.data,
+          binding: { ...responseBody.data.binding, customer_id: generateUlid() },
+        },
+      },
+      responseStatus: 200,
+      storage: 'CACHEABLE',
+    } as never)).rejects.toThrow('valid Admin customer response');
   });
 
   it.each([

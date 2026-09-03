@@ -87,6 +87,11 @@ export type IdempotencyResult =
       responseBody: CacheableAgentInviteRotateReplay;
     })
   | (IdempotencyResultBase & {
+      storage: 'CACHEABLE';
+      policy: 'ADMIN_CUSTOMER_RESPONSE';
+      responseBody: CacheableAdminCustomerResponse;
+    })
+  | (IdempotencyResultBase & {
       storage: 'HASH_ONLY';
       resourceId?: string;
       responseForHash: unknown;
@@ -276,6 +281,41 @@ export interface CacheableAgentInviteRotateReplay {
   request_id: string;
 }
 
+export interface CacheableAttributionBindingView {
+  binding_id: string;
+  customer_id: string;
+  agent_id: string;
+  agent_name: string;
+  started_at: string;
+  customer_version: number;
+}
+
+export interface CacheableAdminCustomerView {
+  customer_id: string;
+  customer_alias: string;
+  account_status: 'ACTIVE' | 'DISABLED' | 'DELETION_PENDING' | 'ANONYMIZED';
+  nickname_masked: string | null;
+  phone_masked: string | null;
+  city?: string | null;
+  consumption_amount: string;
+  consumption_count: number;
+  registered_at: string;
+  last_product_name: string | null;
+  last_purchase_at: string | null;
+  last_order_id: string | null;
+  management_note_present: boolean;
+  binding: CacheableAttributionBindingView | null;
+  deletion_request_status: 'SUBMITTED' | 'PROCESSING' | 'COMPLETED' | 'REJECTED' | null;
+  version: number;
+}
+
+export interface CacheableAdminCustomerResponse {
+  code: 'OK';
+  message: 'success';
+  data: CacheableAdminCustomerView;
+  request_id: string;
+}
+
 const COMMAND_RESPONSE_TOP_LEVEL_FIELDS = new Set(['code', 'data', 'message', 'request_id']);
 const COMMAND_RESPONSE_DATA_FIELDS = new Set([
   'occurred_at',
@@ -376,6 +416,35 @@ const AGENT_INVITE_ROTATE_FIELDS = new Set([
   'old_code_invalidated',
   'reissue_required',
 ]);
+const ADMIN_CUSTOMER_VIEW_FIELDS = new Set([
+  'account_status',
+  'binding',
+  'city',
+  'consumption_amount',
+  'consumption_count',
+  'customer_alias',
+  'customer_id',
+  'deletion_request_status',
+  'last_order_id',
+  'last_product_name',
+  'last_purchase_at',
+  'management_note_present',
+  'nickname_masked',
+  'phone_masked',
+  'registered_at',
+  'version',
+]);
+const ADMIN_CUSTOMER_VIEW_FIELDS_WITHOUT_CITY = new Set(
+  [...ADMIN_CUSTOMER_VIEW_FIELDS].filter((field) => field !== 'city'),
+);
+const ATTRIBUTION_BINDING_VIEW_FIELDS = new Set([
+  'agent_id',
+  'agent_name',
+  'binding_id',
+  'customer_id',
+  'customer_version',
+  'started_at',
+]);
 const INVALIDATED_INVITE_FIELDS = new Set([
   'code_masked',
   'existing_bindings_unchanged',
@@ -387,7 +456,11 @@ const SKU_STATUS = new Set(['ACTIVE', 'ARCHIVED', 'INACTIVE']);
 const BANNER_STATUS = new Set(['ACTIVE', 'ARCHIVED', 'DRAFT', 'INACTIVE']);
 const AGENT_STATUS = new Set(['ACTIVE', 'DISABLED']);
 const AGENT_AUTHORIZATION_MODE = new Set(['ALL_ACTIVE_PRODUCTS', 'CUSTOM_WHITELIST']);
+const CUSTOMER_ACCOUNT_STATUS = new Set(['ACTIVE', 'ANONYMIZED', 'DELETION_PENDING', 'DISABLED']);
+const CUSTOMER_DELETION_STATUS = new Set(['COMPLETED', 'PROCESSING', 'REJECTED', 'SUBMITTED']);
 const POSITIVE_MONEY = /^(?:0\.(?:0[1-9]|[1-9][0-9])|[1-9][0-9]{0,15}\.[0-9]{2})$/;
+const NON_NEGATIVE_MONEY = /^(?:0|[1-9][0-9]{0,15})\.[0-9]{2}$/;
+const MASKED_PHONE = /^\*{3} \*{4} [0-9]{4}$/;
 const FILE_PURPOSE = new Set<CacheableFilePurpose>([
   'PRODUCT_IMAGE',
   'BRAND_LOGO',
@@ -670,6 +743,52 @@ function isCacheableAgentInviteRotateReplay(value: unknown): value is CacheableA
     oldCode.existing_bindings_unchanged === true;
 }
 
+function isCacheableAttributionBindingView(
+  value: unknown,
+  customerId: string,
+  customerVersion: number,
+): value is CacheableAttributionBindingView {
+  return isExactPlainObject(value, ATTRIBUTION_BINDING_VIEW_FIELDS) &&
+    isValidUlid(value.binding_id) &&
+    value.customer_id === customerId &&
+    isValidUlid(value.agent_id) &&
+    isBoundedNonBlankString(value.agent_name, 120) &&
+    typeof value.started_at === 'string' && ISO_TIMESTAMP.test(value.started_at) &&
+    value.customer_version === customerVersion;
+}
+
+function isCacheableAdminCustomerView(value: unknown): value is CacheableAdminCustomerView {
+  if ((!isExactPlainObject(value, ADMIN_CUSTOMER_VIEW_FIELDS) &&
+      !isExactPlainObject(value, ADMIN_CUSTOMER_VIEW_FIELDS_WITHOUT_CITY)) ||
+    !isValidUlid(value.customer_id) ||
+    !isBoundedNonBlankString(value.customer_alias, 80) ||
+    typeof value.account_status !== 'string' || !CUSTOMER_ACCOUNT_STATUS.has(value.account_status) ||
+    !isNullableBoundedString(value.nickname_masked, 80) ||
+    !(value.phone_masked === null ||
+      (typeof value.phone_masked === 'string' && MASKED_PHONE.test(value.phone_masked))) ||
+    !(value.city === undefined || isNullableBoundedString(value.city, 120)) ||
+    typeof value.consumption_amount !== 'string' || !NON_NEGATIVE_MONEY.test(value.consumption_amount) ||
+    !isNonNegativeInteger(value.consumption_count) ||
+    typeof value.registered_at !== 'string' || !ISO_TIMESTAMP.test(value.registered_at) ||
+    !isNullableBoundedString(value.last_product_name, 200) ||
+    !isNullableTimestamp(value.last_purchase_at) ||
+    !(value.last_order_id === null ||
+      (typeof value.last_order_id === 'string' && isValidUlid(value.last_order_id))) ||
+    typeof value.management_note_present !== 'boolean' ||
+    !(value.deletion_request_status === null ||
+      (typeof value.deletion_request_status === 'string' &&
+        CUSTOMER_DELETION_STATUS.has(value.deletion_request_status))) ||
+    !isPositiveInteger(value.version)) return false;
+  return value.binding === null ||
+    isCacheableAttributionBindingView(value.binding, value.customer_id, value.version);
+}
+
+function isCacheableAdminCustomerResponse(value: unknown): value is CacheableAdminCustomerResponse {
+  if (!isExactPlainObject(value, CATALOG_RESPONSE_TOP_LEVEL_FIELDS) || value.code !== 'OK' ||
+    value.message !== 'success' || !REQUEST_ID.test(String(value.request_id))) return false;
+  return isCacheableAdminCustomerView(value.data);
+}
+
 function isCacheableSkuSpec(value: unknown): value is CacheableSkuSpec {
   if (!isExactPlainObject(value, SKU_SPEC_FIELDS) || !Array.isArray(value.attributes) ||
     value.attributes.length === 0) return false;
@@ -759,7 +878,7 @@ function cacheableResourceId(
   response: CacheableCommandResponse | CacheableFileUploadCompleteResponse |
     CacheableCatalogResourceResponse | CacheableProductCatalogResponse | CacheableBannerResourceResponse |
     CacheableAgentResourceResponse | CacheableAgentProductAuthorizationResponse |
-    CacheableAgentInviteRotateReplay,
+    CacheableAgentInviteRotateReplay | CacheableAdminCustomerResponse,
 ): string {
   if (isCacheableCommandResponse(response)) return response.data.resource_id;
   if (isCacheableFileUploadCompleteResponse(response)) return response.data.file_id;
@@ -767,6 +886,7 @@ function cacheableResourceId(
   if (isCacheableAgentResourceResponse(response)) return response.data.agent_id;
   if (isCacheableAgentProductAuthorizationResponse(response)) return response.data.agent_id;
   if (isCacheableAgentInviteRotateReplay(response)) return response.data.agent_id;
+  if (isCacheableAdminCustomerResponse(response)) return response.data.customer_id;
   if (isCacheableProductCatalogResponse(response)) {
     return 'product_id' in response.data ? response.data.product_id : response.data.sku_id;
   }
@@ -832,6 +952,10 @@ function validateResult(result: IdempotencyResult): void {
       result.policy === 'AGENT_INVITE_ROTATE_REPLAY') && result.responseStatus !== 200) {
     throw new TypeError(`${result.policy} responses must use HTTP status 200`);
   }
+  if (result.storage === 'CACHEABLE' && result.policy === 'ADMIN_CUSTOMER_RESPONSE' &&
+    result.responseStatus !== 200) {
+    throw new TypeError('ADMIN_CUSTOMER_RESPONSE responses must use HTTP status 200');
+  }
   if (result.storage === 'CACHEABLE') {
     if (result.policy === 'COMMAND_RESPONSE') {
       if (!isCacheableCommandResponse(result.responseBody)) {
@@ -866,6 +990,10 @@ function validateResult(result: IdempotencyResult): void {
     } else if (result.policy === 'AGENT_INVITE_ROTATE_REPLAY') {
       if (!isCacheableAgentInviteRotateReplay(result.responseBody)) {
         throw new TypeError('Only a redacted invite rotation may use the invite replay cache policy');
+      }
+    } else if (result.policy === 'ADMIN_CUSTOMER_RESPONSE') {
+      if (!isCacheableAdminCustomerResponse(result.responseBody)) {
+        throw new TypeError('Only a valid Admin customer response may use the Admin customer cache policy');
       }
     } else {
       throw new TypeError('CACHEABLE idempotency policy is not registered');
@@ -997,9 +1125,10 @@ export class IdempotencyRepository {
     const agentResponse = isCacheableAgentResourceResponse(response);
     const agentAuthorizationResponse = isCacheableAgentProductAuthorizationResponse(response);
     const inviteRotateReplay = isCacheableAgentInviteRotateReplay(response);
+    const adminCustomerResponse = isCacheableAdminCustomerResponse(response);
     if (record.response_status < 200 || record.response_status > 299 ||
       (!commandResponse && !fileCompleteResponse && !catalogResponse && !productCatalogResponse && !bannerResponse &&
-        !agentResponse && !agentAuthorizationResponse && !inviteRotateReplay) ||
+        !agentResponse && !agentAuthorizationResponse && !inviteRotateReplay && !adminCustomerResponse) ||
       (fileCompleteResponse && record.response_status !== 200) ||
       (catalogResponse && record.response_status !== 200 && record.response_status !== 201) ||
       (productCatalogResponse && record.response_status !== 200 && record.response_status !== 201) ||
@@ -1007,6 +1136,7 @@ export class IdempotencyRepository {
       (agentResponse && record.response_status !== 200) ||
       (agentAuthorizationResponse && record.response_status !== 200) ||
       (inviteRotateReplay && record.response_status !== 200) ||
+      (adminCustomerResponse && record.response_status !== 200) ||
       integrityContext === undefined ||
       record.resource_id !== cacheableResourceId(response) ||
       !this.responseHashMatches(record.response_body, integrityContext, record.response_body_hash)) {
@@ -1090,6 +1220,14 @@ export class IdempotencyRepository {
     this.assertReplayIntegrity(record);
     if (!isCacheableAgentInviteRotateReplay(record.response_body)) {
       throw new ApplicationError('INTERNAL_ERROR', 'Idempotency record is not a redacted invite rotation');
+    }
+    return record.response_body;
+  }
+
+  adminCustomerReplay(record: IdempotencyRecord): CacheableAdminCustomerResponse {
+    this.assertReplayIntegrity(record);
+    if (!isCacheableAdminCustomerResponse(record.response_body)) {
+      throw new ApplicationError('INTERNAL_ERROR', 'Idempotency record is not an Admin customer response');
     }
     return record.response_body;
   }

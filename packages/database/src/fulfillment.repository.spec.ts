@@ -224,6 +224,7 @@ function detailRecord() {
 function transaction(overrides: Record<string, unknown> = {}) {
   return {
     $queryRaw: vi.fn(async () => [{ id: orderId }]),
+    agentProfile: { findUnique: vi.fn(async () => ({ id: agentId })) },
     inventoryLedger: {
       findMany: vi.fn(async () => [{
         ledger_type: 'ORDER_RESERVE',
@@ -299,6 +300,20 @@ describe('FulfillmentRepository', () => {
     });
     expect(JSON.stringify(result)).not.toContain('phone_ciphertext');
     expect(JSON.stringify(result)).not.toContain('detail_ciphertext');
+  });
+
+  it('returns 404 for an unknown Admin Agent drill-down target before reading orders', async () => {
+    const tx = transaction({ agentProfile: { findUnique: vi.fn(async () => null) } });
+    const repository = new FulfillmentRepository({} as PrismaClient);
+
+    await expect(repository.listAdminOrdersInTransaction(tx, {
+      agentId,
+      page: 1,
+      pageSize: 20,
+      sort: 'CREATED_DESC',
+    })).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND' });
+    expect(tx.salesOrder.count).not.toHaveBeenCalled();
+    expect(tx.salesOrder.findMany).not.toHaveBeenCalled();
   });
 
   it('returns a complete Admin read projection while the ordinary detail query never selects encrypted PII', async () => {

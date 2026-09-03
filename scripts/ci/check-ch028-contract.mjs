@@ -38,9 +38,31 @@ const AGENT_AUTH_OPERATIONS = [
   ['get', '/agent/auth/current', 'getAgentAuthCurrent'],
 ];
 const AGENT_AUTH_RESPONSE_STATUSES = ['200', '400', '401', '403', '404', '409', '422', '429', '500'];
+const B133_OPERATIONS = [
+  ['get', '/agent/customers', 'getAgentCustomers', 'AgentCustomerListResponse', 'agentBearerAuth'],
+  ['get', '/agent/customers/{customer_id}', 'getAgentCustomersByCustomerId',
+    'AgentCustomerDetailResponse', 'agentBearerAuth'],
+  ['get', '/agent/orders', 'getAgentOrders', 'AgentOrderListResponse', 'agentBearerAuth'],
+  ['get', '/agent/orders/{order_id}', 'getAgentOrdersByOrderId', 'AgentOrderResponse', 'agentBearerAuth'],
+  ['get', '/admin/customers', 'getAdminCustomers', 'AdminCustomerListResponse', 'bearerAuth'],
+  ['get', '/admin/customers/{customer_id}', 'getAdminCustomersByCustomerId',
+    'AdminCustomerDetailResponse', 'bearerAuth'],
+  ['post', '/admin/customers/{customer_id}/attribution-transfer-preview',
+    'postAdminCustomersByCustomerIdAttributionTransferPreview', 'HighRiskPreviewResponse', 'bearerAuth'],
+  ['post', '/admin/customers/{customer_id}/attribution-transfers',
+    'postAdminCustomersByCustomerIdAttributionTransfers', 'AdminCustomerResponse', 'bearerAuth'],
+];
 
 function responseSchema(document, method, path) {
   return document.paths[path][method].responses['200'].content['application/json'].schema;
+}
+
+function assertClosedObject(schema, label, required, optional = []) {
+  assert.equal(schema.type, 'object', `${label} must be an object`);
+  assert.equal(schema.additionalProperties, false, `${label} must be closed`);
+  assert.deepEqual(schema.required.slice().sort(), required.slice().sort(), `${label} required fields drifted`);
+  assert.deepEqual(Object.keys(schema.properties).sort(), [...required, ...optional].sort(),
+    `${label} properties drifted`);
 }
 
 function workflowStep(workflow, name) {
@@ -101,19 +123,19 @@ try {
     'B13 Agent database gate package alias drifted');
   const ciB13Step = workflowStep(
     ciWorkflow,
-    'Test B13.1-B13.2 Agent authentication and commerce with PostgreSQL and Redis',
+    'Test B13.1-B13.3 Agent authentication, commerce and operations with PostgreSQL and Redis',
   );
   assert.match(ciB13Step, /B13_AGENT_AUTH_DATABASE_TEST_MODE: full/);
   assert.match(ciB13Step, /run: pnpm db:test-b13-agent/);
   const smokeB12Step = smokeWorkflow.indexOf('Run rollback-only B12 aftersales');
   const smokeB13StepIndex = smokeWorkflow.indexOf(
-    'Run rollback-only B13.1-B13.2 Agent authentication and commerce smoke',
+    'Run rollback-only B13.1-B13.3 Agent authentication, commerce and operations smoke',
   );
   assert.ok(smokeB12Step >= 0 && smokeB13StepIndex > smokeB12Step,
     'B13 rollback smoke must run after B12');
   const smokeB13Step = workflowStep(
     smokeWorkflow,
-    'Run rollback-only B13.1-B13.2 Agent authentication and commerce smoke',
+    'Run rollback-only B13.1-B13.3 Agent authentication, commerce and operations smoke',
   );
   assert.match(smokeB13Step, /B13_AGENT_AUTH_DATABASE_TEST_MODE: rollback/);
   assert.match(smokeB13Step, /DATABASE_URL: \$\{\{ secrets\.SUPABASE_RUNTIME_URL \}\}/);
@@ -131,6 +153,10 @@ try {
     'B13 runner must bind B13.2 commerce checks to the selected gate mode');
   assert.match(b13Runner, /src\/agent-commerce\.integration\.spec\.ts/,
     'B13 runner must execute the B13.2 commerce integration check');
+  assert.match(b13Runner, /B133_AGENT_OPERATIONS_DATABASE_TEST_MODE = mode/,
+    'B13 runner must bind B13.3 operations checks to the selected gate mode');
+  assert.match(b13Runner, /src\/agent-operations\.integration\.spec\.ts/,
+    'B13 runner must execute the B13.3 operations integration check');
   const rollbackBranch = b13Runner.slice(b13Runner.indexOf('} else {', b13Runner.indexOf("if (mode === 'full')")));
   assert.doesNotMatch(rollbackBranch, /REDIS_URL/,
     'B13 rollback runner branch must remain independent of Redis');
@@ -177,6 +203,214 @@ try {
   }
   assert.equal(controlledAgentFileOperationCount, 1,
     'exactly one non-Agent operation may expose the Agent realm');
+
+  for (const [method, path, operationId, responseName, securityScheme] of B133_OPERATIONS) {
+    const operation = document.paths[path][method];
+    assert.equal(operation.operationId, operationId);
+    assert.deepEqual(operation.security, [{ [securityScheme]: [] }],
+      `${operationId} must use only its declared realm`);
+    assert.deepEqual(Object.keys(operation.responses).sort(), AGENT_AUTH_RESPONSE_STATUSES,
+      `${operationId} response status set drifted`);
+    assert.equal(responseSchema(document, method, path).$ref, `#/components/schemas/${responseName}`,
+      `${operationId} success response schema drifted`);
+  }
+
+  const successEnvelopeFields = ['code', 'message', 'data', 'request_id'];
+  for (const responseName of [
+    'AgentCustomerListResponse',
+    'AgentCustomerDetailResponse',
+    'AgentOrderListResponse',
+    'AgentOrderResponse',
+    'AdminCustomerListResponse',
+    'AdminCustomerDetailResponse',
+    'AdminCustomerResponse',
+    'HighRiskPreviewResponse',
+  ]) assertClosedObject(schemas[responseName], responseName, successEnvelopeFields);
+
+  const agentCustomerListData = schemas.AgentCustomerListResponse.properties.data;
+  assertClosedObject(agentCustomerListData, 'AgentCustomerListResponse.data', ['items', 'pagination']);
+  assertClosedObject(agentCustomerListData.properties.pagination,
+    'AgentCustomerListResponse.data.pagination', ['page', 'page_size', 'total']);
+  assert.equal(agentCustomerListData.properties.items.items.$ref,
+    '#/components/schemas/AgentCustomerListItem');
+  assertClosedObject(schemas.AgentCustomerListItem, 'AgentCustomerListItem', [
+    'customer_id', 'customer_alias', 'nickname_masked', 'phone_tail', 'city', 'consumption_amount',
+    'consumption_count', 'registered_at', 'last_product_name', 'account_status', 'binding_status',
+    'binding_id', 'binding_started_at',
+  ]);
+  assert.deepEqual(schemas.AgentCustomerListItem.properties.account_status, { const: 'ACTIVE' });
+  assert.deepEqual(schemas.AgentCustomerListItem.properties.binding_status, { const: 'BOUND' });
+  assert.deepEqual(schemas.AgentCustomerListItem.properties.phone_tail.type, ['string', 'null']);
+  assert.equal(schemas.AgentCustomerListItem.properties.phone_tail.pattern, '^[0-9]{4}$');
+  assert.equal(schemas.AgentCustomerListItem.properties.consumption_amount.$ref,
+    '#/components/schemas/NonNegativeMoney');
+
+  const agentCustomerDetailData = schemas.AgentCustomerDetailResponse.properties.data;
+  assertClosedObject(agentCustomerDetailData, 'AgentCustomerDetailResponse.data',
+    ['customer', 'binding_period', 'orders', 'recent_products']);
+  assert.equal(agentCustomerDetailData.properties.customer.$ref, '#/components/schemas/CustomerView');
+  assertClosedObject(agentCustomerDetailData.properties.binding_period,
+    'AgentCustomerDetailResponse.data.binding_period', ['binding_id', 'started_at', 'ended_at']);
+  assert.equal(agentCustomerDetailData.properties.orders.items.$ref,
+    '#/components/schemas/CustomerOrderSummaryView');
+  assert.equal(agentCustomerDetailData.properties.recent_products.items.$ref,
+    '#/components/schemas/RecentProductSummaryView');
+  assertClosedObject(schemas.CustomerView, 'CustomerView', [
+    'customer_id', 'customer_alias', 'nickname_masked', 'phone_tail', 'city', 'consumption_amount',
+    'consumption_count', 'registered_at', 'last_product_name', 'binding', 'version',
+  ]);
+  assertClosedObject(schemas.AttributionBindingView, 'AttributionBindingView',
+    ['binding_id', 'customer_id', 'agent_id', 'agent_name', 'started_at', 'customer_version']);
+  assertClosedObject(schemas.CustomerOrderSummaryView, 'CustomerOrderSummaryView',
+    ['order_id', 'order_no', 'display_status', 'payable_amount', 'paid_at']);
+  assertClosedObject(schemas.RecentProductSummaryView, 'RecentProductSummaryView',
+    ['product_id', 'product_name', 'sku_id', 'sku_name', 'last_purchased_at']);
+
+  const agentOrderListData = schemas.AgentOrderListResponse.properties.data;
+  assertClosedObject(agentOrderListData, 'AgentOrderListResponse.data', ['items', 'pagination']);
+  assert.equal(agentOrderListData.properties.items.items.$ref, '#/components/schemas/AgentOrderListItem');
+  assert.equal(agentOrderListData.properties.pagination.$ref, '#/components/schemas/PaginationView');
+  const agentOrderListItem = schemas.AgentOrderListItem;
+  assertClosedObject(agentOrderListItem, 'AgentOrderListItem', [
+    'order_id', 'order_no', 'order_status', 'payment_status', 'refund_progress_status',
+    'refund_processing_status', 'fulfillment_status', 'close_reason', 'completion_reason',
+    'payment_resolution', 'display_status', 'final_agent_id', 'customer_alias', 'customer_city',
+    'payable_amount', 'items', 'aftersale_summary', 'available_actions', 'created_at', 'paid_at',
+  ]);
+  assert.deepEqual(agentOrderListItem.properties.order_status.enum,
+    ['PENDING_SHIPMENT', 'SHIPPING', 'COMPLETED', 'CLOSED']);
+  assert.deepEqual(agentOrderListItem.properties.payment_status, { const: 'PAID' });
+  assert.deepEqual(agentOrderListItem.properties.close_reason.enum,
+    ['FULL_REFUND_BEFORE_SHIPMENT', null]);
+  assert.deepEqual(agentOrderListItem.properties.payment_resolution.enum,
+    ['NORMAL', 'LATE_SUCCESS_REFUNDED', 'MANUAL_REQUIRED']);
+  assert.equal(agentOrderListItem.properties.final_agent_id.type, 'string');
+  assert.equal(agentOrderListItem.properties.payable_amount.$ref,
+    '#/components/schemas/NonNegativeMoney');
+  assert.equal(agentOrderListItem.properties.items.items.$ref,
+    '#/components/schemas/AgentOrderCompactItem');
+  assert.equal(agentOrderListItem.properties.aftersale_summary.$ref,
+    '#/components/schemas/OrderAftersaleListSummary');
+  assert.equal(agentOrderListItem.properties.available_actions.items.$ref,
+    '#/components/schemas/AgentOrderAvailableAction');
+  assert.deepEqual(schemas.AgentOrderAvailableAction.enum, ['VIEW_DETAIL', 'VIEW_COMMISSION']);
+  assertClosedObject(schemas.AgentOrderCompactItem, 'AgentOrderCompactItem',
+    ['order_item_id', 'product_id', 'sku_id', 'product_name', 'sku_name', 'quantity', 'line_amount']);
+  assertClosedObject(schemas.OrderAftersaleListSummary, 'OrderAftersaleListSummary',
+    ['active_count', 'latest_aftersale_id', 'latest_status', 'refunded_amount']);
+
+  const agentOrderData = schemas.AgentOrderResponse.properties.data;
+  assertClosedObject(agentOrderData, 'AgentOrderResponse.data', [
+    'order_id', 'order_no', 'order_status', 'payment_status', 'refund_progress_status',
+    'refund_processing_status', 'fulfillment_status', 'close_reason', 'completion_reason',
+    'payment_resolution', 'display_status', 'final_agent_id', 'payable_amount', 'customer_snapshot',
+    'items', 'commission_items', 'aftersales', 'available_actions', 'timeline', 'created_at', 'paid_at',
+  ]);
+  assert.deepEqual(agentOrderData.properties.order_status.enum,
+    ['PENDING_SHIPMENT', 'SHIPPING', 'COMPLETED', 'CLOSED']);
+  assert.deepEqual(agentOrderData.properties.payment_status, { const: 'PAID' });
+  assert.deepEqual(agentOrderData.properties.close_reason.enum,
+    ['USER_CANCELLED', 'PAYMENT_TIMEOUT', 'FULL_REFUND_BEFORE_SHIPMENT', null]);
+  assert.deepEqual(agentOrderData.properties.payment_resolution.enum,
+    ['NORMAL', 'LATE_SUCCESS_REFUND_PENDING', 'LATE_SUCCESS_REFUNDED', 'MANUAL_REQUIRED']);
+  for (const [label, orderSchema] of [
+    ['AgentOrderListItem', agentOrderListItem],
+    ['AgentOrderResponse.data', agentOrderData],
+  ]) {
+    assert.deepEqual(orderSchema.properties.refund_progress_status.enum,
+      ['NONE', 'PARTIAL', 'FULL'], `${label} refund progress enum drifted`);
+    assert.deepEqual(orderSchema.properties.refund_processing_status.enum,
+      ['IDLE', 'REFUNDING', 'FAILED'], `${label} refund processing enum drifted`);
+    assert.deepEqual(orderSchema.properties.fulfillment_status.enum,
+      ['NOT_STARTED', 'READY_TO_SHIP', 'SHIPPED', 'IN_TRANSIT', 'DELIVERED', 'CANCELLED'],
+      `${label} fulfillment enum drifted`);
+    assert.deepEqual(orderSchema.properties.completion_reason.enum,
+      ['CUSTOMER_CONFIRMED', 'ADMIN_FORCED', 'FULL_REFUND_AFTER_SHIPMENT', null],
+      `${label} completion reason enum drifted`);
+  }
+  assert.equal(agentOrderData.properties.final_agent_id.type, 'string');
+  assertClosedObject(agentOrderData.properties.customer_snapshot, 'AgentOrderResponse.data.customer_snapshot',
+    ['customer_alias', 'nickname_masked', 'phone_tail', 'city', 'address_summary_masked']);
+  assert.deepEqual(agentOrderData.properties.customer_snapshot.properties.phone_tail.type, ['string', 'null']);
+  assert.equal(agentOrderData.properties.customer_snapshot.properties.phone_tail.pattern, '^[0-9]{4}$');
+  assert.equal(agentOrderData.properties.items.items.$ref, '#/components/schemas/OrderItemView');
+  assertClosedObject(schemas.OrderItemView, 'OrderItemView', [
+    'order_item_id', 'product_id', 'sku_id', 'product_name', 'sku_name', 'unit_price', 'quantity',
+    'line_amount', 'refunded_quantity', 'reserved_aftersale_quantity', 'shipped_quantity',
+  ]);
+  const commissionItem = agentOrderData.properties.commission_items.items;
+  assertClosedObject(commissionItem, 'AgentOrderResponse.data.commission_items[]',
+    ['order_item_id', 'effective_rate', 'rule_source', 'original_commission', 'state']);
+  assert.deepEqual(commissionItem.properties.rule_source.enum, ['PLATFORM', 'CATEGORY', 'SKU']);
+  assert.deepEqual(commissionItem.properties.state.enum, ['NONE', 'EXPECTED', 'CANCELLED', 'AVAILABLE']);
+  assert.equal(agentOrderData.properties.aftersales.items.$ref,
+    '#/components/schemas/OrderAftersaleSummaryView');
+  assertClosedObject(schemas.OrderAftersaleSummaryView, 'OrderAftersaleSummaryView',
+    ['aftersale_id', 'aftersale_no', 'type', 'status', 'requested_amount', 'created_at']);
+  assert.deepEqual(schemas.OrderAftersaleSummaryView.properties.type.enum,
+    ['REFUND_ONLY', 'RETURN_REFUND']);
+  assert.deepEqual(schemas.OrderAftersaleSummaryView.properties.status.enum, [
+    'PENDING_REVIEW', 'REJECTED', 'REFUNDING', 'WAITING_RETURN', 'WAITING_RECEIPT',
+    'RETURN_EXCEPTION', 'REFUNDING_AFTER_RETURN', 'REJECTED_AFTER_RETURN', 'REFUND_FAILED',
+    'COMPLETED', 'CANCELLED',
+  ]);
+  assert.equal(agentOrderData.properties.available_actions.items.$ref,
+    '#/components/schemas/AgentOrderAvailableAction');
+  assert.equal(agentOrderData.properties.timeline.items.$ref,
+    '#/components/schemas/AgentOrderTimelineEventView');
+  assertClosedObject(schemas.AgentOrderTimelineEventView, 'AgentOrderTimelineEventView',
+    ['event_id', 'axis', 'event_code', 'from_status', 'to_status', 'occurred_at']);
+  assert.deepEqual(schemas.AgentOrderTimelineEventView.properties.axis.enum,
+    ['PAYMENT', 'REFUND', 'FULFILLMENT', 'AFTERSALE']);
+  assert.deepEqual(schemas.AgentOrderTimelineEventView.properties.event_code.enum, [
+    'PAYMENT_SUCCEEDED', 'REFUND_STARTED', 'REFUND_SUCCEEDED', 'REFUND_FAILED', 'READY_TO_SHIP',
+    'SHIPPED', 'IN_TRANSIT', 'DELIVERED', 'AFTERSALE_CREATED', 'AFTERSALE_STATUS_CHANGED',
+  ]);
+
+  const adminCustomerListData = schemas.AdminCustomerListResponse.properties.data;
+  assertClosedObject(adminCustomerListData, 'AdminCustomerListResponse.data', ['items', 'pagination']);
+  assertClosedObject(adminCustomerListData.properties.pagination,
+    'AdminCustomerListResponse.data.pagination', ['page', 'page_size', 'total']);
+  assert.equal(adminCustomerListData.properties.items.items.$ref,
+    '#/components/schemas/AdminCustomerView');
+  assertClosedObject(schemas.AdminCustomerView, 'AdminCustomerView', [
+    'customer_id', 'customer_alias', 'account_status', 'nickname_masked', 'phone_masked',
+    'consumption_amount', 'consumption_count', 'registered_at', 'last_product_name', 'last_purchase_at',
+    'last_order_id', 'management_note_present', 'binding', 'deletion_request_status', 'version',
+  ], ['city']);
+  assert.deepEqual(schemas.AdminCustomerView.properties.account_status.enum,
+    ['ACTIVE', 'DISABLED', 'DELETION_PENDING', 'ANONYMIZED']);
+  assert.deepEqual(schemas.AdminCustomerView.properties.phone_masked.type, ['string', 'null']);
+  assert.deepEqual(schemas.AdminCustomerView.properties.deletion_request_status.enum,
+    ['SUBMITTED', 'PROCESSING', 'COMPLETED', 'REJECTED', null]);
+  assert.equal(schemas.AdminCustomerResponse.properties.data.$ref,
+    '#/components/schemas/AdminCustomerView');
+
+  const adminCustomerDetailData = schemas.AdminCustomerDetailResponse.properties.data;
+  assertClosedObject(adminCustomerDetailData, 'AdminCustomerDetailResponse.data',
+    ['customer', 'orders', 'binding_history']);
+  assert.equal(adminCustomerDetailData.properties.customer.$ref,
+    '#/components/schemas/AdminCustomerView');
+  assert.equal(adminCustomerDetailData.properties.orders.items.$ref,
+    '#/components/schemas/CustomerOrderSummaryView');
+  assert.equal(adminCustomerDetailData.properties.binding_history.items.$ref,
+    '#/components/schemas/BindingHistoryView');
+  assertClosedObject(schemas.BindingHistoryView, 'BindingHistoryView', [
+    'binding_id', 'agent_id', 'agent_name', 'started_at', 'ended_at', 'end_reason', 'recorded_at',
+  ], ['change_reason']);
+  assert.deepEqual(schemas.BindingHistoryView.properties.end_reason.enum,
+    ['TRANSFERRED', 'DIRECTED', 'ACCOUNT_DELETED', null]);
+
+  const highRiskPreviewData = schemas.HighRiskPreviewResponse.properties.data;
+  assertClosedObject(highRiskPreviewData, 'HighRiskPreviewResponse.data',
+    ['preview_token', 'confirmation_hash', 'resource_etag', 'expires_at', 'impact']);
+  assertClosedObject(highRiskPreviewData.properties.impact, 'HighRiskPreviewResponse.data.impact',
+    ['affected_count', 'metrics', 'warnings']);
+  assert.equal(highRiskPreviewData.properties.impact.properties.metrics.items.$ref,
+    '#/components/schemas/ImpactMetric');
+  assertClosedObject(schemas.ImpactMetric, 'ImpactMetric', ['key', 'label', 'before', 'after']);
+  assert.deepEqual(schemas.ImpactMetric.properties.before.type, ['string', 'null']);
+  assert.deepEqual(schemas.ImpactMetric.properties.after.type, ['string', 'null']);
 
   assert.deepEqual(responseSchema(document, 'post', '/agent/auth/login').oneOf, [
     { $ref: '#/components/schemas/AgentSessionResponse' },
@@ -398,6 +632,13 @@ try {
     'RestrictedAgentSessionResponse',
     'AgentCurrentResponse',
     'OneTimeDisclosureState',
+    'AgentCustomerListResponse',
+    'AgentCustomerDetailResponse',
+    'AgentOrderListResponse',
+    'AgentOrderResponse',
+    'AdminCustomerListResponse',
+    'AdminCustomerDetailResponse',
+    'AdminCustomerResponse',
   ]) {
     assert.match(generatedContract, new RegExp(`\\b${generatedType}\\b`),
       `generated contract is missing ${generatedType}`);
@@ -419,6 +660,7 @@ try {
     schemas: Object.keys(schemas).length,
     disclosure_replay_redacted: true,
     b13_gate_wiring: true,
+    b133_operations: B133_OPERATIONS.length,
     dangling_references: 0,
   }) + '\n');
 } finally {

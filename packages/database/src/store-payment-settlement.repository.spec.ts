@@ -21,6 +21,7 @@ const reservationId = generateUlid(NOW.getTime() - 1_500);
 const reservationItemId = generateUlid(NOW.getTime() - 1_400);
 const balanceId = generateUlid(NOW.getTime() - 1_300);
 const agentId = generateUlid(NOW.getTime() - 1_200);
+const walletId = generateUlid(NOW.getTime() - 1_150);
 const bindingId = generateUlid(NOW.getTime() - 1_100);
 const ruleVersionId = generateUlid(NOW.getTime() - 1_000);
 const providerIntentId = 'mock_pi_settlement_fixture';
@@ -154,6 +155,10 @@ function rawResults(values: unknown[]) {
   return mock;
 }
 
+function queryText(query: unknown): string {
+  return (query as { strings?: readonly string[] }).strings?.join(' ') ?? String(query);
+}
+
 interface RuleEntryFixture {
   rate: string;
   targetId: string | null;
@@ -190,7 +195,14 @@ function activeAgentOrder(overrides: Record<string, unknown> = {}) {
   });
 }
 
-function agentSettlementHarness(rate: string, ruleEntries?: RuleEntryFixture[]) {
+function agentSettlementHarness(
+  rate: string,
+  ruleEntries?: RuleEntryFixture[],
+  options: {
+    ruleStatus?: 'ARCHIVED' | 'PUBLISHED';
+    walletRows?: Array<{ agent_id: string; id: string }>;
+  } = {},
+) {
   const reservation = {
     consumed_at: null,
     expires_at: PAYMENT_EXPIRY,
@@ -216,6 +228,7 @@ function agentSettlementHarness(rate: string, ruleEntries?: RuleEntryFixture[]) 
       [{ id: reservationItemId }],
       [{ sku_id: skuId, total_quantity: 1n }],
       [{ id: ruleVersionId }],
+      options.walletRows ?? [{ agent_id: agentId, id: walletId }],
     ]),
     $queryRawUnsafe: vi.fn().mockResolvedValue([{ acquired: 1 }]),
     agentCustomerPrivacyProjection: {
@@ -253,7 +266,7 @@ function agentSettlementHarness(rate: string, ruleEntries?: RuleEntryFixture[]) 
         })),
         id: ruleVersionId,
         reason: 'Published fixture',
-        status: 'PUBLISHED',
+        status: options.ruleStatus ?? 'PUBLISHED',
         version_no: 1,
       }),
     },
@@ -815,6 +828,11 @@ describe('StorePaymentRepository callback settlement', () => {
       data: expect.objectContaining({ expected_remaining: new Prisma.Decimal('0.00'), state: 'NONE' }),
     });
     expect(transaction.commissionLedger.create).not.toHaveBeenCalled();
+    expect(transaction.$queryRawUnsafe.mock.calls.map((call) => call.slice(1))).toEqual([
+      ['store-attribution-agent', JSON.stringify([agentId])],
+      ['commission-rule-config', JSON.stringify(['singleton'])],
+      ['agent-wallet', JSON.stringify([agentId])],
+    ]);
     expect(transaction.agentCustomerPrivacyProjection.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         city: 'Auckland',
@@ -890,6 +908,22 @@ describe('StorePaymentRepository callback settlement', () => {
     expect(transaction.commissionRuleVersion.findUnique).not.toHaveBeenCalled();
     expect(transaction.orderItemCommissionSnapshot.create).not.toHaveBeenCalled();
     expect(transaction.agentCustomerPrivacyProjection.create).not.toHaveBeenCalled();
+  });
+
+  it('records Provider success as MANUAL_REQUIRED when the active Agent wallet is missing', async () => {
+    const transaction = agentSettlementHarness('10.0000', undefined, { walletRows: [] });
+
+    await expect(repository.applyPaymentCallbackInTransaction(
+      transaction as unknown as DatabaseTransaction,
+      callback(),
+    )).resolves.toMatchObject({
+      after: { orderPaymentResolution: 'MANUAL_REQUIRED', orderPaymentStatus: 'PAID' },
+      changed: true,
+      kind: 'MANUAL_REQUIRED',
+    });
+    expect(transaction.paymentAttempt.create).toHaveBeenCalledTimes(1);
+    expect(transaction.inventoryBalance.updateMany).not.toHaveBeenCalled();
+    expect(transaction.orderItemCommissionSnapshot.create).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -1012,7 +1046,7 @@ describe('StorePaymentRepository callback settlement', () => {
   });
 
   it('settles when Provider succeeded before expiry even if Worker processes the event later', async () => {
-    const transaction = agentSettlementHarness('10.0000');
+    const transaction = agentSettlementHarness('10.0000', undefined, { ruleStatus: 'ARCHIVED' });
     const deadline = new Date(NOW.getTime() - 1_000);
     transaction.paymentIntent.findUnique.mockReset()
       .mockResolvedValueOnce({ id: intentId, order_id: orderId })
@@ -1046,13 +1080,26 @@ describe('StorePaymentRepository callback settlement', () => {
       pay_expires_at: deadline,
     }));
 
+    const occurredAt = new Date(NOW.getTime() - 2_000);
     await expect(repository.applyPaymentCallbackInTransaction(
       transaction as unknown as DatabaseTransaction,
-      callback({ occurredAt: new Date(NOW.getTime() - 2_000) }),
+      callback({ occurredAt }),
     )).resolves.toMatchObject({ kind: 'SETTLED' });
     expect(transaction.paymentAttempt.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ finished_at: new Date(NOW.getTime() - 2_000), status: 'SUCCEEDED' }),
+      data: expect.objectContaining({ finished_at: occurredAt, status: 'SUCCEEDED' }),
     });
+    expect(transaction.orderItemCommissionSnapshot.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        effective_rate: new Prisma.Decimal('10.0000'),
+        rule_version_id: ruleVersionId,
+      }),
+    });
+    const ruleLock = transaction.$queryRaw.mock.calls
+      .map((call) => call[0])
+      .find((query) => queryText(query).includes('FROM public.commission_rule_version')) as
+      { strings: readonly string[]; values: readonly unknown[] } | undefined;
+    expect(queryText(ruleLock)).toContain("status IN ('PUBLISHED', 'ARCHIVED')");
+    expect(ruleLock?.values).toContainEqual(occurredAt);
   });
 
   it.each([
@@ -1123,7 +1170,8 @@ describe('StorePaymentRepository callback settlement', () => {
 
   it('compensates MANUAL_REQUIRED without duplicating the attempt or incrementing sales again', async () => {
     const successfulAttempt = successfulPaymentAttempt();
-    const transaction = agentSettlementHarness('10.0000');
+    const retryAt = new Date(NOW.getTime() + 60_000);
+    const transaction = agentSettlementHarness('10.0000', undefined, { ruleStatus: 'ARCHIVED' });
     transaction.paymentIntent.findUnique.mockReset()
       .mockResolvedValueOnce({ id: intentId, order_id: orderId })
       .mockResolvedValueOnce(intent([successfulAttempt], {
@@ -1167,7 +1215,7 @@ describe('StorePaymentRepository callback settlement', () => {
 
     await expect(repository.applyPaymentCallbackInTransaction(
       transaction as unknown as DatabaseTransaction,
-      callback(),
+      callback({ occurredAt: retryAt }),
     )).resolves.toMatchObject({
       after: { orderPaymentResolution: 'NORMAL', orderStatus: 'PENDING_SHIPMENT', orderVersion: 5 },
       changed: true,
@@ -1182,6 +1230,19 @@ describe('StorePaymentRepository callback settlement', () => {
     });
     expect(transaction.inventoryLedger.create).toHaveBeenCalledTimes(1);
     expect(transaction.commissionLedger.create).toHaveBeenCalledTimes(1);
+    expect(transaction.inventoryReservation.updateMany).toHaveBeenCalledWith({
+      data: { consumed_at: NOW, status: 'CONSUMED' },
+      where: { id: reservationId, order_id: orderId, status: 'ACTIVE' },
+    });
+    expect(transaction.orderItemCommissionSnapshot.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ rule_version_id: ruleVersionId }),
+    });
+    const ruleLock = transaction.$queryRaw.mock.calls
+      .map((call) => call[0])
+      .find((query) => queryText(query).includes('FROM public.commission_rule_version')) as
+      { values: readonly unknown[] } | undefined;
+    expect(ruleLock?.values).toContainEqual(NOW);
+    expect(ruleLock?.values).not.toContainEqual(retryAt);
   });
 
   it('replays an exact success after fulfillment and refund state have advanced', async () => {

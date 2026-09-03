@@ -19,8 +19,12 @@ function request(restriction: 'CHANGE_PASSWORD_ONLY' | 'NONE' = 'NONE'): AgentAu
 
 function harness() {
   const service = {
+    getCommission: vi.fn(),
     getCustomer: vi.fn(),
+    getDashboard: vi.fn(),
     getOrder: vi.fn(),
+    getWallet: vi.fn(),
+    listCommissions: vi.fn(),
     listCustomers: vi.fn(),
     listOrders: vi.fn(),
   };
@@ -38,6 +42,10 @@ describe('AgentOperationsController', () => {
       AgentOperationsController.prototype.getCustomer,
       AgentOperationsController.prototype.listOrders,
       AgentOperationsController.prototype.getOrder,
+      AgentOperationsController.prototype.getDashboard,
+      AgentOperationsController.prototype.listCommissions,
+      AgentOperationsController.prototype.getCommission,
+      AgentOperationsController.prototype.getWallet,
     ]) expect(Reflect.getMetadata(NO_STORE_RESPONSE, handler)).toBe(true);
   });
 
@@ -52,5 +60,21 @@ describe('AgentOperationsController', () => {
     )).toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT' }));
     expect(service.listCustomers).not.toHaveBeenCalled();
     expect(service.getOrder).not.toHaveBeenCalled();
+  });
+
+  it('requires unrestricted sessions and strictly decodes the new commission surface', () => {
+    const { controller, service } = harness();
+    expect(() => controller.getDashboard({}, request('CHANGE_PASSWORD_ONLY')))
+      .toThrow(expect.objectContaining({ code: 'PASSWORD_CHANGE_REQUIRED' }));
+    expect(() => controller.getWallet({ agent_id: 'other-agent' }, request()))
+      .toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT' }));
+    expect(() => controller.listCommissions({ ledger_type: 'WITHDRAWAL_PAID' }, request()))
+      .toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT' }));
+    expect(() => controller.getCommission('other-agent-snapshot', {}, request()))
+      .toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT' }));
+    expect(service.getDashboard).not.toHaveBeenCalled();
+    expect(service.getWallet).not.toHaveBeenCalled();
+    expect(service.listCommissions).not.toHaveBeenCalled();
+    expect(service.getCommission).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,11 @@
 import { ApplicationError, isValidUlid } from '@qingxu/platform-core';
 
 import { Prisma, type PrismaClient } from '../.generated/prisma/client';
+import {
+  validateAgentCommissionLedgerClosureInTransaction,
+  validateCommissionSnapshotLedgerClosure,
+  validateCommissionSnapshotRule,
+} from './commission.repository';
 import type { DatabaseTransaction } from './idempotency.repository';
 
 export interface AgentOperationsIdentity {
@@ -41,6 +46,126 @@ export interface AgentOrderListInput extends AgentOperationsIdentity {
 
 export interface AgentOrderReadInput extends AgentOperationsIdentity {
   orderId: string;
+}
+
+export type AgentCommissionLedgerType =
+  | 'AVAILABLE_CREDIT'
+  | 'EXPECTED_CANCELLED'
+  | 'EXPECTED_CREATED'
+  | 'EXPECTED_REDUCED'
+  | 'REFUND_DEBIT';
+
+export type AgentCommissionPositionState = 'AVAILABLE' | 'CANCELLED' | 'EXPECTED' | 'NONE';
+
+export interface AgentCommissionListInput extends AgentOperationsIdentity {
+  ledgerType?: AgentCommissionLedgerType;
+  occurredAtFrom?: Date;
+  occurredAtToExclusive?: Date;
+  orderNo?: string;
+  page: number;
+  pageSize: number;
+  state?: AgentCommissionPositionState;
+}
+
+export interface AgentCommissionReadInput extends AgentOperationsIdentity {
+  commissionSnapshotId: string;
+}
+
+export interface AgentCommissionLedgerSnapshot {
+  availableChange: string;
+  commissionBase: string;
+  commissionSnapshotId: string;
+  effectiveRate: string;
+  expectedChange: string;
+  ledgerId: string;
+  ledgerType: AgentCommissionLedgerType;
+  occurredAt: Date;
+  orderId: string;
+  orderItemId: string;
+  orderNo: string;
+  originalCommission: string;
+  positionState: AgentCommissionPositionState;
+  productId: string;
+  productName: string;
+  reason: string;
+  refundId: string | null;
+  skuId: string;
+  skuName: string;
+}
+
+export interface AgentCommissionListResult {
+  items: AgentCommissionLedgerSnapshot[];
+  total: number;
+}
+
+export interface AgentCommissionExplanationLedgerSnapshot {
+  availableChange: string;
+  expectedChange: string;
+  frozenChange: string;
+  ledgerId: string;
+  ledgerType: AgentCommissionLedgerType;
+  occurredAt: Date;
+  reason: string;
+  refundId: string | null;
+}
+
+export interface AgentCommissionDetailSnapshot {
+  categoryId: string;
+  categoryName: string;
+  commissionBase: string;
+  commissionSnapshotId: string;
+  effectiveRate: string;
+  expectedRemaining: string;
+  hitPath: string[];
+  ledger: AgentCommissionExplanationLedgerSnapshot[];
+  orderId: string;
+  orderItemId: string;
+  orderNo: string;
+  originalCommission: string;
+  positionState: AgentCommissionPositionState;
+  productId: string;
+  productName: string;
+  reversalTotal: string;
+  ruleSource: 'CATEGORY' | 'PLATFORM' | 'SKU';
+  ruleVersionId: string;
+  ruleVersionNo: number;
+  skuId: string;
+  skuName: string;
+}
+
+export interface AgentWalletSnapshot {
+  availableBalance: string;
+  blockedReason: 'INSUFFICIENT_BALANCE' | 'NEGATIVE_BALANCE' | null;
+  expectedCommission: string;
+  frozenBalance: string;
+  isNegative: boolean;
+  negativeBalance: string;
+  version: number;
+  withdrawalAllowed: boolean;
+}
+
+export interface AgentDashboardTrendSnapshot {
+  businessDate: string;
+  commissionChange: string;
+  netSalesAmount: string;
+  paidOrderCount: number;
+}
+
+export interface AgentDashboardSnapshot {
+  agentId: string;
+  asOf: Date;
+  attributedCustomerCount: number;
+  availableBalance: string;
+  commissionExceptionCount: number;
+  expectedCommission: string;
+  frozenBalance: string;
+  monthNetSalesAmount: string;
+  negativeBalance: string;
+  pendingWithdrawalCount: number;
+  todayNetSalesAmount: string;
+  todayPaidOrderCount: number;
+  trend: AgentDashboardTrendSnapshot[];
+  withdrawalActionCount: number;
 }
 
 export interface AgentCustomerSnapshot {
@@ -159,6 +284,7 @@ export interface AgentOrderAftersaleSnapshot {
 }
 
 export interface AgentOrderCommissionSnapshot {
+  commissionSnapshotId: string;
   effectiveRate: string;
   orderItemId: string;
   originalCommission: string;
@@ -248,6 +374,7 @@ const PRIVACY_SELECT = {
 
 const ORDER_ITEM_SELECT = {
   aftersale_reserved_qty: true,
+  category_id: true,
   id: true,
   line_paid_amount: true,
   product_id: true,
@@ -321,6 +448,38 @@ const ORDER_LIST_SELECT = {
   ...CURRENT_PERIOD_ORDER_SELECT,
 } satisfies Prisma.SalesOrderSelect;
 
+const COMMISSION_RULE_FACT_SELECT = {
+  effective_at: true,
+  entries: {
+    orderBy: [{ target_key: 'asc' as const }, { id: 'asc' as const }],
+    select: {
+      configured_rate: true,
+      id: true,
+      rule_version_id: true,
+      target_id: true,
+      target_key: true,
+      target_type: true,
+    },
+  },
+  id: true,
+  status: true,
+  version_no: true,
+} satisfies Prisma.CommissionRuleVersionSelect;
+
+const COMMISSION_LEDGER_FACT_SELECT = {
+  agent_id: true,
+  available_change: true,
+  expected_change: true,
+  frozen_change: true,
+  id: true,
+  ledger_type: true,
+  occurred_at: true,
+  reason: true,
+  refund_id: true,
+  snapshot_id: true,
+  withdrawal_id: true,
+} satisfies Prisma.CommissionLedgerSelect;
+
 const ORDER_DETAIL_SELECT = {
   ...CURRENT_PERIOD_ORDER_SELECT,
   address_snapshot: { select: { city: true, province: true } },
@@ -344,9 +503,30 @@ const ORDER_DETAIL_SELECT = {
       commission_snapshot: {
         select: {
           agent_id: true,
+          category_id_snapshot: true,
+          created_at: true,
           effective_rate: true,
+          id: true,
+          ledger: {
+            orderBy: [{ occurred_at: 'asc' as const }, { id: 'asc' as const }],
+            select: COMMISSION_LEDGER_FACT_SELECT,
+          },
           original_commission: true,
-          position: { select: { state: true } },
+          position: {
+            select: {
+              expected_remaining: true,
+              id: true,
+              original_commission: true,
+              reversed_total: true,
+              snapshot_id: true,
+              state: true,
+              version: true,
+            },
+          },
+          product_id_snapshot: true,
+          rule_version: { select: COMMISSION_RULE_FACT_SELECT },
+          rule_version_id: true,
+          sku_id_snapshot: true,
           source_type: true,
         },
       },
@@ -368,14 +548,115 @@ const ORDER_DETAIL_SELECT = {
   },
 } satisfies Prisma.SalesOrderSelect;
 
+const COMMISSION_SNAPSHOT_FACT_SELECT = {
+  agent_id: true,
+  category_id_snapshot: true,
+  category_name_snapshot: true,
+  commission_base: true,
+  created_at: true,
+  effective_rate: true,
+  id: true,
+  ledger: {
+    orderBy: [{ occurred_at: 'asc' as const }, { id: 'asc' as const }],
+    select: COMMISSION_LEDGER_FACT_SELECT,
+  },
+  order_item: {
+    select: {
+      category_id: true,
+      id: true,
+      order: {
+        select: {
+          attribution_snapshot: { select: { agent_id_snapshot: true } },
+          final_agent_id: true,
+          final_channel: true,
+          id: true,
+          order_no: true,
+          paid_at: true,
+          payment_status: true,
+        },
+      },
+      product_id: true,
+      product_name_snapshot: true,
+      sku_id: true,
+      sku_name_snapshot: true,
+    },
+  },
+  original_commission: true,
+  position: {
+    select: {
+      expected_remaining: true,
+      id: true,
+      original_commission: true,
+      reversed_total: true,
+      snapshot_id: true,
+      state: true,
+      version: true,
+    },
+  },
+  product_id_snapshot: true,
+  rule_version: { select: COMMISSION_RULE_FACT_SELECT },
+  rule_version_id: true,
+  sku_id_snapshot: true,
+  source_type: true,
+} satisfies Prisma.OrderItemCommissionSnapshotSelect;
+
+const COMMISSION_LEDGER_LIST_SELECT = {
+  ...COMMISSION_LEDGER_FACT_SELECT,
+  snapshot: { select: COMMISSION_SNAPSHOT_FACT_SELECT },
+} satisfies Prisma.CommissionLedgerSelect;
+
+const COMMISSION_DETAIL_SELECT = {
+  ...COMMISSION_SNAPSHOT_FACT_SELECT,
+  ledger: {
+    orderBy: [{ occurred_at: 'asc' as const }, { id: 'asc' as const }],
+    select: COMMISSION_LEDGER_FACT_SELECT,
+  },
+} satisfies Prisma.OrderItemCommissionSnapshotSelect;
+
+const AGENT_WALLET_SELECT = {
+  agent_id: true,
+  available_balance: true,
+  frozen_balance: true,
+  id: true,
+  version: true,
+} satisfies Prisma.AgentWalletSelect;
+
 type AgentRecord = Prisma.AgentProfileGetPayload<{ select: typeof AGENT_SELECT }>;
 type CustomerBindingRecord = Prisma.CustomerAgentBindingGetPayload<{ select: typeof CUSTOMER_BINDING_SELECT }>;
 type CurrentPeriodOrderRecord = Prisma.SalesOrderGetPayload<{ select: typeof CURRENT_PERIOD_ORDER_SELECT }>;
 type OrderListRecord = Prisma.SalesOrderGetPayload<{ select: typeof ORDER_LIST_SELECT }>;
 type OrderDetailRecord = Prisma.SalesOrderGetPayload<{ select: typeof ORDER_DETAIL_SELECT }>;
+type CommissionLedgerListRecord = Prisma.CommissionLedgerGetPayload<{
+  select: typeof COMMISSION_LEDGER_LIST_SELECT;
+}>;
+type CommissionDetailRecord = Prisma.OrderItemCommissionSnapshotGetPayload<{
+  select: typeof COMMISSION_DETAIL_SELECT;
+}>;
+type CommissionSnapshotFactRecord = Prisma.OrderItemCommissionSnapshotGetPayload<{
+  select: typeof COMMISSION_SNAPSHOT_FACT_SELECT;
+}>;
+type CommissionLedgerFactRecord = Prisma.CommissionLedgerGetPayload<{
+  select: typeof COMMISSION_LEDGER_FACT_SELECT;
+}>;
 
 const MAX_POSTGRES_INTEGER = 2_147_483_647;
+const MAX_MONEY = new Prisma.Decimal('9999999999999999.99');
 const MONEY = /^(?:0|[1-9][0-9]*)\.[0-9]{2}$/;
+const DAY_MS = 24 * 60 * 60 * 1_000;
+const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1_000;
+const AGENT_COMMISSION_LEDGER_TYPES = new Set<AgentCommissionLedgerType>([
+  'AVAILABLE_CREDIT',
+  'EXPECTED_CANCELLED',
+  'EXPECTED_CREATED',
+  'EXPECTED_REDUCED',
+  'REFUND_DEBIT',
+]);
+const AGENT_COMMISSION_POSITION_STATES = new Set<AgentCommissionPositionState>([
+  'AVAILABLE',
+  'CANCELLED',
+  'EXPECTED',
+  'NONE',
+]);
 
 function internal(message: string): ApplicationError {
   return new ApplicationError('INTERNAL_ERROR', message);
@@ -456,6 +737,32 @@ function validateOrderReadInput(input: AgentOrderReadInput): void {
   requireUlid(input.orderId, 'Agent order ID');
 }
 
+function validateCommissionListInput(input: AgentCommissionListInput): void {
+  validateIdentity(input);
+  validatePage(input.page, input.pageSize);
+  validDate(input.occurredAtFrom, 'Agent commission date_from');
+  validDate(input.occurredAtToExclusive, 'Agent commission date_to');
+  if (input.occurredAtFrom !== undefined && input.occurredAtToExclusive !== undefined &&
+    input.occurredAtFrom.getTime() >= input.occurredAtToExclusive.getTime()) {
+    throw new TypeError('Agent commission date range is invalid');
+  }
+  if (input.ledgerType !== undefined && !AGENT_COMMISSION_LEDGER_TYPES.has(input.ledgerType)) {
+    throw new TypeError('Agent commission ledger type is invalid');
+  }
+  if (input.state !== undefined && !AGENT_COMMISSION_POSITION_STATES.has(input.state)) {
+    throw new TypeError('Agent commission state is invalid');
+  }
+  if (input.orderNo !== undefined && (input.orderNo.trim() !== input.orderNo || input.orderNo.length < 1 ||
+    input.orderNo.length > 32 || /\p{Cc}/u.test(input.orderNo))) {
+    throw new TypeError('Agent commission order number is invalid');
+  }
+}
+
+function validateCommissionReadInput(input: AgentCommissionReadInput): void {
+  validateIdentity(input);
+  requireUlid(input.commissionSnapshotId, 'Agent commission snapshot ID');
+}
+
 function safeDate(value: Date | null, label: string): Date {
   if (!(value instanceof Date) || !Number.isFinite(value.getTime())) throw internal(`${label} is invalid`);
   return new Date(value);
@@ -482,6 +789,21 @@ function safeMoney(value: Prisma.Decimal, label: string): string {
   if (!Prisma.Decimal.isDecimal(value) || value.isNegative() || value.decimalPlaces() > 2 ||
     value.greaterThan('9999999999999999.99')) throw internal(`${label} is invalid`);
   return value.toFixed(2);
+}
+
+function safeSignedMoney(value: Prisma.Decimal, label: string): string {
+  if (!Prisma.Decimal.isDecimal(value) || value.decimalPlaces() > 2 || value.abs().greaterThan(MAX_MONEY)) {
+    throw internal(`${label} is invalid`);
+  }
+  return value.toFixed(2);
+}
+
+function aggregateDecimal(value: Prisma.Decimal | null | undefined, label: string): Prisma.Decimal {
+  if (value === null || value === undefined) return new Prisma.Decimal(0);
+  if (!Prisma.Decimal.isDecimal(value) || value.decimalPlaces() > 2 || value.abs().greaterThan(MAX_MONEY)) {
+    throw internal(`${label} is invalid`);
+  }
+  return value;
 }
 
 function safeRate(value: Prisma.Decimal): string {
@@ -843,12 +1165,20 @@ function aftersales(record: OrderDetailRecord): AgentOrderAftersaleSnapshot[] {
 }
 
 function commissions(record: OrderDetailRecord, agentId: string): AgentOrderCommissionSnapshot[] {
+  const paidAt = safeDate(record.paid_at, 'Stored Agent order paid time');
   return record.items.map((item) => {
     const commission = item.commission_snapshot;
-    if (!commission || commission.agent_id !== agentId || !commission.position) {
+    if (!commission || commission.agent_id !== agentId || !commission.position ||
+      commission.rule_version_id !== commission.rule_version.id ||
+      commission.category_id_snapshot !== item.category_id || commission.product_id_snapshot !== item.product_id ||
+      commission.sku_id_snapshot !== item.sku_id) {
       throw internal('Stored Agent order commission snapshot is invalid');
     }
+    requireUlid(commission.id, 'Stored Agent order commission snapshot ID');
+    validateCommissionSnapshotRule(commission, paidAt);
+    validateCommissionSnapshotLedgerClosure(commission);
     return {
+      commissionSnapshotId: commission.id,
       effectiveRate: safeRate(commission.effective_rate),
       orderItemId: item.id,
       originalCommission: safeMoney(commission.original_commission, 'Stored original commission'),
@@ -956,6 +1286,185 @@ function timeline(record: OrderDetailRecord): AgentOrderTimelineSnapshot[] {
     left.eventId.localeCompare(right.eventId));
 }
 
+function commissionOrderWhere(agentId: string, orderNo?: string): Prisma.SalesOrderWhereInput {
+  return {
+    attribution_snapshot: { is: { agent_id_snapshot: agentId } },
+    final_agent_id: agentId,
+    final_channel: 'AGENT',
+    ...(orderNo === undefined ? {} : { order_no: orderNo }),
+    paid_at: { not: null },
+    payment_status: 'PAID',
+  };
+}
+
+function commissionSnapshotWhere(
+  agentId: string,
+  state?: AgentCommissionPositionState,
+  orderNo?: string,
+): Prisma.OrderItemCommissionSnapshotWhereInput {
+  return {
+    agent_id: agentId,
+    order_item: { order: commissionOrderWhere(agentId, orderNo) },
+    ...(state === undefined ? {} : { position: { is: { state } } }),
+  };
+}
+
+function commissionLedgerWhere(input: AgentCommissionListInput): Prisma.CommissionLedgerWhereInput {
+  return {
+    agent_id: input.agentId,
+    ...(input.ledgerType === undefined ? {} : { ledger_type: input.ledgerType }),
+    ...(input.occurredAtFrom === undefined && input.occurredAtToExclusive === undefined
+      ? {}
+      : {
+          occurred_at: {
+            ...(input.occurredAtFrom === undefined ? {} : { gte: input.occurredAtFrom }),
+            ...(input.occurredAtToExclusive === undefined ? {} : { lt: input.occurredAtToExclusive }),
+          },
+        }),
+    snapshot: { is: commissionSnapshotWhere(input.agentId, input.state, input.orderNo) },
+    withdrawal_id: null,
+  };
+}
+
+type CommissionSnapshotProjection = Omit<AgentCommissionDetailSnapshot, 'hitPath' | 'ledger'>;
+
+function commissionSnapshot(
+  record: CommissionSnapshotFactRecord,
+  agentId: string,
+): CommissionSnapshotProjection {
+  const orderItem = record.order_item;
+  const order = orderItem.order;
+  const position = record.position;
+  requireUlid(record.id, 'Stored Agent commission snapshot ID');
+  requireUlid(record.agent_id, 'Stored Agent commission agent ID');
+  requireUlid(record.category_id_snapshot, 'Stored Agent commission category ID');
+  requireUlid(record.product_id_snapshot, 'Stored Agent commission product ID');
+  requireUlid(record.sku_id_snapshot, 'Stored Agent commission SKU ID');
+  requireUlid(record.rule_version_id, 'Stored Agent commission rule version ID');
+  requireUlid(record.rule_version.id, 'Stored Agent commission related rule version ID');
+  requireUlid(orderItem.id, 'Stored Agent commission order item ID');
+  requireUlid(order.id, 'Stored Agent commission order ID');
+  if (record.agent_id !== agentId || record.rule_version.id !== record.rule_version_id ||
+    order.final_agent_id !== agentId || order.final_channel !== 'AGENT' || order.payment_status !== 'PAID' ||
+    order.attribution_snapshot?.agent_id_snapshot !== agentId || order.paid_at === null ||
+    orderItem.category_id !== record.category_id_snapshot || orderItem.product_id !== record.product_id_snapshot ||
+    orderItem.sku_id !== record.sku_id_snapshot || position === null || position.snapshot_id !== record.id ||
+    !AGENT_COMMISSION_POSITION_STATES.has(position.state)) {
+    throw internal('Stored Agent commission ownership or snapshot facts are inconsistent');
+  }
+  validateCommissionSnapshotRule(record, order.paid_at);
+  validateCommissionSnapshotLedgerClosure(record);
+  safeDate(order.paid_at, 'Stored Agent commission order payment time');
+  const originalCommission = safeMoney(record.original_commission, 'Stored Agent original commission');
+  const positionOriginal = safeMoney(position.original_commission, 'Stored Agent position original commission');
+  const expectedRemaining = safeMoney(position.expected_remaining, 'Stored Agent expected commission');
+  const reversalTotal = safeMoney(position.reversed_total, 'Stored Agent reversed commission');
+  safeCount(position.version, 'Stored Agent commission position version', 1);
+  const accounted = position.expected_remaining.add(position.reversed_total);
+  if (positionOriginal !== originalCommission || accounted.greaterThan(record.original_commission) ||
+    (position.state === 'NONE' && (!record.original_commission.isZero() || !accounted.isZero())) ||
+    (position.state === 'EXPECTED' && (position.expected_remaining.isZero() || !accounted.equals(record.original_commission))) ||
+    (position.state === 'CANCELLED' && (!position.expected_remaining.isZero() ||
+      !position.reversed_total.equals(record.original_commission))) ||
+    (position.state === 'AVAILABLE' && !position.expected_remaining.isZero())) {
+    throw internal('Stored Agent commission position amounts are inconsistent');
+  }
+  return {
+    categoryId: record.category_id_snapshot,
+    categoryName: safeText(record.category_name_snapshot, 120, 'Stored Agent commission category name'),
+    commissionBase: safeMoney(record.commission_base, 'Stored Agent commission base'),
+    commissionSnapshotId: record.id,
+    effectiveRate: safeRate(record.effective_rate),
+    expectedRemaining,
+    orderId: order.id,
+    orderItemId: orderItem.id,
+    orderNo: safeText(order.order_no, 32, 'Stored Agent commission order number'),
+    originalCommission,
+    positionState: position.state,
+    productId: record.product_id_snapshot,
+    productName: safeText(orderItem.product_name_snapshot, 200, 'Stored Agent commission product name'),
+    reversalTotal,
+    ruleSource: record.source_type,
+    ruleVersionId: record.rule_version_id,
+    ruleVersionNo: safeCount(record.rule_version.version_no, 'Stored Agent commission rule version number', 1),
+    skuId: record.sku_id_snapshot,
+    skuName: safeText(orderItem.sku_name_snapshot, 160, 'Stored Agent commission SKU name'),
+  };
+}
+
+function commissionLedger(
+  record: CommissionLedgerFactRecord,
+  agentId: string,
+  snapshotId: string,
+): AgentCommissionExplanationLedgerSnapshot {
+  requireUlid(record.id, 'Stored Agent commission ledger ID');
+  if (record.snapshot_id === null) throw internal('Stored Agent commission ledger snapshot is missing');
+  requireUlid(record.snapshot_id, 'Stored Agent commission ledger snapshot ID');
+  if (record.refund_id !== null) requireUlid(record.refund_id, 'Stored Agent commission ledger refund ID');
+  const expected = aggregateDecimal(record.expected_change, 'Stored Agent expected ledger change');
+  const available = aggregateDecimal(record.available_change, 'Stored Agent available ledger change');
+  const frozen = aggregateDecimal(record.frozen_change, 'Stored Agent frozen ledger change');
+  if (record.agent_id !== agentId || record.snapshot_id !== snapshotId || record.withdrawal_id !== null ||
+    !AGENT_COMMISSION_LEDGER_TYPES.has(record.ledger_type as AgentCommissionLedgerType) || !frozen.isZero()) {
+    throw internal('Stored Agent commission ledger ownership or reference shape is inconsistent');
+  }
+  const positiveExpected = expected.isPositive() && available.isZero() && record.refund_id === null;
+  const reducedExpected = expected.isNegative() && available.isZero() && record.refund_id !== null;
+  const availableCredit = expected.isNegative() && available.isPositive() &&
+    expected.add(available).isZero() && record.refund_id === null;
+  const refundDebit = expected.isZero() && available.isNegative() && record.refund_id !== null;
+  if ((record.ledger_type === 'EXPECTED_CREATED' && !positiveExpected) ||
+    ((record.ledger_type === 'EXPECTED_REDUCED' || record.ledger_type === 'EXPECTED_CANCELLED') && !reducedExpected) ||
+    (record.ledger_type === 'AVAILABLE_CREDIT' && !availableCredit) ||
+    (record.ledger_type === 'REFUND_DEBIT' && !refundDebit)) {
+    throw internal('Stored Agent commission ledger amount shape is inconsistent');
+  }
+  return {
+    availableChange: safeSignedMoney(available, 'Stored Agent available ledger change'),
+    expectedChange: safeSignedMoney(expected, 'Stored Agent expected ledger change'),
+    frozenChange: safeSignedMoney(frozen, 'Stored Agent frozen ledger change'),
+    ledgerId: record.id,
+    ledgerType: record.ledger_type as AgentCommissionLedgerType,
+    occurredAt: safeDate(record.occurred_at, 'Stored Agent commission ledger time'),
+    reason: safeText(record.reason, 500, 'Stored Agent commission ledger reason'),
+    refundId: record.refund_id,
+  };
+}
+
+function commissionListItem(record: CommissionLedgerListRecord, agentId: string): AgentCommissionLedgerSnapshot {
+  if (record.snapshot === null) throw internal('Stored Agent commission list snapshot is missing');
+  const snapshot = commissionSnapshot(record.snapshot, agentId);
+  const ledger = commissionLedger(record, agentId, snapshot.commissionSnapshotId);
+  return {
+    ...snapshot,
+    availableChange: ledger.availableChange,
+    expectedChange: ledger.expectedChange,
+    ledgerId: ledger.ledgerId,
+    ledgerType: ledger.ledgerType,
+    occurredAt: ledger.occurredAt,
+    reason: ledger.reason,
+    refundId: ledger.refundId,
+  };
+}
+
+function commissionHitPath(snapshot: CommissionSnapshotProjection): string[] {
+  const path = [`RULE_VERSION:${snapshot.ruleVersionId}`, 'PLATFORM'];
+  if (snapshot.ruleSource === 'CATEGORY' || snapshot.ruleSource === 'SKU') {
+    path.push(`CATEGORY:${snapshot.categoryId}`);
+  }
+  if (snapshot.ruleSource === 'SKU') path.push(`SKU:${snapshot.skuId}`);
+  return path;
+}
+
+function commissionDetail(record: CommissionDetailRecord, agentId: string): AgentCommissionDetailSnapshot {
+  const snapshot = commissionSnapshot(record, agentId);
+  return {
+    ...snapshot,
+    hitPath: commissionHitPath(snapshot),
+    ledger: record.ledger.map((entry) => commissionLedger(entry, agentId, snapshot.commissionSnapshotId)),
+  };
+}
+
 function detailOrder(record: OrderDetailRecord, agentId: string): AgentOrderDetailSnapshot {
   requireUlid(record.id, 'Stored Agent order ID');
   const projection = privacy(record, agentId);
@@ -992,6 +1501,13 @@ function detailOrder(record: OrderDetailRecord, agentId: string): AgentOrderDeta
 export class AgentOperationsRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
+  private async transactionTime(transaction: DatabaseTransaction): Promise<Date> {
+    const rows = await transaction.$queryRaw<Array<{ transaction_time: Date }>>(
+      Prisma.sql`SELECT transaction_timestamp() AS transaction_time`,
+    );
+    return safeDate(rows[0]?.transaction_time ?? null, 'Agent dashboard database transaction clock');
+  }
+
   private async requireActiveAgent(
     transaction: DatabaseTransaction,
     identity: AgentOperationsIdentity,
@@ -1013,6 +1529,53 @@ export class AgentOperationsRepository {
     });
     if (!binding) throw notFound('Agent customer does not exist');
     return safeBinding(binding);
+  }
+
+  private async reconciledWallet(
+    transaction: DatabaseTransaction,
+    agentId: string,
+  ): Promise<AgentWalletSnapshot> {
+    await validateAgentCommissionLedgerClosureInTransaction(transaction, agentId);
+    const [wallet, ledger, positions] = await Promise.all([
+      transaction.agentWallet.findUnique({ select: AGENT_WALLET_SELECT, where: { agent_id: agentId } }),
+      transaction.commissionLedger.aggregate({
+        _sum: { available_change: true, expected_change: true, frozen_change: true },
+        where: { agent_id: agentId },
+      }),
+      transaction.orderItemCommissionPosition.aggregate({
+        _sum: { expected_remaining: true },
+        where: { snapshot: { agent_id: agentId } },
+      }),
+    ]);
+    if (wallet === null) throw internal('Stored Agent wallet is missing');
+    requireUlid(wallet.id, 'Stored Agent wallet ID');
+    if (wallet.agent_id !== agentId) throw internal('Stored Agent wallet ownership is inconsistent');
+    const available = aggregateDecimal(wallet.available_balance, 'Stored Agent wallet available balance');
+    const frozen = aggregateDecimal(wallet.frozen_balance, 'Stored Agent wallet frozen balance');
+    const ledgerAvailable = aggregateDecimal(ledger._sum.available_change, 'Stored Agent ledger available balance');
+    const ledgerFrozen = aggregateDecimal(ledger._sum.frozen_change, 'Stored Agent ledger frozen balance');
+    const ledgerExpected = aggregateDecimal(ledger._sum.expected_change, 'Stored Agent ledger expected balance');
+    const positionExpected = aggregateDecimal(
+      positions._sum.expected_remaining,
+      'Stored Agent position expected balance',
+    );
+    if (frozen.isNegative() || ledgerExpected.isNegative() || positionExpected.isNegative() ||
+      !available.equals(ledgerAvailable) || !frozen.equals(ledgerFrozen) ||
+      !ledgerExpected.equals(positionExpected)) {
+      throw internal('Stored Agent wallet and commission ledger do not reconcile');
+    }
+    const isNegative = available.isNegative();
+    const withdrawalAllowed = available.greaterThan(0);
+    return {
+      availableBalance: safeSignedMoney(available, 'Stored Agent wallet available balance'),
+      blockedReason: isNegative ? 'NEGATIVE_BALANCE' : withdrawalAllowed ? null : 'INSUFFICIENT_BALANCE',
+      expectedCommission: safeMoney(ledgerExpected, 'Stored Agent expected commission'),
+      frozenBalance: safeMoney(frozen, 'Stored Agent wallet frozen balance'),
+      isNegative,
+      negativeBalance: safeMoney(isNegative ? available.abs() : new Prisma.Decimal(0), 'Stored Agent negative balance'),
+      version: safeCount(wallet.version, 'Stored Agent wallet version', 1),
+      withdrawalAllowed,
+    };
   }
 
   async listCustomers(input: AgentCustomerListInput): Promise<AgentCustomerListResult> {
@@ -1115,6 +1678,206 @@ export class AgentOperationsRepository {
       });
       if (!order) throw notFound('Agent order does not exist');
       return detailOrder(order, input.agentId);
+    }, { isolationLevel: 'RepeatableRead' });
+  }
+
+  async listCommissions(input: AgentCommissionListInput): Promise<AgentCommissionListResult> {
+    validateCommissionListInput(input);
+    return this.prisma.$transaction(async (transaction) => {
+      await this.requireActiveAgent(transaction, input);
+      const where = commissionLedgerWhere(input);
+      const [items, total] = await Promise.all([
+        transaction.commissionLedger.findMany({
+          orderBy: [{ occurred_at: 'desc' }, { id: 'desc' }],
+          select: COMMISSION_LEDGER_LIST_SELECT,
+          skip: (input.page - 1) * input.pageSize,
+          take: input.pageSize,
+          where,
+        }),
+        transaction.commissionLedger.count({ where }),
+      ]);
+      return {
+        items: items.map((item) => commissionListItem(item, input.agentId)),
+        total: safeCount(total, 'Stored Agent commission total'),
+      };
+    }, { isolationLevel: 'RepeatableRead' });
+  }
+
+  async getCommission(input: AgentCommissionReadInput): Promise<AgentCommissionDetailSnapshot> {
+    validateCommissionReadInput(input);
+    return this.prisma.$transaction(async (transaction) => {
+      await this.requireActiveAgent(transaction, input);
+      const snapshot = await transaction.orderItemCommissionSnapshot.findFirst({
+        select: COMMISSION_DETAIL_SELECT,
+        where: {
+          ...commissionSnapshotWhere(input.agentId),
+          id: input.commissionSnapshotId,
+        },
+      });
+      if (snapshot === null) throw notFound('Agent commission does not exist');
+      return commissionDetail(snapshot, input.agentId);
+    }, { isolationLevel: 'RepeatableRead' });
+  }
+
+  async getWallet(input: AgentOperationsIdentity): Promise<AgentWalletSnapshot> {
+    validateIdentity(input);
+    return this.prisma.$transaction(async (transaction) => {
+      await this.requireActiveAgent(transaction, input);
+      return this.reconciledWallet(transaction, input.agentId);
+    }, { isolationLevel: 'RepeatableRead' });
+  }
+
+  async getDashboard(input: AgentOperationsIdentity): Promise<AgentDashboardSnapshot> {
+    validateIdentity(input);
+    return this.prisma.$transaction(async (transaction) => {
+      await this.requireActiveAgent(transaction, input);
+      const asOf = await this.transactionTime(transaction);
+      const businessDate = new Date(asOf.getTime() + SHANGHAI_OFFSET_MS).toISOString().slice(0, 10);
+      const localMidnight = Date.parse(`${businessDate}T00:00:00.000Z`);
+      const todayStart = new Date(localMidnight - SHANGHAI_OFFSET_MS);
+      const monthStart = new Date(Date.parse(`${businessDate.slice(0, 7)}-01T00:00:00.000Z`) - SHANGHAI_OFFSET_MS);
+      const trendStart = new Date(todayStart.getTime() - 6 * DAY_MS);
+      const dataStart = monthStart.getTime() < trendStart.getTime() ? monthStart : trendStart;
+      const ownedSnapshot = commissionSnapshotWhere(input.agentId);
+      const [
+        wallet,
+        paidOrders,
+        refunds,
+        trendLedgers,
+        attributedCustomerCount,
+        pendingWithdrawalCount,
+        commissionExceptionCount,
+      ] = await Promise.all([
+        this.reconciledWallet(transaction, input.agentId),
+        transaction.salesOrder.findMany({
+          orderBy: [{ paid_at: 'asc' }, { id: 'asc' }],
+          select: { id: true, paid_amount: true, paid_at: true },
+          where: {
+            ...commissionOrderWhere(input.agentId),
+            paid_at: { gte: dataStart, lte: asOf },
+          },
+        }),
+        transaction.refund.findMany({
+          orderBy: [{ succeeded_at: 'asc' }, { id: 'asc' }],
+          select: { amount: true, id: true, succeeded_at: true },
+          where: {
+            order: commissionOrderWhere(input.agentId),
+            status: 'SUCCEEDED',
+            succeeded_at: { gte: dataStart, lte: asOf },
+          },
+        }),
+        transaction.commissionLedger.findMany({
+          orderBy: [{ occurred_at: 'asc' }, { id: 'asc' }],
+          select: COMMISSION_LEDGER_FACT_SELECT,
+          where: {
+            agent_id: input.agentId,
+            occurred_at: { gte: trendStart, lte: asOf },
+            snapshot: { is: ownedSnapshot },
+            withdrawal_id: null,
+          },
+        }),
+        transaction.customerAgentBinding.count({ where: currentCustomerWhere({ agentId: input.agentId }) }),
+        transaction.withdrawal.count({
+          where: { agent_id: input.agentId, status: { in: ['APPROVED', 'PENDING'] } },
+        }),
+        transaction.salesOrder.count({
+          where: {
+            attribution_candidate: {
+              is: { candidate_agent_id: input.agentId, submit_channel: 'AGENT' },
+            },
+            paid_at: { not: null },
+            payment_resolution: 'MANUAL_REQUIRED',
+            payment_status: 'PAID',
+          },
+        }),
+      ]);
+
+      type TrendAccumulator = {
+        commission: Prisma.Decimal;
+        orders: number;
+        refunds: Prisma.Decimal;
+        sales: Prisma.Decimal;
+      };
+      const trend = new Map<string, TrendAccumulator>();
+      for (let offset = 0; offset < 7; offset += 1) {
+        const date = new Date(trendStart.getTime() + offset * DAY_MS);
+        const key = new Date(date.getTime() + SHANGHAI_OFFSET_MS).toISOString().slice(0, 10);
+        trend.set(key, {
+          commission: new Prisma.Decimal(0),
+          orders: 0,
+          refunds: new Prisma.Decimal(0),
+          sales: new Prisma.Decimal(0),
+        });
+      }
+      let todaySales = new Prisma.Decimal(0);
+      let monthSales = new Prisma.Decimal(0);
+      let todayRefunds = new Prisma.Decimal(0);
+      let monthRefunds = new Prisma.Decimal(0);
+      let todayPaidOrderCount = 0;
+      for (const order of paidOrders) {
+        requireUlid(order.id, 'Stored Agent dashboard order ID');
+        const paidAt = safeDate(order.paid_at, 'Stored Agent dashboard order payment time');
+        safeMoney(order.paid_amount, 'Stored Agent dashboard paid amount');
+        if (paidAt.getTime() >= monthStart.getTime()) monthSales = monthSales.add(order.paid_amount);
+        if (paidAt.getTime() >= todayStart.getTime()) {
+          todaySales = todaySales.add(order.paid_amount);
+          todayPaidOrderCount += 1;
+        }
+        const key = new Date(paidAt.getTime() + SHANGHAI_OFFSET_MS).toISOString().slice(0, 10);
+        const point = trend.get(key);
+        if (point !== undefined) {
+          point.sales = point.sales.add(order.paid_amount);
+          point.orders += 1;
+        }
+      }
+      for (const refund of refunds) {
+        requireUlid(refund.id, 'Stored Agent dashboard refund ID');
+        const succeededAt = safeDate(refund.succeeded_at, 'Stored Agent dashboard refund success time');
+        safeMoney(refund.amount, 'Stored Agent dashboard refund amount');
+        if (succeededAt.getTime() >= monthStart.getTime()) monthRefunds = monthRefunds.add(refund.amount);
+        if (succeededAt.getTime() >= todayStart.getTime()) todayRefunds = todayRefunds.add(refund.amount);
+        const key = new Date(succeededAt.getTime() + SHANGHAI_OFFSET_MS).toISOString().slice(0, 10);
+        const point = trend.get(key);
+        if (point !== undefined) point.refunds = point.refunds.add(refund.amount);
+      }
+      for (const ledgerRecord of trendLedgers) {
+        if (ledgerRecord.snapshot_id === null) throw internal('Stored dashboard commission snapshot is missing');
+        const ledger = commissionLedger(ledgerRecord, input.agentId, ledgerRecord.snapshot_id);
+        const key = new Date(ledger.occurredAt.getTime() + SHANGHAI_OFFSET_MS).toISOString().slice(0, 10);
+        const point = trend.get(key);
+        if (point !== undefined) {
+          point.commission = point.commission
+            .add(new Prisma.Decimal(ledger.expectedChange))
+            .add(new Prisma.Decimal(ledger.availableChange));
+        }
+      }
+      return {
+        agentId: input.agentId,
+        asOf,
+        attributedCustomerCount: safeCount(attributedCustomerCount, 'Stored Agent attributed customer count'),
+        availableBalance: wallet.availableBalance,
+        commissionExceptionCount: safeCount(commissionExceptionCount, 'Stored Agent commission exception count'),
+        expectedCommission: wallet.expectedCommission,
+        frozenBalance: wallet.frozenBalance,
+        monthNetSalesAmount: safeSignedMoney(
+          monthSales.minus(monthRefunds),
+          'Stored Agent monthly net sales amount',
+        ),
+        negativeBalance: wallet.negativeBalance,
+        pendingWithdrawalCount: safeCount(pendingWithdrawalCount, 'Stored Agent pending withdrawal count'),
+        todayNetSalesAmount: safeSignedMoney(
+          todaySales.minus(todayRefunds),
+          'Stored Agent daily net sales amount',
+        ),
+        todayPaidOrderCount: safeCount(todayPaidOrderCount, 'Stored Agent daily paid order count'),
+        trend: [...trend.entries()].map(([date, point]) => ({
+          businessDate: date,
+          commissionChange: safeSignedMoney(point.commission, 'Stored Agent daily commission change'),
+          netSalesAmount: safeSignedMoney(point.sales.minus(point.refunds), 'Stored Agent daily net sales amount'),
+          paidOrderCount: safeCount(point.orders, 'Stored Agent daily paid order count'),
+        })),
+        withdrawalActionCount: 0,
+      };
     }, { isolationLevel: 'RepeatableRead' });
   }
 }

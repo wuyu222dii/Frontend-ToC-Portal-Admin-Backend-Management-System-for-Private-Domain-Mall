@@ -19,6 +19,7 @@ export type HighRiskPreviewTargetType =
   | 'AFTERSALE'
   | 'BRAND'
   | 'CATEGORY'
+  | 'COMMISSION_RULE'
   | 'CUSTOMER'
   | 'INVENTORY'
   | 'ORDER'
@@ -41,6 +42,7 @@ export type HighRiskPreviewAction =
   | 'CATEGORY.ACTIVATE'
   | 'CATEGORY.DEACTIVATE'
   | 'CATEGORY.SOFT_DELETE'
+  | 'COMMISSION_RULE.PUBLISH'
   | 'CUSTOMER.ATTRIBUTION_TRANSFER'
   | 'INVENTORY.ADJUST'
   | 'ORDER.MANUAL_COMPENSATION'
@@ -112,6 +114,7 @@ const PREVIEW_ACTION = new Set<HighRiskPreviewAction>([
   'CATEGORY.ACTIVATE',
   'CATEGORY.DEACTIVATE',
   'CATEGORY.SOFT_DELETE',
+  'COMMISSION_RULE.PUBLISH',
   'CUSTOMER.ATTRIBUTION_TRANSFER',
   'INVENTORY.ADJUST',
   'ORDER.MANUAL_COMPENSATION',
@@ -130,6 +133,7 @@ const PREVIEW_TARGET_TYPE = new Set<HighRiskPreviewTargetType>([
   'AFTERSALE',
   'BRAND',
   'CATEGORY',
+  'COMMISSION_RULE',
   'CUSTOMER',
   'INVENTORY',
   'ORDER',
@@ -150,9 +154,9 @@ function requireUlid(value: string, label: string): void {
   if (!isValidUlid(value)) throw new TypeError(`${label} must be a ULID`);
 }
 
-function requireVersion(value: number): void {
-  if (!Number.isSafeInteger(value) || value < 1 || value > 2_147_483_647) {
-    throw new TypeError('Preview resource version must be a positive PostgreSQL INTEGER');
+function requireVersion(value: number, allowInitialCommissionRule: boolean): void {
+  if (!Number.isSafeInteger(value) || value < (allowInitialCommissionRule ? 0 : 1) || value > 2_147_483_647) {
+    throw new TypeError('Preview resource version is outside the supported PostgreSQL INTEGER range');
   }
 }
 
@@ -168,7 +172,10 @@ function validateIssueInput(input: IssueHighRiskPreviewInput): void {
     throw new TypeError('Preview action and target type do not match');
   }
   requireUlid(input.targetId, 'Preview target ID');
-  requireVersion(input.resourceVersion);
+  requireVersion(
+    input.resourceVersion,
+    input.action === 'COMMISSION_RULE.PUBLISH' && input.targetType === 'COMMISSION_RULE',
+  );
   if (typeof input.previewToken !== 'string' || input.previewToken.length < 16 || input.previewToken.length > 512) {
     throw new TypeError('Preview token must contain 16 to 512 characters');
   }

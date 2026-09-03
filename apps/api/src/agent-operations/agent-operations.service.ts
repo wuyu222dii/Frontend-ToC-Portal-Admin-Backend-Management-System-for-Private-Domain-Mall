@@ -1,6 +1,7 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   AgentOperationsRepository,
+  type AgentCommissionDetailSnapshot,
   type AgentOrderDisplayAxes,
   type AgentOrderItemSnapshot,
   type CurrentAgentSession,
@@ -9,7 +10,11 @@ import {
 import { ApplicationError, projectOrderDisplayStatus } from '@qingxu/platform-core';
 
 import { API_DATABASE_RUNTIME } from '../platform/database/api-database-runtime';
-import type { AgentCustomerListQuery, AgentOrderListQuery } from './agent-operations.dto';
+import type {
+  AgentCommissionListQuery,
+  AgentCustomerListQuery,
+  AgentOrderListQuery,
+} from './agent-operations.dto';
 
 function displayStatus(axes: AgentOrderDisplayAxes): string {
   return projectOrderDisplayStatus(axes);
@@ -31,12 +36,78 @@ function itemView(item: AgentOrderItemSnapshot) {
   };
 }
 
+function commissionDetailView(commission: AgentCommissionDetailSnapshot) {
+  return {
+    commission_snapshot_id: commission.commissionSnapshotId,
+    order_item_id: commission.orderItemId,
+    product_id: commission.productId,
+    product_name: commission.productName,
+    sku_id: commission.skuId,
+    sku_name: commission.skuName,
+    category_id: commission.categoryId,
+    category_name: commission.categoryName,
+    rule_version_id: commission.ruleVersionId,
+    rule_version_no: commission.ruleVersionNo,
+    rule_source: commission.ruleSource,
+    hit_path: commission.hitPath,
+    effective_rate: commission.effectiveRate,
+    commission_base: commission.commissionBase,
+    original_commission: commission.originalCommission,
+    expected_remaining: commission.expectedRemaining,
+    reversal_total: commission.reversalTotal,
+    rounding_mode: 'HALF_UP' as const,
+    rounding_scale: 2 as const,
+    position_state: commission.positionState,
+    ledger: commission.ledger.map((ledger) => ({
+      ledger_id: ledger.ledgerId,
+      ledger_type: ledger.ledgerType,
+      expected_change: ledger.expectedChange,
+      available_change: ledger.availableChange,
+      frozen_change: ledger.frozenChange,
+      refund_id: ledger.refundId,
+      reason: ledger.reason,
+      occurred_at: ledger.occurredAt.toISOString(),
+    })),
+  };
+}
+
 @Injectable()
 export class AgentOperationsService {
   private readonly operations!: AgentOperationsRepository;
 
   constructor(@Optional() @Inject(API_DATABASE_RUNTIME) database?: DatabaseRuntime) {
     if (database) this.operations = new AgentOperationsRepository(database.prisma);
+  }
+
+  async getDashboard(session: CurrentAgentSession) {
+    const dashboard = await this.repository().getDashboard({
+      accountId: session.accountId,
+      agentId: session.agentId,
+    });
+    return {
+      timezone: 'Asia/Shanghai' as const,
+      as_of: dashboard.asOf.toISOString(),
+      agent_id: dashboard.agentId,
+      today_net_sales_amount: dashboard.todayNetSalesAmount,
+      month_net_sales_amount: dashboard.monthNetSalesAmount,
+      today_paid_order_count: dashboard.todayPaidOrderCount,
+      attributed_customer_count: dashboard.attributedCustomerCount,
+      expected_commission: dashboard.expectedCommission,
+      available_balance: dashboard.availableBalance,
+      frozen_balance: dashboard.frozenBalance,
+      negative_balance: dashboard.negativeBalance,
+      pending_withdrawal_count: dashboard.pendingWithdrawalCount,
+      todo: {
+        commission_exception_count: dashboard.commissionExceptionCount,
+        withdrawal_action_count: dashboard.withdrawalActionCount,
+      },
+      trend: dashboard.trend.map((point) => ({
+        business_date: point.businessDate,
+        net_sales_amount: point.netSalesAmount,
+        paid_order_count: point.paidOrderCount,
+        commission_change: point.commissionChange,
+      })),
+    };
   }
 
   async listCustomers(session: CurrentAgentSession, input: AgentCustomerListQuery) {
@@ -200,6 +271,7 @@ export class AgentOperationsService {
       available_actions: ['VIEW_DETAIL', 'VIEW_COMMISSION'] as const,
       close_reason: order.closeReason,
       commission_items: order.commissionItems.map((commission) => ({
+        commission_snapshot_id: commission.commissionSnapshotId,
         effective_rate: commission.effectiveRate,
         order_item_id: commission.orderItemId,
         original_commission: commission.originalCommission,
@@ -236,6 +308,72 @@ export class AgentOperationsService {
         occurred_at: event.occurredAt.toISOString(),
         to_status: event.toStatus,
       })),
+    };
+  }
+
+  async listCommissions(session: CurrentAgentSession, input: AgentCommissionListQuery) {
+    const result = await this.repository().listCommissions({
+      accountId: session.accountId,
+      agentId: session.agentId,
+      ...(input.ledgerType === undefined ? {} : { ledgerType: input.ledgerType }),
+      ...(input.occurredAtFrom === undefined ? {} : { occurredAtFrom: input.occurredAtFrom }),
+      ...(input.occurredAtToExclusive === undefined ? {} : { occurredAtToExclusive: input.occurredAtToExclusive }),
+      ...(input.orderNo === undefined ? {} : { orderNo: input.orderNo }),
+      page: input.page,
+      pageSize: input.pageSize,
+      ...(input.state === undefined ? {} : { state: input.state }),
+    });
+    return {
+      items: result.items.map((commission) => ({
+        ledger_id: commission.ledgerId,
+        commission_snapshot_id: commission.commissionSnapshotId,
+        order_id: commission.orderId,
+        order_no: commission.orderNo,
+        order_item_id: commission.orderItemId,
+        product_id: commission.productId,
+        product_name: commission.productName,
+        sku_id: commission.skuId,
+        sku_name: commission.skuName,
+        effective_rate: commission.effectiveRate,
+        commission_base: commission.commissionBase,
+        original_commission: commission.originalCommission,
+        refund_id: commission.refundId,
+        ledger_type: commission.ledgerType,
+        position_state: commission.positionState,
+        expected_change: commission.expectedChange,
+        available_change: commission.availableChange,
+        reason: commission.reason,
+        occurred_at: commission.occurredAt.toISOString(),
+      })),
+      pagination: { page: input.page, page_size: input.pageSize, total: result.total },
+    };
+  }
+
+  async getCommission(session: CurrentAgentSession, commissionSnapshotId: string) {
+    const result = await this.repository().getCommission({
+      accountId: session.accountId,
+      agentId: session.agentId,
+      commissionSnapshotId,
+    });
+    return {
+      order_id: result.orderId,
+      order_no: result.orderNo,
+      item: commissionDetailView(result),
+    };
+  }
+
+  async getWallet(session: CurrentAgentSession) {
+    const wallet = await this.repository().getWallet({
+      accountId: session.accountId,
+      agentId: session.agentId,
+    });
+    return {
+      available_balance: wallet.availableBalance,
+      frozen_balance: wallet.frozenBalance,
+      is_negative: wallet.isNegative,
+      withdrawal_allowed: wallet.withdrawalAllowed,
+      blocked_reason: wallet.blockedReason,
+      version: wallet.version,
     };
   }
 

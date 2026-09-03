@@ -8,9 +8,9 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 process.env.QINGXU_CONTRACT_EXPECTED_VERSION = '2.4.11-ch028';
-process.env.QINGXU_CONTRACT_EXPECTED_SCHEMA_COUNT = '327';
-process.env.QINGXU_CONTRACT_EXPECTED_SCHEMA_REFERENCES = '716';
-process.env.QINGXU_CONTRACT_EXPECTED_LOCAL_REFERENCES = '2746';
+process.env.QINGXU_CONTRACT_EXPECTED_SCHEMA_COUNT = '330';
+process.env.QINGXU_CONTRACT_EXPECTED_SCHEMA_REFERENCES = '725';
+process.env.QINGXU_CONTRACT_EXPECTED_LOCAL_REFERENCES = '2754';
 
 await import('./check-ch026-contract.mjs');
 
@@ -51,6 +51,31 @@ const B133_OPERATIONS = [
     'postAdminCustomersByCustomerIdAttributionTransferPreview', 'HighRiskPreviewResponse', 'bearerAuth'],
   ['post', '/admin/customers/{customer_id}/attribution-transfers',
     'postAdminCustomersByCustomerIdAttributionTransfers', 'AdminCustomerResponse', 'bearerAuth'],
+];
+const B134_OPERATIONS = [
+  ['get', '/agent/dashboard', 'getAgentDashboard', 'AgentDashboardResponse', 'agentBearerAuth'],
+  ['get', '/agent/commissions', 'getAgentCommissions', 'CommissionListResponse', 'agentBearerAuth'],
+  ['get', '/agent/commissions/{commission_snapshot_id}', 'getAgentCommissionsByCommissionSnapshotId',
+    'AgentCommissionDetailResponse', 'agentBearerAuth'],
+  ['get', '/agent/wallet', 'getAgentWallet', 'WalletResponse', 'agentBearerAuth'],
+  ['get', '/admin/agents/{agent_id}/commissions', 'getAdminAgentsByAgentIdCommissions',
+    'AdminAgentCommissionHistoryResponse', 'bearerAuth'],
+  ['get', '/admin/agents/{agent_id}/wallet-ledger', 'getAdminAgentsByAgentIdWalletLedger',
+    'AdminAgentWalletLedgerResponse', 'bearerAuth'],
+  ['get', '/admin/commission-rules/current', 'getAdminCommissionRulesCurrent',
+    'CommissionRulesResponse', 'bearerAuth'],
+  ['get', '/admin/commission-rules/skus', 'getAdminCommissionRulesSkus',
+    'CommissionRuleSkuListResponse', 'bearerAuth'],
+  ['post', '/admin/commission-rule-versions/preview', 'postAdminCommissionRuleVersionsPreview',
+    'CommissionRulePreviewResponse', 'bearerAuth'],
+  ['post', '/admin/commission-rule-versions', 'postAdminCommissionRuleVersions',
+    'CommissionRuleVersionResponse', 'bearerAuth'],
+  ['get', '/admin/commission-rule-versions', 'getAdminCommissionRuleVersions',
+    'CommissionRuleVersionListResponse', 'bearerAuth'],
+  ['get', '/admin/commission-rule-versions/{version_id}', 'getAdminCommissionRuleVersionsByVersionId',
+    'CommissionRuleVersionResponse', 'bearerAuth'],
+  ['get', '/admin/orders/{order_id}/commission-explanation', 'getAdminOrdersByOrderIdCommissionExplanation',
+    'OrderCommissionExplanationResponse', 'bearerAuth'],
 ];
 
 function responseSchema(document, method, path) {
@@ -123,19 +148,19 @@ try {
     'B13 Agent database gate package alias drifted');
   const ciB13Step = workflowStep(
     ciWorkflow,
-    'Test B13.1-B13.3 Agent authentication, commerce and operations with PostgreSQL and Redis',
+    'Test B13.1-B13.4 Agent authentication, commerce, operations and commission finance with PostgreSQL and Redis',
   );
   assert.match(ciB13Step, /B13_AGENT_AUTH_DATABASE_TEST_MODE: full/);
   assert.match(ciB13Step, /run: pnpm db:test-b13-agent/);
   const smokeB12Step = smokeWorkflow.indexOf('Run rollback-only B12 aftersales');
   const smokeB13StepIndex = smokeWorkflow.indexOf(
-    'Run rollback-only B13.1-B13.3 Agent authentication, commerce and operations smoke',
+    'Run rollback-only B13.1-B13.4 Agent authentication, commerce, operations and commission finance smoke',
   );
   assert.ok(smokeB12Step >= 0 && smokeB13StepIndex > smokeB12Step,
     'B13 rollback smoke must run after B12');
   const smokeB13Step = workflowStep(
     smokeWorkflow,
-    'Run rollback-only B13.1-B13.3 Agent authentication, commerce and operations smoke',
+    'Run rollback-only B13.1-B13.4 Agent authentication, commerce, operations and commission finance smoke',
   );
   assert.match(smokeB13Step, /B13_AGENT_AUTH_DATABASE_TEST_MODE: rollback/);
   assert.match(smokeB13Step, /DATABASE_URL: \$\{\{ secrets\.SUPABASE_RUNTIME_URL \}\}/);
@@ -157,6 +182,14 @@ try {
     'B13 runner must bind B13.3 operations checks to the selected gate mode');
   assert.match(b13Runner, /src\/agent-operations\.integration\.spec\.ts/,
     'B13 runner must execute the B13.3 operations integration check');
+  assert.match(b13Runner, /B134_AGENT_FINANCE_DATABASE_TEST_MODE = mode/,
+    'B13 runner must bind B13.4 finance checks to the selected gate mode');
+  const b133RunnerIndex = b13Runner.indexOf('src/agent-operations.integration.spec.ts');
+  const b134DatabaseRunnerIndex = b13Runner.indexOf('src/commission.integration.spec.ts');
+  const b134ApiRunnerIndex = b13Runner.indexOf('src/admin-commissions/admin-commissions.integration.spec.ts');
+  assert.ok(b133RunnerIndex >= 0 && b134DatabaseRunnerIndex > b133RunnerIndex &&
+    b134ApiRunnerIndex > b134DatabaseRunnerIndex,
+  'B13 runner must execute B13.4 database and API checks in order after B13.3');
   const rollbackBranch = b13Runner.slice(b13Runner.indexOf('} else {', b13Runner.indexOf("if (mode === 'full')")));
   assert.doesNotMatch(rollbackBranch, /REDIS_URL/,
     'B13 rollback runner branch must remain independent of Redis');
@@ -205,6 +238,16 @@ try {
     'exactly one non-Agent operation may expose the Agent realm');
 
   for (const [method, path, operationId, responseName, securityScheme] of B133_OPERATIONS) {
+    const operation = document.paths[path][method];
+    assert.equal(operation.operationId, operationId);
+    assert.deepEqual(operation.security, [{ [securityScheme]: [] }],
+      `${operationId} must use only its declared realm`);
+    assert.deepEqual(Object.keys(operation.responses).sort(), AGENT_AUTH_RESPONSE_STATUSES,
+      `${operationId} response status set drifted`);
+    assert.equal(responseSchema(document, method, path).$ref, `#/components/schemas/${responseName}`,
+      `${operationId} success response schema drifted`);
+  }
+  for (const [method, path, operationId, responseName, securityScheme] of B134_OPERATIONS) {
     const operation = document.paths[path][method];
     assert.equal(operation.operationId, operationId);
     assert.deepEqual(operation.security, [{ [securityScheme]: [] }],
@@ -340,7 +383,8 @@ try {
   ]);
   const commissionItem = agentOrderData.properties.commission_items.items;
   assertClosedObject(commissionItem, 'AgentOrderResponse.data.commission_items[]',
-    ['order_item_id', 'effective_rate', 'rule_source', 'original_commission', 'state']);
+    ['commission_snapshot_id', 'order_item_id', 'effective_rate', 'rule_source', 'original_commission', 'state']);
+  assert.equal(commissionItem.properties.commission_snapshot_id.pattern, '^[0-9A-HJKMNP-TV-Z]{26}$');
   assert.deepEqual(commissionItem.properties.rule_source.enum, ['PLATFORM', 'CATEGORY', 'SKU']);
   assert.deepEqual(commissionItem.properties.state.enum, ['NONE', 'EXPECTED', 'CANCELLED', 'AVAILABLE']);
   assert.equal(agentOrderData.properties.aftersales.items.$ref,
@@ -411,6 +455,211 @@ try {
   assertClosedObject(schemas.ImpactMetric, 'ImpactMetric', ['key', 'label', 'before', 'after']);
   assert.deepEqual(schemas.ImpactMetric.properties.before.type, ['string', 'null']);
   assert.deepEqual(schemas.ImpactMetric.properties.after.type, ['string', 'null']);
+
+  for (const responseName of [
+    'AgentDashboardResponse',
+    'CommissionListResponse',
+    'AgentCommissionDetailResponse',
+    'WalletResponse',
+    'AdminAgentCommissionHistoryResponse',
+    'AdminAgentWalletLedgerResponse',
+    'CommissionRulesResponse',
+    'CommissionRuleSkuListResponse',
+    'CommissionRulePreviewResponse',
+    'CommissionRuleVersionResponse',
+    'CommissionRuleVersionListResponse',
+    'OrderCommissionExplanationResponse',
+  ]) assertClosedObject(schemas[responseName], responseName, successEnvelopeFields);
+
+  const commissionListData = schemas.CommissionListResponse.properties.data;
+  assertClosedObject(commissionListData, 'CommissionListResponse.data', ['items', 'pagination']);
+  assert.equal(commissionListData.properties.items.items.$ref,
+    '#/components/schemas/AgentCommissionLedgerItem');
+  assertClosedObject(commissionListData.properties.pagination, 'CommissionListResponse.data.pagination',
+    ['page', 'page_size', 'total']);
+  assertClosedObject(schemas.AgentCommissionLedgerItem, 'AgentCommissionLedgerItem', [
+    'ledger_id', 'commission_snapshot_id', 'order_id', 'order_no', 'order_item_id', 'product_id',
+    'product_name', 'sku_id', 'sku_name', 'effective_rate', 'commission_base', 'original_commission',
+    'refund_id', 'ledger_type', 'position_state', 'expected_change', 'available_change', 'reason',
+    'occurred_at',
+  ]);
+  assert.equal(schemas.AgentCommissionLedgerItem.properties.effective_rate.$ref,
+    '#/components/schemas/RatePercentValue');
+  assert.equal(schemas.AgentCommissionLedgerItem.properties.commission_base.$ref,
+    '#/components/schemas/NonNegativeMoney');
+  assert.equal(schemas.AgentCommissionLedgerItem.properties.original_commission.$ref,
+    '#/components/schemas/NonNegativeMoney');
+  assert.deepEqual(schemas.AgentCommissionLedgerItem.properties.refund_id.type, ['string', 'null']);
+  assert.deepEqual(schemas.AgentCommissionLedgerItem.properties.ledger_type.enum,
+    ['EXPECTED_CREATED', 'EXPECTED_REDUCED', 'EXPECTED_CANCELLED', 'AVAILABLE_CREDIT', 'REFUND_DEBIT']);
+  assert.deepEqual(schemas.AgentCommissionLedgerItem.properties.position_state.enum,
+    ['NONE', 'EXPECTED', 'CANCELLED', 'AVAILABLE']);
+
+  const walletData = schemas.WalletResponse.properties.data;
+  assertClosedObject(walletData, 'WalletResponse.data', [
+    'available_balance', 'frozen_balance', 'is_negative', 'withdrawal_allowed', 'version',
+  ], ['blocked_reason']);
+  assert.equal(walletData.properties.available_balance.$ref, '#/components/schemas/SignedMoney');
+  assert.equal(walletData.properties.frozen_balance.$ref, '#/components/schemas/NonNegativeMoney');
+  assert.deepEqual(walletData.properties.blocked_reason.type, ['string', 'null']);
+
+  const dashboardData = schemas.AgentDashboardResponse.properties.data;
+  assertClosedObject(dashboardData, 'AgentDashboardResponse.data', [
+    'timezone', 'as_of', 'agent_id', 'today_net_sales_amount', 'month_net_sales_amount',
+    'today_paid_order_count', 'attributed_customer_count', 'expected_commission', 'available_balance',
+    'frozen_balance', 'negative_balance', 'pending_withdrawal_count', 'todo', 'trend',
+  ]);
+  assert.deepEqual(dashboardData.properties.timezone, { const: 'Asia/Shanghai' });
+  assertClosedObject(dashboardData.properties.todo, 'AgentDashboardResponse.data.todo',
+    ['commission_exception_count', 'withdrawal_action_count']);
+  assert.equal(dashboardData.properties.trend.items.$ref,
+    '#/components/schemas/AgentDashboardTrendPoint');
+  assertClosedObject(schemas.AgentDashboardTrendPoint, 'AgentDashboardTrendPoint',
+    ['business_date', 'net_sales_amount', 'paid_order_count', 'commission_change']);
+
+  const adminCommissionData = schemas.AdminAgentCommissionHistoryResponse.properties.data;
+  assertClosedObject(adminCommissionData, 'AdminAgentCommissionHistoryResponse.data',
+    ['items', 'pagination']);
+  assert.equal(adminCommissionData.properties.items.items.$ref,
+    '#/components/schemas/AdminAgentCommissionHistoryItem');
+  assert.equal(adminCommissionData.properties.pagination.$ref, '#/components/schemas/PaginationView');
+  assertClosedObject(schemas.AdminAgentCommissionHistoryItem, 'AdminAgentCommissionHistoryItem', [
+    'ledger_id', 'commission_snapshot_id', 'agent_id', 'order_id', 'order_no', 'order_item_id',
+    'product_id', 'product_name', 'sku_id', 'sku_name', 'category_id', 'category_name',
+    'rule_version_id', 'rule_version_no', 'rule_source', 'effective_rate', 'commission_base',
+    'original_commission', 'expected_remaining', 'reversal_total', 'position_state', 'ledger_type',
+    'expected_change', 'available_change', 'refund_id', 'occurred_at',
+  ]);
+
+  const adminWalletData = schemas.AdminAgentWalletLedgerResponse.properties.data;
+  assertClosedObject(adminWalletData, 'AdminAgentWalletLedgerResponse.data', ['items', 'pagination']);
+  assert.equal(adminWalletData.properties.items.items.$ref,
+    '#/components/schemas/AdminAgentWalletLedgerItem');
+  assert.equal(adminWalletData.properties.pagination.$ref, '#/components/schemas/PaginationView');
+  assertClosedObject(schemas.AdminAgentWalletLedgerItem, 'AdminAgentWalletLedgerItem', [
+    'wallet_ledger_id', 'agent_id', 'ledger_type', 'expected_change', 'available_change', 'frozen_change',
+    'expected_balance_after', 'available_balance_after', 'frozen_balance_after', 'reference_type',
+    'reference_id', 'refund_id', 'occurred_at',
+  ]);
+  assert.deepEqual(schemas.AdminAgentWalletLedgerItem.properties.reference_type.enum,
+    ['COMMISSION_LEDGER', 'WITHDRAWAL', 'REFUND']);
+
+  assertClosedObject(schemas.CommissionRuleSkuView, 'CommissionRuleSkuView', [
+    'sku_id', 'sku_code', 'product_name', 'category_id', 'configured_rate', 'effective_rate', 'source',
+  ]);
+  assert.deepEqual(schemas.CommissionRuleSkuView.properties.configured_rate.oneOf, [
+    { $ref: '#/components/schemas/RatePercentValue' },
+    { type: 'null' },
+  ]);
+  assert.deepEqual(schemas.CommissionRuleSkuView.properties.source.enum, ['PLATFORM', 'CATEGORY', 'SKU']);
+  assertClosedObject(schemas.CommissionRuleCategoryView, 'CommissionRuleCategoryView', [
+    'category_id', 'category_name', 'configured_rate', 'effective_rate', 'source',
+  ]);
+  assert.deepEqual(schemas.CommissionRuleCategoryView.properties.configured_rate.oneOf, [
+    { $ref: '#/components/schemas/RatePercentValue' },
+    { type: 'null' },
+  ]);
+  assert.equal(schemas.CommissionRuleCategoryView.properties.effective_rate.$ref,
+    '#/components/schemas/RatePercentValue');
+  assert.deepEqual(schemas.CommissionRuleCategoryView.properties.source.enum, ['PLATFORM', 'CATEGORY']);
+  const currentRulesData = schemas.CommissionRulesResponse.properties.data;
+  assertClosedObject(currentRulesData, 'CommissionRulesResponse.data',
+    ['version_id', 'version_no', 'platform_rate', 'categories', 'items', 'version']);
+  assert.equal(currentRulesData.properties.categories.items.$ref,
+    '#/components/schemas/CommissionRuleCategoryView');
+  assert.equal(currentRulesData.properties.items.items.$ref,
+    '#/components/schemas/CommissionRuleSkuView');
+  const ruleSkuListData = schemas.CommissionRuleSkuListResponse.properties.data;
+  assertClosedObject(ruleSkuListData, 'CommissionRuleSkuListResponse.data',
+    ['version_id', 'version_no', 'items', 'pagination']);
+  assert.equal(ruleSkuListData.properties.items.items.$ref,
+    '#/components/schemas/CommissionRuleSkuView');
+  assert.equal(ruleSkuListData.properties.pagination.$ref, '#/components/schemas/PaginationView');
+
+  assertClosedObject(schemas.CommissionRuleChange, 'CommissionRuleChange',
+    ['target_type', 'target_id', 'configured_rate']);
+  assert.deepEqual(schemas.CommissionRuleChange.properties.target_type.enum,
+    ['PLATFORM', 'CATEGORY', 'SKU']);
+  assert.deepEqual(schemas.CommissionRuleChange.properties.configured_rate.oneOf, [
+    { $ref: '#/components/schemas/RatePercentValue' },
+    { type: 'null' },
+  ]);
+  assert.deepEqual(schemas.CommissionRuleAction.required, ['base_version_id', 'reason', 'changes']);
+  assert.deepEqual(Object.keys(schemas.CommissionRuleAction.properties).sort(),
+    ['base_version_id', 'changes', 'reason']);
+  assert.deepEqual(schemas.CommissionRuleAction.properties.base_version_id.type, ['string', 'null']);
+  assert.equal(schemas.CommissionRuleAction.properties.changes.items.$ref,
+    '#/components/schemas/CommissionRuleChange');
+  assert.equal(schemas.RatePercentValue.pattern, '^(?:100\\.0000|(?:0|[1-9][0-9]?)\\.[0-9]{4})$');
+  assert.match('0.0000', new RegExp(schemas.RatePercentValue.pattern));
+
+  const previewRuleOperation = document.paths['/admin/commission-rule-versions/preview'].post;
+  const publishRuleOperation = document.paths['/admin/commission-rule-versions'].post;
+  assert.equal(previewRuleOperation.requestBody.content['application/json'].schema.unevaluatedProperties, false);
+  assert.deepEqual(previewRuleOperation.requestBody.content['application/json'].schema.allOf,
+    [{ $ref: '#/components/schemas/CommissionRuleAction' }]);
+  assert.equal(publishRuleOperation.requestBody.content['application/json'].schema.unevaluatedProperties, false);
+  assert.deepEqual(publishRuleOperation.requestBody.content['application/json'].schema.allOf, [
+    { $ref: '#/components/schemas/CommissionRuleAction' },
+    { $ref: '#/components/schemas/HighRiskConfirmationFields' },
+  ]);
+  const publishIfMatch = publishRuleOperation.parameters.find(({ name }) => name === 'If-Match');
+  assert.ok(publishIfMatch, 'commission rule publish must declare its bootstrap-aware If-Match header');
+  assert.equal(publishIfMatch.$ref, undefined);
+  assert.equal(publishIfMatch.required, true);
+  assert.equal(publishIfMatch.schema.pattern, '^\\"(?:0|[1-9][0-9]*)\\"$');
+  assert.equal(document.components.parameters.IfMatch.schema.pattern, '^\\"[1-9][0-9]*\\"$',
+    'the shared If-Match parameter must continue to reject bootstrap version zero');
+  const commissionPreviewData = schemas.CommissionRulePreviewResponse.properties.data;
+  assertClosedObject(commissionPreviewData, 'CommissionRulePreviewResponse.data',
+    ['preview_token', 'confirmation_hash', 'resource_etag', 'expires_at', 'impact']);
+  assert.equal(commissionPreviewData.properties.resource_etag.pattern,
+    '^\\"(?:0|[1-9][0-9]*)\\"$');
+  assertClosedObject(commissionPreviewData.properties.impact,
+    'CommissionRulePreviewResponse.data.impact', ['affected_count', 'metrics', 'warnings']);
+  assert.equal(commissionPreviewData.properties.impact.properties.metrics.items.$ref,
+    '#/components/schemas/ImpactMetric');
+
+  assertClosedObject(schemas.CommissionRuleVersionView, 'CommissionRuleVersionView', [
+    'version_id', 'version_no', 'base_version_id', 'status', 'reason', 'created_by_account_id',
+    'effective_at', 'created_at',
+  ], ['changes']);
+  assert.deepEqual(schemas.CommissionRuleVersionView.properties.base_version_id.type, ['string', 'null']);
+  assert.deepEqual(schemas.CommissionRuleVersionView.properties.status.enum,
+    ['DRAFT', 'PUBLISHED', 'ARCHIVED']);
+  assert.equal(schemas.CommissionRuleVersionView.properties.changes.items.$ref,
+    '#/components/schemas/CommissionRuleChange');
+  assert.equal(schemas.CommissionRuleVersionResponse.properties.data.$ref,
+    '#/components/schemas/CommissionRuleVersionView');
+  const versionListData = schemas.CommissionRuleVersionListResponse.properties.data;
+  assertClosedObject(versionListData, 'CommissionRuleVersionListResponse.data', ['items', 'pagination']);
+  assert.equal(versionListData.properties.items.items.$ref,
+    '#/components/schemas/CommissionRuleVersionView');
+
+  assertClosedObject(schemas.CommissionExplanationLedgerView, 'CommissionExplanationLedgerView', [
+    'ledger_id', 'ledger_type', 'expected_change', 'available_change', 'frozen_change', 'refund_id',
+    'reason', 'occurred_at',
+  ]);
+  assertClosedObject(schemas.CommissionExplanationItem, 'CommissionExplanationItem', [
+    'commission_snapshot_id', 'order_item_id', 'product_id', 'product_name', 'sku_id', 'sku_name',
+    'category_id', 'category_name', 'rule_version_id', 'rule_version_no', 'rule_source', 'hit_path',
+    'effective_rate', 'commission_base', 'original_commission', 'expected_remaining', 'reversal_total',
+    'rounding_mode', 'rounding_scale', 'position_state', 'ledger',
+  ]);
+  assert.deepEqual(schemas.CommissionExplanationItem.properties.rounding_mode, { const: 'HALF_UP' });
+  assert.deepEqual(schemas.CommissionExplanationItem.properties.rounding_scale, { const: 2 });
+  assert.equal(schemas.CommissionExplanationItem.properties.ledger.items.$ref,
+    '#/components/schemas/CommissionExplanationLedgerView');
+  const agentCommissionDetailData = schemas.AgentCommissionDetailResponse.properties.data;
+  assertClosedObject(agentCommissionDetailData, 'AgentCommissionDetailResponse.data',
+    ['order_id', 'order_no', 'item']);
+  assert.equal(agentCommissionDetailData.properties.item.$ref,
+    '#/components/schemas/CommissionExplanationItem');
+  const orderCommissionData = schemas.OrderCommissionExplanationResponse.properties.data;
+  assertClosedObject(orderCommissionData, 'OrderCommissionExplanationResponse.data',
+    ['order_id', 'order_no', 'items']);
+  assert.equal(orderCommissionData.properties.items.items.$ref,
+    '#/components/schemas/CommissionExplanationItem');
 
   assert.deepEqual(responseSchema(document, 'post', '/agent/auth/login').oneOf, [
     { $ref: '#/components/schemas/AgentSessionResponse' },
@@ -639,6 +888,20 @@ try {
     'AdminCustomerListResponse',
     'AdminCustomerDetailResponse',
     'AdminCustomerResponse',
+    'AgentDashboardResponse',
+    'AgentCommissionLedgerItem',
+    'CommissionListResponse',
+    'AgentCommissionDetailResponse',
+    'WalletResponse',
+    'AdminAgentCommissionHistoryResponse',
+    'AdminAgentWalletLedgerResponse',
+    'CommissionRulesResponse',
+    'CommissionRuleCategoryView',
+    'CommissionRuleSkuListResponse',
+    'CommissionRulePreviewResponse',
+    'CommissionRuleVersionResponse',
+    'CommissionRuleVersionListResponse',
+    'OrderCommissionExplanationResponse',
   ]) {
     assert.match(generatedContract, new RegExp(`\\b${generatedType}\\b`),
       `generated contract is missing ${generatedType}`);
@@ -661,6 +924,7 @@ try {
     disclosure_replay_redacted: true,
     b13_gate_wiring: true,
     b133_operations: B133_OPERATIONS.length,
+    b134_operations: B134_OPERATIONS.length,
     dangling_references: 0,
   }) + '\n');
 } finally {

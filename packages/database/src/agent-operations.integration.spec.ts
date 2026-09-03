@@ -44,6 +44,7 @@ interface FixtureIds {
   categoryId: string;
   commissionLedgerId: string;
   commissionPositionId: string;
+  commissionRuleEntryId: string;
   commissionRuleId: string;
   commissionSnapshotId: string;
   customerId: string;
@@ -153,6 +154,7 @@ function newFixtureIds(): FixtureIds {
     categoryId: ids[11]!,
     commissionLedgerId: ids[12]!,
     commissionPositionId: ids[13]!,
+    commissionRuleEntryId: generateUlid(),
     commissionRuleId: ids[14]!,
     commissionSnapshotId: ids[15]!,
     customerId: ids[16]!,
@@ -475,16 +477,46 @@ async function seedHistoricalPayment(
       updated_at: paidAt,
     },
   });
+  const publishedRules = await transaction.commissionRuleVersion.findMany({
+    select: { id: true },
+    where: { status: 'PUBLISHED' },
+  });
+  for (const published of publishedRules) {
+    await transaction.commissionRuleVersion.update({
+      data: { status: 'ARCHIVED' },
+      where: { id: published.id },
+    });
+  }
   const latestRule = await transaction.commissionRuleVersion.aggregate({ _max: { version_no: true } });
   await transaction.commissionRuleVersion.create({
     data: {
       created_at: paidAt,
       created_by_id: ids.accountIds[3],
+      effective_at: null,
       id: ids.commissionRuleId,
       reason: 'B13.3 immutable commission fixture',
       status: 'DRAFT',
       version_no: (latestRule._max.version_no ?? 0) + 1,
     },
+  });
+  await transaction.commissionRuleEntry.create({
+    data: {
+      configured_rate: '10.0000',
+      created_at: paidAt,
+      id: ids.commissionRuleEntryId,
+      rule_version_id: ids.commissionRuleId,
+      target_id: null,
+      target_key: 'PLATFORM',
+      target_type: 'PLATFORM',
+    },
+  });
+  await transaction.commissionRuleVersion.update({
+    data: { effective_at: new Date(paidAt.getTime() - 1), status: 'PUBLISHED' },
+    where: { id: ids.commissionRuleId },
+  });
+  await transaction.commissionRuleVersion.update({
+    data: { status: 'ARCHIVED' },
+    where: { id: ids.commissionRuleId },
   });
   await transaction.orderItemCommissionSnapshot.create({
     data: {

@@ -2,6 +2,7 @@ import { generateUlid } from '@qingxu/platform-core';
 import { describe, expect, it } from 'vitest';
 
 import {
+  parseAgentCommissionListQuery,
   parseAgentCustomerListQuery,
   parseAgentOperationsResourceId,
   parseAgentOrderListQuery,
@@ -60,5 +61,33 @@ describe('Agent operations DTO', () => {
     const resourceId = generateUlid(new Date('2026-09-03T00:00:00.000Z').getTime());
     expect(parseAgentOperationsResourceId(resourceId, 'order_id')).toBe(resourceId);
     expect(() => parseAgentOperationsResourceId('other-agent-order', 'order_id')).toThrow();
+  });
+
+  it('strictly parses commission filters and Shanghai inclusive dates', () => {
+    expect(parseAgentCommissionListQuery({
+      date_from: '2026-09-01',
+      date_to: '2026-09-03',
+      ledger_type: 'REFUND_DEBIT',
+      order_no: '  QX-COMMISSION-1  ',
+      page: '2',
+      page_size: '40',
+      state: 'AVAILABLE',
+    })).toEqual({
+      ledgerType: 'REFUND_DEBIT',
+      occurredAtFrom: new Date('2026-08-31T16:00:00.000Z'),
+      occurredAtToExclusive: new Date('2026-09-03T16:00:00.000Z'),
+      orderNo: 'QX-COMMISSION-1',
+      page: 2,
+      pageSize: 40,
+      state: 'AVAILABLE',
+    });
+    expect(() => parseAgentCommissionListQuery({ ledger_type: 'WITHDRAWAL_PAID' })).toThrow();
+    expect(() => parseAgentCommissionListQuery({ agent_id: generateUlid() })).toThrow();
+  });
+
+  it('requires a ULID commission snapshot path value', () => {
+    const snapshotId = generateUlid(new Date('2026-09-03T00:00:00.000Z').getTime());
+    expect(parseAgentOperationsResourceId(snapshotId, 'commission_snapshot_id')).toBe(snapshotId);
+    expect(() => parseAgentOperationsResourceId('another-agent-snapshot', 'commission_snapshot_id')).toThrow();
   });
 });

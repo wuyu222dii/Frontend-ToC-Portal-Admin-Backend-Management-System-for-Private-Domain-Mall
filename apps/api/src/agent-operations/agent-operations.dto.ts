@@ -19,6 +19,14 @@ const FULFILLMENT_STATUSES = [
   'CANCELLED',
 ] as const;
 const ORDER_SORTS = ['CREATED_DESC', 'PAID_DESC', 'AMOUNT_DESC'] as const;
+const COMMISSION_LEDGER_TYPES = [
+  'EXPECTED_CREATED',
+  'EXPECTED_REDUCED',
+  'EXPECTED_CANCELLED',
+  'AVAILABLE_CREDIT',
+  'REFUND_DEBIT',
+] as const;
+const COMMISSION_POSITION_STATES = ['NONE', 'EXPECTED', 'CANCELLED', 'AVAILABLE'] as const;
 
 export interface AgentCustomerListQuery {
   boundAtFrom?: Date;
@@ -43,6 +51,16 @@ export interface AgentOrderListQuery {
   refundProcessingStatus?: (typeof REFUND_PROCESSING_STATUSES)[number];
   refundProgressStatus?: (typeof REFUND_PROGRESS_STATUSES)[number];
   sort: (typeof ORDER_SORTS)[number];
+}
+
+export interface AgentCommissionListQuery {
+  ledgerType?: (typeof COMMISSION_LEDGER_TYPES)[number];
+  occurredAtFrom?: Date;
+  occurredAtToExclusive?: Date;
+  orderNo?: string;
+  page: number;
+  pageSize: number;
+  state?: (typeof COMMISSION_POSITION_STATES)[number];
 }
 
 type PlainRecord = Record<string, unknown>;
@@ -145,7 +163,10 @@ function addDateRange(
   }
 }
 
-export function parseAgentOperationsResourceId(value: string, field: 'customer_id' | 'order_id'): string {
+export function parseAgentOperationsResourceId(
+  value: string,
+  field: 'commission_snapshot_id' | 'customer_id' | 'order_id',
+): string {
   if (!isValidUlid(value)) return invalid(`${field} is invalid`);
   return value;
 }
@@ -239,5 +260,36 @@ export function parseAgentOrderListQuery(value: unknown): AgentOrderListQuery {
   if (minAmount !== undefined && maxAmount !== undefined && compareMoney(minAmount, maxAmount) > 0) {
     return invalid('min_amount must not be greater than max_amount');
   }
+  return output;
+}
+
+export function parseAgentCommissionListQuery(value: unknown): AgentCommissionListQuery {
+  const query = plainRecord(value);
+  const allowed = new Set(['date_from', 'date_to', 'ledger_type', 'order_no', 'page', 'page_size', 'state']);
+  if (Object.keys(query).some((field) => !allowed.has(field))) return invalid('Query fields are invalid');
+  const output: AgentCommissionListQuery = {
+    page: positiveInteger(query.page, 1, POSTGRES_INTEGER_MAX, 'page'),
+    pageSize: positiveInteger(query.page_size, 20, 100, 'page_size'),
+  };
+  if ((output.page - 1) * output.pageSize > POSTGRES_INTEGER_MAX) {
+    return invalid('pagination offset is invalid');
+  }
+  const from = query.date_from === undefined
+    ? undefined
+    : shanghaiBoundary(query.date_from, 'date_from', false);
+  const to = query.date_to === undefined
+    ? undefined
+    : shanghaiBoundary(query.date_to, 'date_to', true);
+  if (from !== undefined && to !== undefined && from.getTime() >= to.getTime()) {
+    return invalid('date_from must not be later than date_to');
+  }
+  const ledgerType = enumValue(query.ledger_type, COMMISSION_LEDGER_TYPES, undefined, 'ledger_type');
+  const orderNo = boundedText(query.order_no, 'order_no', 32);
+  const state = enumValue(query.state, COMMISSION_POSITION_STATES, undefined, 'state');
+  if (from !== undefined) output.occurredAtFrom = from;
+  if (to !== undefined) output.occurredAtToExclusive = to;
+  if (ledgerType !== undefined) output.ledgerType = ledgerType;
+  if (orderNo !== undefined) output.orderNo = orderNo;
+  if (state !== undefined) output.state = state;
   return output;
 }

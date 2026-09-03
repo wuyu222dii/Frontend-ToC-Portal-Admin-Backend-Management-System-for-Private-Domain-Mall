@@ -7,6 +7,7 @@ import {
 import { AgentRealm } from '../platform/auth/agent-realm.metadata';
 import { NoStore } from '../platform/http/no-store.decorator';
 import {
+  parseAgentCommissionListQuery,
   parseAgentCustomerListQuery,
   parseAgentOperationsEmptyQuery,
   parseAgentOperationsResourceId,
@@ -18,6 +19,13 @@ import { AgentOperationsService } from './agent-operations.service';
 @AgentRealm()
 export class AgentOperationsController {
   constructor(@Inject(AgentOperationsService) private readonly operations: AgentOperationsService) {}
+
+  @Get('dashboard')
+  @NoStore()
+  getDashboard(@Query() query: unknown, @Req() request: AgentAuthRequestContext) {
+    parseAgentOperationsEmptyQuery(query);
+    return this.operations.getDashboard(requireUnrestrictedAgentSession(request));
+  }
 
   @Get('customers')
   @NoStore()
@@ -63,5 +71,35 @@ export class AgentOperationsController {
       requireUnrestrictedAgentSession(request),
       parseAgentOperationsResourceId(orderId, 'order_id'),
     );
+  }
+
+  @Get('commissions')
+  @NoStore()
+  listCommissions(@Query() query: unknown, @Req() request: AgentAuthRequestContext) {
+    return this.operations.listCommissions(
+      requireUnrestrictedAgentSession(request),
+      parseAgentCommissionListQuery(query),
+    );
+  }
+
+  @Get('commissions/:commission_snapshot_id')
+  @NoStore()
+  getCommission(
+    @Param('commission_snapshot_id') commissionSnapshotId: string,
+    @Query() query: unknown,
+    @Req() request: AgentAuthRequestContext,
+  ) {
+    parseAgentOperationsEmptyQuery(query);
+    return this.operations.getCommission(
+      requireUnrestrictedAgentSession(request),
+      parseAgentOperationsResourceId(commissionSnapshotId, 'commission_snapshot_id'),
+    );
+  }
+
+  @Get('wallet')
+  @NoStore()
+  getWallet(@Query() query: unknown, @Req() request: AgentAuthRequestContext) {
+    parseAgentOperationsEmptyQuery(query);
+    return this.operations.getWallet(requireUnrestrictedAgentSession(request));
   }
 }

@@ -4029,11 +4029,12 @@ export interface components {
         CommissionRuleChange: {
             /** @enum {string} */
             target_type: "PLATFORM" | "CATEGORY" | "SKU";
-            target_id?: string | null;
+            target_id: string | null;
             configured_rate: components["schemas"]["RatePercentValue"] | null;
         };
         CommissionRuleAction: {
-            base_version_id: string;
+            /** @description 当前已发布规则版本 ID；空库首次发布必须显式传 null。 */
+            base_version_id: string | null;
             reason: string;
             changes: components["schemas"]["CommissionRuleChange"][];
         };
@@ -4287,6 +4288,26 @@ export interface components {
             };
             request_id: string;
         };
+        CommissionRulePreviewResponse: {
+            /** @constant */
+            code: "OK";
+            /** @constant */
+            message: "success";
+            data: {
+                preview_token: string;
+                confirmation_hash: string;
+                /** @description 空库首次发布为 "0"；已有规则时为当前版本号。 */
+                resource_etag: string;
+                /** Format: date-time */
+                expires_at: string;
+                impact: {
+                    affected_count: number;
+                    metrics: components["schemas"]["ImpactMetric"][];
+                    warnings: string[];
+                };
+            };
+            request_id: string;
+        };
         InventoryAdjustmentPreviewResponse: {
             /** @constant */
             code: "OK";
@@ -4426,6 +4447,8 @@ export interface components {
                 };
                 items: components["schemas"]["OrderItemView"][];
                 commission_items: {
+                    /** @description 支付时不可变佣金快照 ID；即使 0%/NONE 没有账本行也必须返回，用于进入佣金解释详情。 */
+                    commission_snapshot_id: string;
                     order_item_id: string;
                     effective_rate: components["schemas"]["RatePercentValue"];
                     /** @enum {string} */
@@ -5802,15 +5825,22 @@ export interface components {
             order_id: string;
             order_no: string;
             order_item_id: string;
+            product_id: string;
+            product_name: string;
+            sku_id: string;
+            sku_name: string;
+            effective_rate: components["schemas"]["RatePercentValue"];
+            commission_base: components["schemas"]["NonNegativeMoney"];
+            original_commission: components["schemas"]["NonNegativeMoney"];
             /** @description REFUND_DEBIT/EXPECTED_REDUCED 时关联稳定退款；正向流水为 null。 */
-            refund_id?: string | null;
+            refund_id: string | null;
             /** @enum {string} */
             ledger_type: "EXPECTED_CREATED" | "EXPECTED_REDUCED" | "EXPECTED_CANCELLED" | "AVAILABLE_CREDIT" | "REFUND_DEBIT";
             /** @enum {string} */
             position_state: "NONE" | "EXPECTED" | "CANCELLED" | "AVAILABLE";
             expected_change: components["schemas"]["SignedMoney"];
             available_change: components["schemas"]["SignedMoney"];
-            reason?: string;
+            reason: string;
             /** Format: date-time */
             occurred_at: string;
         };
@@ -6385,6 +6415,14 @@ export interface components {
             /** @enum {string} */
             source: "PLATFORM" | "CATEGORY" | "SKU";
         };
+        CommissionRuleCategoryView: {
+            category_id: string;
+            category_name: string;
+            configured_rate: components["schemas"]["RatePercentValue"] | null;
+            effective_rate: components["schemas"]["RatePercentValue"];
+            /** @enum {string} */
+            source: "PLATFORM" | "CATEGORY";
+        };
         CommissionRulesResponse: {
             /** @constant */
             code: "OK";
@@ -6394,17 +6432,33 @@ export interface components {
                 version_id: string;
                 version_no: number;
                 platform_rate: components["schemas"]["RatePercentValue"];
+                categories: components["schemas"]["CommissionRuleCategoryView"][];
                 items: components["schemas"]["CommissionRuleSkuView"][];
                 version: number;
+            };
+            request_id: string;
+        };
+        CommissionRuleSkuListResponse: {
+            /** @constant */
+            code: "OK";
+            /** @constant */
+            message: "success";
+            data: {
+                version_id: string;
+                version_no: number;
+                items: components["schemas"]["CommissionRuleSkuView"][];
+                pagination: components["schemas"]["PaginationView"];
             };
             request_id: string;
         };
         CommissionRuleVersionView: {
             version_id: string;
             version_no: number;
+            base_version_id: string | null;
             /** @enum {string} */
             status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
             reason: string;
+            created_by_account_id: string;
             /** Format: date-time */
             effective_at: string | null;
             /** Format: date-time */
@@ -14591,7 +14645,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SkuResponse"];
+                    "application/json": components["schemas"]["CommissionRuleSkuListResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -14627,7 +14681,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HighRiskPreviewResponse"];
+                    "application/json": components["schemas"]["CommissionRulePreviewResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -14682,7 +14736,8 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                "If-Match": components["parameters"]["IfMatch"];
+                /** @description 当前规则版本号；空库首次发布固定使用 "0"，不放宽其他资源的 If-Match。 */
+                "If-Match": string;
             };
             path?: never;
             cookie?: never;

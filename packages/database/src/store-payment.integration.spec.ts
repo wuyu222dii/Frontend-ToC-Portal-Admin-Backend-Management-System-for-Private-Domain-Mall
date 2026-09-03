@@ -95,6 +95,7 @@ interface AgentCommissionFixture {
   bindingId: string;
   ruleEntryId: string;
   ruleVersionId: string;
+  walletId: string;
 }
 
 function settlementFixture(now: Date): SettlementFixture {
@@ -138,6 +139,7 @@ function agentCommissionFixture(now: Date): AgentCommissionFixture {
     bindingId: generateUlid(now.getTime() - 15_000),
     ruleEntryId: generateUlid(now.getTime() - 1_900),
     ruleVersionId: generateUlid(now.getTime() - 2_000),
+    walletId: generateUlid(now.getTime() - 1_800),
   };
 }
 
@@ -191,6 +193,16 @@ async function seedActiveAgentWithPublishedCommission(
       name: 'B10.2 Integration Agent',
       product_authorization_mode: 'ALL_ACTIVE_PRODUCTS',
       status: 'ACTIVE',
+      updated_at: now,
+      version: 1,
+    },
+  });
+  await transaction.agentWallet.create({
+    data: {
+      agent_id: fixture.agentId,
+      available_balance: new Prisma.Decimal(0),
+      frozen_balance: new Prisma.Decimal(0),
+      id: fixture.walletId,
       updated_at: now,
       version: 1,
     },

@@ -78,6 +78,7 @@ describe('HighRiskPreviewRepository', () => {
     { action: 'AGENT.INVITE_STATUS', requestAction: 'INVITE_STATUS', targetType: 'AGENT' },
     { action: 'AGENT.PASSWORD_RESET', requestAction: 'PASSWORD_RESET', targetType: 'AGENT' },
     { action: 'AFTERSALE.REFUND', requestAction: 'REFUND', targetType: 'AFTERSALE' },
+    { action: 'COMMISSION_RULE.PUBLISH', requestAction: 'PUBLISH', targetType: 'COMMISSION_RULE' },
     { action: 'AFTERSALE.REJECT', requestAction: 'REJECT', targetType: 'AFTERSALE' },
     {
       action: 'AFTERSALE.REJECT_AFTER_RETURN',
@@ -136,6 +137,27 @@ describe('HighRiskPreviewRepository', () => {
       ...boundInput,
       confirmationHash: issued.confirmationHash,
     })).resolves.toBeUndefined();
+  });
+
+  it('allows resource version zero only for the first COMMISSION_RULE.PUBLISH preview', async () => {
+    const { delegate, repository, transaction } = harness();
+    const firstPublish = input({
+      action: 'COMMISSION_RULE.PUBLISH',
+      request: { base_version_id: null, changes: [], reason: 'Initial commission rules' },
+      resourceVersion: 0,
+      targetType: 'COMMISSION_RULE',
+    });
+    const issued = await repository().issueInTransaction(transaction, firstPublish);
+    await expect(repository().consumeInTransaction(transaction, {
+      ...firstPublish,
+      confirmationHash: issued.confirmationHash,
+    })).resolves.toBeUndefined();
+
+    const other = harness();
+    await expect(other.repository().issueInTransaction(other.transaction, input({ resourceVersion: 0 })))
+      .rejects.toThrow('resource version is outside');
+    expect(other.delegate.create).not.toHaveBeenCalled();
+    expect(delegate.create).toHaveBeenCalledOnce();
   });
 
   it.each([

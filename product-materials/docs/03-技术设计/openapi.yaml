@@ -9899,7 +9899,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/SkuResponse"
+                "$ref": "#/components/schemas/CommissionRuleSkuListResponse"
         400:
           "$ref": "#/components/responses/BadRequest"
         401:
@@ -9948,7 +9948,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/HighRiskPreviewResponse"
+                "$ref": "#/components/schemas/CommissionRulePreviewResponse"
         400:
           "$ref": "#/components/responses/BadRequest"
         401:
@@ -9978,7 +9978,13 @@ paths:
         -
           "$ref": "#/components/parameters/IdempotencyKey"
         -
-          "$ref": "#/components/parameters/IfMatch"
+          name: "If-Match"
+          in: "header"
+          required: true
+          description: "当前规则版本号；空库首次发布固定使用 \"0\"，不放宽其他资源的 If-Match。"
+          schema:
+            type: "string"
+            pattern: "^\\\"(?:0|[1-9][0-9]*)\\\"$"
       requestBody:
         required: true
         content:
@@ -13600,6 +13606,7 @@ components:
       additionalProperties: false
       required:
         - "target_type"
+        - "target_id"
         - "configured_rate"
       properties:
         target_type:
@@ -13626,7 +13633,10 @@ components:
         - "changes"
       properties:
         base_version_id:
-          type: "string"
+          type:
+            - "string"
+            - "null"
+          description: "当前已发布规则版本 ID；空库首次发布必须显式传 null。"
         reason:
           type: "string"
           minLength: 2
@@ -14435,6 +14445,50 @@ components:
                     type: "string"
         request_id:
           type: "string"
+    CommissionRulePreviewResponse:
+      type: "object"
+      additionalProperties: false
+      required: ["code", "message", "data", "request_id"]
+      properties:
+        code:
+          const: "OK"
+        message:
+          const: "success"
+        data:
+          type: "object"
+          additionalProperties: false
+          required: ["preview_token", "confirmation_hash", "resource_etag", "expires_at", "impact"]
+          properties:
+            preview_token:
+              type: "string"
+            confirmation_hash:
+              type: "string"
+              pattern: "^[a-f0-9]{64}$"
+            resource_etag:
+              type: "string"
+              pattern: "^\\\"(?:0|[1-9][0-9]*)\\\"$"
+              description: "空库首次发布为 \"0\"；已有规则时为当前版本号。"
+            expires_at:
+              type: "string"
+              format: "date-time"
+            impact:
+              type: "object"
+              additionalProperties: false
+              required: ["affected_count", "metrics", "warnings"]
+              properties:
+                affected_count:
+                  type: "integer"
+                  minimum: 0
+                metrics:
+                  type: "array"
+                  items:
+                    "$ref": "#/components/schemas/ImpactMetric"
+                warnings:
+                  type: "array"
+                  items:
+                    type: "string"
+        request_id:
+          type: "string"
     InventoryAdjustmentPreviewResponse:
       type: "object"
       additionalProperties: false
@@ -14823,12 +14877,17 @@ components:
                 type: "object"
                 additionalProperties: false
                 required:
+                  - "commission_snapshot_id"
                   - "order_item_id"
                   - "effective_rate"
                   - "rule_source"
                   - "original_commission"
                   - "state"
                 properties:
+                  commission_snapshot_id:
+                    type: "string"
+                    pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+                    description: "支付时不可变佣金快照 ID；即使 0%/NONE 没有账本行也必须返回，用于进入佣金解释详情。"
                   order_item_id:
                     type: "string"
                   effective_rate:
@@ -18471,10 +18530,19 @@ components:
         - "order_id"
         - "order_no"
         - "order_item_id"
+        - "product_id"
+        - "product_name"
+        - "sku_id"
+        - "sku_name"
+        - "effective_rate"
+        - "commission_base"
+        - "original_commission"
+        - "refund_id"
         - "ledger_type"
         - "position_state"
         - "expected_change"
         - "available_change"
+        - "reason"
         - "occurred_at"
       properties:
         ledger_id:
@@ -18487,6 +18555,20 @@ components:
           type: "string"
         order_item_id:
           type: "string"
+        product_id:
+          type: "string"
+        product_name:
+          type: "string"
+        sku_id:
+          type: "string"
+        sku_name:
+          type: "string"
+        effective_rate:
+          "$ref": "#/components/schemas/RatePercentValue"
+        commission_base:
+          "$ref": "#/components/schemas/NonNegativeMoney"
+        original_commission:
+          "$ref": "#/components/schemas/NonNegativeMoney"
         refund_id:
           type:
             - "string"
@@ -19910,6 +19992,33 @@ components:
             - "PLATFORM"
             - "CATEGORY"
             - "SKU"
+    CommissionRuleCategoryView:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "category_id"
+        - "category_name"
+        - "configured_rate"
+        - "effective_rate"
+        - "source"
+      properties:
+        category_id:
+          type: "string"
+        category_name:
+          type: "string"
+        configured_rate:
+          oneOf:
+            -
+              "$ref": "#/components/schemas/RatePercentValue"
+            -
+              type: "null"
+        effective_rate:
+          "$ref": "#/components/schemas/RatePercentValue"
+        source:
+          type: "string"
+          enum:
+            - "PLATFORM"
+            - "CATEGORY"
     CommissionRulesResponse:
       type: "object"
       additionalProperties: false
@@ -19930,6 +20039,7 @@ components:
             - "version_id"
             - "version_no"
             - "platform_rate"
+            - "categories"
             - "items"
             - "version"
           properties:
@@ -19940,6 +20050,10 @@ components:
               minimum: 1
             platform_rate:
               "$ref": "#/components/schemas/RatePercentValue"
+            categories:
+              type: "array"
+              items:
+                "$ref": "#/components/schemas/CommissionRuleCategoryView"
             items:
               type: "array"
               items:
@@ -19949,14 +20063,43 @@ components:
               minimum: 1
         request_id:
           type: "string"
+    CommissionRuleSkuListResponse:
+      type: "object"
+      additionalProperties: false
+      required: ["code", "message", "data", "request_id"]
+      properties:
+        code:
+          const: "OK"
+        message:
+          const: "success"
+        data:
+          type: "object"
+          additionalProperties: false
+          required: ["version_id", "version_no", "items", "pagination"]
+          properties:
+            version_id:
+              type: "string"
+            version_no:
+              type: "integer"
+              minimum: 1
+            items:
+              type: "array"
+              items:
+                "$ref": "#/components/schemas/CommissionRuleSkuView"
+            pagination:
+              "$ref": "#/components/schemas/PaginationView"
+        request_id:
+          type: "string"
     CommissionRuleVersionView:
       type: "object"
       additionalProperties: false
       required:
         - "version_id"
         - "version_no"
+        - "base_version_id"
         - "status"
         - "reason"
+        - "created_by_account_id"
         - "effective_at"
         - "created_at"
       properties:
@@ -19965,6 +20108,10 @@ components:
         version_no:
           type: "integer"
           minimum: 1
+        base_version_id:
+          type:
+            - "string"
+            - "null"
         status:
           type: "string"
           enum:
@@ -19972,6 +20119,8 @@ components:
             - "PUBLISHED"
             - "ARCHIVED"
         reason:
+          type: "string"
+        created_by_account_id:
           type: "string"
         effective_at:
           type:

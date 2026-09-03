@@ -99,6 +99,7 @@ if (mode === 'full') {
 process.env.B13_AGENT_AUTH_DATABASE_TEST_MODE = mode;
 process.env.B132_AGENT_COMMERCE_DATABASE_TEST_MODE = mode;
 process.env.B133_AGENT_OPERATIONS_DATABASE_TEST_MODE = mode;
+process.env.B134_AGENT_FINANCE_DATABASE_TEST_MODE = mode;
 
 run(['build:packages']);
 run([
@@ -127,6 +128,24 @@ run([
   'run',
   '--no-file-parallelism',
   'src/agent-operations.integration.spec.ts',
+]);
+run([
+  '--filter',
+  '@qingxu/database',
+  'exec',
+  'vitest',
+  'run',
+  '--no-file-parallelism',
+  'src/commission.integration.spec.ts',
+]);
+run([
+  '--filter',
+  '@qingxu/api',
+  'exec',
+  'vitest',
+  'run',
+  '--no-file-parallelism',
+  'src/admin-commissions/admin-commissions.integration.spec.ts',
 ]);
 
 process.stdout.write(`B13 Agent ${mode} database checks passed.\n`);

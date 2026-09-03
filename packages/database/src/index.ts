@@ -10,6 +10,7 @@ export * from './agent-commerce.repository';
 export * from './agent-operations.repository';
 export * from './banner.repository';
 export * from './callback-inbox.repository';
+export * from './commission.repository';
 export * from './file-asset.repository';
 export * from './fulfillment.repository';
 export * from './high-risk-preview.repository';

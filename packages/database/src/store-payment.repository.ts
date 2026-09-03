@@ -1757,12 +1757,18 @@ export class StorePaymentRepository {
           where: { id: lockedBindingId },
         });
 
+    const paymentAt = matchingAttempt?.finished_at ?? input.occurredAt;
     let ruleVersion: SettlementCommissionRuleVersion | null = null;
+    let commissionWalletAvailable = true;
     if (finalAgentId !== null) {
+      await acquireTransactionLock(transaction, 'commission-rule-config', ['singleton']);
       const ruleLocks = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         SELECT id FROM public.commission_rule_version
-        WHERE status = 'PUBLISHED' AND effective_at <= ${serverTime}
-        ORDER BY effective_at DESC, id DESC
+        WHERE status IN ('PUBLISHED', 'ARCHIVED')
+          AND effective_at <= ${paymentAt}
+          AND effective_at <= ${serverTime}
+        ORDER BY effective_at DESC, version_no DESC, id DESC
+        LIMIT 1
         FOR UPDATE
       `);
       if (ruleLocks.length === 1 && ruleLocks[0]) {
@@ -1770,6 +1776,16 @@ export class StorePaymentRepository {
           include: { entries: { orderBy: [{ target_key: 'asc' }, { id: 'asc' }] } },
           where: { id: ruleLocks[0].id },
         });
+      }
+      await acquireTransactionLock(transaction, 'agent-wallet', [finalAgentId]);
+      const walletLocks = await transaction.$queryRaw<Array<{ agent_id: string; id: string }>>(Prisma.sql`
+        SELECT id, agent_id FROM public.agent_wallet
+        WHERE agent_id = ${finalAgentId}
+        FOR UPDATE
+      `);
+      if (walletLocks.length !== 1 || walletLocks[0]?.agent_id !== finalAgentId ||
+        !isValidUlid(walletLocks[0].id)) {
+        commissionWalletAvailable = false;
       }
     }
 
@@ -1802,12 +1818,13 @@ export class StorePaymentRepository {
       paymentTimestampClosed &&
       intent.expires_at.getTime() === order.pay_expires_at.getTime() &&
       reservationExpiry.getTime() === order.pay_expires_at.getTime() &&
-      input.occurredAt.getTime() < intent.expires_at.getTime() &&
-      input.occurredAt.getTime() < reservationExpiry.getTime();
+      paymentAt.getTime() < intent.expires_at.getTime() &&
+      paymentAt.getTime() < reservationExpiry.getTime();
     let settlementAvailable = attributionCandidate !== null && order.attribution_snapshot === null &&
       attributionCandidate.finalization_result === null && attributionCandidate.finalized_at === null &&
       order.final_agent_id === null && order.final_channel === null && frozenCity !== null && bindingValidAtSubmission &&
       financialsClose && paymentStateClosed && structurallyValidItems &&
+      commissionWalletAvailable &&
       reservation !== null && reservation.status === 'ACTIVE' && reservation.consumed_at === null &&
       reservation.released_at === null &&
       reservation.order_id === order.id && reservation.items.length === order.items.length &&
@@ -1839,7 +1856,8 @@ export class StorePaymentRepository {
     const ruleBySku = new Map<string, RuleResolution>();
     if (finalAgentId !== null) {
       if (order.customer.phone_verifications.length > 1) settlementAvailable = false;
-      if (!ruleVersion || ruleVersion.status !== 'PUBLISHED' || ruleVersion.effective_at === null ||
+      if (!ruleVersion || (ruleVersion.status !== 'PUBLISHED' && ruleVersion.status !== 'ARCHIVED') ||
+        ruleVersion.effective_at === null || ruleVersion.effective_at.getTime() > paymentAt.getTime() ||
         ruleVersion.effective_at.getTime() > serverTime.getTime()) {
         settlementAvailable = false;
       } else {
@@ -2053,7 +2071,7 @@ export class StorePaymentRepository {
       inventoryLedgerIds.push(ledgerId);
     }
     const reservationChanged = await transaction.inventoryReservation.updateMany({
-      data: { consumed_at: input.occurredAt, status: 'CONSUMED' },
+      data: { consumed_at: paymentAt, status: 'CONSUMED' },
       where: { id: activeReservation.id, order_id: order.id, status: 'ACTIVE' },
     });
     if (reservationChanged.count !== 1) throw internalError('Payment reservation update lost its locked row');

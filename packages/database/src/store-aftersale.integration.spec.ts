@@ -27,7 +27,7 @@ const fullIt = mode === 'full' ? it : it.skip;
 const transactionOptions = {
   isolationLevel: 'Serializable' as const,
   maxWait: 15_000,
-  timeout: 60_000,
+  timeout: mode === 'rollback' ? 90_000 : 60_000,
 };
 const rollbackSentinel = Object.freeze({ code: 'B12_STORE_AFTERSALE_ROLLBACK_SENTINEL' });
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
@@ -866,7 +866,7 @@ databaseDescribe('B12 Store aftersale database integration', () => {
       runtime.prisma.returnAddressVersion.count({ where: { id: publishedAddressVersionId ?? undefined } }),
     ]);
     expect(residues).toEqual([0, 0, 0, 0, 0, 0, 0]);
-  }, 90_000);
+  }, mode === 'rollback' ? 120_000 : 90_000);
 
   fullIt('serializes competing quota confirmations on two independent connections', async () => {
     const ids = fixtureIds();

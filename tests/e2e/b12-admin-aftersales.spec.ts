@@ -965,6 +965,7 @@ test('ADM-16 publishes a return-address version without persisting plaintext at 
   await signIn(page);
   const accountLink = page.getByRole('link', { name: '账户安全', exact: true });
   await expect(accountLink).toBeVisible();
+  await accountLink.scrollIntoViewIfNeeded();
   const accountBox = await accountLink.boundingBox();
   const viewport = page.viewportSize();
   expect(accountBox).not.toBeNull();

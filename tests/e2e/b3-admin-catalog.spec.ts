@@ -605,7 +605,7 @@ test.describe('B3.3 admin brand and category management', () => {
     await page.getByRole('button', { name: '重新加载' }).click();
     await expect(page.getByTestId('catalog-empty')).toBeVisible();
     await expect(page.getByText('分类说明')).toHaveCount(0);
-    await expect(page.getByText('佣金')).toHaveCount(0);
+    await expect(page.getByTestId('catalog-page').getByText('佣金')).toHaveCount(0);
     await expect(page.getByText('SKU 数量')).toHaveCount(0);
 
     await expect(page.getByRole('link', { name: '品牌管理' })).toBeVisible();

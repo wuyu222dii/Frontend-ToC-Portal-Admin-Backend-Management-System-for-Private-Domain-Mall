@@ -45,6 +45,14 @@ export interface CommissionRuleSkuSnapshot {
   source: CommissionRuleTargetType;
 }
 
+export interface CommissionRuleAffectedSkuSnapshot extends CommissionRuleSkuSnapshot {
+  beforeEffectiveRate: string | null;
+}
+
+export interface CommissionRuleTargetImpact extends CommissionRuleChange {
+  beforeConfiguredRate: string | null;
+}
+
 export interface CommissionRuleCategorySnapshot {
   categoryId: string;
   categoryName: string;
@@ -55,8 +63,9 @@ export interface CommissionRuleCategorySnapshot {
 
 export interface CommissionRuleImpact {
   affectedSkuCount: number;
-  affectedSkus: CommissionRuleSkuSnapshot[];
+  affectedSkus: CommissionRuleAffectedSkuSnapshot[];
   changedTargetCount: number;
+  changedTargets: CommissionRuleTargetImpact[];
   warnings: string[];
 }
 
@@ -860,16 +869,23 @@ function impact(
   before: ReadonlyMap<string, RuleValue> | null,
   after: ReadonlyMap<string, RuleValue>,
 ): CommissionRuleImpact {
-  const affectedSkus = catalog.flatMap((sku) => {
+  const affectedSkus = catalog.flatMap((sku): CommissionRuleAffectedSkuSnapshot[] => {
     const next = skuSnapshot(after, sku);
-    if (before === null) return [next];
+    if (before === null) return [{ ...next, beforeEffectiveRate: null }];
     const previous = resolveRule(before, sku);
-    return previous.targetType === next.source && previous.rate.toFixed(4) === next.effectiveRate ? [] : [next];
+    return previous.targetType === next.source && previous.rate.toFixed(4) === next.effectiveRate
+      ? []
+      : [{ ...next, beforeEffectiveRate: previous.rate.toFixed(4) }];
   });
+  const changedTargets = diffRuleValues(after, before).map((change): CommissionRuleTargetImpact => ({
+    ...change,
+    beforeConfiguredRate: before?.get(targetKey(change.targetType, change.targetId))?.rate.toFixed(4) ?? null,
+  }));
   return {
     affectedSkuCount: affectedSkus.length,
     affectedSkus,
-    changedTargetCount: diffRuleValues(after, before).length,
+    changedTargetCount: changedTargets.length,
+    changedTargets,
     warnings: ['Only payments completed after publication use the new commission rule version'],
   };
 }

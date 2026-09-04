@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   Box,
   Check,
+  DataAnalysis,
   Document,
   Location,
   Refresh,
@@ -278,6 +279,13 @@ onBeforeUnmount(() => {
               @click="router.push('/orders/reconciliation')"
             >
               查看支付对账
+            </el-button>
+            <el-button
+              v-if="detail.payment_status === 'PAID' && detail.attribution.source === 'AGENT'"
+              data-testid="admin-order-commission-explanation"
+              @click="router.push({ name: 'commission-rules', query: { order_id: detail.order_id } })"
+            >
+              <el-icon><DataAnalysis /></el-icon>佣金解释
             </el-button>
             <el-button
               v-if="hasAction('RETRY_REFUND')"

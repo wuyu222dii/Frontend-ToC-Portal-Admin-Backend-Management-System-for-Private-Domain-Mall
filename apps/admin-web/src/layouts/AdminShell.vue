@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import {
   Box,
+  Coin,
   CollectionTag,
+  Document,
   Goods,
   Lock,
+  Money,
   PictureFilled,
   PriceTag,
   Refresh,
@@ -11,6 +14,7 @@ import {
   SwitchButton,
   Tickets,
   User,
+  UserFilled,
 } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import { ref } from 'vue';
@@ -92,6 +96,14 @@ async function endCurrentSession(): Promise<void> {
           <span>Banner</span>
         </RouterLink>
         <RouterLink
+          to="/customers"
+          :class="{ active: ['customers', 'customer-detail'].includes(String(route.name)) }"
+          title="客户管理"
+        >
+          <el-icon><User /></el-icon>
+          <span>客户管理</span>
+        </RouterLink>
+        <RouterLink
           to="/orders"
           :class="{ active: ['orders', 'order-detail'].includes(String(route.name)) }"
           title="订单中心"
@@ -114,6 +126,38 @@ async function endCurrentSession(): Promise<void> {
         >
           <el-icon><Service /></el-icon>
           <span>售后管理</span>
+        </RouterLink>
+        <RouterLink
+          to="/agents"
+          :class="{ active: ['agents', 'agent-detail'].includes(String(route.name)) }"
+          title="代理管理"
+        >
+          <el-icon><UserFilled /></el-icon>
+          <span>代理管理</span>
+        </RouterLink>
+        <RouterLink
+          to="/commission-rules"
+          :class="{ active: route.name === 'commission-rules' }"
+          title="佣金规则"
+        >
+          <el-icon><Coin /></el-icon>
+          <span>佣金规则</span>
+        </RouterLink>
+        <RouterLink
+          to="/withdrawals"
+          :class="{ active: ['withdrawals', 'withdrawal-detail'].includes(String(route.name)) }"
+          title="提现审核"
+        >
+          <el-icon><Money /></el-icon>
+          <span>提现审核</span>
+        </RouterLink>
+        <RouterLink
+          to="/audit-logs"
+          :class="{ active: route.name === 'audit-logs' }"
+          title="审计日志"
+        >
+          <el-icon><Document /></el-icon>
+          <span>审计日志</span>
         </RouterLink>
         <RouterLink
           to="/settings/account/security"

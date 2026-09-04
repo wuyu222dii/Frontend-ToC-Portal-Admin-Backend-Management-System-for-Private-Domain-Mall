@@ -247,6 +247,136 @@ describe('AuditRepository', () => {
     }));
   });
 
+  it('stores the closed non-sensitive business rule values before and after publishing', async () => {
+    const transaction = transactionStub();
+    await new AuditRepository(ipHashKey).append(transaction, {
+      ...baseInput,
+      action: 'PUBLISH',
+      after: {
+        aftersale_window_days: 14,
+        minimum_withdrawal_amount: '200.00',
+        status: 'PUBLISHED',
+        version: 4,
+      },
+      before: {
+        aftersale_window_days: 7,
+        minimum_withdrawal_amount: '100.00',
+        status: 'PUBLISHED',
+        version: 3,
+      },
+      module: 'config',
+      objectType: 'business_rule',
+      summaryPolicy: 'BUSINESS_RULE_CHANGE',
+    });
+
+    expect(transaction.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        after_json: {
+          aftersale_window_days: 14,
+          minimum_withdrawal_amount: '200.00',
+          status: 'PUBLISHED',
+          version: 4,
+        },
+        before_json: {
+          aftersale_window_days: 7,
+          minimum_withdrawal_amount: '100.00',
+          status: 'PUBLISHED',
+          version: 3,
+        },
+      }),
+    }));
+  });
+
+  it('allows the controlled initial business rule publish to omit only the before snapshot', async () => {
+    const transaction = transactionStub();
+    await new AuditRepository(ipHashKey).append(transaction, {
+      ...baseInput,
+      action: 'PUBLISH',
+      after: {
+        aftersale_window_days: 7,
+        minimum_withdrawal_amount: '100.00',
+        status: 'PUBLISHED',
+        version: 1,
+      },
+      module: 'config',
+      objectType: 'business_rule',
+      summaryPolicy: 'BUSINESS_RULE_CHANGE',
+    });
+
+    expect(transaction.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ before_json: expect.anything() }),
+    }));
+  });
+
+  it.each([
+    {
+      after: {
+        aftersale_window_days: 14,
+        legal_record_retention_years: 10,
+        minimum_withdrawal_amount: '200.00',
+        status: 'PUBLISHED',
+        version: 4,
+      },
+      module: 'config',
+      objectType: 'business_rule',
+    },
+    {
+      after: {
+        aftersale_window_days: 0,
+        minimum_withdrawal_amount: '200.00',
+        status: 'PUBLISHED',
+        version: 4,
+      },
+      module: 'config',
+      objectType: 'business_rule',
+    },
+    {
+      after: {
+        aftersale_window_days: 14,
+        minimum_withdrawal_amount: '0.00',
+        status: 'PUBLISHED',
+        version: 4,
+      },
+      module: 'config',
+      objectType: 'business_rule',
+    },
+    {
+      after: {
+        aftersale_window_days: 14,
+        minimum_withdrawal_amount: '200.00',
+        status: 'PUBLISHED',
+        version: 4,
+      },
+      module: 'catalog',
+      objectType: 'product',
+    },
+  ])('rejects an invalid or cross-domain business rule audit summary: %j', async (override) => {
+    await expect(new AuditRepository(ipHashKey).append(transactionStub(), {
+      ...baseInput,
+      action: 'PUBLISH',
+      summaryPolicy: 'BUSINESS_RULE_CHANGE',
+      ...override,
+    } as never)).rejects.toThrow();
+  });
+
+  it('requires the dedicated safe-value policy for business rule publishing', async () => {
+    await expect(new AuditRepository(ipHashKey).append(transactionStub(), {
+      ...baseInput,
+      action: 'PUBLISH',
+      after: { status: 'PUBLISHED', version: 4 },
+      module: 'config',
+      objectType: 'business_rule',
+    })).rejects.toThrow('BUSINESS_RULE_CHANGE');
+
+    await expect(new AuditRepository(ipHashKey).append(transactionStub(), {
+      ...baseInput,
+      action: 'PUBLISH',
+      module: 'config',
+      objectType: 'business_rule',
+      summaryPolicy: 'BUSINESS_RULE_CHANGE',
+    })).rejects.toThrow('BUSINESS_RULE_CHANGE');
+  });
+
   it.each([
     { is_default: true, phone: sensitivePhone, status: 'ACTIVE', version: 2 },
     { is_default: 'true', status: 'ACTIVE', version: 2 },

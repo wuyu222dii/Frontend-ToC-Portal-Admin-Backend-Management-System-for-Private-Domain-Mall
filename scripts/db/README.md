@@ -50,6 +50,23 @@ operation can be retried after interruption only in an empty or fully registered
 B13 state. A baseline-only or otherwise partial state is refused for manual
 inspection; the script never resets or overwrites it.
 
+After the first `SUPER_ADMIN` exists and the legal retention period has external
+approval, provision the initial published business rules once:
+
+```sh
+BUSINESS_RULE_BOOTSTRAP_ADMIN_ID='<active-super-admin-ulid>' \
+BUSINESS_RULE_LEGAL_RECORD_RETENTION_YEARS='<approved-integer-1-to-100>' \
+  pnpm admin:bootstrap-business-rules
+```
+
+The command fixes the approved development defaults at a 100 yuan minimum
+withdrawal, a 7-day aftersale window, and a 30-minute payment timeout. It does
+not guess the legal retention period, refuses any existing rule history, verifies
+the named account is an active `SUPER_ADMIN`, and creates the published rule and
+its immutable audit record in one serializable transaction. Keep these one-shot
+values out of `.env`; inject them from the controlled deployment environment and
+unset them immediately after use.
+
 CI replay requires `CI=true`, `ALLOW_CI_EPHEMERAL_POSTGRES=1`, and an empty
 local disposable connection in `REPLAY_DATABASE_URL` (or CI `DIRECT_URL`). It
 configures the migration role inside the CI-only database and never targets the

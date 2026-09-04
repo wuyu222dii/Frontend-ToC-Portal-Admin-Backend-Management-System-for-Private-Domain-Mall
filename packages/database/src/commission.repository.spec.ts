@@ -314,6 +314,50 @@ describe('CommissionRepository rules', () => {
     expect(state.events.indexOf('archive-current')).toBeLessThan(state.events.indexOf('publish-new'));
   });
 
+  it('returns exact existing platform, category and SKU facts for the publish impact', async () => {
+    const current = version({
+      entries: [
+        entry(firstVersionId, 'PLATFORM', null, '5.0000'),
+        entry(firstVersionId, 'CATEGORY', categoryId, '7.5000'),
+        entry(firstVersionId, 'SKU', skuId, '9.0000'),
+      ],
+    });
+    const state = ruleHarness([current]);
+
+    const result = await state.repository.previewRulePublishInTransaction(state.transaction, action({
+      baseVersionId: firstVersionId,
+      changes: [
+        { configuredRate: '0.0000', targetId: null, targetType: 'PLATFORM' },
+        { configuredRate: null, targetId: categoryId, targetType: 'CATEGORY' },
+        { configuredRate: '0.0000', targetId: skuId, targetType: 'SKU' },
+      ],
+    }));
+
+    expect(result.impact.changedTargets).toEqual([
+      {
+        beforeConfiguredRate: '7.5000',
+        configuredRate: null,
+        targetId: categoryId,
+        targetType: 'CATEGORY',
+      },
+      {
+        beforeConfiguredRate: '5.0000',
+        configuredRate: '0.0000',
+        targetId: null,
+        targetType: 'PLATFORM',
+      },
+      {
+        beforeConfiguredRate: '9.0000',
+        configuredRate: '0.0000',
+        targetId: skuId,
+        targetType: 'SKU',
+      },
+    ]);
+    expect(result.impact.affectedSkus).toEqual([
+      expect.objectContaining({ beforeEffectiveRate: '9.0000', effectiveRate: '0.0000', skuId }),
+    ]);
+  });
+
   it('rejects an incomplete first version and history without one published version', async () => {
     const empty = ruleHarness();
     await expect(empty.repository.previewRulePublishInTransaction(empty.transaction, action({

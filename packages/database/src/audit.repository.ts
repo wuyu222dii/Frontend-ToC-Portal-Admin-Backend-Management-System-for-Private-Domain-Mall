@@ -23,7 +23,7 @@ export interface AppendAuditLogInput {
   reasonCode?: string;
   before?: unknown;
   after?: unknown;
-  summaryPolicy: 'ADDRESS_STATE' | 'AGENT_AUTHORIZATION' | 'NONE' | 'STATUS_VERSION';
+  summaryPolicy: 'ADDRESS_STATE' | 'AGENT_AUTHORIZATION' | 'BUSINESS_RULE_CHANGE' | 'NONE' | 'STATUS_VERSION';
   result: AuditResult;
   requestId: string;
   idempotencyKey?: string;
@@ -179,6 +179,7 @@ const AUDIT_REASON_CODE = new Set([
   'CATALOG.STATUS_CORRECTION',
 ]);
 const AUDIT_RESULT_CODE = new Set(['OK', ...Object.keys(APPLICATION_ERROR_HTTP_STATUS)]);
+const POSITIVE_MONEY = /^(?:0\.(?:0[1-9]|[1-9][0-9])|[1-9][0-9]{0,15}\.[0-9]{2})$/;
 
 function plainRecord(value: unknown): Record<string, unknown> | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
@@ -209,6 +210,12 @@ function auditJson(
       key !== 'mode' && key !== 'product_count' && key !== 'version')) {
       throw new TypeError('AGENT_AUTHORIZATION summaries require mode, product_count, and version');
     }
+  } else if (policy === 'BUSINESS_RULE_CHANGE') {
+    if (keys.length !== 4 || keys.some((key) =>
+      key !== 'aftersale_window_days' && key !== 'minimum_withdrawal_amount' &&
+      key !== 'status' && key !== 'version') || record.status !== 'PUBLISHED') {
+      throw new TypeError('BUSINESS_RULE_CHANGE summaries require only the approved business rule fields');
+    }
   } else if (keys.some((key) => key !== 'status' && key !== 'version')) {
     throw new TypeError('STATUS_VERSION audit summaries accept only status and version');
   }
@@ -236,6 +243,16 @@ function auditJson(
       output[key] = nested as number;
     } else if (key === 'is_default') {
       if (typeof nested !== 'boolean') throw new TypeError('Audit default-address summary must be a boolean');
+      output[key] = nested;
+    } else if (key === 'aftersale_window_days') {
+      if (!Number.isSafeInteger(nested) || Number(nested) < 1 || Number(nested) > 365) {
+        throw new TypeError('Audit aftersale window summary must be between 1 and 365 days');
+      }
+      output[key] = nested as number;
+    } else if (key === 'minimum_withdrawal_amount') {
+      if (typeof nested !== 'string' || !POSITIVE_MONEY.test(nested)) {
+        throw new TypeError('Audit minimum withdrawal summary must be positive money');
+      }
       output[key] = nested;
     }
   }
@@ -288,6 +305,8 @@ function assertStructuredMetadata(input: AppendAuditLogInput): void {
   }
   const isCustomerAddress = input.module === 'customer' && input.objectType === 'address';
   const isAgentAuthorization = input.module === 'agent' && input.objectType === 'agent';
+  const isBusinessRulePublish = input.module === 'config' && input.objectType === 'business_rule' &&
+    input.action === 'PUBLISH';
   if (input.summaryPolicy === 'ADDRESS_STATE' && !isCustomerAddress) {
     throw new TypeError('ADDRESS_STATE audit summaries are restricted to customer addresses');
   }
@@ -297,6 +316,12 @@ function assertStructuredMetadata(input: AppendAuditLogInput): void {
   }
   if (input.summaryPolicy === 'AGENT_AUTHORIZATION' && !isAgentAuthorization) {
     throw new TypeError('AGENT_AUTHORIZATION summaries are restricted to Agents');
+  }
+  if (input.summaryPolicy === 'BUSINESS_RULE_CHANGE' && !isBusinessRulePublish) {
+    throw new TypeError('BUSINESS_RULE_CHANGE summaries are restricted to business rule publishing');
+  }
+  if (isBusinessRulePublish && (input.summaryPolicy !== 'BUSINESS_RULE_CHANGE' || input.after === undefined)) {
+    throw new TypeError('Business rule publishing requires BUSINESS_RULE_CHANGE audit summaries');
   }
   if (!(isValidUlid(input.objectId) || UUID.test(input.objectId))) {
     throw new TypeError('Audit object ID must be a ULID or UUID');
@@ -328,6 +353,7 @@ function assertStructuredMetadata(input: AppendAuditLogInput): void {
     throw new TypeError('Audit IP address must be an IPv4 or IPv6 literal');
   }
   if (input.summaryPolicy !== 'ADDRESS_STATE' && input.summaryPolicy !== 'AGENT_AUTHORIZATION' &&
+    input.summaryPolicy !== 'BUSINESS_RULE_CHANGE' &&
     input.summaryPolicy !== 'NONE' &&
     input.summaryPolicy !== 'STATUS_VERSION') {
     throw new TypeError('Audit summary policy is invalid');

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Document, Refresh, Search, View } from '@element-plus/icons-vue';
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 
 import AdminShell from '../../layouts/AdminShell.vue';
 import { AdminApiError } from '../../services/admin-api';
@@ -10,6 +10,7 @@ import { authSession } from '../../stores/auth-session';
 import type { AdminOrderListItem, AdminOrderListQuery } from '../../types/orders';
 import { formatChinaDateTime } from '../../utils/time';
 
+const route = useRoute();
 const router = useRouter();
 const items = ref<AdminOrderListItem[]>([]);
 const loading = ref(false);
@@ -28,6 +29,11 @@ const amountRange = ref<[string, string]>(['', '']);
 const dateRange = ref<[string, string] | null>(null);
 const sort = ref<NonNullable<AdminOrderListQuery['sort']>>('CREATED_DESC');
 const expandedFilters = ref(false);
+function routeText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+const lockedAgentId = computed(() => routeText(route.query.agent_id));
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)));
 let sequence = 0;
 let controller: AbortController | null = null;
@@ -82,7 +88,8 @@ function query(): AdminOrderListQuery {
   if (fulfillmentStatus.value) value.fulfillmentStatus = fulfillmentStatus.value;
   if (refundStatus.value) value.refundProcessingStatus = refundStatus.value;
   if (customerId.value.trim()) value.customerId = customerId.value.trim();
-  if (agentId.value.trim()) value.agentId = agentId.value.trim();
+  const effectiveAgentId = lockedAgentId.value || agentId.value.trim();
+  if (effectiveAgentId) value.agentId = effectiveAgentId;
   if (dateRange.value) [value.dateFrom, value.dateTo] = dateRange.value;
   if (amountRange.value[0].trim()) value.minAmount = amountRange.value[0].trim();
   if (amountRange.value[1].trim()) value.maxAmount = amountRange.value[1].trim();
@@ -128,7 +135,7 @@ function resetFilters(): void {
   fulfillmentStatus.value = '';
   refundStatus.value = '';
   customerId.value = '';
-  agentId.value = '';
+  agentId.value = lockedAgentId.value;
   amountRange.value = ['', ''];
   dateRange.value = null;
   sort.value = 'CREATED_DESC';
@@ -148,7 +155,11 @@ function statusClass(item: AdminOrderListItem): string {
   return 'pending';
 }
 
-onMounted(() => void loadOrders());
+watch(lockedAgentId, (value) => {
+  agentId.value = value;
+  page.value = 1;
+  void loadOrders();
+}, { immediate: true });
 onBeforeUnmount(() => {
   ++sequence;
   controller?.abort();
@@ -168,6 +179,15 @@ onBeforeUnmount(() => {
           <span>查询订单经营投影，并进入受控履约处理。</span>
         </div>
       </section>
+
+      <el-alert
+        v-if="lockedAgentId"
+        data-testid="order-agent-lock"
+        type="info"
+        :closable="false"
+        show-icon
+        :title="`已锁定代理 ${lockedAgentId}`"
+      />
 
       <section
         class="orders-filters"
@@ -259,7 +279,8 @@ onBeforeUnmount(() => {
           />
           <el-input
             v-model="agentId"
-            clearable
+            :clearable="!lockedAgentId"
+            :disabled="Boolean(lockedAgentId)"
             data-testid="order-agent-filter"
             placeholder="最终代理 ULID"
           />
@@ -683,4 +704,3 @@ onBeforeUnmount(() => {
   }
 }
 </style>
-

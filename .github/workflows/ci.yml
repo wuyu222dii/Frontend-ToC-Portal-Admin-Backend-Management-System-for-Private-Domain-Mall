@@ -384,5 +384,5 @@ jobs:
       - name: Run B12 aftersales, return inspection and ordinary refund browser E2E
         run: pnpm e2e:b12
 
-      - name: Run B13 Agent workbench browser E2E
+      - name: Run B13 Agent and Admin workbench browser E2E
         run: pnpm e2e:b13

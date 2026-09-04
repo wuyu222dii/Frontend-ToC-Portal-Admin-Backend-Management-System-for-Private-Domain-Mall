@@ -92,6 +92,18 @@ export const router = createRouter({
       path: '/content/banners',
     },
     {
+      component: () => import('../views/customers/CustomerListView.vue'),
+      meta: { access: 'session', title: '客户管理' },
+      name: 'customers',
+      path: '/customers',
+    },
+    {
+      component: () => import('../views/customers/CustomerDetailView.vue'),
+      meta: { access: 'session', title: '客户详情' },
+      name: 'customer-detail',
+      path: '/customers/:customer_id',
+    },
+    {
       component: () => import('../views/orders/OrderListView.vue'),
       meta: { access: 'session', title: '订单中心' },
       name: 'orders',
@@ -116,10 +128,46 @@ export const router = createRouter({
       path: '/aftersales/:aftersale_id',
     },
     {
+      component: () => import('../views/agents/AgentListView.vue'),
+      meta: { access: 'session', title: '代理管理' },
+      name: 'agents',
+      path: '/agents',
+    },
+    {
+      component: () => import('../views/agents/AgentDetailView.vue'),
+      meta: { access: 'session', title: '代理详情' },
+      name: 'agent-detail',
+      path: '/agents/:agent_id',
+    },
+    {
+      component: () => import('../views/finance/CommissionRulesView.vue'),
+      meta: { access: 'session', title: '佣金规则' },
+      name: 'commission-rules',
+      path: '/commission-rules',
+    },
+    {
+      component: () => import('../views/finance/WithdrawalListView.vue'),
+      meta: { access: 'session', title: '提现审核' },
+      name: 'withdrawals',
+      path: '/withdrawals',
+    },
+    {
+      component: () => import('../views/finance/WithdrawalDetailView.vue'),
+      meta: { access: 'session', title: '提现详情' },
+      name: 'withdrawal-detail',
+      path: '/withdrawals/:withdrawal_id',
+    },
+    {
       component: () => import('../views/payments/PaymentReconciliationView.vue'),
       meta: { access: 'session', title: '支付对账' },
       name: 'payment-reconciliation',
       path: '/orders/reconciliation',
+    },
+    {
+      component: () => import('../views/audit/AuditListView.vue'),
+      meta: { access: 'session', title: '审计日志' },
+      name: 'audit-logs',
+      path: '/audit-logs',
     },
     {
       component: () => import('../views/security/SecurityHomeView.vue'),

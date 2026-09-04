@@ -41,6 +41,7 @@ const input: CommissionRuleConfirmationInput = {
 };
 
 const sku = {
+  beforeEffectiveRate: null,
   categoryId: CATEGORY_ID,
   categoryName: 'Hair care',
   configuredRate: null,
@@ -59,6 +60,12 @@ const preview: CommissionRulePublishPreviewSnapshot = {
     affectedSkuCount: 1,
     affectedSkus: [sku],
     changedTargetCount: 1,
+    changedTargets: [{
+      beforeConfiguredRate: null,
+      configuredRate: '0.0000',
+      targetId: null,
+      targetType: 'PLATFORM',
+    }],
     warnings: ['New payments use this version'],
   },
   maxVersionNo: 0,
@@ -77,7 +84,7 @@ const version: CommissionRuleVersionSnapshot = {
   versionNo: 1,
 };
 
-function harness() {
+function harness(previewSnapshot = preview) {
   const sequence: string[] = [];
   const transaction = {};
   const database = {
@@ -191,15 +198,15 @@ function harness() {
     listRuleVersions: vi.fn(async () => ({ items: [version], total: 1 })),
     previewRulePublishInTransaction: vi.fn(async () => {
       sequence.push('preview-facts');
-      return preview;
+      return previewSnapshot;
     }),
     publishRuleVersionInTransaction: vi.fn(async (_transaction, _publishInput, hooks) => {
       sequence.push('publish');
-      await hooks.verifyPreview(preview);
+      await hooks.verifyPreview(previewSnapshot);
       return {
         after: { status: 'PUBLISHED' as const, version: 1, versionId: VERSION_ID },
         before: null,
-        impact: preview.impact,
+        impact: previewSnapshot.impact,
         version,
       };
     }),
@@ -306,6 +313,62 @@ describe('AdminCommissionsService', () => {
       storage: 'HASH_ONLY',
     });
     expect(sequence).toEqual(['claim', 'preview-facts', 'issue', 'complete']);
+  });
+
+  it('projects existing platform, category and SKU rules with exact null and zero transitions', async () => {
+    const changes = [
+      { configuredRate: null, targetId: CATEGORY_ID, targetType: 'CATEGORY' as const },
+      { configuredRate: '0.0000', targetId: null, targetType: 'PLATFORM' as const },
+      { configuredRate: '0.0000', targetId: SKU_ID, targetType: 'SKU' as const },
+    ];
+    const existingInput: CommissionRuleConfirmationInput = {
+      ...input,
+      baseVersionId: VERSION_ID,
+      changes,
+    };
+    const existingPreview: CommissionRulePublishPreviewSnapshot = {
+      ...preview,
+      action: existingInput,
+      currentPublishedId: VERSION_ID,
+      impact: {
+        affectedSkuCount: 1,
+        affectedSkus: [{ ...sku, beforeEffectiveRate: '9.0000', effectiveRate: '0.0000' }],
+        changedTargetCount: 3,
+        changedTargets: [
+          { ...changes[0]!, beforeConfiguredRate: '7.5000' },
+          { ...changes[1]!, beforeConfiguredRate: '5.0000' },
+          { ...changes[2]!, beforeConfiguredRate: '9.0000' },
+        ],
+        warnings: preview.impact.warnings,
+      },
+      resourceVersion: 1,
+    };
+    const { service } = harness(existingPreview);
+
+    const response = await service.previewRulePublish(request, existingInput, 'existing-preview-key');
+
+    expect(response.impact.metrics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        after: null,
+        before: '7.5000',
+        key: `target:CATEGORY:${CATEGORY_ID}:configured_rate`,
+      }),
+      expect.objectContaining({
+        after: '0.0000',
+        before: '5.0000',
+        key: 'target:PLATFORM:PLATFORM:configured_rate',
+      }),
+      expect.objectContaining({
+        after: '0.0000',
+        before: '9.0000',
+        key: `target:SKU:${SKU_ID}:configured_rate`,
+      }),
+      expect.objectContaining({
+        after: '0.0000',
+        before: '9.0000',
+        key: `sku:${SKU_ID}:effective_rate`,
+      }),
+    ]));
   });
 
   it('publishes, consumes, audits, emits and completes in one transaction', async () => {

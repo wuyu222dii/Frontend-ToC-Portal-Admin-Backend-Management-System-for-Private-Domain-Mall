@@ -8,6 +8,7 @@ import {
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import type { PlatformRuntimeConfig } from '@qingxu/config';
 
+import { AdminAuditModule } from './admin-audit/admin-audit.module';
 import { AdminCatalogModule } from './admin-catalog/admin-catalog.module';
 import { AdminCommissionsModule } from './admin-commissions/admin-commissions.module';
 import { AdminCustomersModule } from './admin-customers/admin-customers.module';
@@ -19,6 +20,7 @@ import { AdminInventoryModule } from './admin-inventory/admin-inventory.module';
 import { AdminOrdersModule } from './admin-orders/admin-orders.module';
 import { AdminPaymentsModule } from './admin-payments/admin-payments.module';
 import { AdminProductsModule } from './admin-products/admin-products.module';
+import { AdminSettingsModule } from './admin-settings/admin-settings.module';
 import { AdminWithdrawalsModule } from './admin-withdrawals/admin-withdrawals.module';
 import { AgentAuthModule } from './agent-auth/agent-auth.module';
 import { AgentCommerceModule } from './agent-commerce/agent-commerce.module';
@@ -46,6 +48,7 @@ import { StorePaymentsModule } from './store-payments/store-payments.module';
 
 @Module({
   imports: [
+    AdminAuditModule,
     AdminAgentsModule,
     AdminAftersalesModule,
     AdminAuthModule,
@@ -57,6 +60,7 @@ import { StorePaymentsModule } from './store-payments/store-payments.module';
     AdminOrdersModule,
     AdminPaymentsModule,
     AdminProductsModule,
+    AdminSettingsModule,
     AdminWithdrawalsModule,
     AgentAuthModule,
     AgentCommerceModule,

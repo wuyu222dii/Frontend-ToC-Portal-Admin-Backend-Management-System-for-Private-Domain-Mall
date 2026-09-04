@@ -18,6 +18,7 @@ export type HighRiskPreviewTargetType =
   | 'AGENT'
   | 'AFTERSALE'
   | 'BRAND'
+  | 'BUSINESS_RULE'
   | 'CATEGORY'
   | 'COMMISSION_RULE'
   | 'CUSTOMER'
@@ -40,6 +41,7 @@ export type HighRiskPreviewAction =
   | 'BRAND.ACTIVATE'
   | 'BRAND.DEACTIVATE'
   | 'BRAND.SOFT_DELETE'
+  | 'BUSINESS_RULE.PUBLISH'
   | 'CATEGORY.ACTIVATE'
   | 'CATEGORY.DEACTIVATE'
   | 'CATEGORY.SOFT_DELETE'
@@ -115,6 +117,7 @@ const PREVIEW_ACTION = new Set<HighRiskPreviewAction>([
   'BRAND.ACTIVATE',
   'BRAND.DEACTIVATE',
   'BRAND.SOFT_DELETE',
+  'BUSINESS_RULE.PUBLISH',
   'CATEGORY.ACTIVATE',
   'CATEGORY.DEACTIVATE',
   'CATEGORY.SOFT_DELETE',
@@ -139,6 +142,7 @@ const PREVIEW_TARGET_TYPE = new Set<HighRiskPreviewTargetType>([
   'AGENT',
   'AFTERSALE',
   'BRAND',
+  'BUSINESS_RULE',
   'CATEGORY',
   'COMMISSION_RULE',
   'CUSTOMER',

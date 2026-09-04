@@ -75,9 +75,17 @@ function impactView(impact: CommissionRuleImpact) {
         key: 'affected_sku_count',
         label: 'Affected SKUs',
       },
+      ...impact.changedTargets.map((target) => ({
+        after: target.configuredRate,
+        before: target.beforeConfiguredRate,
+        key: `target:${target.targetType}:${target.targetId ?? 'PLATFORM'}:configured_rate`,
+        label: target.targetType === 'PLATFORM'
+          ? 'Platform configured rate'
+          : `${target.targetType} ${target.targetId} configured rate`,
+      })),
       ...impact.affectedSkus.map((sku) => ({
         after: sku.effectiveRate,
-        before: null,
+        before: sku.beforeEffectiveRate,
         key: `sku:${sku.skuId}:effective_rate`,
         label: `${sku.productName} / ${sku.skuCode}`,
       })),

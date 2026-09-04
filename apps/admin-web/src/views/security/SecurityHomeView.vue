@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
+import BusinessRulesPanel from '../../components/security/BusinessRulesPanel.vue';
 import OneTimeCodesDialog from '../../components/security/OneTimeCodesDialog.vue';
 import ReturnAddressPanel from '../../components/security/ReturnAddressPanel.vue';
 import AdminShell from '../../layouts/AdminShell.vue';
@@ -141,7 +142,7 @@ function acknowledgeCodes(): void {
   ElMessage.success('恢复码已从当前页面清除');
 }
 
-async function returnAddressAuthExpired(error: AdminApiError): Promise<void> {
+async function settingsAuthExpired(error: AdminApiError): Promise<void> {
   await redirectIfSessionExpired(error);
 }
 
@@ -158,8 +159,8 @@ onBeforeUnmount(() => {
     <section class="page-heading">
       <div>
         <p>系统设置 · ADM-16</p>
-        <h1>账户安全</h1>
-        <span>管理当前超级管理员密码、动态验证和会话。</span>
+        <h1>账户与业务规则</h1>
+        <span>管理超级管理员凭据、会话、经营规则和总部退货地址。</span>
       </div>
       <el-tag v-if="current" type="success" effect="plain">MFA 已启用</el-tag>
     </section>
@@ -210,7 +211,8 @@ onBeforeUnmount(() => {
           </article>
         </div>
 
-        <ReturnAddressPanel @auth-expired="returnAddressAuthExpired" />
+        <BusinessRulesPanel @auth-expired="settingsAuthExpired" />
+        <ReturnAddressPanel @auth-expired="settingsAuthExpired" />
       </template>
     </section>
 

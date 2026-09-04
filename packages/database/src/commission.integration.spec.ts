@@ -1116,7 +1116,7 @@ databaseDescribe('B13.4 commission PostgreSQL integration', () => {
           frozenBalance: '0.00',
           withdrawalAllowed: false,
         });
-        await expect(operations.getDashboard(identity)).resolves.toMatchObject({
+        await expect(operations.getDashboard({ ...identity, days: 7 })).resolves.toMatchObject({
           attributedCustomerCount: 2,
           commissionExceptionCount: 0,
           expectedCommission: '5.97',
@@ -1179,7 +1179,7 @@ databaseDescribe('B13.4 commission PostgreSQL integration', () => {
         await setCommissionRuleStatus(cleanupConnectionString, initial.versionId, 'DRAFT');
         try {
           await expect(operations.getWallet(identity)).rejects.toMatchObject(internalFailure);
-          await expect(operations.getDashboard(identity)).rejects.toMatchObject(internalFailure);
+          await expect(operations.getDashboard({ ...identity, days: 7 })).rejects.toMatchObject(internalFailure);
           await expect(commission.listAdminAgentWalletLedger({
             agentId: ids.agentId,
             page: 1,
@@ -1200,7 +1200,7 @@ databaseDescribe('B13.4 commission PostgreSQL integration', () => {
         await expect(operations.getOrder({ ...identity, orderId: ids.legs[0].orderId }))
           .rejects.toMatchObject(internalFailure);
         await expect(operations.getWallet(identity)).rejects.toMatchObject(internalFailure);
-        await expect(operations.getDashboard(identity)).rejects.toMatchObject(internalFailure);
+        await expect(operations.getDashboard({ ...identity, days: 7 })).rejects.toMatchObject(internalFailure);
         await expect(commission.listAdminAgentCommissions({
           agentId: ids.agentId,
           page: 1,

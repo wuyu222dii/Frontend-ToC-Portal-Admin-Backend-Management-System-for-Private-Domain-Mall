@@ -6,12 +6,21 @@ import {
   parseAgentCommissionListQuery,
   parseAgentCreateWithdrawalBody,
   parseAgentCustomerListQuery,
+  parseAgentDashboardQuery,
   parseAgentOperationsResourceId,
   parseAgentOrderListQuery,
   parseAgentWithdrawalListQuery,
 } from './agent-operations.dto';
 
 describe('Agent operations DTO', () => {
+  it('strictly parses the dashboard trend period with a seven-day default', () => {
+    expect(parseAgentDashboardQuery({})).toEqual({ days: 7 });
+    expect(parseAgentDashboardQuery({ days: '30' })).toEqual({ days: 30 });
+    for (const query of [{ days: '14' }, { days: 30 }, { agent_id: generateUlid() }]) {
+      expect(() => parseAgentDashboardQuery(query)).toThrow();
+    }
+  });
+
   it('strictly parses customer pagination and Shanghai inclusive calendar dates', () => {
     expect(parseAgentCustomerListQuery({
       date_from: '2026-09-01',

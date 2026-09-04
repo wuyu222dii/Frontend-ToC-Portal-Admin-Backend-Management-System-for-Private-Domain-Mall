@@ -254,6 +254,35 @@ describe('AgentAuthRepository', () => {
     })).resolves.toBeNull();
   });
 
+  it('validates the current session before revoking every active PASSWORD session on password change', async () => {
+    const accountId = generateUlid(NOW.getTime());
+    const owner = account(accountId);
+    const regular = material('NONE');
+    const current = sessionRecord(owner, regular);
+    const findUnique = vi.fn().mockResolvedValue(current);
+    const updateAccount = vi.fn().mockResolvedValue({ count: 1 });
+    const revokeSessions = vi.fn().mockResolvedValue({ count: 2 });
+    const transaction = {
+      $queryRawUnsafe: vi.fn().mockResolvedValue([{ acquired: 1 }]),
+      account: { updateMany: updateAccount },
+      authSession: { findUnique, updateMany: revokeSessions },
+    } as unknown as DatabaseTransaction;
+    const repository = new AgentAuthRepository({} as PrismaClient, () => NOW);
+
+    await expect(repository.changePasswordInTransaction(transaction, {
+      accountId,
+      currentSessionId: regular.id,
+      expectedPasswordHash: owner.password_hash,
+      expectedVersion: owner.version,
+      newPasswordHash: '$argon2id$new-development-password',
+    })).resolves.toEqual({ revokedOtherSessions: 2, version: 4 });
+    expect(findUnique.mock.invocationCallOrder[0]).toBeLessThan(updateAccount.mock.invocationCallOrder[0]!);
+    expect(revokeSessions).toHaveBeenCalledWith({
+      where: { account_id: accountId, assurance: 'PASSWORD', revoked_at: null },
+      data: { last_seen_at: NOW, revoked_at: NOW },
+    });
+  });
+
   it('atomically consumes a restricted session and creates the first regular session', async () => {
     const accountId = generateUlid(NOW.getTime());
     const owner = account(accountId, { must_change_password: true });

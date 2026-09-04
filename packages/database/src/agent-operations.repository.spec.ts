@@ -587,7 +587,13 @@ describe('AgentOperationsRepository', () => {
     }));
   });
 
-  it('builds a seven-day dashboard by Asia/Shanghai payment and refund dates', async () => {
+  it.each([
+    { days: 7 as const, expectedStart: new Date('2026-08-27T16:00:00.000Z') },
+    { days: 30 as const, expectedStart: new Date('2026-08-04T16:00:00.000Z') },
+  ])('builds a selected $days-day dashboard and excludes fully refunded effective orders', async ({
+    days,
+    expectedStart,
+  }) => {
     const todayPayment = new Date('2026-09-02T16:30:00.000Z');
     const todayRefund = new Date('2026-09-03T07:00:00.000Z');
     const dashboardLedger = {
@@ -598,10 +604,11 @@ describe('AgentOperationsRepository', () => {
     const transaction = {
       $queryRaw: vi.fn(async () => [{ transaction_time: NOW }]),
       agentProfile: { findUnique: vi.fn(async () => activeAgent()) },
+      agentBankAccount: { count: vi.fn(async () => 0) },
       agentWallet: {
         findUnique: vi.fn(async () => ({
           agent_id: agentId,
-          available_balance: new Prisma.Decimal('0.00'),
+          available_balance: new Prisma.Decimal('-1.00'),
           frozen_balance: new Prisma.Decimal('0.00'),
           id: walletId,
           version: 1,
@@ -610,7 +617,7 @@ describe('AgentOperationsRepository', () => {
       commissionLedger: {
         aggregate: vi.fn(async () => ({
           _sum: {
-            available_change: new Prisma.Decimal('0.00'),
+            available_change: new Prisma.Decimal('-1.00'),
             expected_change: new Prisma.Decimal('1.99'),
             frozen_change: new Prisma.Decimal('0.00'),
           },
@@ -622,39 +629,50 @@ describe('AgentOperationsRepository', () => {
         aggregate: vi.fn(async () => ({ _sum: { expected_remaining: new Prisma.Decimal('1.99') } })),
       },
       refund: {
-        findMany: vi.fn(async () => [{ amount: new Prisma.Decimal('5.00'), id: refundId, succeeded_at: todayRefund }]),
+        findMany: vi.fn(async () => [{ amount: new Prisma.Decimal('20.00'), id: refundId, succeeded_at: todayRefund }]),
       },
       salesOrder: {
         count: vi.fn(async () => 0),
-        findMany: vi.fn(async () => [{ id: orderId, paid_amount: new Prisma.Decimal('20.00'), paid_at: todayPayment }]),
+        findMany: vi.fn(async () => [{
+          id: orderId,
+          paid_amount: new Prisma.Decimal('20.00'),
+          paid_at: todayPayment,
+          refunded_amount: new Prisma.Decimal('20.00'),
+        }]),
       },
       withdrawal: { count: vi.fn(async () => 1) },
     };
-    const result = await new AgentOperationsRepository(prismaWith(transaction)).getDashboard({ accountId, agentId });
+    const result = await new AgentOperationsRepository(prismaWith(transaction)).getDashboard({
+      accountId,
+      agentId,
+      days,
+    });
 
     expect(result).toMatchObject({
       agentId,
       asOf: NOW,
       attributedCustomerCount: 2,
       expectedCommission: '1.99',
-      monthNetSalesAmount: '15.00',
+      monthNetSalesAmount: '0.00',
+      negativeBalance: '1.00',
       pendingWithdrawalCount: 1,
-      todayNetSalesAmount: '15.00',
-      todayPaidOrderCount: 1,
+      todayNetSalesAmount: '0.00',
+      todayPaidOrderCount: 0,
+      withdrawalActionCount: 3,
     });
-    expect(result.trend).toHaveLength(7);
+    expect(result.trend).toHaveLength(days);
     expect(result.trend.at(-1)).toEqual({
       businessDate: '2026-09-03',
       commissionChange: '1.99',
-      netSalesAmount: '15.00',
-      paidOrderCount: 1,
+      netSalesAmount: '0.00',
+      paidOrderCount: 0,
     });
     const orderQuery = transaction.salesOrder.findMany.mock.calls[0]?.[0];
     expect(orderQuery.where).toMatchObject({
       attribution_snapshot: { is: { agent_id_snapshot: agentId } },
       final_agent_id: agentId,
       final_channel: 'AGENT',
-      paid_at: { gte: new Date('2026-08-27T16:00:00.000Z'), lte: NOW },
+      paid_at: { gte: expectedStart, lte: NOW },
       payment_status: 'PAID',
     });
     expect(transaction.refund.findMany.mock.calls[0]?.[0].where).toMatchObject({

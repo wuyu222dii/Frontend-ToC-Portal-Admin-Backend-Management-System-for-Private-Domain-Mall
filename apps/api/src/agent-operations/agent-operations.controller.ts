@@ -23,6 +23,7 @@ import {
   parseAgentCommissionListQuery,
   parseAgentCreateWithdrawalBody,
   parseAgentCustomerListQuery,
+  parseAgentDashboardQuery,
   parseAgentOperationsEmptyQuery,
   parseAgentOperationsResourceId,
   parseAgentOrderListQuery,
@@ -38,8 +39,10 @@ export class AgentOperationsController {
   @Get('dashboard')
   @NoStore()
   getDashboard(@Query() query: unknown, @Req() request: AgentAuthRequestContext) {
-    parseAgentOperationsEmptyQuery(query);
-    return this.operations.getDashboard(requireUnrestrictedAgentSession(request));
+    return this.operations.getDashboard(
+      requireUnrestrictedAgentSession(request),
+      parseAgentDashboardQuery(query),
+    );
   }
 
   @Get('customers')

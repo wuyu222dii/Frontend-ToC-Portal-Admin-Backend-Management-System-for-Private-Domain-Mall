@@ -1293,7 +1293,7 @@ integrationDescribe('B13.1 Agent lifecycle and authentication PostgreSQL/Redis i
     });
     expect(await database.prisma.authSession.count({
       where: { account_id: agentAccountId, revoked_at: null },
-    })).toBe(1);
+    })).toBe(0);
 
     const revokedOtherAccess = await request(app.getHttpServer())
       .get('/api/v1/agent/auth/current')
@@ -1307,6 +1307,18 @@ integrationDescribe('B13.1 Agent lifecycle and authentication PostgreSQL/Redis i
     expect(revokedOtherRefresh.status).toBe(401);
     expectNoStore(revokedOtherRefresh);
 
+    const revokedCurrentAccess = await request(app.getHttpServer())
+      .get('/api/v1/agent/auth/current')
+      .set('Authorization', `Bearer ${firstAccessToken}`);
+    expect(revokedCurrentAccess.status).toBe(401);
+    expectNoStore(revokedCurrentAccess);
+    const revokedCurrentRefresh = await request(app.getHttpServer())
+      .post('/api/v1/agent/auth/refresh')
+      .set('Idempotency-Key', key())
+      .send({ refresh_token: firstRefreshToken });
+    expect(revokedCurrentRefresh.status).toBe(401);
+    expectNoStore(revokedCurrentRefresh);
+
     await clearAgentLoginRedis(redis, config, [loginName], idempotencyKeys);
     const oldPasswordAfterChange = await request(app.getHttpServer())
       .post('/api/v1/agent/auth/login')
@@ -1315,9 +1327,18 @@ integrationDescribe('B13.1 Agent lifecycle and authentication PostgreSQL/Redis i
     expect(oldPasswordAfterChange.status).toBe(401);
     expectNoStore(oldPasswordAfterChange);
 
+    await clearAgentLoginRedis(redis, config, [loginName], idempotencyKeys);
+    const postChangeLogin = await request(app.getHttpServer())
+      .post('/api/v1/agent/auth/login')
+      .set('Idempotency-Key', key())
+      .send({ login_name: loginName, password: updatedPassword })
+      .expect(200);
+    expectNoStore(postChangeLogin);
+    const postChangeAccessToken = postChangeLogin.body.data.access_token as string;
+    const postChangeRefreshToken = postChangeLogin.body.data.refresh_token as string;
     const current = await request(app.getHttpServer())
       .get('/api/v1/agent/auth/current')
-      .set('Authorization', `Bearer ${firstAccessToken}`)
+      .set('Authorization', `Bearer ${postChangeAccessToken}`)
       .expect(200);
     expectNoStore(current);
     expect(current.body.data).toMatchObject({
@@ -1332,7 +1353,7 @@ integrationDescribe('B13.1 Agent lifecycle and authentication PostgreSQL/Redis i
     const refreshed = await request(app.getHttpServer())
       .post('/api/v1/agent/auth/refresh')
       .set('Idempotency-Key', refreshKey)
-      .send({ refresh_token: firstRefreshToken })
+      .send({ refresh_token: postChangeRefreshToken })
       .expect(200);
     expectNoStore(refreshed);
     const rotatedAccessToken = refreshed.body.data.access_token as string;
@@ -1341,7 +1362,7 @@ integrationDescribe('B13.1 Agent lifecycle and authentication PostgreSQL/Redis i
     const sameRefreshReplay = await request(app.getHttpServer())
       .post('/api/v1/agent/auth/refresh')
       .set('Idempotency-Key', refreshKey)
-      .send({ refresh_token: firstRefreshToken });
+      .send({ refresh_token: postChangeRefreshToken });
     expect(sameRefreshReplay.status).toBe(409);
     expectNoStore(sameRefreshReplay);
     await request(app.getHttpServer())
@@ -1352,7 +1373,7 @@ integrationDescribe('B13.1 Agent lifecycle and authentication PostgreSQL/Redis i
     const oldRefreshReplay = await request(app.getHttpServer())
       .post('/api/v1/agent/auth/refresh')
       .set('Idempotency-Key', key())
-      .send({ refresh_token: firstRefreshToken });
+      .send({ refresh_token: postChangeRefreshToken });
     expect(oldRefreshReplay.status).toBe(401);
     expectNoStore(oldRefreshReplay);
     await request(app.getHttpServer())
@@ -1787,6 +1808,8 @@ integrationDescribe('B13.1 Agent lifecycle and authentication PostgreSQL/Redis i
       restrictedAccessToken,
       firstAccessToken,
       firstRefreshToken,
+      postChangeAccessToken,
+      postChangeRefreshToken,
       rotatedAccessToken,
       rotatedRefreshToken,
       recoveredAccessToken,

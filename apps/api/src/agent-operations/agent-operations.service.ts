@@ -39,6 +39,7 @@ import type {
   AgentCommissionListQuery,
   AgentCreateWithdrawalInput,
   AgentCustomerListQuery,
+  AgentDashboardQuery,
   AgentOrderListQuery,
   AgentWithdrawalListQuery,
 } from './agent-operations.dto';
@@ -154,10 +155,11 @@ export class AgentOperationsService {
     }
   }
 
-  async getDashboard(session: CurrentAgentSession) {
+  async getDashboard(session: CurrentAgentSession, input: AgentDashboardQuery) {
     const dashboard = await this.repository().getDashboard({
       accountId: session.accountId,
       agentId: session.agentId,
+      days: input.days,
     });
     return {
       timezone: 'Asia/Shanghai' as const,

@@ -13,6 +13,10 @@ export interface AgentOperationsIdentity {
   agentId: string;
 }
 
+export interface AgentDashboardInput extends AgentOperationsIdentity {
+  days: 7 | 30;
+}
+
 export interface AgentCustomerListInput extends AgentOperationsIdentity {
   boundAtFrom?: Date;
   boundAtToExclusive?: Date;
@@ -1778,8 +1782,9 @@ export class AgentOperationsRepository {
     }, { isolationLevel: 'RepeatableRead' });
   }
 
-  async getDashboard(input: AgentOperationsIdentity): Promise<AgentDashboardSnapshot> {
+  async getDashboard(input: AgentDashboardInput): Promise<AgentDashboardSnapshot> {
     validateIdentity(input);
+    if (input.days !== 7 && input.days !== 30) throw new TypeError('Agent dashboard days is invalid');
     return this.prisma.$transaction(async (transaction) => {
       await this.requireActiveAgent(transaction, input);
       const asOf = await this.transactionTime(transaction);
@@ -1787,7 +1792,7 @@ export class AgentOperationsRepository {
       const localMidnight = Date.parse(`${businessDate}T00:00:00.000Z`);
       const todayStart = new Date(localMidnight - SHANGHAI_OFFSET_MS);
       const monthStart = new Date(Date.parse(`${businessDate.slice(0, 7)}-01T00:00:00.000Z`) - SHANGHAI_OFFSET_MS);
-      const trendStart = new Date(todayStart.getTime() - 6 * DAY_MS);
+      const trendStart = new Date(todayStart.getTime() - (input.days - 1) * DAY_MS);
       const dataStart = monthStart.getTime() < trendStart.getTime() ? monthStart : trendStart;
       const ownedSnapshot = commissionSnapshotWhere(input.agentId);
       const [
@@ -1797,12 +1802,13 @@ export class AgentOperationsRepository {
         trendLedgers,
         attributedCustomerCount,
         pendingWithdrawalCount,
+        activeBankAccountCount,
         commissionExceptionCount,
       ] = await Promise.all([
         this.reconciledWallet(transaction, input.agentId),
         transaction.salesOrder.findMany({
           orderBy: [{ paid_at: 'asc' }, { id: 'asc' }],
-          select: { id: true, paid_amount: true, paid_at: true },
+          select: { id: true, paid_amount: true, paid_at: true, refunded_amount: true },
           where: {
             ...commissionOrderWhere(input.agentId),
             paid_at: { gte: dataStart, lte: asOf },
@@ -1831,6 +1837,9 @@ export class AgentOperationsRepository {
         transaction.withdrawal.count({
           where: { agent_id: input.agentId, status: { in: ['APPROVED', 'PENDING'] } },
         }),
+        transaction.agentBankAccount.count({
+          where: { agent_id: input.agentId, deleted_at: null, is_active: true },
+        }),
         transaction.salesOrder.count({
           where: {
             attribution_candidate: {
@@ -1842,6 +1851,13 @@ export class AgentOperationsRepository {
           },
         }),
       ]);
+      if (!Number.isSafeInteger(activeBankAccountCount) || activeBankAccountCount < 0 || activeBankAccountCount > 1) {
+        throw internal('Stored Agent active bank account count is inconsistent');
+      }
+      const safePendingWithdrawalCount = safeCount(
+        pendingWithdrawalCount,
+        'Stored Agent pending withdrawal count',
+      );
 
       type TrendAccumulator = {
         commission: Prisma.Decimal;
@@ -1850,7 +1866,7 @@ export class AgentOperationsRepository {
         sales: Prisma.Decimal;
       };
       const trend = new Map<string, TrendAccumulator>();
-      for (let offset = 0; offset < 7; offset += 1) {
+      for (let offset = 0; offset < input.days; offset += 1) {
         const date = new Date(trendStart.getTime() + offset * DAY_MS);
         const key = new Date(date.getTime() + SHANGHAI_OFFSET_MS).toISOString().slice(0, 10);
         trend.set(key, {
@@ -1869,16 +1885,21 @@ export class AgentOperationsRepository {
         requireUlid(order.id, 'Stored Agent dashboard order ID');
         const paidAt = safeDate(order.paid_at, 'Stored Agent dashboard order payment time');
         safeMoney(order.paid_amount, 'Stored Agent dashboard paid amount');
+        safeMoney(order.refunded_amount, 'Stored Agent dashboard refunded amount');
+        if (order.refunded_amount.greaterThan(order.paid_amount)) {
+          throw internal('Stored Agent dashboard refunded amount exceeds paid amount');
+        }
+        const isEffective = order.paid_amount.greaterThan(order.refunded_amount);
         if (paidAt.getTime() >= monthStart.getTime()) monthSales = monthSales.add(order.paid_amount);
         if (paidAt.getTime() >= todayStart.getTime()) {
           todaySales = todaySales.add(order.paid_amount);
-          todayPaidOrderCount += 1;
+          if (isEffective) todayPaidOrderCount += 1;
         }
         const key = new Date(paidAt.getTime() + SHANGHAI_OFFSET_MS).toISOString().slice(0, 10);
         const point = trend.get(key);
         if (point !== undefined) {
           point.sales = point.sales.add(order.paid_amount);
-          point.orders += 1;
+          if (isEffective) point.orders += 1;
         }
       }
       for (const refund of refunds) {
@@ -1915,7 +1936,7 @@ export class AgentOperationsRepository {
           'Stored Agent monthly net sales amount',
         ),
         negativeBalance: wallet.negativeBalance,
-        pendingWithdrawalCount: safeCount(pendingWithdrawalCount, 'Stored Agent pending withdrawal count'),
+        pendingWithdrawalCount: safePendingWithdrawalCount,
         todayNetSalesAmount: safeSignedMoney(
           todaySales.minus(todayRefunds),
           'Stored Agent daily net sales amount',
@@ -1927,7 +1948,8 @@ export class AgentOperationsRepository {
           netSalesAmount: safeSignedMoney(point.sales.minus(point.refunds), 'Stored Agent daily net sales amount'),
           paidOrderCount: safeCount(point.orders, 'Stored Agent daily paid order count'),
         })),
-        withdrawalActionCount: 0,
+        withdrawalActionCount: safePendingWithdrawalCount + (activeBankAccountCount === 0 ? 1 : 0) +
+          (wallet.isNegative ? 1 : 0),
       };
     }, { isolationLevel: 'RepeatableRead' });
   }

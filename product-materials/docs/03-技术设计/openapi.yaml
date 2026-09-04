@@ -2741,7 +2741,7 @@ paths:
     post:
       tags:
         - "Agent"
-      summary: "使用当前密码修改密码并撤销其他会话"
+      summary: "使用当前密码修改密码并撤销全部会话"
       operationId: "postAgentAuthChangePassword"
       security:
         -
@@ -2870,7 +2870,16 @@ paths:
       security:
         -
           agentBearerAuth: []
-      parameters: []
+      parameters:
+        -
+          name: "days"
+          in: "query"
+          required: false
+          description: "趋势统计周期，包含当天；默认返回近 7 日。"
+          schema:
+            type: "integer"
+            enum: [7, 30]
+            default: 7
       responses:
         200:
           description: "成功"

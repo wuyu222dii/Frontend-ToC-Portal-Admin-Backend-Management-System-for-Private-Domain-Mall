@@ -522,7 +522,6 @@ export class AgentAuthRepository {
       where: {
         account_id: input.accountId,
         assurance: 'PASSWORD',
-        id: { not: input.currentSessionId },
         revoked_at: null,
       },
       data: { revoked_at: now, last_seen_at: now },

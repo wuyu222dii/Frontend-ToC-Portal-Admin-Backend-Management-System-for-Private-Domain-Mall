@@ -920,7 +920,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 使用当前密码修改密码并撤销其他会话 */
+        /** 使用当前密码修改密码并撤销全部会话 */
         post: operations["postAgentAuthChangePassword"];
         delete?: never;
         options?: never;
@@ -10086,7 +10086,10 @@ export interface operations {
     };
     getAgentDashboard: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description 趋势统计周期，包含当天；默认返回近 7 日。 */
+                days?: 7 | 30;
+            };
             header?: never;
             path?: never;
             cookie?: never;

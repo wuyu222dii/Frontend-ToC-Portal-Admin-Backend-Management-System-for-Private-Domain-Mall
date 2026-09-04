@@ -99,6 +99,17 @@ describe('AgentOperationsController', () => {
     expect(service.getCommission).not.toHaveBeenCalled();
   });
 
+  it('dispatches the selected dashboard period and defaults to seven days', () => {
+    const { controller, service } = harness();
+    const context = request();
+    controller.getDashboard({}, context);
+    controller.getDashboard({ days: '30' }, context);
+    expect(service.getDashboard).toHaveBeenNthCalledWith(1, context.agentSession, { days: 7 });
+    expect(service.getDashboard).toHaveBeenNthCalledWith(2, context.agentSession, { days: 30 });
+    expect(() => controller.getDashboard({ days: '14' }, context))
+      .toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT' }));
+  });
+
   it('dispatches bank-account and withdrawal operations with strict decoded inputs', () => {
     const { controller, service } = harness();
     const bankAccountId = generateUlid();

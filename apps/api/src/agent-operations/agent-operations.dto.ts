@@ -40,6 +40,10 @@ export interface AgentCreateWithdrawalInput {
   bankAccountId: string;
 }
 
+export interface AgentDashboardQuery {
+  days: 7 | 30;
+}
+
 export interface AgentCustomerListQuery {
   boundAtFrom?: Date;
   boundAtToExclusive?: Date;
@@ -247,6 +251,14 @@ export function parseAgentCreateWithdrawalBody(value: unknown): AgentCreateWithd
 
 export function parseAgentOperationsEmptyQuery(value: unknown): void {
   if (Object.keys(plainRecord(value)).length !== 0) return invalid('Query fields are invalid');
+}
+
+export function parseAgentDashboardQuery(value: unknown): AgentDashboardQuery {
+  const query = plainRecord(value);
+  if (Object.keys(query).some((field) => field !== 'days')) return invalid('Query fields are invalid');
+  const days = positiveInteger(query.days, 7, 30, 'days');
+  if (days !== 7 && days !== 30) return invalid('days is invalid');
+  return { days };
 }
 
 export function parseAgentCustomerListQuery(value: unknown): AgentCustomerListQuery {

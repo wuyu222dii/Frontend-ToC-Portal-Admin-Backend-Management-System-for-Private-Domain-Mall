@@ -222,12 +222,17 @@ describe('AgentOperationsService', () => {
     (service as unknown as { operations: { getDashboard: typeof getDashboard; getWallet: typeof getWallet } })
       .operations = { getDashboard, getWallet };
 
-    await expect(service.getDashboard(session)).resolves.toMatchObject({
+    await expect(service.getDashboard(session, { days: 30 })).resolves.toMatchObject({
       agent_id: session.agentId,
       as_of: asOf.toISOString(),
       timezone: 'Asia/Shanghai',
       today_net_sales_amount: '9.00',
       trend: [{ business_date: '2026-09-03' }],
+    });
+    expect(getDashboard).toHaveBeenCalledWith({
+      accountId: session.accountId,
+      agentId: session.agentId,
+      days: 30,
     });
     await expect(service.getWallet(session)).resolves.toEqual({
       available_balance: '-1.00',

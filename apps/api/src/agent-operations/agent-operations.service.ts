@@ -32,6 +32,7 @@ import { preEnvelopedResponse } from '../platform/http/success-envelope.intercep
 import {
   agentBankAccountHashCandidates,
   createAgentBankAccountMaterial,
+  maskAgentBankAccountHolder,
 } from '../platform/security/bank-account-security';
 import type {
   AgentBankAccountWriteInput,
@@ -102,14 +103,9 @@ function commissionDetailView(commission: AgentCommissionDetailSnapshot) {
   };
 }
 
-function maskedHolder(value: string): string {
-  const characters = Array.from(value);
-  return `${characters[0]}${'*'.repeat(Math.max(1, characters.length - 1))}`;
-}
-
 function bankAccountView(account: AgentBankAccountSnapshot) {
   return {
-    account_holder_masked: maskedHolder(account.accountHolder),
+    account_holder_masked: maskAgentBankAccountHolder(account.accountHolder),
     account_no_last4: account.last4,
     account_number_masked: `**** ${account.last4}`,
     bank_account_id: account.bankAccountId,

@@ -19,6 +19,7 @@ import { AdminInventoryModule } from './admin-inventory/admin-inventory.module';
 import { AdminOrdersModule } from './admin-orders/admin-orders.module';
 import { AdminPaymentsModule } from './admin-payments/admin-payments.module';
 import { AdminProductsModule } from './admin-products/admin-products.module';
+import { AdminWithdrawalsModule } from './admin-withdrawals/admin-withdrawals.module';
 import { AgentAuthModule } from './agent-auth/agent-auth.module';
 import { AgentCommerceModule } from './agent-commerce/agent-commerce.module';
 import { AgentOperationsModule } from './agent-operations/agent-operations.module';
@@ -56,6 +57,7 @@ import { StorePaymentsModule } from './store-payments/store-payments.module';
     AdminOrdersModule,
     AdminPaymentsModule,
     AdminProductsModule,
+    AdminWithdrawalsModule,
     AgentAuthModule,
     AgentCommerceModule,
     AgentOperationsModule,

@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import type { PrincipalRequest } from './principal';
 import { RbacGuard } from './rbac.guard';
 import { Public, RequirePermissions, RequireRoles } from './rbac.metadata';
+import { RequireAdminMfaChallengeAuthentication } from '../auth/pre-auth.metadata';
 import { getRequestContext, requestContextStorage } from '../http/request-context';
 
 const SUPER_ADMIN: RbacPrincipal = {
@@ -28,6 +29,9 @@ class GuardFixture {
 
   @RequirePermissions('ORDER_FULFILLMENT_PII_READ')
   piiRoute(): void {}
+
+  @RequireAdminMfaChallengeAuthentication()
+  adminMfaChallengeRoute(): void {}
 }
 
 @Public()
@@ -127,6 +131,32 @@ describe('RbacGuard', () => {
   it('allows matching role and permission requirements', () => {
     expect(guard.canActivate(contextFor(GuardFixture, 'adminRoute', { principal: SUPER_ADMIN }))).toBe(true);
     expect(guard.canActivate(contextFor(GuardFixture, 'piiRoute', { principal: SUPER_ADMIN }))).toBe(true);
+  });
+
+  it('allows only verified LOGIN pre-auth or a SUPER_ADMIN principal on the shared MFA route', () => {
+    expect(guard.canActivate(contextFor(GuardFixture, 'adminMfaChallengeRoute', {
+      preAuth: {
+        accountId: 'account_1',
+        accountVersion: 1,
+        challengeId: 'challenge_1',
+        expiresAt: new Date('2099-01-01T00:00:00.000Z'),
+        nextAction: 'VERIFY_TOTP',
+        tokenId: 'token_1',
+      },
+    }))).toBe(true);
+    expect(guard.canActivate(contextFor(GuardFixture, 'adminMfaChallengeRoute', {
+      principal: SUPER_ADMIN,
+    }))).toBe(true);
+    expectApplicationError(
+      () => guard.canActivate(contextFor(GuardFixture, 'adminMfaChallengeRoute', {})),
+      'AUTH_REQUIRED',
+    );
+    expectApplicationError(
+      () => guard.canActivate(contextFor(GuardFixture, 'adminMfaChallengeRoute', {
+        principal: { ...SUPER_ADMIN, role: 'CUSTOMER' },
+      })),
+      'PERMISSION_DENIED',
+    );
   });
 
   it('makes an authenticated principal available to downstream request context consumers', () => {

@@ -26,7 +26,8 @@ export type HighRiskPreviewTargetType =
   | 'PRODUCT'
   | 'REFUND'
   | 'RETURN_ADDRESS'
-  | 'SKU';
+  | 'SKU'
+  | 'WITHDRAWAL';
 export type HighRiskPreviewAction =
   | 'ACCOUNT.ANONYMIZE'
   | 'AGENT.DISABLE'
@@ -53,7 +54,10 @@ export type HighRiskPreviewAction =
   | 'RETURN_ADDRESS.PUBLISH'
   | 'SKU.ACTIVATE'
   | 'SKU.DEACTIVATE'
-  | 'SKU.SOFT_DELETE';
+  | 'SKU.SOFT_DELETE'
+  | 'WITHDRAWAL.APPROVE'
+  | 'WITHDRAWAL.MARK_PAID'
+  | 'WITHDRAWAL.REJECT';
 
 export interface IssueHighRiskPreviewInput {
   actorId: string;
@@ -126,6 +130,9 @@ const PREVIEW_ACTION = new Set<HighRiskPreviewAction>([
   'SKU.ACTIVATE',
   'SKU.DEACTIVATE',
   'SKU.SOFT_DELETE',
+  'WITHDRAWAL.APPROVE',
+  'WITHDRAWAL.MARK_PAID',
+  'WITHDRAWAL.REJECT',
 ]);
 const PREVIEW_TARGET_TYPE = new Set<HighRiskPreviewTargetType>([
   'ACCOUNT',
@@ -141,6 +148,7 @@ const PREVIEW_TARGET_TYPE = new Set<HighRiskPreviewTargetType>([
   'REFUND',
   'RETURN_ADDRESS',
   'SKU',
+  'WITHDRAWAL',
 ]);
 
 function isExactPlainObject(value: unknown, fields: ReadonlySet<string>): value is Record<string, unknown> {

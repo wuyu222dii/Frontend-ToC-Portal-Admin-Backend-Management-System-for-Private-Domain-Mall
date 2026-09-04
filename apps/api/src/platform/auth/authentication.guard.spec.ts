@@ -5,6 +5,7 @@ import { AgentAuthRepository, type DatabaseRuntime } from '@qingxu/database';
 import {
   signAccessToken,
   signAgentAccessToken,
+  signPreAuthToken,
   signStoreAccessToken,
 } from '@qingxu/platform-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -13,6 +14,7 @@ import type { PrincipalRequest } from '../access/principal';
 import { Public, RequireRoles } from '../access/rbac.metadata';
 import { AgentRealm, AllowRestrictedAgentSession } from './agent-realm.metadata';
 import { AuthenticationGuard } from './authentication.guard';
+import { RequireAdminMfaChallengeAuthentication } from './pre-auth.metadata';
 import { RequireCustomerOrSuperAdmin } from './customer-or-super-admin.metadata';
 import { RequireFileDownloadAuthentication } from './file-download-realm.metadata';
 import { OptionalStoreAuthentication } from './optional-store-authentication.metadata';
@@ -49,6 +51,9 @@ class RealmFixture {
 
   @RequireRoles('SUPER_ADMIN')
   adminRoute(): void {}
+
+  @RequireAdminMfaChallengeAuthentication()
+  adminMfaChallengeRoute(): void {}
 
   @AgentRealm()
   agentRoute(): void {}
@@ -153,10 +158,18 @@ function adminSessionRow(overrides: Record<string, unknown> = {}) {
 
 function runtimeWithSession(session: Record<string, unknown> | null) {
   const findUnique = vi.fn().mockResolvedValue(session);
+  const accountFindUnique = vi.fn().mockResolvedValue({
+    deleted_at: null,
+    password_hash: 'stored-password-hash-material',
+    role: 'SUPER_ADMIN',
+    status: 'ACTIVE',
+    version: 3,
+  });
   const database = {
-    prisma: { authSession: { findUnique } },
+    prisma: { account: { findUnique: accountFindUnique }, authSession: { findUnique } },
   } as unknown as DatabaseRuntime;
   return {
+    accountFindUnique,
     findUnique,
     guard: new AuthenticationGuard(new Reflector(), config, database),
   };
@@ -230,6 +243,20 @@ function adminToken(): string {
   }, 900).token;
 }
 
+function loginPreAuthToken(): string {
+  return signPreAuthToken({
+    audience: config.authentication.audience,
+    issuer: config.authentication.issuer,
+    keys: config.authentication.signingKeys,
+  }, {
+    accountId: ACCOUNT_ID,
+    accountVersion: 3,
+    challengeId: '01J00000000000000000000005',
+    nextAction: 'VERIFY_TOTP',
+    tokenId: '01J00000000000000000000006',
+  }, 300).token;
+}
+
 function agentToken(restriction: 'CHANGE_PASSWORD_ONLY' | 'NONE' = 'NONE'): string {
   return signAgentAccessToken({
     audience: config.agent.authTokenAudience,
@@ -293,6 +320,35 @@ describe('AuthenticationGuard Store and Admin realm isolation', () => {
     await expect(guard.canActivate(context)).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
     expect(findUnique).not.toHaveBeenCalled();
     expect(request.principal).toBeUndefined();
+  });
+
+  it('accepts only LOGIN pre-auth or a live Admin bearer on the shared MFA challenge route', async () => {
+    const preAuthRuntime = runtimeWithSession(null);
+    const preAuthRequest = contextFor('adminMfaChallengeRoute', loginPreAuthToken());
+    await expect(preAuthRuntime.guard.canActivate(preAuthRequest.context)).resolves.toBe(true);
+    expect(preAuthRequest.request.preAuth).toMatchObject({
+      accountId: ACCOUNT_ID,
+      nextAction: 'VERIFY_TOTP',
+    });
+    expect(preAuthRuntime.accountFindUnique).toHaveBeenCalledOnce();
+    expect(preAuthRuntime.findUnique).not.toHaveBeenCalled();
+
+    const bearerRuntime = runtimeWithSession(adminSessionRow());
+    const bearerRequest = contextFor('adminMfaChallengeRoute', adminToken());
+    await expect(bearerRuntime.guard.canActivate(bearerRequest.context)).resolves.toBe(true);
+    expect(bearerRequest.request.accessSession).toMatchObject({ accountId: ACCOUNT_ID, sessionId: SESSION_ID });
+  });
+
+  it.each([
+    ['Agent', agentToken()],
+    ['Store', storeToken()],
+  ])('rejects a %s token on the shared Admin MFA challenge route', async (_realm, token) => {
+    const { guard } = runtimeWithSession(adminSessionRow());
+    const { context, request } = contextFor('adminMfaChallengeRoute', token);
+
+    await expect(guard.canActivate(context)).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
+    expect(request.accessSession).toBeUndefined();
+    expect(request.preAuth).toBeUndefined();
   });
 
   it('accepts an active Agent session only on an explicitly marked Agent realm', async () => {

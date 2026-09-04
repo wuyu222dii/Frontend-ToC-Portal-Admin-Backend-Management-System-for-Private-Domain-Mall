@@ -63,6 +63,28 @@ export function parseTotpVerifyBody(value: unknown) {
   return { challengeId: ulidField(body, 'challenge_id'), totpCode };
 }
 
+export function parseMfaChallengeBody(value: unknown) {
+  const body = objectWithFields(value, ['purpose'], ['target_id']);
+  if (body.purpose !== 'REAUTH') throw new ApplicationError('INVALID_ARGUMENT', 'purpose is invalid');
+  if (body.target_id === undefined) return { purpose: 'REAUTH' as const };
+  if (body.target_id === null) return { purpose: 'REAUTH' as const, targetId: null };
+  return { purpose: 'REAUTH' as const, targetId: ulidField(body, 'target_id') };
+}
+
+export function parsePayoutReauthBody(value: unknown) {
+  const body = objectWithFields(value, ['action', 'withdrawal_id', 'totp_code']);
+  if (body.action !== 'PAYOUT_ACCOUNT_REVEAL') {
+    throw new ApplicationError('INVALID_ARGUMENT', 'action is invalid');
+  }
+  const totpCode = stringField(body, 'totp_code', 6, 6);
+  if (!/^\d{6}$/.test(totpCode)) throw new ApplicationError('INVALID_ARGUMENT', 'totp_code is invalid');
+  return {
+    action: 'PAYOUT_ACCOUNT_REVEAL' as const,
+    withdrawalId: ulidField(body, 'withdrawal_id'),
+    totpCode,
+  };
+}
+
 export function parseTotpBody(value: unknown) {
   const body = objectWithFields(value, ['totp_code']);
   const totpCode = stringField(body, 'totp_code', 6, 6);

@@ -282,6 +282,40 @@ function withdrawalSnapshot(record: WithdrawalRecord, expectedAgentId: string): 
   };
 }
 
+export async function lockReconciledAgentWalletInTransaction(
+  transaction: DatabaseTransaction,
+  agentId: string,
+) {
+  if (!isValidUlid(agentId)) throw new TypeError('Agent wallet owner ID is invalid');
+  await acquireTransactionLock(transaction, 'agent-wallet', [agentId]);
+  const locked = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id FROM public.agent_wallet WHERE agent_id = ${agentId} FOR UPDATE
+  `);
+  const wallet = await transaction.agentWallet.findUnique({ where: { agent_id: agentId } });
+  if (locked.length !== 1 || wallet === null || locked[0]?.id !== wallet.id || wallet.agent_id !== agentId ||
+    !isValidUlid(wallet.id)) throw internal('Stored Agent wallet is missing or inconsistent');
+  await validateAgentCommissionLedgerClosureInTransaction(transaction, agentId);
+  const [ledger, positions] = await Promise.all([
+    transaction.commissionLedger.aggregate({
+      _sum: { available_change: true, expected_change: true, frozen_change: true },
+      where: { agent_id: agentId },
+    }),
+    transaction.orderItemCommissionPosition.aggregate({
+      _sum: { expected_remaining: true },
+      where: { snapshot: { agent_id: agentId } },
+    }),
+  ]);
+  const ledgerAvailable = ledger._sum.available_change ?? new Prisma.Decimal(0);
+  const ledgerFrozen = ledger._sum.frozen_change ?? new Prisma.Decimal(0);
+  const ledgerExpected = ledger._sum.expected_change ?? new Prisma.Decimal(0);
+  const positionExpected = positions._sum.expected_remaining ?? new Prisma.Decimal(0);
+  if (!wallet.available_balance.equals(ledgerAvailable) || !wallet.frozen_balance.equals(ledgerFrozen) ||
+    !ledgerExpected.equals(positionExpected) || wallet.frozen_balance.isNegative() || ledgerExpected.isNegative()) {
+    throw internal('Stored Agent wallet and commission ledger do not reconcile');
+  }
+  return wallet;
+}
+
 export class AgentFinanceRepository {
   constructor(
     private readonly prisma: PrismaClient,
@@ -412,38 +446,6 @@ export class AgentFinanceRepository {
     return { bankAccount: bankSnapshot(created, input.agentId), changed: true };
   }
 
-  private async lockReconciledWallet(transaction: DatabaseTransaction, agentId: string) {
-    await acquireTransactionLock(transaction, 'agent-wallet', [agentId]);
-    const locked = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-      SELECT id FROM public.agent_wallet WHERE agent_id = ${agentId} FOR UPDATE
-    `);
-    const wallet = await transaction.agentWallet.findUnique({ where: { agent_id: agentId } });
-    if (locked.length !== 1 || wallet === null || locked[0]?.id !== wallet.id || wallet.agent_id !== agentId ||
-      !isValidUlid(wallet.id)) throw internal('Stored Agent wallet is missing or inconsistent');
-    await validateAgentCommissionLedgerClosureInTransaction(transaction, agentId);
-    const [ledger, positions] = await Promise.all([
-      transaction.commissionLedger.aggregate({
-        _sum: { available_change: true, expected_change: true, frozen_change: true },
-        where: { agent_id: agentId },
-      }),
-      transaction.orderItemCommissionPosition.aggregate({
-        _sum: { expected_remaining: true },
-        where: { snapshot: { agent_id: agentId } },
-      }),
-    ]);
-    const available = wallet.available_balance;
-    const frozen = wallet.frozen_balance;
-    const ledgerAvailable = ledger._sum.available_change ?? new Prisma.Decimal(0);
-    const ledgerFrozen = ledger._sum.frozen_change ?? new Prisma.Decimal(0);
-    const ledgerExpected = ledger._sum.expected_change ?? new Prisma.Decimal(0);
-    const positionExpected = positions._sum.expected_remaining ?? new Prisma.Decimal(0);
-    if (!available.equals(ledgerAvailable) || !frozen.equals(ledgerFrozen) ||
-      !ledgerExpected.equals(positionExpected) || frozen.isNegative() || ledgerExpected.isNegative()) {
-      throw internal('Stored Agent wallet and commission ledger do not reconcile');
-    }
-    return wallet;
-  }
-
   async createWithdrawalInTransaction(
     transaction: DatabaseTransaction,
     input: CreateAgentWithdrawalInput,
@@ -463,7 +465,7 @@ export class AgentFinanceRepository {
       !rules[0].minimum_withdrawal_amount.isPositive()) {
       throw new ApplicationError('STATE_CONFLICT', 'Published withdrawal rule is unavailable');
     }
-    const wallet = await this.lockReconciledWallet(transaction, input.agentId);
+    const wallet = await lockReconciledAgentWalletInTransaction(transaction, input.agentId);
     await this.lockBankAccounts(transaction, input.agentId);
     await transaction.$queryRaw(Prisma.sql`
       SELECT id FROM public.withdrawal

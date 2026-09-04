@@ -103,6 +103,9 @@ describe('HighRiskPreviewRepository', () => {
     },
     { action: 'REFUND.RETRY', requestAction: 'RETRY', targetType: 'REFUND' },
     { action: 'RETURN_ADDRESS.PUBLISH', requestAction: 'PUBLISH', targetType: 'RETURN_ADDRESS' },
+    { action: 'WITHDRAWAL.APPROVE', requestAction: 'APPROVE', targetType: 'WITHDRAWAL' },
+    { action: 'WITHDRAWAL.MARK_PAID', requestAction: 'MARK_PAID', targetType: 'WITHDRAWAL' },
+    { action: 'WITHDRAWAL.REJECT', requestAction: 'REJECT', targetType: 'WITHDRAWAL' },
   ] as const)('issues and consumes the closed $action preview binding', async ({
     action,
     requestAction,
@@ -175,6 +178,7 @@ describe('HighRiskPreviewRepository', () => {
     { action: 'REFUND.RETRY', targetType: 'AFTERSALE' },
     { action: 'RETURN_ADDRESS.PUBLISH', targetType: 'AFTERSALE' },
     { action: 'SKU.ACTIVATE', targetType: 'PRODUCT' },
+    { action: 'WITHDRAWAL.APPROVE', targetType: 'AGENT' },
   ])('rejects an unregistered or mismatched $action/$targetType preview binding', async ({
     action,
     targetType,

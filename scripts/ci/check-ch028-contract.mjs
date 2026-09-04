@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 process.env.QINGXU_CONTRACT_EXPECTED_VERSION = '2.4.11-ch028';
 process.env.QINGXU_CONTRACT_EXPECTED_SCHEMA_COUNT = '330';
 process.env.QINGXU_CONTRACT_EXPECTED_SCHEMA_REFERENCES = '725';
-process.env.QINGXU_CONTRACT_EXPECTED_LOCAL_REFERENCES = '2754';
+process.env.QINGXU_CONTRACT_EXPECTED_LOCAL_REFERENCES = '2770';
 
 await import('./check-ch026-contract.mjs');
 
@@ -85,6 +85,35 @@ const B135_OPERATIONS = [
   ['get', '/agent/withdrawals/{withdrawal_id}', 'getAgentWithdrawalsByWithdrawalId',
     'WithdrawalResponse', '200'],
 ];
+const ADMIN_REAUTH_OPERATIONS = [
+  ['post', '/admin/auth/mfa/challenges', 'postAdminAuthMfaChallenges',
+    'MfaChallengeResponse', [{ bearerAuth: [] }]],
+  ['post', '/admin/auth/mfa/challenges/{challenge_id}/verify',
+    'postAdminAuthMfaChallengesByChallengeIdVerify', 'AdminMfaChallengeVerifyResponse',
+    [{ preAuth: [] }, { bearerAuth: [] }]],
+  ['post', '/admin/auth/reauth', 'postAdminAuthReauth', 'ReauthResponse', [{ bearerAuth: [] }]],
+];
+const B136_OPERATIONS = [
+  ['get', '/admin/withdrawals', 'getAdminWithdrawals', 'AdminWithdrawalListResponse'],
+  ['get', '/admin/withdrawals/{withdrawal_id}', 'getAdminWithdrawalsByWithdrawalId',
+    'AdminWithdrawalResponse'],
+  ['post', '/admin/withdrawals/{withdrawal_id}/approve-preview',
+    'postAdminWithdrawalsByWithdrawalIdApprovePreview', 'HighRiskPreviewResponse'],
+  ['post', '/admin/withdrawals/{withdrawal_id}/approve',
+    'postAdminWithdrawalsByWithdrawalIdApprove', 'AdminWithdrawalResponse'],
+  ['post', '/admin/withdrawals/{withdrawal_id}/reject-preview',
+    'postAdminWithdrawalsByWithdrawalIdRejectPreview', 'HighRiskPreviewResponse'],
+  ['post', '/admin/withdrawals/{withdrawal_id}/reject',
+    'postAdminWithdrawalsByWithdrawalIdReject', 'AdminWithdrawalResponse'],
+  ['post', '/admin/withdrawals/{withdrawal_id}/payout-account-reveal',
+    'postAdminWithdrawalsByWithdrawalIdPayoutAccountReveal', 'PayoutAccountRevealResponse'],
+  ['post', '/admin/withdrawals/{withdrawal_id}/proofs',
+    'postAdminWithdrawalsByWithdrawalIdProofs', 'AdminWithdrawalResponse'],
+  ['post', '/admin/withdrawals/{withdrawal_id}/mark-paid-preview',
+    'postAdminWithdrawalsByWithdrawalIdMarkPaidPreview', 'HighRiskPreviewResponse'],
+  ['post', '/admin/withdrawals/{withdrawal_id}/mark-paid',
+    'postAdminWithdrawalsByWithdrawalIdMarkPaid', 'AdminWithdrawalResponse'],
+];
 
 function responseSchema(document, method, path, status = '200') {
   return document.paths[path][method].responses[status].content['application/json'].schema;
@@ -156,19 +185,19 @@ try {
     'B13 Agent database gate package alias drifted');
   const ciB13Step = workflowStep(
     ciWorkflow,
-    'Test B13.1-B13.5 Agent authentication, commerce, operations and finance with PostgreSQL and Redis',
+    'Test B13.1-B13.6 Agent authentication, commerce, operations and finance with PostgreSQL and Redis',
   );
   assert.match(ciB13Step, /B13_AGENT_AUTH_DATABASE_TEST_MODE: full/);
   assert.match(ciB13Step, /run: pnpm db:test-b13-agent/);
   const smokeB12Step = smokeWorkflow.indexOf('Run rollback-only B12 aftersales');
   const smokeB13StepIndex = smokeWorkflow.indexOf(
-    'Run rollback-only B13.1-B13.5 Agent authentication, commerce, operations and finance smoke',
+    'Run rollback-only B13.1-B13.6 Agent authentication, commerce, operations and finance smoke',
   );
   assert.ok(smokeB12Step >= 0 && smokeB13StepIndex > smokeB12Step,
     'B13 rollback smoke must run after B12');
   const smokeB13Step = workflowStep(
     smokeWorkflow,
-    'Run rollback-only B13.1-B13.5 Agent authentication, commerce, operations and finance smoke',
+    'Run rollback-only B13.1-B13.6 Agent authentication, commerce, operations and finance smoke',
   );
   assert.match(smokeB13Step, /B13_AGENT_AUTH_DATABASE_TEST_MODE: rollback/);
   assert.match(smokeB13Step, /DATABASE_URL: \$\{\{ secrets\.SUPABASE_RUNTIME_URL \}\}/);
@@ -279,6 +308,39 @@ try {
       `${operationId} response status set drifted`);
     assert.equal(responseSchema(document, method, path, successStatus).$ref,
       `#/components/schemas/${responseName}`, `${operationId} success response schema drifted`);
+  }
+  assert.equal(ADMIN_REAUTH_OPERATIONS.length, 3);
+  for (const [method, path, operationId, responseName, security] of ADMIN_REAUTH_OPERATIONS) {
+    const operation = document.paths[path][method];
+    assert.equal(operation.operationId, operationId);
+    assert.deepEqual(operation.security, security, `${operationId} security drifted`);
+    assert.deepEqual(Object.keys(operation.responses).sort(), AGENT_AUTH_RESPONSE_STATUSES,
+      `${operationId} response status set drifted`);
+    assert.equal(responseSchema(document, method, path).$ref, `#/components/schemas/${responseName}`,
+      `${operationId} success response schema drifted`);
+    assert.equal(operation.responses['200'].headers?.['Cache-Control']?.$ref,
+      '#/components/headers/AdminCacheControlNoStoreRequired',
+      `${operationId} must require no-store`);
+    assert.equal(operation.responses['200'].headers?.Pragma?.$ref,
+      '#/components/headers/AdminPragmaNoCacheRequired',
+      `${operationId} must require no-cache`);
+  }
+  assert.equal(B136_OPERATIONS.length, 10);
+  for (const [method, path, operationId, responseName] of B136_OPERATIONS) {
+    const operation = document.paths[path][method];
+    assert.equal(operation.operationId, operationId);
+    assert.deepEqual(operation.security, [{ bearerAuth: [] }],
+      `${operationId} must use only the Admin realm`);
+    assert.deepEqual(Object.keys(operation.responses).sort(), AGENT_AUTH_RESPONSE_STATUSES,
+      `${operationId} response status set drifted`);
+    assert.equal(responseSchema(document, method, path).$ref, `#/components/schemas/${responseName}`,
+      `${operationId} success response schema drifted`);
+    assert.equal(operation.responses['200'].headers?.['Cache-Control']?.$ref,
+      '#/components/headers/AdminCacheControlNoStoreRequired',
+      `${operationId} must require no-store`);
+    assert.equal(operation.responses['200'].headers?.Pragma?.$ref,
+      '#/components/headers/AdminPragmaNoCacheRequired',
+      `${operationId} must require no-cache`);
   }
 
   const successEnvelopeFields = ['code', 'message', 'data', 'request_id'];
@@ -496,6 +558,12 @@ try {
     'BankAccountListResponse',
     'WithdrawalResponse',
     'WithdrawalListResponse',
+    'MfaChallengeResponse',
+    'AdminMfaChallengeVerifyResponse',
+    'ReauthResponse',
+    'PayoutAccountRevealResponse',
+    'AdminWithdrawalResponse',
+    'AdminWithdrawalListResponse',
   ]) assertClosedObject(schemas[responseName], responseName, successEnvelopeFields);
 
   const commissionListData = schemas.CommissionListResponse.properties.data;
@@ -934,6 +1002,94 @@ try {
   assertClosedObject(withdrawalListData.properties.pagination,
     'WithdrawalListResponse.data.pagination', ['page', 'page_size', 'total']);
 
+  assertClosedObject(schemas.MfaChallengeRequest, 'MfaChallengeRequest', ['purpose'], ['target_id']);
+  assert.deepEqual(schemas.MfaChallengeRequest.properties.purpose, { const: 'REAUTH' });
+  assertClosedObject(schemas.TotpVerifyRequest, 'TotpVerifyRequest', ['challenge_id', 'totp_code']);
+  assert.equal(schemas.TotpVerifyRequest.properties.totp_code.writeOnly, true);
+  assertClosedObject(schemas.PayoutReauthRequest, 'PayoutReauthRequest',
+    ['action', 'withdrawal_id', 'totp_code']);
+  assert.deepEqual(schemas.PayoutReauthRequest.properties.action,
+    { const: 'PAYOUT_ACCOUNT_REVEAL' });
+  assert.equal(schemas.PayoutReauthRequest.properties.totp_code.writeOnly, true);
+  const mfaChallengeData = schemas.MfaChallengeResponse.properties.data;
+  assertClosedObject(mfaChallengeData, 'MfaChallengeResponse.data',
+    ['challenge_id', 'purpose', 'expires_at']);
+  assert.deepEqual(mfaChallengeData.properties.purpose, { const: 'REAUTH' });
+  assertClosedObject(schemas.MfaVerifiedData, 'MfaVerifiedData',
+    ['challenge_id', 'purpose', 'verified_at']);
+  assert.deepEqual(schemas.MfaVerifiedData.properties.purpose, { const: 'REAUTH' });
+  assert.deepEqual(schemas.AdminMfaChallengeVerifyResponse.properties.data.oneOf, [
+    { $ref: '#/components/schemas/AdminAuthSessionData' },
+    { $ref: '#/components/schemas/MfaVerifiedData' },
+  ]);
+  const reauthData = schemas.ReauthResponse.properties.data;
+  assertClosedObject(reauthData, 'ReauthResponse.data',
+    ['reauth_grant', 'expires_at', 'single_use', 'withdrawal_id']);
+  assert.deepEqual(reauthData.properties.single_use, { const: true });
+
+  assertClosedObject(schemas.PayoutRevealRequest, 'PayoutRevealRequest', ['reauth_grant']);
+  assert.equal(schemas.PayoutRevealRequest.properties.reauth_grant.writeOnly, true);
+  assertClosedObject(schemas.ProofFilesRequest, 'ProofFilesRequest', ['file_ids']);
+  assert.equal(schemas.ProofFilesRequest.properties.file_ids.minItems, 1);
+  assert.equal(schemas.ProofFilesRequest.properties.file_ids.uniqueItems, true);
+  assert.deepEqual(schemas.MarkPaidAction.required, ['proof_file_ids']);
+  assert.deepEqual(Object.keys(schemas.MarkPaidAction.properties), ['proof_file_ids']);
+  assert.equal(schemas.MarkPaidAction.properties.proof_file_ids.minItems, 1);
+  assert.equal(schemas.MarkPaidAction.properties.proof_file_ids.uniqueItems, true);
+  const payoutRevealData = schemas.PayoutAccountRevealResponse.properties.data;
+  assertClosedObject(payoutRevealData, 'PayoutAccountRevealResponse.data',
+    ['account_holder', 'bank_name', 'account_number', 'expires_at']);
+  assertClosedObject(schemas.AdminPayoutAccountSnapshotView, 'AdminPayoutAccountSnapshotView', [
+    'account_holder_masked', 'bank_name', 'account_number_masked', 'account_no_last4', 'snapshot_at',
+  ]);
+  assertClosedObject(schemas.AdminWithdrawalView, 'AdminWithdrawalView', [
+    'withdrawal_id', 'withdrawal_no', 'agent_id', 'agent_no', 'agent_name', 'status', 'amount',
+    'request_balance_snapshot', 'payout_account_snapshot', 'review_reason', 'created_at', 'reviewed_at',
+    'paid_at', 'proof_file_ids', 'version',
+  ]);
+  assert.deepEqual(schemas.AdminWithdrawalView.properties.status.enum,
+    ['PENDING', 'APPROVED', 'REJECTED', 'PAID']);
+  assertClosedObject(schemas.AdminWithdrawalView.properties.request_balance_snapshot,
+    'AdminWithdrawalView.request_balance_snapshot',
+    ['available_before', 'available_after', 'frozen_before', 'frozen_after', 'captured_at']);
+  assert.equal(schemas.AdminWithdrawalView.properties.payout_account_snapshot.$ref,
+    '#/components/schemas/AdminPayoutAccountSnapshotView');
+  assert.equal(schemas.AdminWithdrawalResponse.properties.data.$ref,
+    '#/components/schemas/AdminWithdrawalView');
+  const adminWithdrawalListData = schemas.AdminWithdrawalListResponse.properties.data;
+  assertClosedObject(adminWithdrawalListData, 'AdminWithdrawalListResponse.data',
+    ['items', 'pagination']);
+  assert.equal(adminWithdrawalListData.properties.items.items.$ref,
+    '#/components/schemas/AdminWithdrawalView');
+  assertClosedObject(adminWithdrawalListData.properties.pagination,
+    'AdminWithdrawalListResponse.data.pagination', ['page', 'page_size', 'total']);
+
+  const requestSchema = (method, path) =>
+    document.paths[path][method].requestBody.content['application/json'].schema;
+  assert.equal(requestSchema('post', '/admin/auth/mfa/challenges').$ref,
+    '#/components/schemas/MfaChallengeRequest');
+  assert.equal(requestSchema('post', '/admin/auth/mfa/challenges/{challenge_id}/verify').$ref,
+    '#/components/schemas/TotpVerifyRequest');
+  assert.equal(requestSchema('post', '/admin/auth/reauth').$ref,
+    '#/components/schemas/PayoutReauthRequest');
+  assert.equal(requestSchema('post', '/admin/withdrawals/{withdrawal_id}/approve').$ref,
+    '#/components/schemas/HighRiskConfirmationRequest');
+  assert.equal(requestSchema('post', '/admin/withdrawals/{withdrawal_id}/payout-account-reveal').$ref,
+    '#/components/schemas/PayoutRevealRequest');
+  assert.equal(requestSchema('post', '/admin/withdrawals/{withdrawal_id}/proofs').$ref,
+    '#/components/schemas/ProofFilesRequest');
+  for (const [path, expected] of [
+    ['/admin/withdrawals/{withdrawal_id}/approve-preview', ['NoReasonAction']],
+    ['/admin/withdrawals/{withdrawal_id}/reject-preview', ['ReasonAction']],
+    ['/admin/withdrawals/{withdrawal_id}/reject', ['ReasonAction', 'HighRiskConfirmationFields']],
+    ['/admin/withdrawals/{withdrawal_id}/mark-paid-preview', ['MarkPaidAction']],
+    ['/admin/withdrawals/{withdrawal_id}/mark-paid', ['MarkPaidAction', 'HighRiskConfirmationFields']],
+  ]) {
+    const schema = requestSchema('post', path);
+    assert.equal(schema.unevaluatedProperties, false, `${path} request must be closed`);
+    assert.deepEqual(schema.allOf, expected.map((name) => ({ $ref: `#/components/schemas/${name}` })));
+  }
+
   for (const generatedType of [
     'AgentSessionResponse',
     'RestrictedAgentSessionResponse',
@@ -968,6 +1124,21 @@ try {
     'WithdrawalView',
     'WithdrawalResponse',
     'WithdrawalListResponse',
+    'MfaChallengeRequest',
+    'TotpVerifyRequest',
+    'MfaChallengeResponse',
+    'MfaVerifiedData',
+    'AdminMfaChallengeVerifyResponse',
+    'PayoutReauthRequest',
+    'ReauthResponse',
+    'PayoutRevealRequest',
+    'ProofFilesRequest',
+    'MarkPaidAction',
+    'PayoutAccountRevealResponse',
+    'AdminPayoutAccountSnapshotView',
+    'AdminWithdrawalView',
+    'AdminWithdrawalResponse',
+    'AdminWithdrawalListResponse',
   ]) {
     assert.match(generatedContract, new RegExp(`\\b${generatedType}\\b`),
       `generated contract is missing ${generatedType}`);
@@ -992,6 +1163,8 @@ try {
     b133_operations: B133_OPERATIONS.length,
     b134_operations: B134_OPERATIONS.length,
     b135_operations: B135_OPERATIONS.length,
+    admin_reauth_operations: ADMIN_REAUTH_OPERATIONS.length,
+    b136_operations: B136_OPERATIONS.length,
     dangling_references: 0,
   }) + '\n');
 } finally {

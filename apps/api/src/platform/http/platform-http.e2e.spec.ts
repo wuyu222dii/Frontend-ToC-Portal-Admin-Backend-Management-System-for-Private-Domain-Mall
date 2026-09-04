@@ -270,6 +270,21 @@ describe('API platform HTTP pipeline (e2e)', () => {
     expect(response.headers.pragma).toBe('no-cache');
   });
 
+  it.each([
+    '/api/v1/admin/auth/reauth',
+    '/api/v1/admin/withdrawals/01J00000000000000000000001/reject',
+  ])('marks malformed Admin payout requests as private and non-cacheable at %s', async (path) => {
+    const response = await request(app.getHttpServer())
+      .post(path)
+      .set('Content-Type', 'application/json')
+      .send('{"totp_code":')
+      .expect(400);
+
+    expect(response.body.code).toBe('INVALID_ARGUMENT');
+    expect(response.headers['cache-control']).toBe('no-store, private');
+    expect(response.headers.pragma).toBe('no-cache');
+  });
+
   it('preserves readiness failures as a sanitized HTTP 503', async () => {
     const response = await request(app.getHttpServer())
       .get('/api/v1/platform-probe/not-ready')

@@ -33,10 +33,35 @@ describe('AdminAuthController', () => {
       verifyLogin: vi.fn().mockRejectedValue(new ApplicationError('INVALID_ARGUMENT', 'mismatch')),
     } as unknown as AdminAuthService;
     const controller = new AdminAuthController(service);
-    await expect(controller.verifyLogin(challengeId, {
+    await expect(controller.verifyChallenge(challengeId, {
       challenge_id: challengeId,
       totp_code: '123456',
     }, '00000000-0000-4000-8000-000000000000', context())).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+  });
+
+  it('uses closed REAUTH challenge and payout grant DTOs', () => {
+    const service = { createReauthChallenge: vi.fn(), reauth: vi.fn() } as unknown as AdminAuthService;
+    const controller = new AdminAuthController(service);
+    const request = context();
+
+    controller.createReauthChallenge({ purpose: 'REAUTH', target_id: challengeId },
+      '00000000-0000-4000-8000-000000000000', request);
+    expect(service.createReauthChallenge).toHaveBeenCalledWith(
+      request.accessSession,
+      request.authorizationToken,
+      { purpose: 'REAUTH', targetId: challengeId },
+      '00000000-0000-4000-8000-000000000000',
+      request.requestId,
+      undefined,
+    );
+
+    expect(() => controller.reauth({
+      action: 'PAYOUT_ACCOUNT_REVEAL',
+      withdrawal_id: challengeId,
+      totp_code: '123456',
+      extra: true,
+    }, '00000000-0000-4000-8000-000000000000', request)).toThrowError(ApplicationError);
+    expect(service.reauth).not.toHaveBeenCalled();
   });
 
   it('uses closed runtime DTOs', () => {

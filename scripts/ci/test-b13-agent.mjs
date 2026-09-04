@@ -101,6 +101,7 @@ process.env.B132_AGENT_COMMERCE_DATABASE_TEST_MODE = mode;
 process.env.B133_AGENT_OPERATIONS_DATABASE_TEST_MODE = mode;
 process.env.B134_AGENT_FINANCE_DATABASE_TEST_MODE = mode;
 process.env.B135_AGENT_FINANCE_DATABASE_TEST_MODE = mode;
+process.env.B136_ADMIN_REAUTH_DATABASE_TEST_MODE = mode;
 
 run(['build:packages']);
 run([
@@ -156,6 +157,15 @@ run([
   'run',
   '--no-file-parallelism',
   'src/agent-finance.integration.spec.ts',
+]);
+run([
+  '--filter',
+  '@qingxu/database',
+  'exec',
+  'vitest',
+  'run',
+  '--no-file-parallelism',
+  'src/admin-reauth.integration.spec.ts',
 ]);
 
 process.stdout.write(`B13 Agent ${mode} database checks passed.\n`);

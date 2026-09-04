@@ -4107,9 +4107,9 @@ paths:
           description: "成功"
           headers:
             Cache-Control:
-              "$ref": "#/components/headers/CacheControlNoStore"
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
             Pragma:
-              "$ref": "#/components/headers/PragmaNoCache"
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -4162,12 +4162,9 @@ paths:
           description: "成功"
           headers:
             Cache-Control:
-              description: "LOGIN 分支签发会话令牌，响应不得缓存"
-              schema:
-                const: "no-store, private"
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
             Pragma:
-              schema:
-                const: "no-cache"
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -4309,9 +4306,9 @@ paths:
           description: "成功"
           headers:
             Cache-Control:
-              "$ref": "#/components/headers/CacheControlNoStore"
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
             Pragma:
-              "$ref": "#/components/headers/PragmaNoCache"
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -10239,6 +10236,11 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -10279,6 +10281,11 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -10332,9 +10339,9 @@ paths:
           description: "成功"
           headers:
             Cache-Control:
-              "$ref": "#/components/headers/CacheControlNoStore"
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
             Pragma:
-              "$ref": "#/components/headers/PragmaNoCache"
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -10385,6 +10392,11 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -10438,9 +10450,9 @@ paths:
           description: "成功"
           headers:
             Cache-Control:
-              "$ref": "#/components/headers/CacheControlNoStore"
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
             Pragma:
-              "$ref": "#/components/headers/PragmaNoCache"
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -10496,6 +10508,11 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -10548,12 +10565,9 @@ paths:
           description: "成功"
           headers:
             Cache-Control:
-              description: "一次性敏感响应不得缓存"
-              schema:
-                const: "no-store, private"
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
             Pragma:
-              schema:
-                const: "no-cache"
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -10602,6 +10616,11 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -10655,9 +10674,9 @@ paths:
           description: "成功"
           headers:
             Cache-Control:
-              "$ref": "#/components/headers/CacheControlNoStore"
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
             Pragma:
-              "$ref": "#/components/headers/PragmaNoCache"
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -10713,6 +10732,11 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -12309,6 +12333,7 @@ components:
         totp_code:
           type: "string"
           pattern: "^[0-9]{6}$"
+          writeOnly: true
     TotpCodeRequest:
       type: "object"
       additionalProperties: false
@@ -13708,6 +13733,7 @@ components:
         reauth_grant:
           type: "string"
           minLength: 16
+          writeOnly: true
     ProofFilesRequest:
       type: "object"
       additionalProperties: false

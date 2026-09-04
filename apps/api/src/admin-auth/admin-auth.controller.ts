@@ -2,12 +2,14 @@ import { Body, Controller, Get, HttpCode, HttpStatus, Inject, Param, Post } from
 
 import { RequireRoles, Public } from '../platform/access/rbac.metadata';
 import { IdempotencyKey } from '../platform/http/idempotency-key.decorator';
-import { RequirePreAuth } from '../platform/auth/pre-auth.metadata';
+import { RequireAdminMfaChallengeAuthentication, RequirePreAuth } from '../platform/auth/pre-auth.metadata';
 import {
   parseChallengeId,
   parseChangePasswordBody,
   parseEnrollBody,
   parseLoginBody,
+  parseMfaChallengeBody,
+  parsePayoutReauthBody,
   parseRecoveryBody,
   parseRefreshBody,
   parseTotpBody,
@@ -62,12 +64,30 @@ export class AdminAuthController {
       requireRequestId(request), requestIp(request));
   }
 
-  @Post('mfa/challenges/:challenge_id/verify') @HttpCode(HttpStatus.OK) @Public() @RequirePreAuth('VERIFY_TOTP') @NoStore()
-  verifyLogin(@Param('challenge_id') challengeIdValue: string, @Body() body: unknown,
+  @Post('mfa/challenges') @HttpCode(HttpStatus.OK) @RequireRoles('SUPER_ADMIN') @NoStore()
+  createReauthChallenge(@Body() body: unknown, @IdempotencyKey() key: string,
+    @AuthRequest() request: AdminAuthRequestContext) {
+    return this.auth.createReauthChallenge(request.accessSession, request.authorizationToken,
+      parseMfaChallengeBody(body), key, requireRequestId(request), requestIp(request));
+  }
+
+  @Post('mfa/challenges/:challenge_id/verify') @HttpCode(HttpStatus.OK)
+  @RequireAdminMfaChallengeAuthentication() @NoStore()
+  verifyChallenge(@Param('challenge_id') challengeIdValue: string, @Body() body: unknown,
     @IdempotencyKey() key: string, @AuthRequest() request: AdminAuthRequestContext) {
     const challengeId = parseChallengeId(challengeIdValue);
     const input = parseTotpVerifyBody(body);
-    return this.auth.verifyLogin(request.preAuth, request.authorizationToken, challengeId, input, key,
+    if (request.preAuth !== undefined) {
+      return this.auth.verifyLogin(request.preAuth, request.authorizationToken, challengeId, input, key,
+        requireRequestId(request), requestIp(request));
+    }
+    return this.auth.verifyReauthChallenge(request.accessSession, request.authorizationToken, challengeId, input, key,
+      requireRequestId(request), requestIp(request));
+  }
+
+  @Post('reauth') @HttpCode(HttpStatus.OK) @RequireRoles('SUPER_ADMIN') @NoStore()
+  reauth(@Body() body: unknown, @IdempotencyKey() key: string, @AuthRequest() request: AdminAuthRequestContext) {
+    return this.auth.reauth(request.accessSession, parsePayoutReauthBody(body), key,
       requireRequestId(request), requestIp(request));
   }
 

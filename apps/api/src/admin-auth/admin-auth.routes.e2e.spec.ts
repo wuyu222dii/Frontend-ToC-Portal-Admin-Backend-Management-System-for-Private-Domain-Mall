@@ -36,6 +36,10 @@ describe('B2 admin authentication HTTP surface', () => {
       { challenge_id: '01J00000000000000000000002', totp_code: '123456' }],
     ['/api/v1/admin/auth/mfa/recovery', { challenge_id: '01J00000000000000000000002', recovery_code: 'AAAA-BBBB' }],
     ['/api/v1/admin/auth/mfa/recovery-codes/rotate', { totp_code: '123456' }],
+    ['/api/v1/admin/auth/mfa/challenges', { purpose: 'REAUTH' }],
+    ['/api/v1/admin/auth/reauth', {
+      action: 'PAYOUT_ACCOUNT_REVEAL', withdrawal_id: '01J00000000000000000000002', totp_code: '123456',
+    }],
   ])('maps protected/pre-auth POST %s', async (path, body) => {
     let probe = request(app.getHttpServer()).post(path).set('Idempotency-Key', key);
     if (body !== undefined) probe = probe.send(body);
@@ -43,10 +47,18 @@ describe('B2 admin authentication HTTP surface', () => {
     expect(response.body.code).toBe('AUTH_REQUIRED');
   });
 
-  it('maps current and excludes deferred REAUTH routes', async () => {
+  it('maps current and the B13.6 REAUTH routes', async () => {
     await request(app.getHttpServer()).get('/api/v1/admin/auth/current').expect(401);
-    await request(app.getHttpServer()).post('/api/v1/admin/auth/mfa/challenges').set('Idempotency-Key', key).send({ purpose: 'REAUTH' }).expect(404);
-    await request(app.getHttpServer()).post('/api/v1/admin/auth/reauth').set('Idempotency-Key', key).send({}).expect(404);
+    const challenge = await request(app.getHttpServer()).post('/api/v1/admin/auth/mfa/challenges')
+      .set('Idempotency-Key', key).send({ purpose: 'REAUTH' }).expect(401);
+    const reauth = await request(app.getHttpServer()).post('/api/v1/admin/auth/reauth')
+      .set('Idempotency-Key', key).send({
+        action: 'PAYOUT_ACCOUNT_REVEAL', withdrawal_id: '01J00000000000000000000002', totp_code: '123456',
+      }).expect(401);
+    for (const response of [challenge, reauth]) {
+      expect(response.headers['cache-control']).toBe('no-store, private');
+      expect(response.headers.pragma).toBe('no-cache');
+    }
   });
 
   it('sets no-store on every sensitive route even when authentication fails', async () => {

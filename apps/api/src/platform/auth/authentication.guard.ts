@@ -19,7 +19,11 @@ import { API_RUNTIME_CONFIG } from '../config/api-runtime-config';
 import type { PrincipalRequest } from '../access/principal';
 import { PUBLIC_ROUTE, REQUIRED_ROLES } from '../access/rbac.metadata';
 import { API_DATABASE_RUNTIME } from '../database/api-database-runtime';
-import { REQUIRED_PRE_AUTH_ACTION, type PreAuthAction } from './pre-auth.metadata';
+import {
+  ADMIN_MFA_CHALLENGE_AUTHENTICATION,
+  REQUIRED_PRE_AUTH_ACTION,
+  type PreAuthAction,
+} from './pre-auth.metadata';
 import { OPTIONAL_STORE_AUTHENTICATION } from './optional-store-authentication.metadata';
 import { NO_STORE_RESPONSE } from '../http/no-store.decorator';
 import {
@@ -96,6 +100,10 @@ export class AuthenticationGuard implements CanActivate {
       REQUIRED_PRE_AUTH_ACTION,
       [handler, controller],
     );
+    const adminMfaChallengeAuthentication = this.reflector.getAllAndOverride<boolean | undefined>(
+      ADMIN_MFA_CHALLENGE_AUTHENTICATION,
+      [handler, controller],
+    ) === true;
     const isPublic = this.reflector.getAllAndOverride<boolean | undefined>(PUBLIC_ROUTE, [handler, controller]) === true;
     const requiredRoles = this.reflector.getAllAndOverride<readonly string[] | undefined>(
       REQUIRED_ROLES,
@@ -126,19 +134,23 @@ export class AuthenticationGuard implements CanActivate {
       response.setHeader('Cache-Control', 'no-store, private');
       response.setHeader('Pragma', 'no-cache');
     }
-    if (optionalStoreAuthentication && (!isPublic || requiredPreAuth !== undefined || requiredRoles !== undefined)) {
+    if (optionalStoreAuthentication && (!isPublic || requiredPreAuth !== undefined || requiredRoles !== undefined ||
+      adminMfaChallengeAuthentication)) {
       throw new ApplicationError('PERMISSION_DENIED', 'Optional Store authentication policy is invalid');
     }
     if (customerOrSuperAdmin && (isPublic || requiredPreAuth !== undefined || optionalStoreAuthentication ||
+      adminMfaChallengeAuthentication ||
       fileDownloadAuthentication || requiredRoles?.length !== 2 || !requiredRoles.includes('CUSTOMER') ||
       !requiredRoles.includes('SUPER_ADMIN'))) {
       throw new ApplicationError('PERMISSION_DENIED', 'Customer or administrator authentication policy is invalid');
     }
     if (agentRealm && (isPublic || requiredPreAuth !== undefined || optionalStoreAuthentication ||
+      adminMfaChallengeAuthentication ||
       customerOrSuperAdmin || requiredRoles?.length !== 1 || requiredRoles[0] !== 'AGENT_ADMIN')) {
       throw new ApplicationError('PERMISSION_DENIED', 'Agent authentication policy is invalid');
     }
     if (fileDownloadAuthentication && (isPublic || requiredPreAuth !== undefined || optionalStoreAuthentication ||
+      adminMfaChallengeAuthentication ||
       customerOrSuperAdmin || agentRealm || requiredRoles?.length !== 3 ||
       !requiredRoles.includes('CUSTOMER') || !requiredRoles.includes('SUPER_ADMIN') ||
       !requiredRoles.includes('AGENT_ADMIN'))) {
@@ -146,6 +158,11 @@ export class AuthenticationGuard implements CanActivate {
     }
     if (allowRestrictedAgentSession && !agentRealm) {
       throw new ApplicationError('PERMISSION_DENIED', 'Restricted Agent session policy is invalid');
+    }
+    if (adminMfaChallengeAuthentication && (isPublic || requiredPreAuth !== undefined ||
+      requiredRoles !== undefined || optionalStoreAuthentication || customerOrSuperAdmin || agentRealm ||
+      fileDownloadAuthentication || allowRestrictedAgentSession)) {
+      throw new ApplicationError('PERMISSION_DENIED', 'Administrator MFA challenge authentication policy is invalid');
     }
 
     const request = context.switchToHttp().getRequest<AuthenticationRequest>();
@@ -177,6 +194,10 @@ export class AuthenticationGuard implements CanActivate {
       }
       request.preAuth = claims;
       return true;
+    }
+
+    if (adminMfaChallengeAuthentication) {
+      return this.authenticateAdminMfaChallenge(request, token);
     }
 
 
@@ -256,6 +277,24 @@ export class AuthenticationGuard implements CanActivate {
       role: 'SUPER_ADMIN',
       sessionId: session.sessionId,
     };
+    return true;
+  }
+
+  private async authenticateAdminMfaChallenge(request: AuthenticationRequest, token: string): Promise<true> {
+    let claims;
+    try {
+      claims = verifyPreAuthToken(this.tokenConfig, token);
+    } catch {
+      return this.authenticateAdminBearer(request, token);
+    }
+    if (claims.nextAction !== 'VERIFY_TOTP') {
+      throw new ApplicationError('AUTH_REQUIRED', 'Pre-authentication token is not valid for this action');
+    }
+    const account = await this.configuredAdminAccount(claims.accountId);
+    if (account === null || account.version !== claims.accountVersion) {
+      throw new ApplicationError('AUTH_REQUIRED', 'Pre-authentication token is stale');
+    }
+    request.preAuth = claims;
     return true;
   }
 

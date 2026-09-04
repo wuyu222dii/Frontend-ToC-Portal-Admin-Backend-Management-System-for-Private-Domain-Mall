@@ -34,7 +34,7 @@ const configuration: AuthTokenConfiguration = {
 
 describe('administrator authentication primitives', () => {
   it('hashes administrator passwords with Argon2id and verifies without throwing on malformed hashes', async () => {
-    const password = 'local-test-password-only';
+    const password = randomBytes(24).toString('base64url');
     const passwordHash = await hashPassword(password);
 
     expect(passwordHash).toMatch(/^\$argon2id\$/);
@@ -68,6 +68,19 @@ describe('administrator authentication primitives', () => {
       .not.toBe(hmacAuthenticationIdentity('agent@example.test', key, 'admin-login-subject'));
     expect(hmacAuthenticationIdentity({ ip: '203.0.113.10' }, key, 'agent-login-source'))
       .not.toBe(hmacAuthenticationIdentity({ ip: '203.0.113.10' }, key, 'admin-login-source'));
+  });
+
+  it('keeps REAUTH challenge and grant digests isolated from every reusable credential domain', () => {
+    const key = Buffer.alloc(32, 29);
+    const secret = `rag_${randomBytes(24).toString('base64url')}`;
+    const challengeHash = hmacAuthenticationSecret(secret, key, 'reauth-challenge');
+    const grantHash = hmacAuthenticationSecret(secret, key, 'reauth-grant');
+
+    expect(challengeHash).not.toBe(grantHash);
+    expect(grantHash).not.toBe(hmacAuthenticationSecret(secret, key, 'challenge'));
+    expect(grantHash).not.toBe(hmacAuthenticationSecret(secret, key, 'refresh-token'));
+    expect(authenticationSecretHashMatches(secret, grantHash, key, 'reauth-grant')).toBe(true);
+    expect(authenticationSecretHashMatches(secret, grantHash, key, 'reauth-challenge')).toBe(false);
   });
 
   it('accepts RFC 6238 current and adjacent time steps and reports the accepted timestep', async () => {

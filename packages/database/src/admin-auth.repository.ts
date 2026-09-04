@@ -8,6 +8,7 @@ import type { DatabaseTransaction } from './idempotency.repository';
 import { acquireTransactionLock } from './advisory-lock';
 
 const CHALLENGE_TTL_MS = 5 * 60 * 1_000;
+const REAUTH_GRANT_TTL_MS = 60 * 1_000;
 const MFA_LOCK_MS = 15 * 60 * 1_000;
 const MAX_FAILED_ATTEMPTS = 5;
 const HEX_64 = /^[a-f0-9]{64}$/;
@@ -153,6 +154,14 @@ function validateChallengeExpiry(expiresAt: Date, now: Date): void {
     expiresAt.getTime() <= now.getTime() ||
     expiresAt.getTime() > now.getTime() + CHALLENGE_TTL_MS) {
     throw new TypeError('MFA challenge expiry must be within five minutes');
+  }
+}
+
+function validateReauthGrantExpiry(expiresAt: Date, now: Date): void {
+  if (!(expiresAt instanceof Date) || !Number.isFinite(expiresAt.getTime()) ||
+    expiresAt.getTime() <= now.getTime() ||
+    expiresAt.getTime() > now.getTime() + REAUTH_GRANT_TTL_MS) {
+    throw new TypeError('Reauthentication grant expiry must be within sixty seconds');
   }
 }
 
@@ -328,6 +337,18 @@ export class AdminAuthRepository {
     return challenge;
   }
 
+  private async requireApprovedWithdrawal(transaction: DatabaseTransaction, withdrawalId: string): Promise<void> {
+    requireUlid(withdrawalId, 'Withdrawal ID');
+    const withdrawal = await transaction.withdrawal.findUnique({
+      select: { status: true },
+      where: { id: withdrawalId },
+    });
+    if (!withdrawal) throw new ApplicationError('RESOURCE_NOT_FOUND', 'Withdrawal does not exist');
+    if (withdrawal.status !== 'APPROVED') {
+      throw new ApplicationError('STATE_CONFLICT', 'Withdrawal is not approved for account reveal');
+    }
+  }
+
   private async createInitialSession(
     transaction: DatabaseTransaction,
     accountId: string,
@@ -456,6 +477,61 @@ export class AdminAuthRepository {
     });
   }
 
+  async createReauthChallengeInTransaction(
+    transaction: DatabaseTransaction,
+    input: {
+      accountId: string;
+      challengeId: string;
+      challengeTokenHash: string;
+      currentSessionId: string;
+      expiresAt: Date;
+      expectedAccountVersion: number;
+      factorId: string;
+      targetId?: string | null;
+    },
+  ) {
+    const now = currentDate(this.now);
+    requireUlid(input.challengeId, 'Challenge ID');
+    requireHash(input.challengeTokenHash, 'Challenge token hash');
+    validateChallengeExpiry(input.expiresAt, now);
+    if (input.targetId !== undefined && input.targetId !== null) requireUlid(input.targetId, 'Challenge target ID');
+    await this.requireAdminVersion(transaction, input.accountId, input.expectedAccountVersion);
+    await this.requireCurrentMfaSession(transaction, {
+      accountId: input.accountId,
+      factorId: input.factorId,
+      sessionId: input.currentSessionId,
+    }, now);
+    await this.requireAvailableRateLimit(transaction, input.accountId, 'REAUTH', now);
+    const factor = await transaction.totpFactor.findUnique({ where: { id: input.factorId } });
+    if (!factor || factor.account_id !== input.accountId || factor.status !== 'ACTIVE') {
+      throw new ApplicationError('AUTH_REQUIRED', 'Current administrator factor is invalid');
+    }
+    await transaction.mfaChallenge.updateMany({
+      where: {
+        account_id: input.accountId,
+        purpose: 'REAUTH',
+        session_id: input.currentSessionId,
+        status: 'PENDING',
+      },
+      data: { status: 'EXPIRED' },
+    });
+    return transaction.mfaChallenge.create({
+      data: {
+        id: input.challengeId,
+        account_id: input.accountId,
+        session_id: input.currentSessionId,
+        factor_id: input.factorId,
+        purpose: 'REAUTH',
+        target_id: input.targetId ?? null,
+        challenge_token_hash: input.challengeTokenHash,
+        status: 'PENDING',
+        failed_attempts: 0,
+        expires_at: input.expiresAt,
+        created_at: now,
+      },
+    });
+  }
+
   async createEnrollmentInTransaction(
     transaction: DatabaseTransaction,
     input: {
@@ -535,11 +611,16 @@ export class AdminAuthRepository {
     accountId: string;
     challengeId: string;
     challengeTokenHashCandidates: SecretHashCandidates;
-    purpose: 'ENROLL' | 'LOGIN';
+    currentSessionId?: string;
+    purpose: 'ENROLL' | 'LOGIN' | 'REAUTH';
   }): Promise<ChallengeVerificationContext | null> {
     requireUlid(input.accountId, 'Account ID');
     requireUlid(input.challengeId, 'Challenge ID');
     requireHashCandidates(input.challengeTokenHashCandidates, 'Challenge token hash candidates');
+    if ((input.purpose === 'REAUTH') !== (input.currentSessionId !== undefined)) {
+      throw new TypeError('Only REAUTH challenge verification accepts a current session ID');
+    }
+    if (input.currentSessionId !== undefined) requireUlid(input.currentSessionId, 'Session ID');
     const now = currentDate(this.now);
     const challenge = await this.prisma.mfaChallenge.findUnique({
       where: { id: input.challengeId },
@@ -550,6 +631,7 @@ export class AdminAuthRepository {
     });
     if (!challenge || !challenge.factor || challenge.account_id !== input.accountId ||
       challenge.purpose !== input.purpose || challenge.status !== 'PENDING' ||
+      (input.purpose === 'REAUTH' && challenge.session_id !== input.currentSessionId) ||
       challenge.expires_at.getTime() <= now.getTime() ||
       challenge.account.role !== 'SUPER_ADMIN' || challenge.account.status !== 'ACTIVE' ||
       challenge.account.deleted_at !== null ||
@@ -582,7 +664,7 @@ export class AdminAuthRepository {
     transaction: DatabaseTransaction,
     input: {
       accountId: string;
-      purpose: 'ENROLL' | 'LOGIN' | 'RECOVERY';
+      purpose: 'ENROLL' | 'LOGIN' | 'REAUTH' | 'RECOVERY';
       challengeId?: string;
       currentSessionId?: string;
       expectedAccountVersion?: number;
@@ -598,8 +680,8 @@ export class AdminAuthRepository {
     if ((input.currentSessionId === undefined) !== (input.factorId === undefined)) {
       throw new TypeError('Current session and factor IDs must be provided together');
     }
-    if (input.purpose === 'RECOVERY' && input.currentSessionId === undefined) {
-      throw new TypeError('Recovery-code failure tracking requires the current MFA session');
+    if ((input.purpose === 'RECOVERY' || input.purpose === 'REAUTH') && input.currentSessionId === undefined) {
+      throw new TypeError('Current-session MFA failure tracking requires the current MFA session');
     }
     if (input.currentSessionId !== undefined && input.factorId !== undefined) {
       await this.requireCurrentMfaSession(transaction, {
@@ -764,6 +846,212 @@ export class AdminAuthRepository {
       data: { last_login_at: now, updated_at: now },
     });
     return session;
+  }
+
+  async completeReauthChallengeInTransaction(
+    transaction: DatabaseTransaction,
+    input: {
+      acceptedTimestep: bigint;
+      accountId: string;
+      challengeId: string;
+      challengeTokenHashCandidates: SecretHashCandidates;
+      currentSessionId: string;
+      expectedAccountVersion: number;
+      factorId: string;
+    },
+  ): Promise<{ verifiedAt: Date }> {
+    const now = currentDate(this.now);
+    if (input.acceptedTimestep < 0n) throw new TypeError('Accepted TOTP timestep must be nonnegative');
+    await this.requireAdminVersion(transaction, input.accountId, input.expectedAccountVersion);
+    await this.requireCurrentMfaSession(transaction, {
+      accountId: input.accountId,
+      factorId: input.factorId,
+      sessionId: input.currentSessionId,
+    }, now);
+    await this.requireAvailableRateLimit(transaction, input.accountId, 'REAUTH', now);
+    const challenge = await this.requireChallenge(transaction, { ...input, purpose: 'REAUTH' }, now);
+    if (challenge.session_id !== input.currentSessionId || challenge.factor_id !== input.factorId) {
+      throw new ApplicationError('STATE_CONFLICT', 'REAUTH challenge binding is invalid');
+    }
+    await acquireTransactionLock(transaction, 'admin-auth-factor', [input.factorId]);
+    const updated = await transaction.totpFactor.updateMany({
+      where: {
+        id: input.factorId,
+        account_id: input.accountId,
+        status: 'ACTIVE',
+        OR: [
+          { last_used_timestep: null },
+          { last_used_timestep: { lt: input.acceptedTimestep } },
+        ],
+      },
+      data: { last_used_timestep: input.acceptedTimestep, updated_at: now },
+    });
+    if (updated.count !== 1) throw new ApplicationError('STATE_CONFLICT', 'TOTP timestep was already used');
+    await transaction.mfaChallenge.update({
+      where: { id: challenge.id },
+      data: { status: 'VERIFIED', verified_at: now },
+    });
+    await this.resetRateLimit(transaction, input.accountId, 'REAUTH', now);
+    return { verifiedAt: now };
+  }
+
+  async recordPayoutReauthFailureInTransaction(
+    transaction: DatabaseTransaction,
+    input: {
+      accountId: string;
+      currentSessionId: string;
+      expectedAccountVersion: number;
+      factorId: string;
+      targetId: string;
+    },
+  ): Promise<AuthenticationFailureResult> {
+    await this.requireApprovedWithdrawal(transaction, input.targetId);
+    const result = await this.recordAuthenticationFailureInTransaction(transaction, {
+      accountId: input.accountId,
+      currentSessionId: input.currentSessionId,
+      expectedAccountVersion: input.expectedAccountVersion,
+      factorId: input.factorId,
+      purpose: 'REAUTH',
+    });
+    const attemptedAt = currentDate(this.now);
+    await transaction.adminReauthAttempt.create({
+      data: {
+        id: generateUlid(attemptedAt.getTime()),
+        account_id: input.accountId,
+        action: 'PAYOUT_ACCOUNT_REVEAL',
+        target_id: input.targetId,
+        succeeded: false,
+        failure_reason: result.kind === 'locked' ? 'REAUTH_LOCKED' : 'INVALID_TOTP',
+        attempted_at: attemptedAt,
+      },
+    });
+    return result;
+  }
+
+  async createPayoutReauthGrantInTransaction(
+    transaction: DatabaseTransaction,
+    input: {
+      acceptedTimestep: bigint;
+      accountId: string;
+      currentSessionId: string;
+      expectedAccountVersion: number;
+      expiresAt: Date;
+      factorId: string;
+      grantId: string;
+      targetId: string;
+      tokenHash: string;
+    },
+  ): Promise<{ expiresAt: Date; grantId: string }> {
+    const now = currentDate(this.now);
+    if (input.acceptedTimestep < 0n) throw new TypeError('Accepted TOTP timestep must be nonnegative');
+    requireUlid(input.grantId, 'Reauthentication grant ID');
+    requireHash(input.tokenHash, 'Reauthentication grant token hash');
+    validateReauthGrantExpiry(input.expiresAt, now);
+    await this.requireAdminVersion(transaction, input.accountId, input.expectedAccountVersion);
+    const session = await this.requireCurrentMfaSession(transaction, {
+      accountId: input.accountId,
+      factorId: input.factorId,
+      sessionId: input.currentSessionId,
+    }, now);
+    if (input.expiresAt.getTime() > session.expires_at.getTime()) {
+      throw new TypeError('Reauthentication grant cannot outlive its session');
+    }
+    await this.requireAvailableRateLimit(transaction, input.accountId, 'REAUTH', now);
+    await this.requireApprovedWithdrawal(transaction, input.targetId);
+    await acquireTransactionLock(transaction, 'admin-auth-factor', [input.factorId]);
+    const updated = await transaction.totpFactor.updateMany({
+      where: {
+        id: input.factorId,
+        account_id: input.accountId,
+        status: 'ACTIVE',
+        OR: [
+          { last_used_timestep: null },
+          { last_used_timestep: { lt: input.acceptedTimestep } },
+        ],
+      },
+      data: { last_used_timestep: input.acceptedTimestep, updated_at: now },
+    });
+    if (updated.count !== 1) throw new ApplicationError('STATE_CONFLICT', 'TOTP timestep was already used');
+    await transaction.adminReauthAttempt.create({
+      data: {
+        id: generateUlid(now.getTime()),
+        account_id: input.accountId,
+        action: 'PAYOUT_ACCOUNT_REVEAL',
+        target_id: input.targetId,
+        succeeded: true,
+        failure_reason: null,
+        attempted_at: now,
+      },
+    });
+    await transaction.adminReauthGrant.create({
+      data: {
+        id: input.grantId,
+        account_id: input.accountId,
+        session_id: input.currentSessionId,
+        action: 'PAYOUT_ACCOUNT_REVEAL',
+        target_id: input.targetId,
+        token_hash: input.tokenHash,
+        status: 'ACTIVE',
+        expires_at: input.expiresAt,
+        consumed_at: null,
+        created_at: now,
+      },
+    });
+    await this.resetRateLimit(transaction, input.accountId, 'REAUTH', now);
+    return { expiresAt: input.expiresAt, grantId: input.grantId };
+  }
+
+  async consumePayoutReauthGrantInTransaction(
+    transaction: DatabaseTransaction,
+    input: {
+      accountId: string;
+      currentSessionId: string;
+      factorId: string;
+      targetId: string;
+      tokenHashCandidates: SecretHashCandidates;
+    },
+  ): Promise<{ expiresAt: Date; grantId: string }> {
+    requireUlid(input.accountId, 'Account ID');
+    requireUlid(input.currentSessionId, 'Session ID');
+    requireUlid(input.factorId, 'Factor ID');
+    requireUlid(input.targetId, 'Withdrawal ID');
+    requireHashCandidates(input.tokenHashCandidates, 'Reauthentication grant token hash candidates');
+    const now = currentDate(this.now);
+    const matches = await transaction.adminReauthGrant.findMany({
+      where: { token_hash: { in: [...input.tokenHashCandidates] } },
+      take: 2,
+    });
+    if (matches.length !== 1 || !matches[0]) {
+      throw new ApplicationError('REAUTH_REQUIRED', 'Reauthentication grant is required');
+    }
+    await this.requireCurrentMfaSession(transaction, {
+      accountId: input.accountId,
+      factorId: input.factorId,
+      sessionId: input.currentSessionId,
+    }, now);
+    const candidate = matches[0];
+    await acquireTransactionLock(transaction, 'admin-auth-reauth-grant', [candidate.id]);
+    const grant = await transaction.adminReauthGrant.findUnique({ where: { id: candidate.id } });
+    if (!grant || !matchesAnyHash(grant.token_hash, input.tokenHashCandidates) ||
+      grant.account_id !== input.accountId || grant.session_id !== input.currentSessionId ||
+      grant.action !== 'PAYOUT_ACCOUNT_REVEAL' || grant.target_id !== input.targetId ||
+      grant.status !== 'ACTIVE' || grant.consumed_at !== null || grant.expires_at.getTime() <= now.getTime()) {
+      throw new ApplicationError('REAUTH_REQUIRED', 'Reauthentication grant is required');
+    }
+    await this.requireApprovedWithdrawal(transaction, input.targetId);
+    const consumed = await transaction.adminReauthGrant.updateMany({
+      where: {
+        id: grant.id,
+        status: 'ACTIVE',
+        consumed_at: null,
+        expires_at: { gt: now },
+      },
+      data: { status: 'CONSUMED', consumed_at: now },
+    });
+    if (consumed.count !== 1) {
+      throw new ApplicationError('REAUTH_REQUIRED', 'Reauthentication grant is required');
+    }
+    return { expiresAt: grant.expires_at, grantId: grant.id };
   }
 
   async completeLoginRecoveryInTransaction(

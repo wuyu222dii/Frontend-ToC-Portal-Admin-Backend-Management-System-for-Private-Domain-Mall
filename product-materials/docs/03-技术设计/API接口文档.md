@@ -911,7 +911,7 @@ B13.1 已交付 `GET/POST /admin/agents`、`GET/PATCH /admin/agents/{agent_id}`�
 }
 ```
 
-服务端在成功返回后立即消费 grant；响应必须包含 `Cache-Control: no-store, private`、`Pragma: no-cache`，前端只可在内存中保留至 60 秒、复制或离页中的最早时间，并恢复掩码。该接口不得把完整账号或整个响应写入 `idempotency_record.response_body`、日志、审计前后值或追踪系统；只记录状态码、响应摘要哈希和安全审计事件。`PENDING`、`REJECTED`、`PAID` 状态一律返回 `PAYOUT_ACCOUNT_REVEAL_NOT_ALLOWED`。
+服务端在成功返回后立即消费 grant；响应必须包含 `Cache-Control: no-store, private`、`Pragma: no-cache`，前端只可在内存中保留至 60 秒、复制或离页中的最早时间，并恢复掩码。该接口不得把完整账号或整个响应写入 `idempotency_record.response_body`、日志、审计前后值或追踪系统；只记录状态码、响应摘要哈希和安全审计事件。`PENDING`、`REJECTED`、`PAID` 状态一律返回 `STATE_CONFLICT`。
 
 总部提现列表和常规详情使用 `AdminWithdrawalView`：明确返回申请代理、申请时可用/冻结余额前后快照，以及申请时冻结的持卡人/银行/卡号掩码与尾号；不得回读代理后来更换的银行卡。完整卡号仍只能由上述一次性 reveal 接口返回。
 

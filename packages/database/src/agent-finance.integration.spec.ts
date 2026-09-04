@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Prisma, type PrismaClient } from '../.generated/prisma/client';
 import { acquireTransactionLock } from './advisory-lock';
 import { AgentFinanceRepository, type ReplaceAgentBankAccountInput } from './agent-finance.repository';
+import { AdminWithdrawalRepository } from './admin-withdrawal.repository';
 import { validateAgentCommissionLedgerClosureInTransaction } from './commission.repository';
 import type { DatabaseTransaction } from './idempotency.repository';
 import { createDatabaseRuntime, type DatabaseRuntime } from './runtime';
@@ -29,7 +30,7 @@ const transactionOptions = {
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 
 interface FixtureIds {
-  accountIds: [string, string, string];
+  accountIds: [string, string, string, string];
   agentId: string;
   attributionSnapshotId: string;
   availableLedgerId: string;
@@ -53,6 +54,7 @@ interface FixtureIds {
   orderId: string;
   orderItemId: string;
   productId: string;
+  proofFileId: string;
   refundId: string;
   refundItemId: string;
   refundLedgerId: string;
@@ -166,7 +168,7 @@ function transactionBoundPrisma(transaction: DatabaseTransaction): PrismaClient 
 function newFixtureIds(): FixtureIds {
   const id = (): string => generateUlid();
   return {
-    accountIds: [id(), id(), id()],
+    accountIds: [id(), id(), id(), id()],
     agentId: id(),
     attributionSnapshotId: id(),
     availableLedgerId: id(),
@@ -190,6 +192,7 @@ function newFixtureIds(): FixtureIds {
     orderId: id(),
     orderItemId: id(),
     productId: id(),
+    proofFileId: id(),
     refundId: id(),
     refundItemId: id(),
     refundLedgerId: id(),
@@ -229,7 +232,7 @@ async function seedFixture(
   ids: FixtureIds,
   now: Date,
 ): Promise<SeededFixture> {
-  const [adminAccountId, agentAccountId, customerAccountId] = ids.accountIds;
+  const [adminAccountId, agentAccountId, customerAccountId, secondaryAdminAccountId] = ids.accountIds;
   await transaction.account.createMany({
     data: [
       {
@@ -262,6 +265,17 @@ async function seedFixture(
         updated_at: now,
         version: 1,
         wechat_open_id: `b135-customer-${customerAccountId}`,
+      },
+      {
+        created_at: now,
+        id: secondaryAdminAccountId,
+        login_name: `b136-secondary-admin-${secondaryAdminAccountId}`,
+        must_change_password: false,
+        password_hash: 'b136-fixture-password-hash',
+        role: 'SUPER_ADMIN',
+        status: 'ACTIVE',
+        updated_at: now,
+        version: 1,
       },
     ],
   });
@@ -618,6 +632,7 @@ async function seedFixture(
 
 async function assertFixtureAbsent(runtime: DatabaseRuntime, ids: FixtureIds): Promise<void> {
   const counts = await Promise.all([
+    runtime.prisma.withdrawalProof.count({ where: { withdrawal: { agent_id: ids.agentId } } }),
     runtime.prisma.withdrawalBankSnapshot.count({ where: { withdrawal: { agent_id: ids.agentId } } }),
     runtime.prisma.withdrawal.count({ where: { agent_id: ids.agentId } }),
     runtime.prisma.agentBankAccount.count({ where: { agent_id: ids.agentId } }),
@@ -640,6 +655,7 @@ async function assertFixtureAbsent(runtime: DatabaseRuntime, ids: FixtureIds): P
     runtime.prisma.salesOrder.count({ where: { id: { in: [ids.orderId, ids.creditOrderId] } } }),
     runtime.prisma.sku.count({ where: { id: ids.skuId } }),
     runtime.prisma.product.count({ where: { id: ids.productId } }),
+    runtime.prisma.fileAsset.count({ where: { id: ids.proofFileId } }),
     runtime.prisma.category.count({ where: { id: ids.categoryId } }),
     runtime.prisma.brand.count({ where: { id: ids.brandId } }),
     runtime.prisma.businessRuleVersion.count({ where: { id: ids.businessRuleId } }),
@@ -662,10 +678,15 @@ async function cleanupFullFixture(connectionString: string, ids: FixtureIds): Pr
     await client.query('BEGIN');
     await client.query('DELETE FROM public.commission_ledger WHERE agent_id = $1', [ids.agentId]);
     await client.query(
+      'DELETE FROM public.withdrawal_proof WHERE withdrawal_id IN (SELECT id FROM public.withdrawal WHERE agent_id = $1)',
+      [ids.agentId],
+    );
+    await client.query(
       'DELETE FROM public.withdrawal_bank_snapshot WHERE withdrawal_id IN (SELECT id FROM public.withdrawal WHERE agent_id = $1)',
       [ids.agentId],
     );
     await client.query('DELETE FROM public.withdrawal WHERE agent_id = $1', [ids.agentId]);
+    await client.query('DELETE FROM public.file_asset WHERE id = $1', [ids.proofFileId]);
     await client.query('DELETE FROM public.agent_bank_account WHERE agent_id = $1', [ids.agentId]);
     await client.query('DELETE FROM public.refund_item WHERE refund_id = $1', [ids.refundId]);
     await client.query('DELETE FROM public.refund WHERE id = $1', [ids.refundId]);
@@ -958,7 +979,7 @@ databaseDescribe('B13.5 Agent finance PostgreSQL integration', () => {
 
   afterAll(async () => runtime?.disconnect(), 30_000);
 
-  it('rolls back encrypted bank replacement and a minimum-sized frozen withdrawal exactly', async () => {
+  it('rolls back encrypted bank replacement and B13.6 rejection with an exact unfreeze', async () => {
     const ids = newFixtureIds();
     const now = new Date();
     const ciphertext = randomBytes(48);
@@ -987,12 +1008,258 @@ databaseDescribe('B13.5 Agent finance PostgreSQL integration', () => {
           frozen_balance: seeded.minimum,
           version: 2,
         });
+        const rejected = await new AdminWithdrawalRepository(runtime.prisma).rejectInTransaction(transaction, {
+          actorAccountId: ids.accountIds[0],
+          expectedVersion: withdrawal.version,
+          reason: 'B13.6 integration rejection',
+          withdrawalId: withdrawal.withdrawalId,
+        }, {
+          verifyPreview: (impact) => expect(impact).toMatchObject({
+            action: 'REJECT',
+            resultingStatus: 'REJECTED',
+            walletAvailableAfter: seeded.minimum.toFixed(2),
+            walletFrozenAfter: '0.00',
+          }),
+        });
+        expect(rejected).toMatchObject({
+          after: { status: 'REJECTED', version: 2 },
+          wallet: {
+            availableAfter: seeded.minimum.toFixed(2),
+            frozenAfter: '0.00',
+          },
+        });
+        await expect(transaction.commissionLedger.findFirstOrThrow({
+          where: { ledger_type: 'WITHDRAWAL_RELEASE', withdrawal_id: withdrawal.withdrawalId },
+        })).resolves.toMatchObject({
+          available_change: seeded.minimum,
+          expected_change: new Prisma.Decimal('0.00'),
+          frozen_change: seeded.minimum.negated(),
+        });
+        await transaction.$executeRaw(Prisma.sql`SET CONSTRAINTS ALL IMMEDIATE`);
         throw rollbackSentinel;
       }, transactionOptions)).rejects.toBe(rollbackSentinel);
     } finally {
       await assertFixtureAbsent(runtime, ids);
     }
   }, 120_000);
+
+  it('rolls back B13.6 approval, proof binding, payout reveal and exact PAID deduction', async () => {
+    const ids = newFixtureIds();
+    const now = new Date();
+    const ciphertext = randomBytes(48);
+    try {
+      await expect(runtime.withPrismaTransaction(async (transaction) => {
+        const seeded = await seedFixture(transaction, ids, now);
+        const agentFinance = new AgentFinanceRepository(transactionBoundPrisma(transaction), () => now);
+        await agentFinance.replaceBankAccountInTransaction(transaction, bankInput(ids, 0, ciphertext));
+        const withdrawal = await agentFinance.createWithdrawalInTransaction(transaction, {
+          accountId: ids.accountIds[1],
+          agentId: ids.agentId,
+          amount: seeded.minimum.toFixed(2),
+          bankAccountId: ids.bankAccountIds[0],
+          withdrawalId: ids.withdrawalIds[0],
+        });
+        const adminFinance = new AdminWithdrawalRepository(runtime.prisma);
+        const approved = await adminFinance.approveInTransaction(transaction, {
+          actorAccountId: ids.accountIds[0],
+          expectedVersion: withdrawal.version,
+          withdrawalId: withdrawal.withdrawalId,
+        }, {
+          verifyPreview: (impact) => expect(impact).toMatchObject({
+            action: 'APPROVE',
+            resultingStatus: 'APPROVED',
+          }),
+        });
+        await transaction.fileAsset.create({
+          data: {
+            byte_size: 256n,
+            created_at: now,
+            created_by_id: ids.accountIds[0],
+            deleted_at: null,
+            id: ids.proofFileId,
+            mime_type: 'image/png',
+            object_key: `private/${ids.proofFileId}`,
+            original_name: 'b136-payment-proof.png',
+            purpose: 'WITHDRAWAL_PROOF',
+            sha256: digest(`b136-proof:${ids.proofFileId}`),
+            status: 'READY',
+            visibility: 'PRIVATE',
+          },
+        });
+        const bound = await adminFinance.bindProofsInTransaction(transaction, {
+          actorAccountId: ids.accountIds[0],
+          fileIds: [ids.proofFileId],
+          withdrawalId: withdrawal.withdrawalId,
+        });
+        expect(bound).toMatchObject({
+          before: { status: 'APPROVED', version: approved.after.version },
+          after: { proofFileIds: [ids.proofFileId], status: 'APPROVED', version: 3 },
+          changed: true,
+        });
+        const grantId = generateUlid();
+        const revealed = await adminFinance.consumePayoutAccountRevealInTransaction(transaction, {
+          actorAccountId: ids.accountIds[0],
+          expectedVersion: bound.after.version,
+          withdrawalId: withdrawal.withdrawalId,
+        }, {
+          consumeGrant: async () => ({ expiresAt: new Date(now.getTime() + 60_000), grantId }),
+        });
+        expect(revealed).toMatchObject({
+          grantId,
+          last4: '3456',
+          sourceBankAccountId: ids.bankAccountIds[0],
+          version: 3,
+        });
+        expect(Buffer.from(revealed.ciphertext).equals(Buffer.from(ciphertext))).toBe(true);
+        const paid = await adminFinance.markPaidInTransaction(transaction, {
+          actorAccountId: ids.accountIds[0],
+          expectedVersion: bound.after.version,
+          proofFileIds: [ids.proofFileId],
+          withdrawalId: withdrawal.withdrawalId,
+        }, {
+          verifyPreview: (impact) => expect(impact).toMatchObject({
+            action: 'MARK_PAID',
+            proofFileIds: [ids.proofFileId],
+            resultingStatus: 'PAID',
+            walletAvailableAfter: '0.00',
+            walletFrozenAfter: '0.00',
+          }),
+        });
+        expect(paid).toMatchObject({
+          after: { proofFileIds: [ids.proofFileId], status: 'PAID', version: 4 },
+          wallet: { availableAfter: '0.00', frozenAfter: '0.00', versionAfter: 3 },
+        });
+        await expect(transaction.commissionLedger.findFirstOrThrow({
+          where: { ledger_type: 'WITHDRAWAL_PAID', withdrawal_id: withdrawal.withdrawalId },
+        })).resolves.toMatchObject({
+          available_change: new Prisma.Decimal('0.00'),
+          expected_change: new Prisma.Decimal('0.00'),
+          frozen_change: seeded.minimum.negated(),
+        });
+        await transaction.$executeRaw(Prisma.sql`SET CONSTRAINTS ALL IMMEDIATE`);
+        throw rollbackSentinel;
+      }, transactionOptions)).rejects.toBe(rollbackSentinel);
+    } finally {
+      await assertFixtureAbsent(runtime, ids);
+    }
+  }, 120_000);
+
+  fullIt('serializes duplicate B13.6 payments to one PAID fact and one frozen deduction', async () => {
+    if (cleanupConnectionString === undefined) throw new TypeError('B13.6 cleanup was not initialized');
+    const ids = newFixtureIds();
+    const now = new Date();
+    try {
+      const seeded = await runtime.withPrismaTransaction(
+        (transaction) => seedFixture(transaction, ids, now),
+        transactionOptions,
+      );
+      const agentFinance = new AgentFinanceRepository(runtime.prisma, () => now);
+      await runtime.withPrismaTransaction(
+        (transaction) => agentFinance.replaceBankAccountInTransaction(
+          transaction,
+          bankInput(ids, 0, randomBytes(48)),
+        ),
+        transactionOptions,
+      );
+      const withdrawal = await runtime.withPrismaTransaction(
+        (transaction) => agentFinance.createWithdrawalInTransaction(transaction, {
+          accountId: ids.accountIds[1],
+          agentId: ids.agentId,
+          amount: seeded.minimum.toFixed(2),
+          bankAccountId: ids.bankAccountIds[0],
+          withdrawalId: ids.withdrawalIds[0],
+        }),
+        transactionOptions,
+      );
+      const adminFinance = new AdminWithdrawalRepository(runtime.prisma);
+      const approved = await runtime.withPrismaTransaction(
+        (transaction) => adminFinance.approveInTransaction(transaction, {
+          actorAccountId: ids.accountIds[0],
+          expectedVersion: withdrawal.version,
+          withdrawalId: withdrawal.withdrawalId,
+        }, { verifyPreview: async () => undefined }),
+        transactionOptions,
+      );
+      const bound = await runtime.withPrismaTransaction(async (transaction) => {
+        await transaction.fileAsset.create({
+          data: {
+            byte_size: 256n,
+            created_at: now,
+            created_by_id: ids.accountIds[0],
+            deleted_at: null,
+            id: ids.proofFileId,
+            mime_type: 'image/png',
+            object_key: `private/${ids.proofFileId}`,
+            original_name: 'b136-concurrent-payment-proof.png',
+            purpose: 'WITHDRAWAL_PROOF',
+            sha256: digest(`b136-concurrent-proof:${ids.proofFileId}`),
+            status: 'READY',
+            visibility: 'PRIVATE',
+          },
+        });
+        return adminFinance.bindProofsInTransaction(transaction, {
+          actorAccountId: ids.accountIds[0],
+          fileIds: [ids.proofFileId],
+          withdrawalId: withdrawal.withdrawalId,
+        });
+      }, transactionOptions);
+      expect(bound.after.version).toBe(approved.after.version + 1);
+
+      const barrier: WalletLockBarrier = { acquired: deferred(), release: deferred() };
+      const pay = (actorAccountId: string, transactionTransform?: (value: DatabaseTransaction) => DatabaseTransaction) =>
+        runSerializableWithRetry(runtime, (transaction) => adminFinance.markPaidInTransaction(
+          transactionTransform?.(transaction) ?? transaction,
+          {
+            actorAccountId,
+            expectedVersion: bound.after.version,
+            proofFileIds: [ids.proofFileId],
+            withdrawalId: withdrawal.withdrawalId,
+          },
+          { verifyPreview: async () => undefined },
+        ));
+      const first = pay(
+        ids.accountIds[0],
+        (transaction) => transactionWithWalletBarrier(transaction, ids.agentId, barrier),
+      );
+      await waitForBarrier(barrier, first, 'First withdrawal payment');
+      const second = pay(ids.accountIds[3]);
+      let outcomes: PromiseSettledResult<Awaited<typeof first>>[];
+      try {
+        expect(await observeBlockedAdvisoryLockPairs(runtime)).toBeGreaterThan(0);
+        barrier.release.resolve();
+        outcomes = await Promise.allSettled([first, second]);
+      } finally {
+        barrier.release.resolve();
+        await Promise.allSettled([first, second]);
+      }
+      const fulfilled = outcomes.filter((outcome) => outcome.status === 'fulfilled');
+      const rejected = outcomes.filter((outcome) => outcome.status === 'rejected');
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      if (rejected[0]?.status === 'rejected') {
+        expect(rejected[0].reason).toMatchObject({
+          code: expect.stringMatching(/^(?:RESOURCE_VERSION_CONFLICT|STATE_CONFLICT)$/),
+        });
+      }
+      await expect(runtime.prisma.withdrawal.findUniqueOrThrow({
+        where: { id: withdrawal.withdrawalId },
+      })).resolves.toMatchObject({ status: 'PAID', version: bound.after.version + 1 });
+      await expect(runtime.prisma.commissionLedger.count({
+        where: { ledger_type: 'WITHDRAWAL_PAID', withdrawal_id: withdrawal.withdrawalId },
+      })).resolves.toBe(1);
+      await expect(runtime.prisma.agentWallet.findUniqueOrThrow({ where: { id: ids.walletId } })).resolves.toMatchObject({
+        available_balance: new Prisma.Decimal('0.00'),
+        frozen_balance: new Prisma.Decimal('0.00'),
+        version: 3,
+      });
+      await runtime.withPrismaTransaction(async (transaction) => {
+        await transaction.$executeRaw(Prisma.sql`SET CONSTRAINTS ALL IMMEDIATE`);
+      }, transactionOptions);
+    } finally {
+      await cleanupFullFixture(cleanupConnectionString, ids);
+      await assertFixtureAbsent(runtime, ids);
+    }
+  }, 180_000);
 
   fullIt('serializes commission credit with one in-flight withdrawal and preserves its bank snapshot',
     async () => {

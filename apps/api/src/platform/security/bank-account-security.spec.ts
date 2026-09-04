@@ -10,7 +10,9 @@ import { describe, expect, it } from 'vitest';
 import {
   agentBankAccountHashCandidates,
   createAgentBankAccountMaterial,
+  decryptAgentBankAccountNumber,
   hmacAgentBankAccountNumber,
+  maskAgentBankAccountHolder,
   normalizeAgentBankAccountNumber,
 } from './bank-account-security';
 
@@ -23,6 +25,12 @@ const FORMATTED_ACCOUNT_NUMBER = '1234-5678 9012-3456';
 const ACCOUNT_NUMBER = '1234567890123456';
 
 describe('B13 Agent bank-account security boundary', () => {
+  it('uses one deterministic holder mask without exposing trailing characters', () => {
+    expect(maskAgentBankAccountHolder('Alice Example')).toBe('A************');
+    expect(maskAgentBankAccountHolder('李雷')).toBe('李*');
+    expect(() => maskAgentBankAccountHolder('')).toThrow();
+  });
+
   it('removes only ASCII spaces and hyphens before validating 6 to 32 digits', () => {
     expect(normalizeAgentBankAccountNumber(FORMATTED_ACCOUNT_NUMBER)).toBe(ACCOUNT_NUMBER);
     for (const invalid of [
@@ -79,5 +87,34 @@ describe('B13 Agent bank-account security boundary', () => {
       hmacAgentBankAccountNumber(ACCOUNT_NUMBER, HASH_PREVIOUS.key),
     ]);
     expect(() => hmacAgentBankAccountNumber(ACCOUNT_NUMBER, Buffer.alloc(31))).toThrow();
+  });
+
+  it('decrypts only an authenticated record-bound snapshot with consistent metadata', () => {
+    const material = createAgentBankAccountMaterial(
+      BANK_ACCOUNT_ID,
+      FORMATTED_ACCOUNT_NUMBER,
+      FIELD_KEY,
+      HASH_CURRENT,
+    );
+    const stored = {
+      bankAccountId: BANK_ACCOUNT_ID,
+      ciphertext: material.ciphertext,
+      encryptionKeyId: material.encryptionKeyId,
+      last4: material.last4,
+    };
+    expect(decryptAgentBankAccountNumber(stored, { current: FIELD_KEY, previous: [] }))
+      .toBe(ACCOUNT_NUMBER);
+    expect(() => decryptAgentBankAccountNumber({ ...stored, bankAccountId: OTHER_BANK_ACCOUNT_ID }, {
+      current: FIELD_KEY,
+      previous: [],
+    })).toThrow();
+    expect(() => decryptAgentBankAccountNumber({ ...stored, last4: '9999' }, {
+      current: FIELD_KEY,
+      previous: [],
+    })).toThrow();
+    expect(() => decryptAgentBankAccountNumber(stored, {
+      current: { id: 'field-v3', key: Buffer.alloc(32, 0x33) },
+      previous: [],
+    })).toThrow();
   });
 });

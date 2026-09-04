@@ -47,6 +47,8 @@ interface EnrollInput { label?: string }
 interface TotpVerifyInput { challengeId: string; totpCode: string }
 interface RecoveryInput { challengeId: string; recoveryCode: string }
 interface TotpInput { totpCode: string }
+interface ReauthChallengeInput { purpose: 'REAUTH'; targetId?: string | null }
+interface PayoutReauthInput { action: 'PAYOUT_ACCOUNT_REVEAL'; withdrawalId: string; totpCode: string }
 
 interface SessionDraft {
   accessExpiresAt: Date;
@@ -62,12 +64,16 @@ const ROUTES = {
   login: '/admin/auth/login',
   logout: '/admin/auth/logout',
   logoutAll: '/admin/auth/logout-all',
+  reauth: '/admin/auth/reauth',
+  reauthChallenge: '/admin/auth/mfa/challenges',
   recovery: '/admin/auth/mfa/recovery',
   recoveryRotate: '/admin/auth/mfa/recovery-codes/rotate',
   refresh: '/admin/auth/refresh',
 } as const;
 
 const SUPER_ADMIN_PERMISSIONS = ['ORDER_FULFILLMENT_PII_READ'] as const;
+const REAUTH_CHALLENGE_TTL_MS = 5 * 60 * 1_000;
+const REAUTH_GRANT_TTL_MS = 60 * 1_000;
 
 // Login happens before an authenticated actor exists. A fixed non-account ULID
 // keeps idempotency behavior identical for existing, disabled, and unknown names.
@@ -75,6 +81,10 @@ const ADMIN_LOGIN_IDEMPOTENCY_ACTOR = '00000000000000000000000000';
 
 function invalidAuthentication(): ApplicationError {
   return new ApplicationError('AUTH_REQUIRED', 'Administrator credentials are invalid');
+}
+
+function reauthRequired(): ApplicationError {
+  return new ApplicationError('REAUTH_REQUIRED', 'Administrator reauthentication is required');
 }
 
 function noReplay(): ApplicationError {
@@ -549,6 +559,143 @@ export class AdminAuthService {
     return this.sessionData(preAuth.accountId, draft);
   }
 
+  async createReauthChallenge(session: CurrentAdminSession, token: string, input: ReauthChallengeInput,
+    key: string, requestId: string, ipAddress?: string) {
+    const now = new Date();
+    const expiresAt = new Date(Math.min(now.getTime() + REAUTH_CHALLENGE_TTL_MS, session.expiresAt.getTime()));
+    if (expiresAt.getTime() <= now.getTime()) throw invalidAuthentication();
+    const challengeId = generateUlid();
+    const claim = this.claim(session.accountId, key, ROUTES.reauthChallenge, input);
+    await runSerializableTransaction(this.database.prisma, async (transaction) => {
+      if ((await this.idempotency.claim(transaction, claim)).kind === 'replay') throw noReplay();
+      await this.auth.createReauthChallengeInTransaction(transaction, {
+        accountId: session.accountId,
+        challengeId,
+        challengeTokenHash: this.currentSecretHash(
+          this.reauthChallengeSecret(challengeId, token),
+          'reauth-challenge',
+        ),
+        currentSessionId: session.sessionId,
+        expiresAt,
+        expectedAccountVersion: session.accountVersion,
+        factorId: session.factorId,
+        ...(input.targetId === undefined ? {} : { targetId: input.targetId }),
+      });
+      await this.auditSuccess(transaction, session.accountId, 'CREATE', requestId, key,
+        'session', session.sessionId, ipAddress);
+      await this.idempotency.complete(transaction, claim, {
+        resourceId: challengeId,
+        responseForHash: { challenge_id: challengeId, purpose: 'REAUTH' },
+        responseStatus: 200,
+        storage: 'HASH_ONLY',
+      });
+    });
+    return { challenge_id: challengeId, expires_at: expiresAt.toISOString(), purpose: 'REAUTH' };
+  }
+
+  async verifyReauthChallenge(session: CurrentAdminSession, token: string, pathId: string,
+    input: TotpVerifyInput, key: string, requestId: string, ipAddress?: string) {
+    if (pathId !== input.challengeId) {
+      throw new ApplicationError('INVALID_ARGUMENT', 'Challenge identifiers do not match');
+    }
+    const context = await this.challengeContext(session.accountId, pathId, token, 'REAUTH', session.sessionId);
+    const verification = await verifyTotpCode(this.decryptFactorSecret(context.factor.id,
+      context.factor.secretCiphertext, context.factor.encryptionKeyId), input.totpCode);
+    const route = '/admin/auth/mfa/challenges/{challenge_id}/verify';
+    const claim = this.claim(session.accountId, key, route, input, { challenge_id: pathId });
+    if (!verification.valid) {
+      await this.recordTotpFailure(claim, session.accountId, session.accountVersion, pathId,
+        'REAUTH', requestId, key, ipAddress, { factorId: session.factorId, sessionId: session.sessionId });
+      throw reauthRequired();
+    }
+    const result = await runSerializableTransaction(this.database.prisma, async (transaction) => {
+      if ((await this.idempotency.claim(transaction, claim)).kind === 'replay') throw noReplay();
+      const completed = await this.auth.completeReauthChallengeInTransaction(transaction, {
+        acceptedTimestep: verification.timestep,
+        accountId: session.accountId,
+        challengeId: pathId,
+        challengeTokenHashCandidates: this.secretHashes(
+          this.reauthChallengeSecret(pathId, token),
+          'reauth-challenge',
+        ),
+        currentSessionId: session.sessionId,
+        expectedAccountVersion: session.accountVersion,
+        factorId: session.factorId,
+      });
+      await this.auditSuccess(transaction, session.accountId, 'VERIFY', requestId, key,
+        'session', session.sessionId, ipAddress);
+      await this.idempotency.complete(transaction, claim, {
+        resourceId: pathId,
+        responseForHash: { challenge_id: pathId, purpose: 'REAUTH', verified_at: completed.verifiedAt.toISOString() },
+        responseStatus: 200,
+        storage: 'HASH_ONLY',
+      });
+      return completed;
+    });
+    return { challenge_id: pathId, purpose: 'REAUTH', verified_at: result.verifiedAt.toISOString() };
+  }
+
+  async reauth(session: CurrentAdminSession, input: PayoutReauthInput, key: string,
+    requestId: string, ipAddress?: string) {
+    const claim = this.claim(session.accountId, key, ROUTES.reauth, input);
+    const verification = await verifyTotpCode(this.decryptFactorSecret(session.factorId,
+      session.factorSecretCiphertext, session.factorEncryptionKeyId), input.totpCode);
+    if (!verification.valid) {
+      const result = await runSerializableTransaction(this.database.prisma, async (transaction) => {
+        if ((await this.idempotency.claim(transaction, claim)).kind === 'replay') throw noReplay();
+        const failure = await this.auth.recordPayoutReauthFailureInTransaction(transaction, {
+          accountId: session.accountId,
+          currentSessionId: session.sessionId,
+          expectedAccountVersion: session.accountVersion,
+          factorId: session.factorId,
+          targetId: input.withdrawalId,
+        });
+        const locked = failure.kind === 'locked';
+        await this.auditFailure(transaction, session.accountId, 'VERIFY', requestId, key,
+          locked ? 'REAUTH_LOCKED' : 'REAUTH_REQUIRED', ipAddress);
+        await this.idempotency.complete(transaction, claim, {
+          responseForHash: { result: failure.kind },
+          responseStatus: locked ? 429 : 403,
+          storage: 'HASH_ONLY',
+        });
+        return failure;
+      });
+      if (result.kind === 'locked') {
+        throw new ApplicationError('REAUTH_LOCKED', 'Administrator reauthentication is locked');
+      }
+      throw reauthRequired();
+    }
+
+    const now = new Date();
+    const expiresAt = new Date(Math.min(now.getTime() + REAUTH_GRANT_TTL_MS, session.expiresAt.getTime()));
+    if (expiresAt.getTime() <= now.getTime()) throw invalidAuthentication();
+    const grantId = generateUlid();
+    const grant = generateOpaqueToken('rag');
+    await runSerializableTransaction(this.database.prisma, async (transaction) => {
+      if ((await this.idempotency.claim(transaction, claim)).kind === 'replay') throw noReplay();
+      await this.auth.createPayoutReauthGrantInTransaction(transaction, {
+        acceptedTimestep: verification.timestep,
+        accountId: session.accountId,
+        currentSessionId: session.sessionId,
+        expectedAccountVersion: session.accountVersion,
+        expiresAt,
+        factorId: session.factorId,
+        grantId,
+        targetId: input.withdrawalId,
+        tokenHash: this.currentSecretHash(grant, 'reauth-grant'),
+      });
+      await this.auditSuccess(transaction, session.accountId, 'VERIFY', requestId, key,
+        'withdrawal', input.withdrawalId, ipAddress);
+      await this.idempotency.complete(transaction, claim, {
+        resourceId: grantId,
+        responseForHash: { expires_at: expiresAt.toISOString(), grant_id: grantId, withdrawal_id: input.withdrawalId },
+        responseStatus: 200,
+        storage: 'HASH_ONLY',
+      });
+    });
+    return { expires_at: expiresAt.toISOString(), reauth_grant: grant, single_use: true, withdrawal_id: input.withdrawalId };
+  }
+
   async recover(preAuth: VerifiedPreAuthClaims, token: string, input: RecoveryInput, key: string,
     requestId: string, ipAddress?: string) {
     if (preAuth.challengeId !== input.challengeId) throw new ApplicationError('INVALID_ARGUMENT', 'Challenge identifiers do not match');
@@ -688,18 +835,24 @@ export class AdminAuthService {
     };
   }
 
-  private secretHashes(value: string, domain: 'challenge' | 'recovery-code' | 'refresh-token') {
+  private secretHashes(value: string,
+    domain: 'challenge' | 'reauth-challenge' | 'reauth-grant' | 'recovery-code' | 'refresh-token') {
     return [this.config.authentication.secretHashKeys.current,
       ...this.config.authentication.secretHashKeys.previous]
       .map(({ key }) => hmacAuthenticationSecret(value, key, domain));
   }
 
-  private currentSecretHash(value: string, domain: 'challenge' | 'recovery-code' | 'refresh-token' | 'totp-secret') {
+  private currentSecretHash(value: string,
+    domain: 'challenge' | 'reauth-challenge' | 'reauth-grant' | 'recovery-code' | 'refresh-token' | 'totp-secret') {
     return hmacAuthenticationSecret(value, this.config.authentication.secretHashKeys.current.key, domain);
   }
 
   private recoveryMaterials(codes: readonly string[]): RecoveryCodeMaterial[] {
     return codes.map((code) => ({ id: generateUlid(), codeHash: this.currentSecretHash(code, 'recovery-code') }));
+  }
+
+  private reauthChallengeSecret(challengeId: string, token: string): string {
+    return `${challengeId}:${token}`;
   }
 
   private decryptFactorSecret(factorId: string, ciphertext: Uint8Array, encryptionKeyId: string): string {
@@ -713,19 +866,28 @@ export class AdminAuthService {
     }, createEncryptionContext('totp_factor', factorId, 'secret_ciphertext'));
   }
 
-  private async challengeContext(accountId: string, challengeId: string, token: string, purpose: 'ENROLL' | 'LOGIN') {
+  private async challengeContext(accountId: string, challengeId: string, token: string,
+    purpose: 'ENROLL' | 'LOGIN' | 'REAUTH', currentSessionId?: string) {
+    const secret = purpose === 'REAUTH' ? this.reauthChallengeSecret(challengeId, token) : token;
     const context = await this.auth.getChallengeVerificationContext({
-      accountId, challengeId, challengeTokenHashCandidates: this.secretHashes(token, 'challenge'), purpose,
+      accountId,
+      challengeId,
+      challengeTokenHashCandidates: this.secretHashes(
+        secret,
+        purpose === 'REAUTH' ? 'reauth-challenge' : 'challenge',
+      ),
+      ...(currentSessionId === undefined ? {} : { currentSessionId }),
+      purpose,
     });
     if (!context) throw new ApplicationError('STATE_CONFLICT', 'MFA challenge is not usable');
     if (context.lockedUntil && context.lockedUntil.getTime() > Date.now()) {
-      throw new ApplicationError('RATE_LIMITED', 'MFA is locked');
+      throw new ApplicationError(purpose === 'REAUTH' ? 'REAUTH_LOCKED' : 'RATE_LIMITED', 'MFA is locked');
     }
     return context;
   }
 
   private async recordTotpFailure(claim: IdempotencyClaim, accountId: string, expectedAccountVersion: number,
-    challengeId: string | undefined, purpose: 'ENROLL' | 'LOGIN' | 'RECOVERY', requestId: string,
+    challengeId: string | undefined, purpose: 'ENROLL' | 'LOGIN' | 'REAUTH' | 'RECOVERY', requestId: string,
     key: string, ipAddress?: string, currentSession?: { factorId: string; sessionId: string }) {
     const result = await runSerializableTransaction(this.database.prisma, async (transaction) => {
       if ((await this.idempotency.claim(transaction, claim)).kind === 'replay') throw noReplay();
@@ -741,18 +903,23 @@ export class AdminAuthService {
       });
       const locked = failure.kind === 'locked';
       await this.auditFailure(transaction, accountId, 'VERIFY', requestId, key,
-        locked ? 'RATE_LIMITED' : 'AUTH_REQUIRED', ipAddress);
+        locked ? (purpose === 'REAUTH' ? 'REAUTH_LOCKED' : 'RATE_LIMITED') :
+          (purpose === 'REAUTH' ? 'REAUTH_REQUIRED' : 'AUTH_REQUIRED'), ipAddress);
       await this.idempotency.complete(transaction, claim, {
-        responseForHash: { result: failure.kind }, responseStatus: locked ? 429 : 401, storage: 'HASH_ONLY',
+        responseForHash: { result: failure.kind },
+        responseStatus: locked ? 429 : purpose === 'REAUTH' ? 403 : 401,
+        storage: 'HASH_ONLY',
       });
       return failure;
     });
-    if (result.kind === 'locked') throw new ApplicationError('RATE_LIMITED', 'MFA is locked');
+    if (result.kind === 'locked') {
+      throw new ApplicationError(purpose === 'REAUTH' ? 'REAUTH_LOCKED' : 'RATE_LIMITED', 'MFA is locked');
+    }
   }
 
   private auditSuccess(transaction: DatabaseTransaction, actorId: string,
-    action: 'ENROLL' | 'LOGIN' | 'LOGOUT' | 'RECOVER' | 'REFRESH' | 'ROTATE' | 'UPDATE' | 'VERIFY',
-    requestId: string, idempotencyKey: string, objectType: 'account' | 'session', objectId: string,
+    action: 'CREATE' | 'ENROLL' | 'LOGIN' | 'LOGOUT' | 'RECOVER' | 'REFRESH' | 'ROTATE' | 'UPDATE' | 'VERIFY',
+    requestId: string, idempotencyKey: string, objectType: 'account' | 'session' | 'withdrawal', objectId: string,
     ipAddress?: string) {
     return this.audit.append(transaction, {
       action, actorAccountId: actorId, actorRole: 'SUPER_ADMIN', idempotencyKey, module: 'admin_auth',
@@ -763,7 +930,7 @@ export class AdminAuthService {
 
   private auditFailure(transaction: DatabaseTransaction, actorId: string,
     action: 'LOGIN' | 'RECOVER' | 'REFRESH' | 'UPDATE' | 'VERIFY', requestId: string, idempotencyKey: string,
-    resultCode: 'AUTH_REQUIRED' | 'RATE_LIMITED', ipAddress?: string) {
+    resultCode: 'AUTH_REQUIRED' | 'RATE_LIMITED' | 'REAUTH_LOCKED' | 'REAUTH_REQUIRED', ipAddress?: string) {
     return this.audit.append(transaction, {
       action, actorAccountId: actorId, actorRole: 'SUPER_ADMIN', idempotencyKey, module: 'admin_auth',
       objectId: actorId, objectType: 'account', requestId, result: 'FAILURE', resultCode, summaryPolicy: 'NONE',

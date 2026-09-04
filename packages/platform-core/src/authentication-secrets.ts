@@ -19,7 +19,8 @@ function normalizeRecoveryCode(code: string): string {
 export function hmacAuthenticationSecret(
   value: string,
   key: Uint8Array,
-  domain: 'agent-refresh-token' | 'candidate-token' | 'challenge' | 'invite-code' | 'recovery-code' | 'refresh-token' | 'store-refresh-token' | 'totp-secret',
+  domain: 'agent-refresh-token' | 'candidate-token' | 'challenge' | 'invite-code' | 'reauth-challenge' |
+    'reauth-grant' | 'recovery-code' | 'refresh-token' | 'store-refresh-token' | 'totp-secret',
 ): string {
   const minimumLength = domain === 'invite-code' ? 1 : 8;
   if (typeof value !== 'string' || value.length < minimumLength || value.length > 2_048) {
@@ -47,14 +48,15 @@ export function authenticationSecretHashMatches(
   value: string,
   expectedHash: string,
   key: Uint8Array,
-  domain: 'agent-refresh-token' | 'candidate-token' | 'challenge' | 'invite-code' | 'recovery-code' | 'refresh-token' | 'store-refresh-token' | 'totp-secret',
+  domain: 'agent-refresh-token' | 'candidate-token' | 'challenge' | 'invite-code' | 'reauth-challenge' |
+    'reauth-grant' | 'recovery-code' | 'refresh-token' | 'store-refresh-token' | 'totp-secret',
 ): boolean {
   if (!/^[a-f0-9]{64}$/.test(expectedHash)) return false;
   const actual = Buffer.from(hmacAuthenticationSecret(value, key, domain), 'hex');
   return timingSafeEqual(actual, Buffer.from(expectedHash, 'hex'));
 }
 
-export function generateOpaqueToken(prefix: 'cnd' | 'pat' | 'rfr'): string {
+export function generateOpaqueToken(prefix: 'cnd' | 'pat' | 'rag' | 'rfr'): string {
   return `${prefix}_${randomBytes(32).toString('base64url')}`;
 }
 

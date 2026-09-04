@@ -4,6 +4,7 @@ export * from './admin-agent.repository';
 export * from './admin-aftersale.repository';
 export * from './admin-customer.repository';
 export * from './admin-refund.repository';
+export * from './admin-withdrawal.repository';
 export * from './audit.repository';
 export * from './agent-auth.repository';
 export * from './agent-commerce.repository';

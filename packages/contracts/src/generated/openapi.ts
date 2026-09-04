@@ -10927,8 +10927,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
-                    "Cache-Control": components["headers"]["CacheControlNoStore"];
-                    Pragma: components["headers"]["PragmaNoCache"];
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -10965,9 +10965,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
-                    /** @description LOGIN 分支签发会话令牌，响应不得缓存 */
-                    "Cache-Control"?: "no-store, private";
-                    Pragma?: "no-cache";
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -11076,8 +11075,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
-                    "Cache-Control": components["headers"]["CacheControlNoStore"];
-                    Pragma: components["headers"]["PragmaNoCache"];
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -14856,6 +14855,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -14886,6 +14887,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -14922,8 +14925,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
-                    "Cache-Control": components["headers"]["CacheControlNoStore"];
-                    Pragma: components["headers"]["PragmaNoCache"];
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -14961,6 +14964,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -14997,8 +15002,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
-                    "Cache-Control": components["headers"]["CacheControlNoStore"];
-                    Pragma: components["headers"]["PragmaNoCache"];
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -15036,6 +15041,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -15073,9 +15080,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
-                    /** @description 一次性敏感响应不得缓存 */
-                    "Cache-Control"?: "no-store, private";
-                    Pragma?: "no-cache";
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -15112,6 +15118,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -15148,8 +15156,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
-                    "Cache-Control": components["headers"]["CacheControlNoStore"];
-                    Pragma: components["headers"]["PragmaNoCache"];
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -15187,6 +15195,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {

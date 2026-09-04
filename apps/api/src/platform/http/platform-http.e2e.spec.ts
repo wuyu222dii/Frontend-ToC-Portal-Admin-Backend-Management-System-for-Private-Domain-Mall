@@ -243,6 +243,21 @@ describe('API platform HTTP pipeline (e2e)', () => {
     expect(response.headers.pragma).toBe('no-cache');
   });
 
+  it.each([
+    '/api/v1/agent/bank-accounts',
+    '/api/v1/agent/withdrawals',
+  ])('marks malformed Agent finance requests as private and non-cacheable at %s', async (path) => {
+    const response = await request(app.getHttpServer())
+      .post(path)
+      .set('Content-Type', 'application/json')
+      .send('{"amount":')
+      .expect(400);
+
+    expect(response.body.code).toBe('INVALID_ARGUMENT');
+    expect(response.headers['cache-control']).toBe('no-store, private');
+    expect(response.headers.pragma).toBe('no-cache');
+  });
+
   it('marks malformed Admin Agent lifecycle requests as private and non-cacheable', async () => {
     const response = await request(app.getHttpServer())
       .post('/api/v1/admin/agents')

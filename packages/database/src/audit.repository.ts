@@ -109,6 +109,7 @@ const AUDIT_OBJECT_TYPE = new Set([
   'agent_invite_code',
   'aftersale',
   'banner',
+  'bank_account',
   'binding',
   'brand',
   'business_rule',

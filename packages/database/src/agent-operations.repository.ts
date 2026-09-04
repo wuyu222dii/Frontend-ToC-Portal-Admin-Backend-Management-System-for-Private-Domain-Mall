@@ -135,7 +135,14 @@ export interface AgentCommissionDetailSnapshot {
 
 export interface AgentWalletSnapshot {
   availableBalance: string;
-  blockedReason: 'INSUFFICIENT_BALANCE' | 'NEGATIVE_BALANCE' | null;
+  blockedReason:
+    | 'BANK_ACCOUNT_REQUIRED'
+    | 'INSUFFICIENT_BALANCE'
+    | 'NEGATIVE_BALANCE'
+    | 'WITHDRAWAL_IN_PROGRESS'
+    | 'WITHDRAWAL_MINIMUM_NOT_MET'
+    | 'WITHDRAWAL_RULE_UNAVAILABLE'
+    | null;
   expectedCommission: string;
   frozenBalance: string;
   isNegative: boolean;
@@ -1578,6 +1585,49 @@ export class AgentOperationsRepository {
     };
   }
 
+  private async withdrawalEligibility(
+    transaction: DatabaseTransaction,
+    agentId: string,
+    wallet: AgentWalletSnapshot,
+  ): Promise<Pick<AgentWalletSnapshot, 'blockedReason' | 'withdrawalAllowed'>> {
+    const [rules, activeBankCount, inflightCount] = await Promise.all([
+      transaction.$queryRaw<Array<{ id: string; minimum_withdrawal_amount: Prisma.Decimal }>>(Prisma.sql`
+        SELECT id, minimum_withdrawal_amount FROM public.business_rule_version
+        WHERE status = 'PUBLISHED' AND effective_at IS NOT NULL
+          AND effective_at <= transaction_timestamp()
+        ORDER BY effective_at DESC, version_no DESC, id DESC
+        LIMIT 2
+      `),
+      transaction.agentBankAccount.count({
+        where: { agent_id: agentId, deleted_at: null, is_active: true },
+      }),
+      transaction.withdrawal.count({
+        where: { agent_id: agentId, status: { in: ['APPROVED', 'PENDING'] } },
+      }),
+    ]);
+    if (!Number.isSafeInteger(activeBankCount) || activeBankCount < 0 || activeBankCount > 1 ||
+      !Number.isSafeInteger(inflightCount) || inflightCount < 0 || inflightCount > 1) {
+      throw internal('Stored Agent withdrawal eligibility is inconsistent');
+    }
+    const rule = rules.length === 1 ? rules[0] : undefined;
+    const minimum = rule && isValidUlid(rule.id) && Prisma.Decimal.isDecimal(rule.minimum_withdrawal_amount) &&
+      rule.minimum_withdrawal_amount.isPositive()
+      ? rule.minimum_withdrawal_amount
+      : null;
+    const blockedReason: AgentWalletSnapshot['blockedReason'] = wallet.isNegative
+      ? 'NEGATIVE_BALANCE'
+      : minimum === null
+        ? 'WITHDRAWAL_RULE_UNAVAILABLE'
+        : activeBankCount === 0
+          ? 'BANK_ACCOUNT_REQUIRED'
+          : inflightCount === 1
+            ? 'WITHDRAWAL_IN_PROGRESS'
+            : new Prisma.Decimal(wallet.availableBalance).lessThan(minimum)
+              ? 'WITHDRAWAL_MINIMUM_NOT_MET'
+              : null;
+    return { blockedReason, withdrawalAllowed: blockedReason === null };
+  }
+
   async listCustomers(input: AgentCustomerListInput): Promise<AgentCustomerListResult> {
     validateCustomerListInput(input);
     return this.prisma.$transaction(async (transaction) => {
@@ -1723,7 +1773,8 @@ export class AgentOperationsRepository {
     validateIdentity(input);
     return this.prisma.$transaction(async (transaction) => {
       await this.requireActiveAgent(transaction, input);
-      return this.reconciledWallet(transaction, input.agentId);
+      const wallet = await this.reconciledWallet(transaction, input.agentId);
+      return { ...wallet, ...await this.withdrawalEligibility(transaction, input.agentId, wallet) };
     }, { isolationLevel: 'RepeatableRead' });
   }
 

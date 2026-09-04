@@ -77,9 +77,17 @@ const B134_OPERATIONS = [
   ['get', '/admin/orders/{order_id}/commission-explanation', 'getAdminOrdersByOrderIdCommissionExplanation',
     'OrderCommissionExplanationResponse', 'bearerAuth'],
 ];
+const B135_OPERATIONS = [
+  ['get', '/agent/bank-accounts', 'getAgentBankAccounts', 'BankAccountListResponse', '200'],
+  ['post', '/agent/bank-accounts', 'postAgentBankAccounts', 'BankAccountResponse', '200'],
+  ['get', '/agent/withdrawals', 'getAgentWithdrawals', 'WithdrawalListResponse', '200'],
+  ['post', '/agent/withdrawals', 'postAgentWithdrawals', 'WithdrawalResponse', '201'],
+  ['get', '/agent/withdrawals/{withdrawal_id}', 'getAgentWithdrawalsByWithdrawalId',
+    'WithdrawalResponse', '200'],
+];
 
-function responseSchema(document, method, path) {
-  return document.paths[path][method].responses['200'].content['application/json'].schema;
+function responseSchema(document, method, path, status = '200') {
+  return document.paths[path][method].responses[status].content['application/json'].schema;
 }
 
 function assertClosedObject(schema, label, required, optional = []) {
@@ -148,19 +156,19 @@ try {
     'B13 Agent database gate package alias drifted');
   const ciB13Step = workflowStep(
     ciWorkflow,
-    'Test B13.1-B13.4 Agent authentication, commerce, operations and commission finance with PostgreSQL and Redis',
+    'Test B13.1-B13.5 Agent authentication, commerce, operations and finance with PostgreSQL and Redis',
   );
   assert.match(ciB13Step, /B13_AGENT_AUTH_DATABASE_TEST_MODE: full/);
   assert.match(ciB13Step, /run: pnpm db:test-b13-agent/);
   const smokeB12Step = smokeWorkflow.indexOf('Run rollback-only B12 aftersales');
   const smokeB13StepIndex = smokeWorkflow.indexOf(
-    'Run rollback-only B13.1-B13.4 Agent authentication, commerce, operations and commission finance smoke',
+    'Run rollback-only B13.1-B13.5 Agent authentication, commerce, operations and finance smoke',
   );
   assert.ok(smokeB12Step >= 0 && smokeB13StepIndex > smokeB12Step,
     'B13 rollback smoke must run after B12');
   const smokeB13Step = workflowStep(
     smokeWorkflow,
-    'Run rollback-only B13.1-B13.4 Agent authentication, commerce, operations and commission finance smoke',
+    'Run rollback-only B13.1-B13.5 Agent authentication, commerce, operations and finance smoke',
   );
   assert.match(smokeB13Step, /B13_AGENT_AUTH_DATABASE_TEST_MODE: rollback/);
   assert.match(smokeB13Step, /DATABASE_URL: \$\{\{ secrets\.SUPABASE_RUNTIME_URL \}\}/);
@@ -184,12 +192,15 @@ try {
     'B13 runner must execute the B13.3 operations integration check');
   assert.match(b13Runner, /B134_AGENT_FINANCE_DATABASE_TEST_MODE = mode/,
     'B13 runner must bind B13.4 finance checks to the selected gate mode');
+  assert.match(b13Runner, /B135_AGENT_FINANCE_DATABASE_TEST_MODE = mode/,
+    'B13 runner must bind B13.5 finance checks to the selected gate mode');
   const b133RunnerIndex = b13Runner.indexOf('src/agent-operations.integration.spec.ts');
   const b134DatabaseRunnerIndex = b13Runner.indexOf('src/commission.integration.spec.ts');
   const b134ApiRunnerIndex = b13Runner.indexOf('src/admin-commissions/admin-commissions.integration.spec.ts');
+  const b135DatabaseRunnerIndex = b13Runner.indexOf('src/agent-finance.integration.spec.ts');
   assert.ok(b133RunnerIndex >= 0 && b134DatabaseRunnerIndex > b133RunnerIndex &&
-    b134ApiRunnerIndex > b134DatabaseRunnerIndex,
-  'B13 runner must execute B13.4 database and API checks in order after B13.3');
+    b134ApiRunnerIndex > b134DatabaseRunnerIndex && b135DatabaseRunnerIndex > b134ApiRunnerIndex,
+  'B13 runner must execute B13.4 then B13.5 checks in order after B13.3');
   const rollbackBranch = b13Runner.slice(b13Runner.indexOf('} else {', b13Runner.indexOf("if (mode === 'full')")));
   assert.doesNotMatch(rollbackBranch, /REDIS_URL/,
     'B13 rollback runner branch must remain independent of Redis');
@@ -256,6 +267,18 @@ try {
       `${operationId} response status set drifted`);
     assert.equal(responseSchema(document, method, path).$ref, `#/components/schemas/${responseName}`,
       `${operationId} success response schema drifted`);
+  }
+  for (const [method, path, operationId, responseName, successStatus] of B135_OPERATIONS) {
+    const operation = document.paths[path][method];
+    assert.equal(operation.operationId, operationId);
+    assert.deepEqual(operation.security, [{ agentBearerAuth: [] }],
+      `${operationId} must use only the Agent realm`);
+    const expectedStatuses = AGENT_AUTH_RESPONSE_STATUSES.map((status) =>
+      status === '200' ? successStatus : status).sort();
+    assert.deepEqual(Object.keys(operation.responses).sort(), expectedStatuses,
+      `${operationId} response status set drifted`);
+    assert.equal(responseSchema(document, method, path, successStatus).$ref,
+      `#/components/schemas/${responseName}`, `${operationId} success response schema drifted`);
   }
 
   const successEnvelopeFields = ['code', 'message', 'data', 'request_id'];
@@ -469,6 +492,10 @@ try {
     'CommissionRuleVersionResponse',
     'CommissionRuleVersionListResponse',
     'OrderCommissionExplanationResponse',
+    'BankAccountResponse',
+    'BankAccountListResponse',
+    'WithdrawalResponse',
+    'WithdrawalListResponse',
   ]) assertClosedObject(schemas[responseName], responseName, successEnvelopeFields);
 
   const commissionListData = schemas.CommissionListResponse.properties.data;
@@ -875,6 +902,37 @@ try {
   for (const rejected of ['12345', '1----2', '1'.repeat(33), '-123456', '123456-', '12345A']) {
     assert.doesNotMatch(rejected, bankAccountPattern, `invalid normalized bank account was accepted: ${rejected}`);
   }
+  assertClosedObject(schemas.BankAccountWriteRequest, 'BankAccountWriteRequest',
+    ['account_holder', 'bank_name', 'account_number']);
+  assert.equal(schemas.BankAccountWriteRequest.properties.account_holder.minLength, 2);
+  assert.equal(schemas.BankAccountWriteRequest.properties.bank_name.minLength, 2);
+  assert.equal(schemas.BankAccountWriteRequest.properties.account_number.writeOnly, true);
+  assertClosedObject(schemas.BankAccountView, 'BankAccountView', [
+    'bank_account_id', 'account_holder_masked', 'bank_name', 'account_number_masked',
+    'account_no_last4', 'is_active', 'version',
+  ]);
+  assert.equal(schemas.BankAccountView.properties.account_no_last4.pattern, '^[0-9]{4}$');
+  assert.equal(schemas.BankAccountResponse.properties.data.$ref, '#/components/schemas/BankAccountView');
+  assert.equal(schemas.BankAccountListResponse.properties.data.items.$ref,
+    '#/components/schemas/BankAccountView');
+
+  assertClosedObject(schemas.CreateWithdrawalRequest, 'CreateWithdrawalRequest',
+    ['amount', 'bank_account_id']);
+  assert.equal(schemas.CreateWithdrawalRequest.properties.amount.$ref,
+    '#/components/schemas/PositiveMoney');
+  assertClosedObject(schemas.WithdrawalView, 'WithdrawalView', [
+    'withdrawal_id', 'withdrawal_no', 'status', 'amount', 'bank_account_masked', 'review_reason',
+    'created_at', 'version',
+  ], ['reviewed_at', 'paid_at', 'proof_file_ids']);
+  assert.deepEqual(schemas.WithdrawalView.properties.status.enum,
+    ['PENDING', 'APPROVED', 'REJECTED', 'PAID']);
+  assert.equal(schemas.WithdrawalView.properties.amount.$ref, '#/components/schemas/PositiveMoney');
+  assert.equal(schemas.WithdrawalResponse.properties.data.$ref, '#/components/schemas/WithdrawalView');
+  const withdrawalListData = schemas.WithdrawalListResponse.properties.data;
+  assertClosedObject(withdrawalListData, 'WithdrawalListResponse.data', ['items', 'pagination']);
+  assert.equal(withdrawalListData.properties.items.items.$ref, '#/components/schemas/WithdrawalView');
+  assertClosedObject(withdrawalListData.properties.pagination,
+    'WithdrawalListResponse.data.pagination', ['page', 'page_size', 'total']);
 
   for (const generatedType of [
     'AgentSessionResponse',
@@ -902,6 +960,14 @@ try {
     'CommissionRuleVersionResponse',
     'CommissionRuleVersionListResponse',
     'OrderCommissionExplanationResponse',
+    'BankAccountWriteRequest',
+    'BankAccountView',
+    'BankAccountResponse',
+    'BankAccountListResponse',
+    'CreateWithdrawalRequest',
+    'WithdrawalView',
+    'WithdrawalResponse',
+    'WithdrawalListResponse',
   ]) {
     assert.match(generatedContract, new RegExp(`\\b${generatedType}\\b`),
       `generated contract is missing ${generatedType}`);
@@ -925,6 +991,7 @@ try {
     b13_gate_wiring: true,
     b133_operations: B133_OPERATIONS.length,
     b134_operations: B134_OPERATIONS.length,
+    b135_operations: B135_OPERATIONS.length,
     dangling_references: 0,
   }) + '\n');
 } finally {

@@ -54,7 +54,7 @@ describe('B13 Agent gate runner', () => {
     });
   }
 
-  it('runs rollback validation without Redis and preserves the five target commands', () => {
+  it('runs rollback validation without Redis and preserves the six target commands', () => {
     const result = execute({
       B13_AGENT_AUTH_DATABASE_TEST_MODE: 'rollback',
       CI: 'true',
@@ -74,6 +74,7 @@ describe('B13 Agent gate runner', () => {
       '--filter @qingxu/database exec vitest run --no-file-parallelism src/agent-operations.integration.spec.ts',
       '--filter @qingxu/database exec vitest run --no-file-parallelism src/commission.integration.spec.ts',
       '--filter @qingxu/api exec vitest run --no-file-parallelism src/admin-commissions/admin-commissions.integration.spec.ts',
+      '--filter @qingxu/database exec vitest run --no-file-parallelism src/agent-finance.integration.spec.ts',
     ]);
   });
 
@@ -172,7 +173,7 @@ describe('B13 Agent gate runner', () => {
     const workflow = readFileSync(smokeWorkflowPath, 'utf8');
     const b12Index = workflow.indexOf('Run rollback-only B12 aftersales');
     const b13Index = workflow.indexOf(
-      'Run rollback-only B13.1-B13.4 Agent authentication, commerce, operations and commission finance smoke',
+      'Run rollback-only B13.1-B13.5 Agent authentication, commerce, operations and finance smoke',
     );
     const nextStepIndex = workflow.indexOf('\n      - name:', b13Index + 1);
     const b13Step = workflow.slice(b13Index, nextStepIndex === -1 ? undefined : nextStepIndex);

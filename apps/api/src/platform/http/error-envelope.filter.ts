@@ -71,7 +71,7 @@ const SENSITIVE_PATH_PREFIXES = [
   '/api/v1/admin/refunds/',
   '/api/v1/admin/settings/return-address/',
   '/api/v1/admin/shipments/',
-  '/api/v1/agent/auth/',
+  '/api/v1/agent/',
   '/api/v1/store/addresses/',
   '/api/v1/store/aftersales/',
   '/api/v1/store/auth/',

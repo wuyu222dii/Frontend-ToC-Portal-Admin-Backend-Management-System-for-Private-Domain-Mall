@@ -475,7 +475,12 @@ describe('AgentOperationsRepository', () => {
 
   it('blocks withdrawal when the reconciled available balance is zero', async () => {
     const transaction = {
+      $queryRaw: vi.fn(async () => [{
+        id: commissionRuleId,
+        minimum_withdrawal_amount: new Prisma.Decimal('100.00'),
+      }]),
       agentProfile: { findUnique: vi.fn(async () => activeAgent()) },
+      agentBankAccount: { count: vi.fn(async () => 1) },
       agentWallet: {
         findUnique: vi.fn(async () => ({
           agent_id: agentId,
@@ -497,14 +502,51 @@ describe('AgentOperationsRepository', () => {
       orderItemCommissionPosition: {
         aggregate: vi.fn(async () => ({ _sum: { expected_remaining: new Prisma.Decimal('0.00') } })),
       },
+      withdrawal: { count: vi.fn(async () => 0) },
     };
 
     await expect(new AgentOperationsRepository(prismaWith(transaction)).getWallet({ accountId, agentId }))
       .resolves.toMatchObject({
         availableBalance: '0.00',
-        blockedReason: 'INSUFFICIENT_BALANCE',
+        blockedReason: 'WITHDRAWAL_MINIMUM_NOT_MET',
         withdrawalAllowed: false,
       });
+  });
+
+  it('allows withdrawal only with a current rule, active bank account and no in-flight request', async () => {
+    const transaction = {
+      $queryRaw: vi.fn(async () => [{
+        id: commissionRuleId,
+        minimum_withdrawal_amount: new Prisma.Decimal('100.00'),
+      }]),
+      agentProfile: { findUnique: vi.fn(async () => activeAgent()) },
+      agentBankAccount: { count: vi.fn(async () => 1) },
+      agentWallet: {
+        findUnique: vi.fn(async () => ({
+          agent_id: agentId,
+          available_balance: new Prisma.Decimal('100.00'),
+          frozen_balance: new Prisma.Decimal('0.00'),
+          id: walletId,
+          version: 2,
+        })),
+      },
+      commissionLedger: {
+        aggregate: vi.fn(async () => ({
+          _sum: {
+            available_change: new Prisma.Decimal('100.00'),
+            expected_change: new Prisma.Decimal('0.00'),
+            frozen_change: new Prisma.Decimal('0.00'),
+          },
+        })),
+      },
+      orderItemCommissionPosition: {
+        aggregate: vi.fn(async () => ({ _sum: { expected_remaining: new Prisma.Decimal('0.00') } })),
+      },
+      withdrawal: { count: vi.fn(async () => 0) },
+    };
+
+    await expect(new AgentOperationsRepository(prismaWith(transaction)).getWallet({ accountId, agentId }))
+      .resolves.toMatchObject({ blockedReason: null, withdrawalAllowed: true });
   });
 
   it('fails closed when the wallet cache does not reconcile with its ledgers', async () => {

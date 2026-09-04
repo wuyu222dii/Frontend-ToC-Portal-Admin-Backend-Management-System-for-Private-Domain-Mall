@@ -7,6 +7,7 @@ export * from './admin-refund.repository';
 export * from './audit.repository';
 export * from './agent-auth.repository';
 export * from './agent-commerce.repository';
+export * from './agent-finance.repository';
 export * from './agent-operations.repository';
 export * from './banner.repository';
 export * from './callback-inbox.repository';

@@ -12977,11 +12977,11 @@ components:
       properties:
         account_holder:
           type: "string"
-          minLength: 1
+          minLength: 2
           maxLength: 120
         bank_name:
           type: "string"
-          minLength: 1
+          minLength: 2
           maxLength: 160
         account_number:
           type: "string"

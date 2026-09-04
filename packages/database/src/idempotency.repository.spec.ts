@@ -7,6 +7,7 @@ import { Prisma } from '../.generated/prisma/client';
 import {
   IdempotencyRepository,
   type CacheableAdminCustomerResponse,
+  type CacheableAgentFinanceResponse,
   type CacheableAgentInviteRotateReplay,
   type CacheableAgentProductAuthorizationResponse,
   type CacheableAgentResourceResponse,
@@ -308,6 +309,45 @@ function adminCustomerResponse(): CacheableAdminCustomerResponse {
       phone_masked: '*** **** 8000',
       registered_at: '2026-09-01T00:00:00.000Z',
       version: 2,
+    },
+    message: 'success',
+    request_id: 'req_0123456789abcdef0123456789abcdef',
+  };
+}
+
+function agentBankAccountResponse(): CacheableAgentFinanceResponse {
+  return {
+    code: 'OK',
+    data: {
+      account_holder_masked: 'A************',
+      account_no_last4: '3456',
+      account_number_masked: '**** 3456',
+      bank_account_id: generateUlid(),
+      bank_name: 'Development Bank',
+      is_active: true,
+      version: 1,
+    },
+    message: 'success',
+    request_id: 'req_0123456789abcdef0123456789abcdef',
+  };
+}
+
+function agentWithdrawalResponse(): CacheableAgentFinanceResponse {
+  const withdrawalId = generateUlid();
+  return {
+    code: 'OK',
+    data: {
+      amount: '100.00',
+      bank_account_masked: '**** 3456',
+      created_at: '2026-09-04T00:00:00.000Z',
+      paid_at: null,
+      proof_file_ids: [],
+      review_reason: null,
+      reviewed_at: null,
+      status: 'PENDING',
+      version: 1,
+      withdrawal_id: withdrawalId,
+      withdrawal_no: `WD${withdrawalId}`,
     },
     message: 'success',
     request_id: 'req_0123456789abcdef0123456789abcdef',
@@ -643,6 +683,57 @@ describe('IdempotencyRepository', () => {
       response_body_hash: responseHash(currentHashKey, responseBody),
       response_status: 200,
     } as never)).toEqual(responseBody);
+  });
+
+  it.each([
+    { responseBody: agentBankAccountResponse(), responseStatus: 200 },
+    { responseBody: agentWithdrawalResponse(), responseStatus: 201 },
+  ])('stores and exactly replays a closed Agent finance response', async ({ responseBody, responseStatus }) => {
+    const transaction = transactionStub();
+    const resourceId = 'bank_account_id' in responseBody.data
+      ? responseBody.data.bank_account_id
+      : responseBody.data.withdrawal_id;
+    await repository().complete(transaction, baseClaim, {
+      policy: 'AGENT_FINANCE_RESPONSE',
+      responseBody,
+      responseStatus,
+      storage: 'CACHEABLE',
+    });
+    expect(transaction.idempotencyRecord.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ resource_id: resourceId, response_body: responseBody }),
+    }));
+    expect(repository().agentFinanceReplay({
+      ...recordContext(),
+      expires_at: new Date('2099-08-14T00:00:00.000Z'),
+      resource_id: resourceId,
+      response_body: responseBody,
+      response_body_hash: responseHash(currentHashKey, responseBody),
+      response_status: responseStatus,
+    } as never)).toEqual(responseBody);
+  });
+
+  it('rejects plaintext bank data and mismatched Agent finance replay metadata', async () => {
+    const bank = agentBankAccountResponse();
+    await expect(repository().complete(transactionStub(), baseClaim, {
+      policy: 'AGENT_FINANCE_RESPONSE',
+      responseBody: { ...bank, data: { ...bank.data, account_number: cardFixture } },
+      responseStatus: 200,
+      storage: 'CACHEABLE',
+    } as never)).rejects.toThrow('AGENT_FINANCE_RESPONSE');
+
+    const withdrawal = agentWithdrawalResponse();
+    const resourceId = 'withdrawal_id' in withdrawal.data ? withdrawal.data.withdrawal_id : generateUlid();
+    const record = {
+      ...recordContext(),
+      expires_at: new Date('2099-08-14T00:00:00.000Z'),
+      resource_id: resourceId,
+      response_body: withdrawal,
+      response_body_hash: responseHash(currentHashKey, withdrawal),
+      response_status: 201,
+    };
+    for (const override of [{ resource_id: generateUlid() }, { response_status: 200 }]) {
+      expect(() => repository().agentFinanceReplay({ ...record, ...override } as never)).toThrow('unexpected error');
+    }
   });
 
   it('rejects sensitive or cross-customer fields in an Admin customer cache entry', async () => {

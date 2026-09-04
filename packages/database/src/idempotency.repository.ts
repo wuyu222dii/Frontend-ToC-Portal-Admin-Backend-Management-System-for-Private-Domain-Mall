@@ -92,6 +92,11 @@ export type IdempotencyResult =
       responseBody: CacheableAdminCustomerResponse;
     })
   | (IdempotencyResultBase & {
+      storage: 'CACHEABLE';
+      policy: 'AGENT_FINANCE_RESPONSE';
+      responseBody: CacheableAgentFinanceResponse;
+    })
+  | (IdempotencyResultBase & {
       storage: 'HASH_ONLY';
       resourceId?: string;
       responseForHash: unknown;
@@ -316,6 +321,36 @@ export interface CacheableAdminCustomerResponse {
   request_id: string;
 }
 
+export interface CacheableAgentBankAccountView {
+  account_holder_masked: string;
+  account_no_last4: string;
+  account_number_masked: string;
+  bank_account_id: string;
+  bank_name: string;
+  is_active: boolean;
+  version: number;
+}
+
+export interface CacheableAgentWithdrawalView {
+  amount: string;
+  bank_account_masked: string;
+  created_at: string;
+  paid_at: string | null;
+  proof_file_ids: string[];
+  review_reason: string | null;
+  reviewed_at: string | null;
+  status: 'APPROVED' | 'PAID' | 'PENDING' | 'REJECTED';
+  version: number;
+  withdrawal_id: string;
+  withdrawal_no: string;
+}
+
+export type CacheableAgentFinanceResponse = {
+  code: 'OK';
+  message: 'success';
+  request_id: string;
+} & ({ data: CacheableAgentBankAccountView } | { data: CacheableAgentWithdrawalView });
+
 const COMMAND_RESPONSE_TOP_LEVEL_FIELDS = new Set(['code', 'data', 'message', 'request_id']);
 const COMMAND_RESPONSE_DATA_FIELDS = new Set([
   'occurred_at',
@@ -433,6 +468,28 @@ const ADMIN_CUSTOMER_VIEW_FIELDS = new Set([
   'phone_masked',
   'registered_at',
   'version',
+]);
+const AGENT_BANK_ACCOUNT_VIEW_FIELDS = new Set([
+  'account_holder_masked',
+  'account_no_last4',
+  'account_number_masked',
+  'bank_account_id',
+  'bank_name',
+  'is_active',
+  'version',
+]);
+const AGENT_WITHDRAWAL_VIEW_FIELDS = new Set([
+  'amount',
+  'bank_account_masked',
+  'created_at',
+  'paid_at',
+  'proof_file_ids',
+  'review_reason',
+  'reviewed_at',
+  'status',
+  'version',
+  'withdrawal_id',
+  'withdrawal_no',
 ]);
 const ADMIN_CUSTOMER_VIEW_FIELDS_WITHOUT_CITY = new Set(
   [...ADMIN_CUSTOMER_VIEW_FIELDS].filter((field) => field !== 'city'),
@@ -789,6 +846,48 @@ function isCacheableAdminCustomerResponse(value: unknown): value is CacheableAdm
   return isCacheableAdminCustomerView(value.data);
 }
 
+function isCacheableAgentBankAccountView(value: unknown): value is CacheableAgentBankAccountView {
+  if (!isExactPlainObject(value, AGENT_BANK_ACCOUNT_VIEW_FIELDS) ||
+    !isValidUlid(value.bank_account_id) || !isPositiveInteger(value.version) ||
+    typeof value.is_active !== 'boolean' || !isBoundedNonBlankString(value.bank_name, 160) ||
+    typeof value.account_holder_masked !== 'string' || !value.account_holder_masked.includes('*') ||
+    Array.from(value.account_holder_masked).length < 2 || Array.from(value.account_holder_masked).length > 120 ||
+    typeof value.account_no_last4 !== 'string' || !/^[0-9]{4}$/.test(value.account_no_last4)) return false;
+  return value.account_number_masked === `**** ${value.account_no_last4}`;
+}
+
+function isCacheableAgentWithdrawalView(value: unknown): value is CacheableAgentWithdrawalView {
+  if (!isExactPlainObject(value, AGENT_WITHDRAWAL_VIEW_FIELDS) ||
+    !isValidUlid(value.withdrawal_id) || value.withdrawal_no !== `WD${value.withdrawal_id}` ||
+    typeof value.amount !== 'string' || !POSITIVE_MONEY.test(value.amount) ||
+    typeof value.bank_account_masked !== 'string' || !/^\*{4} [0-9]{4}$/.test(value.bank_account_masked) ||
+    typeof value.created_at !== 'string' || !ISO_TIMESTAMP.test(value.created_at) ||
+    !isNullableTimestamp(value.reviewed_at) || !isNullableTimestamp(value.paid_at) ||
+    !isNullableBoundedString(value.review_reason, 500) || !isPositiveInteger(value.version) ||
+    !Array.isArray(value.proof_file_ids) ||
+    value.proof_file_ids.some((fileId) => typeof fileId !== 'string' || !isValidUlid(fileId)) ||
+    new Set(value.proof_file_ids).size !== value.proof_file_ids.length) return false;
+  if (value.status === 'PENDING') {
+    return value.review_reason === null && value.reviewed_at === null && value.paid_at === null &&
+      value.proof_file_ids.length === 0;
+  }
+  if (value.status === 'APPROVED') {
+    return value.review_reason === null && value.reviewed_at !== null && value.paid_at === null;
+  }
+  if (value.status === 'REJECTED') {
+    return typeof value.review_reason === 'string' && value.review_reason.trim().length >= 2 &&
+      value.reviewed_at !== null && value.paid_at === null && value.proof_file_ids.length === 0;
+  }
+  return value.status === 'PAID' && value.review_reason === null && value.reviewed_at !== null &&
+    value.paid_at !== null && value.proof_file_ids.length > 0;
+}
+
+function isCacheableAgentFinanceResponse(value: unknown): value is CacheableAgentFinanceResponse {
+  if (!isExactPlainObject(value, CATALOG_RESPONSE_TOP_LEVEL_FIELDS) || value.code !== 'OK' ||
+    value.message !== 'success' || !REQUEST_ID.test(String(value.request_id))) return false;
+  return isCacheableAgentBankAccountView(value.data) || isCacheableAgentWithdrawalView(value.data);
+}
+
 function isCacheableSkuSpec(value: unknown): value is CacheableSkuSpec {
   if (!isExactPlainObject(value, SKU_SPEC_FIELDS) || !Array.isArray(value.attributes) ||
     value.attributes.length === 0) return false;
@@ -878,7 +977,7 @@ function cacheableResourceId(
   response: CacheableCommandResponse | CacheableFileUploadCompleteResponse |
     CacheableCatalogResourceResponse | CacheableProductCatalogResponse | CacheableBannerResourceResponse |
     CacheableAgentResourceResponse | CacheableAgentProductAuthorizationResponse |
-    CacheableAgentInviteRotateReplay | CacheableAdminCustomerResponse,
+    CacheableAgentInviteRotateReplay | CacheableAdminCustomerResponse | CacheableAgentFinanceResponse,
 ): string {
   if (isCacheableCommandResponse(response)) return response.data.resource_id;
   if (isCacheableFileUploadCompleteResponse(response)) return response.data.file_id;
@@ -887,6 +986,9 @@ function cacheableResourceId(
   if (isCacheableAgentProductAuthorizationResponse(response)) return response.data.agent_id;
   if (isCacheableAgentInviteRotateReplay(response)) return response.data.agent_id;
   if (isCacheableAdminCustomerResponse(response)) return response.data.customer_id;
+  if (isCacheableAgentFinanceResponse(response)) {
+    return 'bank_account_id' in response.data ? response.data.bank_account_id : response.data.withdrawal_id;
+  }
   if (isCacheableProductCatalogResponse(response)) {
     return 'product_id' in response.data ? response.data.product_id : response.data.sku_id;
   }
@@ -956,6 +1058,12 @@ function validateResult(result: IdempotencyResult): void {
     result.responseStatus !== 200) {
     throw new TypeError('ADMIN_CUSTOMER_RESPONSE responses must use HTTP status 200');
   }
+  if (result.storage === 'CACHEABLE' && result.policy === 'AGENT_FINANCE_RESPONSE' &&
+    ((!isCacheableAgentFinanceResponse(result.responseBody)) ||
+      (isCacheableAgentBankAccountView(result.responseBody.data) && result.responseStatus !== 200) ||
+      (isCacheableAgentWithdrawalView(result.responseBody.data) && result.responseStatus !== 201))) {
+    throw new TypeError('AGENT_FINANCE_RESPONSE uses an invalid response status');
+  }
   if (result.storage === 'CACHEABLE') {
     if (result.policy === 'COMMAND_RESPONSE') {
       if (!isCacheableCommandResponse(result.responseBody)) {
@@ -994,6 +1102,10 @@ function validateResult(result: IdempotencyResult): void {
     } else if (result.policy === 'ADMIN_CUSTOMER_RESPONSE') {
       if (!isCacheableAdminCustomerResponse(result.responseBody)) {
         throw new TypeError('Only a valid Admin customer response may use the Admin customer cache policy');
+      }
+    } else if (result.policy === 'AGENT_FINANCE_RESPONSE') {
+      if (!isCacheableAgentFinanceResponse(result.responseBody)) {
+        throw new TypeError('Only a valid Agent finance response may use the Agent finance cache policy');
       }
     } else {
       throw new TypeError('CACHEABLE idempotency policy is not registered');
@@ -1126,9 +1238,11 @@ export class IdempotencyRepository {
     const agentAuthorizationResponse = isCacheableAgentProductAuthorizationResponse(response);
     const inviteRotateReplay = isCacheableAgentInviteRotateReplay(response);
     const adminCustomerResponse = isCacheableAdminCustomerResponse(response);
+    const agentFinanceResponse = isCacheableAgentFinanceResponse(response);
     if (record.response_status < 200 || record.response_status > 299 ||
       (!commandResponse && !fileCompleteResponse && !catalogResponse && !productCatalogResponse && !bannerResponse &&
-        !agentResponse && !agentAuthorizationResponse && !inviteRotateReplay && !adminCustomerResponse) ||
+        !agentResponse && !agentAuthorizationResponse && !inviteRotateReplay && !adminCustomerResponse &&
+        !agentFinanceResponse) ||
       (fileCompleteResponse && record.response_status !== 200) ||
       (catalogResponse && record.response_status !== 200 && record.response_status !== 201) ||
       (productCatalogResponse && record.response_status !== 200 && record.response_status !== 201) ||
@@ -1137,6 +1251,8 @@ export class IdempotencyRepository {
       (agentAuthorizationResponse && record.response_status !== 200) ||
       (inviteRotateReplay && record.response_status !== 200) ||
       (adminCustomerResponse && record.response_status !== 200) ||
+      (agentFinanceResponse && isCacheableAgentBankAccountView(response.data) && record.response_status !== 200) ||
+      (agentFinanceResponse && isCacheableAgentWithdrawalView(response.data) && record.response_status !== 201) ||
       integrityContext === undefined ||
       record.resource_id !== cacheableResourceId(response) ||
       !this.responseHashMatches(record.response_body, integrityContext, record.response_body_hash)) {
@@ -1228,6 +1344,14 @@ export class IdempotencyRepository {
     this.assertReplayIntegrity(record);
     if (!isCacheableAdminCustomerResponse(record.response_body)) {
       throw new ApplicationError('INTERNAL_ERROR', 'Idempotency record is not an Admin customer response');
+    }
+    return record.response_body;
+  }
+
+  agentFinanceReplay(record: IdempotencyRecord): CacheableAgentFinanceResponse {
+    this.assertReplayIntegrity(record);
+    if (!isCacheableAgentFinanceResponse(record.response_body)) {
+      throw new ApplicationError('INTERNAL_ERROR', 'Idempotency record is not an Agent finance response');
     }
     return record.response_body;
   }

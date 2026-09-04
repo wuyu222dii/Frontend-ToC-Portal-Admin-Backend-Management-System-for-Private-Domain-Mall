@@ -1,17 +1,32 @@
-import { Controller, Get, Inject, Param, Query, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Inject,
+  Param,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common';
 
 import {
   requireUnrestrictedAgentSession,
   type AgentAuthRequestContext,
 } from '../agent-auth/agent-auth.request';
 import { AgentRealm } from '../platform/auth/agent-realm.metadata';
+import { IdempotencyKey } from '../platform/http/idempotency-key.decorator';
 import { NoStore } from '../platform/http/no-store.decorator';
 import {
+  parseAgentBankAccountWriteBody,
   parseAgentCommissionListQuery,
+  parseAgentCreateWithdrawalBody,
   parseAgentCustomerListQuery,
   parseAgentOperationsEmptyQuery,
   parseAgentOperationsResourceId,
   parseAgentOrderListQuery,
+  parseAgentWithdrawalListQuery,
 } from './agent-operations.dto';
 import { AgentOperationsService } from './agent-operations.service';
 
@@ -101,5 +116,63 @@ export class AgentOperationsController {
   getWallet(@Query() query: unknown, @Req() request: AgentAuthRequestContext) {
     parseAgentOperationsEmptyQuery(query);
     return this.operations.getWallet(requireUnrestrictedAgentSession(request));
+  }
+
+  @Get('bank-accounts')
+  @NoStore()
+  listBankAccounts(@Query() query: unknown, @Req() request: AgentAuthRequestContext) {
+    parseAgentOperationsEmptyQuery(query);
+    return this.operations.listBankAccounts(requireUnrestrictedAgentSession(request));
+  }
+
+  @Post('bank-accounts')
+  @HttpCode(HttpStatus.OK)
+  @NoStore()
+  replaceBankAccount(
+    @Body() body: unknown,
+    @Query() query: unknown,
+    @IdempotencyKey() key: string,
+    @Req() request: AgentAuthRequestContext,
+  ) {
+    parseAgentOperationsEmptyQuery(query);
+    requireUnrestrictedAgentSession(request);
+    return this.operations.replaceBankAccount(request, parseAgentBankAccountWriteBody(body), key);
+  }
+
+  @Get('withdrawals')
+  @NoStore()
+  listWithdrawals(@Query() query: unknown, @Req() request: AgentAuthRequestContext) {
+    return this.operations.listWithdrawals(
+      requireUnrestrictedAgentSession(request),
+      parseAgentWithdrawalListQuery(query),
+    );
+  }
+
+  @Post('withdrawals')
+  @HttpCode(HttpStatus.CREATED)
+  @NoStore()
+  createWithdrawal(
+    @Body() body: unknown,
+    @Query() query: unknown,
+    @IdempotencyKey() key: string,
+    @Req() request: AgentAuthRequestContext,
+  ) {
+    parseAgentOperationsEmptyQuery(query);
+    requireUnrestrictedAgentSession(request);
+    return this.operations.createWithdrawal(request, parseAgentCreateWithdrawalBody(body), key);
+  }
+
+  @Get('withdrawals/:withdrawal_id')
+  @NoStore()
+  getWithdrawal(
+    @Param('withdrawal_id') withdrawalId: string,
+    @Query() query: unknown,
+    @Req() request: AgentAuthRequestContext,
+  ) {
+    parseAgentOperationsEmptyQuery(query);
+    return this.operations.getWithdrawal(
+      requireUnrestrictedAgentSession(request),
+      parseAgentOperationsResourceId(withdrawalId, 'withdrawal_id'),
+    );
   }
 }

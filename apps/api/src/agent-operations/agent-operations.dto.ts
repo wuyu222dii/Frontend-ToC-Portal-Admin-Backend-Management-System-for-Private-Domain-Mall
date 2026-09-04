@@ -27,6 +27,18 @@ const COMMISSION_LEDGER_TYPES = [
   'REFUND_DEBIT',
 ] as const;
 const COMMISSION_POSITION_STATES = ['NONE', 'EXPECTED', 'CANCELLED', 'AVAILABLE'] as const;
+const WITHDRAWAL_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'PAID'] as const;
+
+export interface AgentBankAccountWriteInput {
+  accountHolder: string;
+  accountNumber: string;
+  bankName: string;
+}
+
+export interface AgentCreateWithdrawalInput {
+  amount: string;
+  bankAccountId: string;
+}
 
 export interface AgentCustomerListQuery {
   boundAtFrom?: Date;
@@ -63,6 +75,17 @@ export interface AgentCommissionListQuery {
   state?: (typeof COMMISSION_POSITION_STATES)[number];
 }
 
+export interface AgentWithdrawalListQuery {
+  createdAtFrom?: Date;
+  createdAtToExclusive?: Date;
+  maxAmount?: string;
+  minAmount?: string;
+  page: number;
+  pageSize: number;
+  status?: (typeof WITHDRAWAL_STATUSES)[number];
+  withdrawalNo?: string;
+}
+
 type PlainRecord = Record<string, unknown>;
 
 function invalid(message: string): never {
@@ -75,6 +98,16 @@ function plainRecord(value: unknown): PlainRecord {
     return invalid('Query must be a plain object');
   }
   return value as PlainRecord;
+}
+
+function exactBody(value: unknown, fields: readonly string[]): PlainRecord {
+  const body = plainRecord(value);
+  const allowed = new Set(fields);
+  if (fields.some((field) => !Object.prototype.hasOwnProperty.call(body, field)) ||
+    Object.keys(body).some((field) => !allowed.has(field))) {
+    return invalid('Request body fields are invalid');
+  }
+  return body;
 }
 
 function positiveInteger(value: unknown, fallback: number, maximum: number, field: string): number {
@@ -92,6 +125,14 @@ function boundedText(value: unknown, field: string, maximum: number): string | u
   if (Array.from(normalized).length < 1 || Array.from(normalized).length > maximum) {
     return invalid(`${field} is invalid`);
   }
+  return normalized;
+}
+
+function requiredText(value: unknown, field: string, minimum: number, maximum: number): string {
+  if (typeof value !== 'string' || /\p{Cc}/u.test(value)) return invalid(`${field} is invalid`);
+  const normalized = value.trim();
+  const length = Array.from(normalized).length;
+  if (length < minimum || length > maximum) return invalid(`${field} is invalid`);
   return normalized;
 }
 
@@ -139,6 +180,14 @@ function money(value: unknown, field: 'max_amount' | 'min_amount'): string | und
   return value;
 }
 
+function positiveMoney(value: unknown): string {
+  if (typeof value !== 'string' ||
+    !/^(?:0\.(?:0[1-9]|[1-9][0-9])|[1-9][0-9]{0,15}\.[0-9]{2})$/.test(value)) {
+    return invalid('amount is invalid');
+  }
+  return value;
+}
+
 function addDateRange(
   query: PlainRecord,
   output: { boundAtFrom?: Date; boundAtToExclusive?: Date } | {
@@ -165,10 +214,35 @@ function addDateRange(
 
 export function parseAgentOperationsResourceId(
   value: string,
-  field: 'commission_snapshot_id' | 'customer_id' | 'order_id',
+  field: 'commission_snapshot_id' | 'customer_id' | 'order_id' | 'withdrawal_id',
 ): string {
   if (!isValidUlid(value)) return invalid(`${field} is invalid`);
   return value;
+}
+
+export function parseAgentBankAccountWriteBody(value: unknown): AgentBankAccountWriteInput {
+  const body = exactBody(value, ['account_holder', 'bank_name', 'account_number']);
+  if (typeof body.account_number !== 'string' || body.account_number.length < 6 ||
+    body.account_number.length > 64 ||
+    !/^(?=(?:[ -]*[0-9]){6,32}$)[0-9][0-9 -]*[0-9]$/.test(body.account_number)) {
+    return invalid('account_number is invalid');
+  }
+  return {
+    accountHolder: requiredText(body.account_holder, 'account_holder', 2, 120),
+    accountNumber: body.account_number,
+    bankName: requiredText(body.bank_name, 'bank_name', 2, 160),
+  };
+}
+
+export function parseAgentCreateWithdrawalBody(value: unknown): AgentCreateWithdrawalInput {
+  const body = exactBody(value, ['amount', 'bank_account_id']);
+  if (typeof body.bank_account_id !== 'string' || !isValidUlid(body.bank_account_id)) {
+    return invalid('bank_account_id is invalid');
+  }
+  return {
+    amount: positiveMoney(body.amount),
+    bankAccountId: body.bank_account_id,
+  };
 }
 
 export function parseAgentOperationsEmptyQuery(value: unknown): void {
@@ -291,5 +365,50 @@ export function parseAgentCommissionListQuery(value: unknown): AgentCommissionLi
   if (ledgerType !== undefined) output.ledgerType = ledgerType;
   if (orderNo !== undefined) output.orderNo = orderNo;
   if (state !== undefined) output.state = state;
+  return output;
+}
+
+export function parseAgentWithdrawalListQuery(value: unknown): AgentWithdrawalListQuery {
+  const query = plainRecord(value);
+  const allowed = new Set([
+    'date_from',
+    'date_to',
+    'max_amount',
+    'min_amount',
+    'page',
+    'page_size',
+    'status',
+    'withdrawal_no',
+  ]);
+  if (Object.keys(query).some((field) => !allowed.has(field))) return invalid('Query fields are invalid');
+  const output: AgentWithdrawalListQuery = {
+    page: positiveInteger(query.page, 1, POSTGRES_INTEGER_MAX, 'page'),
+    pageSize: positiveInteger(query.page_size, 20, 100, 'page_size'),
+  };
+  if ((output.page - 1) * output.pageSize > POSTGRES_INTEGER_MAX) {
+    return invalid('pagination offset is invalid');
+  }
+  const from = query.date_from === undefined
+    ? undefined
+    : shanghaiBoundary(query.date_from, 'date_from', false);
+  const to = query.date_to === undefined
+    ? undefined
+    : shanghaiBoundary(query.date_to, 'date_to', true);
+  if (from !== undefined && to !== undefined && from.getTime() >= to.getTime()) {
+    return invalid('date_from must not be later than date_to');
+  }
+  const maxAmount = money(query.max_amount, 'max_amount');
+  const minAmount = money(query.min_amount, 'min_amount');
+  if (minAmount !== undefined && maxAmount !== undefined && compareMoney(minAmount, maxAmount) > 0) {
+    return invalid('min_amount must not be greater than max_amount');
+  }
+  const status = enumValue(query.status, WITHDRAWAL_STATUSES, undefined, 'status');
+  const withdrawalNo = boundedText(query.withdrawal_no, 'withdrawal_no', 32);
+  if (from !== undefined) output.createdAtFrom = from;
+  if (to !== undefined) output.createdAtToExclusive = to;
+  if (maxAmount !== undefined) output.maxAmount = maxAmount;
+  if (minAmount !== undefined) output.minAmount = minAmount;
+  if (status !== undefined) output.status = status;
+  if (withdrawalNo !== undefined) output.withdrawalNo = withdrawalNo;
   return output;
 }

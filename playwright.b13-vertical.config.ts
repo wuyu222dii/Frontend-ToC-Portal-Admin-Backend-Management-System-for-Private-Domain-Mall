@@ -29,6 +29,7 @@ export default defineConfig({
   testMatch: 'b13-agent-finance.vertical.spec.ts',
   fullyParallel: false,
   forbidOnly: true,
+  preserveOutput: 'never',
   reporter: 'line',
   retries: 0,
   timeout: 120_000,

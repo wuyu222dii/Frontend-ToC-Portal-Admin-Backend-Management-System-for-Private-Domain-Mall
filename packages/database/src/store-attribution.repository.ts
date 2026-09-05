@@ -125,7 +125,9 @@ function parsePublicTargetUrl(value: string): string | null {
   if (typeof value !== 'string' || Array.from(value).length < 1 || Array.from(value).length > 500) return null;
   try {
     const url = new URL(value);
-    if (url.protocol !== 'https:' || url.username !== '' || url.password !== '') return null;
+    const localHost = url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]';
+    if ((url.protocol !== 'https:' && !(url.protocol === 'http:' && localHost)) ||
+      url.username !== '' || url.password !== '') return null;
     return url.toString();
   } catch {
     return null;

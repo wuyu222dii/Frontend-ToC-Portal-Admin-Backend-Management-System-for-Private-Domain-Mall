@@ -546,21 +546,6 @@ async function connectRedis() {
   return redis;
 }
 
-async function listObjectKeys() {
-  const { ListObjectsV2Command } = storageRequire('@aws-sdk/client-s3');
-  const keys = [];
-  let continuationToken;
-  do {
-    const result = await storageClient().send(new ListObjectsV2Command({
-      Bucket: required('S3_BUCKET'),
-      ...(continuationToken ? { ContinuationToken: continuationToken } : {}),
-    }));
-    keys.push(...(result.Contents ?? []).flatMap(({ Key }) => typeof Key === 'string' ? [Key] : []));
-    continuationToken = result.IsTruncated ? result.NextContinuationToken : undefined;
-  } while (continuationToken);
-  return keys.sort();
-}
-
 async function assertFacts(pool, fixture, protectedValues) {
   const result = await pool.query(
     `SELECT so.order_status::text, so.payment_status::text, so.fulfillment_status::text,
@@ -981,7 +966,7 @@ async function cleanupDatabase(pool, fixture) {
 }
 
 async function cleanupObjects(pool, fixture) {
-  const { DeleteObjectCommand } = storageRequire('@aws-sdk/client-s3');
+  const { DeleteObjectCommand, HeadObjectCommand } = storageRequire('@aws-sdk/client-s3');
   await discoverFixture(pool, fixture);
   const fileIds = [...new Set([
     ...(fixture.fileIds ?? []), fixture.qrFileId, fixture.proofFileId,
@@ -992,9 +977,15 @@ async function cleanupObjects(pool, fixture) {
   ])];
   for (const key of objectKeys) {
     await storageClient().send(new DeleteObjectCommand({ Bucket: required('S3_BUCKET'), Key: key }));
+    try {
+      await storageClient().send(new HeadObjectCommand({ Bucket: required('S3_BUCKET'), Key: key }));
+      throw new Error('B13 MinIO fixture object remains after cleanup');
+    } catch (error) {
+      if (error?.$metadata?.httpStatusCode !== 404 && error?.name !== 'NotFound' && error?.name !== 'NoSuchKey') {
+        throw error;
+      }
+    }
   }
-  const residual = new Set(await listObjectKeys());
-  assert(objectKeys.every((key) => !residual.has(key)), 'B13 MinIO fixture objects remain after cleanup');
 }
 
 async function main() {
@@ -1049,7 +1040,6 @@ async function main() {
     const initialRedis = await redisKeys(redis);
     if (initialRedis.length !== 0) refuse('the isolated Redis database is not empty before the test');
     redisCleanupRequired = true;
-    await listObjectKeys();
     cleanupRequired = true;
     await seedFixture(createDatabaseRuntime, AdminAuthRepository, hashPassword, fixture);
     const apiOrigin = `http://127.0.0.1:${apiPort}`;

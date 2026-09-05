@@ -207,6 +207,7 @@ function storageClient() {
 function createFixture(generateUlid, sha256Hex) {
   const marker = randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase();
   const loginCode = `mock:b13_vertical_${marker.toLowerCase()}`;
+  const productImageFileId = generateUlid();
   return {
     adminAccountId: generateUlid(),
     adminLogin: `b13-admin-${marker.toLowerCase()}`,
@@ -228,6 +229,9 @@ function createFixture(generateUlid, sha256Hex) {
     loginCode,
     marker,
     productId: generateUlid(),
+    productImageFileId,
+    productImageId: generateUlid(),
+    productImageObjectKey: `public/${productImageFileId}`,
     productName: `B13 Vertical Product ${marker}`,
     rawAddress: `Development address ${marker}`,
     rawPhone: `139${marker.replace(/\D/g, '').padEnd(8, '0').slice(0, 8)}`,
@@ -243,6 +247,15 @@ async function seedFixture(createDatabaseRuntime, AdminAuthRepository, hashPassw
   const runtime = databaseRuntime(createDatabaseRuntime);
   await runtime.connect();
   try {
+    const { PutObjectCommand } = storageRequire('@aws-sdk/client-s3');
+    await storageClient().send(new PutObjectCommand({
+      Body: PNG_BYTES,
+      Bucket: required('S3_BUCKET'),
+      ContentLength: PNG_BYTES.length,
+      ContentType: 'image/png',
+      Key: fixture.productImageObjectKey,
+      Metadata: { sha256: PNG_SHA256 },
+    }));
     const [businessRules, commissionRules] = await Promise.all([
       runtime.prisma.businessRuleVersion.count({ where: { status: 'PUBLISHED' } }),
       runtime.prisma.commissionRuleVersion.count({ where: { status: 'PUBLISHED' } }),
@@ -300,6 +313,19 @@ async function seedFixture(createDatabaseRuntime, AdminAuthRepository, hashPassw
         data: { effective_at: effectiveAt, status: 'PUBLISHED' },
         where: { id: fixture.commissionRuleId },
       });
+      await transaction.fileAsset.create({
+        data: {
+          byte_size: BigInt(PNG_BYTES.length),
+          id: fixture.productImageFileId,
+          mime_type: 'image/png',
+          object_key: fixture.productImageObjectKey,
+          original_name: 'b13-vertical-product.png',
+          purpose: 'PRODUCT_IMAGE',
+          sha256: PNG_SHA256,
+          status: 'READY',
+          visibility: 'PUBLIC',
+        },
+      });
       await transaction.brand.create({
         data: { id: fixture.brandId, name: fixture.brandName, sort_order: 0, status: 'ACTIVE' },
       });
@@ -316,6 +342,14 @@ async function seedFixture(createDatabaseRuntime, AdminAuthRepository, hashPassw
           published_at: effectiveAt,
           spu_code: `B13V-SPU-${fixture.marker}`,
           status: 'ACTIVE',
+        },
+      });
+      await transaction.productImage.create({
+        data: {
+          file_id: fixture.productImageFileId,
+          id: fixture.productImageId,
+          product_id: fixture.productId,
+          sort_order: 0,
         },
       });
       await transaction.sku.create({
@@ -602,9 +636,12 @@ async function assertFacts(pool, fixture, protectedValues) {
   const files = await pool.query(
     `SELECT id::text, object_key, purpose::text, status::text, visibility::text, byte_size::text, sha256
      FROM public.file_asset WHERE id::text = ANY($1::text[]) ORDER BY id`,
-    [[fixture.qrFileId, fixture.proofFileId]],
+    [[fixture.productImageFileId, fixture.qrFileId, fixture.proofFileId]],
   );
-  assert(files.rowCount === 2 && files.rows.every(({ status }) => status === 'READY') &&
+  assert(files.rowCount === 3 && files.rows.every(({ status }) => status === 'READY') &&
+    files.rows.some(({ id, purpose, visibility, byte_size: size, sha256 }) => id === fixture.productImageFileId &&
+      purpose === 'PRODUCT_IMAGE' && visibility === 'PUBLIC' && Number(size) === PNG_BYTES.length &&
+      sha256 === PNG_SHA256) &&
     files.rows.some(({ id, purpose, visibility }) => id === fixture.qrFileId &&
       purpose === 'PROMOTION_QR' && visibility === 'PRIVATE') &&
     files.rows.some(({ id, purpose, visibility, byte_size: size, sha256 }) => id === fixture.proofFileId &&
@@ -632,7 +669,8 @@ async function assertFacts(pool, fixture, protectedValues) {
     ...accountIds, fixture.agentId, fixture.customerId, fixture.candidateId,
     fixture.promotionAssetId, fixture.addressId,
     fixture.orderId, fixture.paymentIntentId, fixture.shipmentId, fixture.bankAccountId,
-    fixture.withdrawalId, fixture.qrFileId, fixture.proofFileId, ...(authResources.rows[0]?.ids ?? []),
+    fixture.withdrawalId, fixture.productImageFileId, fixture.productImageId,
+    fixture.qrFileId, fixture.proofFileId, ...(authResources.rows[0]?.ids ?? []),
   ].filter(Boolean);
   const diagnostics = await pool.query(
     `SELECT COALESCE((SELECT jsonb_agg(to_jsonb(a)) FROM public.audit_log AS a
@@ -743,7 +781,7 @@ async function discoverFixture(pool, fixture) {
      WHERE id::text = ANY($1::text[])
         OR (created_by_id::text = ANY($2::text[]) AND created_at >= $3
             AND purpose IN ('PROMOTION_QR', 'WITHDRAWAL_PROOF'))`,
-    [[fixture.qrFileId, fixture.proofFileId].filter(Boolean),
+    [[fixture.productImageFileId, fixture.qrFileId, fixture.proofFileId].filter(Boolean),
       [fixture.adminAccountId, fixture.agentAccountId, fixture.customerAccountId].filter(Boolean),
       fixture.startedAt],
   );
@@ -758,7 +796,7 @@ async function cleanupDatabase(pool, fixture) {
   let residualResourceIds = [];
   let residualCallbackIds = [];
   let residualFactorIds = [];
-  let residualFileIds = [fixture.qrFileId, fixture.proofFileId].filter(Boolean);
+  let residualFileIds = [fixture.productImageFileId, fixture.qrFileId, fixture.proofFileId].filter(Boolean);
   let residualItemIds = [];
   let residualPaymentIds = [];
   let residualShipmentIds = [];
@@ -782,7 +820,8 @@ async function cleanupDatabase(pool, fixture) {
                     WHERE id::text = ANY($4::text[])
                        OR (created_by_id::text = ANY($1::text[]) AND created_at >= $5
                            AND purpose IN ('PROMOTION_QR', 'WITHDRAWAL_PROOF'))) AS files`,
-      [accountIds, fixture.agentId, fixture.orderId, [fixture.qrFileId, fixture.proofFileId].filter(Boolean),
+      [accountIds, fixture.agentId, fixture.orderId,
+        [fixture.productImageFileId, fixture.qrFileId, fixture.proofFileId].filter(Boolean),
         fixture.startedAt],
     );
     const ids = dynamic.rows[0] ?? {};
@@ -790,7 +829,8 @@ async function cleanupDatabase(pool, fixture) {
       ...accountIds,
       fixture.agentId, fixture.customerId, fixture.candidateId, fixture.promotionAssetId, fixture.addressId,
       fixture.orderId, fixture.paymentIntentId, fixture.shipmentId, fixture.bankAccountId,
-      fixture.withdrawalId, fixture.qrFileId, fixture.proofFileId,
+      fixture.withdrawalId, fixture.productImageFileId, fixture.productImageId,
+      fixture.qrFileId, fixture.proofFileId,
       fixture.brandId, fixture.categoryId, fixture.productId, fixture.skuId,
       fixture.businessRuleId, fixture.commissionRuleId,
       ...(ids.sessions ?? []), ...(ids.factors ?? []), ...(ids.challenges ?? []),
@@ -877,6 +917,7 @@ async function cleanupDatabase(pool, fixture) {
     await client.query('DELETE FROM public.inventory_ledger WHERE sku_id = $1', [fixture.skuId]);
     await client.query('DELETE FROM public.inventory_balance WHERE sku_id = $1', [fixture.skuId]);
     await client.query('DELETE FROM public.sku WHERE id = $1', [fixture.skuId]);
+    await client.query('DELETE FROM public.product_image WHERE product_id = $1', [fixture.productId]);
     await client.query('DELETE FROM public.product WHERE id = $1', [fixture.productId]);
     await client.query('DELETE FROM public.file_asset WHERE id::text = ANY($1::text[])', [ids.files ?? []]);
     await client.query('DELETE FROM public.brand WHERE id = $1', [fixture.brandId]);
@@ -946,6 +987,7 @@ async function cleanupDatabase(pool, fixture) {
        (SELECT COUNT(*) FROM public.inventory_ledger WHERE sku_id = $14) +
        (SELECT COUNT(*) FROM public.inventory_balance WHERE sku_id = $14) +
        (SELECT COUNT(*) FROM public.sku WHERE id = $14) +
+       (SELECT COUNT(*) FROM public.product_image WHERE product_id = $15) +
        (SELECT COUNT(*) FROM public.product WHERE id = $15) +
        (SELECT COUNT(*) FROM public.brand WHERE id = $16) +
        (SELECT COUNT(*) FROM public.category WHERE id = $17) +
@@ -969,10 +1011,10 @@ async function cleanupObjects(pool, fixture) {
   const { DeleteObjectCommand, HeadObjectCommand } = storageRequire('@aws-sdk/client-s3');
   await discoverFixture(pool, fixture);
   const fileIds = [...new Set([
-    ...(fixture.fileIds ?? []), fixture.qrFileId, fixture.proofFileId,
+    ...(fixture.fileIds ?? []), fixture.productImageFileId, fixture.qrFileId, fixture.proofFileId,
   ].filter(Boolean))];
   const objectKeys = [...new Set([
-    ...(fixture.objectKeys ?? []),
+    ...(fixture.objectKeys ?? []), fixture.productImageObjectKey,
     ...fileIds.flatMap((id) => [`staging/${id}`, `private/${id}`]),
   ])];
   for (const key of objectKeys) {

@@ -450,6 +450,7 @@ test('Admin, Agent and Store drive the complete B13 finance journey through the 
       await uniButton(storePage, '立即购买').click();
       await expect(storePage).toHaveURL(/\/pages\/checkout\/index/);
       const quote = await responseData(await quoteResponse);
+      if (quote.can_submit !== true) throw new Error('B13 checkout fixture did not produce a submittable quote');
       persistEphemeralSecrets([quote.quote_token, quote.confirmation_hash]);
       await expect(uniButton(storePage, '提交待付款订单')).toBeEnabled();
       const orderResponse = apiResponse(storePage, '/api/v1/store/orders');

@@ -87,7 +87,6 @@ run(['--filter', '@qingxu/database', 'build']);
 const tests = ['src/store-payment.integration.spec.ts'];
 if (mode === 'full') {
   tests.unshift(
-    'src/commission-position-trigger-migration.spec.ts',
     'src/store-payment-late-refund.repository.spec.ts',
     'src/store-payment.repository.spec.ts',
     'src/store-payment-settlement.repository.spec.ts',

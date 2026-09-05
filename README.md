@@ -59,7 +59,6 @@ pnpm db:test-permissions # 数据库权限与故障注入门禁
 pnpm db:test-b10-payments # 支付、结算、佣金与迟到退款门禁
 pnpm db:test-b12-aftersales # 售后、验货与退款门禁
 pnpm db:test-b13-agent # Agent 认证、经营、佣金与提现门禁
-pnpm e2e:b13:vertical # Admin、Agent、Store 三端真实基础设施纵向门禁
 pnpm db:diff
 ```
 

@@ -3,6 +3,7 @@ import {
   Box,
   Coin,
   CollectionTag,
+  DataAnalysis,
   Document,
   Goods,
   Lock,
@@ -55,6 +56,14 @@ async function endCurrentSession(): Promise<void> {
         </span>
       </div>
       <nav aria-label="总部后台导航" class="admin-nav">
+        <RouterLink
+          to="/dashboard"
+          :class="{ active: route.name === 'dashboard' }"
+          title="数据看板"
+        >
+          <el-icon><DataAnalysis /></el-icon>
+          <span>数据看板</span>
+        </RouterLink>
         <RouterLink
           to="/catalog/products"
           :class="{ active: ['products', 'product-new', 'product-detail'].includes(String(route.name)) }"

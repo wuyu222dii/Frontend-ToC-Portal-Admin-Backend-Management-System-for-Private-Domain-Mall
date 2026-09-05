@@ -11,7 +11,7 @@ declare module 'vue-router' {
 }
 
 function requiredRoute(): string {
-  if (authSession.state.session) return '/catalog/brands';
+  if (authSession.state.session) return '/dashboard';
   if (authSession.state.preauth?.next_action === 'VERIFY_TOTP') return '/login/totp';
   if (authSession.state.preauth?.next_action === 'ENROLL_TOTP') return '/settings/account/security/enroll';
   return '/login';
@@ -48,6 +48,12 @@ export const router = createRouter({
       meta: { access: 'enroll', title: '绑定动态验证' },
       name: 'security-enroll',
       path: '/settings/account/security/enroll',
+    },
+    {
+      component: () => import('../views/dashboard/DashboardView.vue'),
+      meta: { access: 'session', title: '数据看板' },
+      name: 'dashboard',
+      path: '/dashboard',
     },
     {
       component: () => import('../views/catalog/BrandsView.vue'),

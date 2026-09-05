@@ -25,7 +25,7 @@ async function submit(): Promise<void> {
     const session = await loginWithRecoveryCode(challengeId.value, recoveryCode.value.trim());
     authSession.acceptSession(session);
     recoveryCode.value = '';
-    await router.replace('/catalog/brands');
+    await router.replace('/dashboard');
   } catch (error) {
     recoveryCode.value = '';
     if (error instanceof AdminApiError) {

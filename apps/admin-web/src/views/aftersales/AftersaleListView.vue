@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Refresh, Search, View } from '@element-plus/icons-vue';
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 
 import AdminShell from '../../layouts/AdminShell.vue';
 import { AdminApiError } from '../../services/admin-api';
@@ -13,6 +13,7 @@ import {
 import { authSession } from '../../stores/auth-session';
 import { formatChinaDateTime } from '../../utils/time';
 
+const route = useRoute();
 const router = useRouter();
 const items = ref<AdminAftersaleListItem[]>([]);
 const loading = ref(false);
@@ -43,6 +44,13 @@ const statusOptions: ReadonlyArray<{ label: string; value: AdminAftersaleListIte
   { label: '已完成', value: 'COMPLETED' },
   { label: '已取消', value: 'CANCELLED' },
 ];
+
+const linkedStatus = computed<AdminAftersaleListItem['status'] | ''>(() => {
+  const value = typeof route.query.status === 'string' ? route.query.status.trim() : '';
+  return statusOptions.some((option) => option.value === value)
+    ? value as AdminAftersaleListItem['status']
+    : '';
+});
 
 function statusLabel(value: AdminAftersaleListItem['status']): string {
   return statusOptions.find((option) => option.value === value)?.label ?? value;
@@ -134,7 +142,11 @@ function changePage(next: number): void {
   void load();
 }
 
-onMounted(() => void load());
+watch(linkedStatus, (value) => {
+  status.value = value;
+  page.value = 1;
+  void load();
+}, { immediate: true });
 onBeforeUnmount(() => {
   ++sequence;
   controller?.abort();

@@ -2,7 +2,7 @@
 
 本目录集中管理三端商城的需求、方案、技术、风控、开发文档和可点击原型。
 
-当前交付状态：B0 至 B13 development 均已通过。B13 最终 SHA `250cbb824ad11f4b0e11338c19494655ec384ff6` 的 development migration Run `33952031401` 与 rollback-only smoke Run `33952283771` 同 SHA、依次成功；B13 development `GO`，CH-029 已失效。B14.0-B14.1 已完成并暂停复审，B14.2 尚未准入；当前基线为 `v2.4.12 / CH-030`、OpenAPI `2.4.12-ch030`，CH-031 仅适用于 B14.1-B14.3 单维护者脱敏 development。既有 P2 继续阻断 staging、production、真实客户数据与真实资金。
+当前交付状态：B0 至 B13 development 均已通过。B13 最终 SHA `250cbb824ad11f4b0e11338c19494655ec384ff6` 的 development migration Run `33952031401` 与 rollback-only smoke Run `33952283771` 同 SHA、依次成功；B13 development `GO`，CH-029 已失效。B14.0-B14.1 已完成；B14.2 的 Admin Web 实现与构建已完成，认证后手工核对待执行，B14.3 尚未准入。当前基线为 `v2.4.12 / CH-030`、OpenAPI `2.4.12-ch030`，CH-031 仅适用于 B14.1-B14.3 单维护者脱敏 development。既有 P2 继续阻断 staging、production、真实客户数据与真实资金。
 
 > 2026-09-05 起取消 GitHub 普通 CI；远端测试仅保留手动 Supabase rollback-only smoke，历史 CI Run 记录继续保留。
 

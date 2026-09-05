@@ -38,6 +38,12 @@ const statusOptions: ReadonlyArray<{ label: string; value: NonNullable<AdminWith
   { label: '已拒绝', value: 'REJECTED' },
   { label: '已付款', value: 'PAID' },
 ];
+const linkedStatus = computed<AdminWithdrawalListQuery['status'] | ''>(() => {
+  const value = routeText(route.query.status);
+  return statusOptions.some((option) => option.value === value)
+    ? value as NonNullable<AdminWithdrawalListQuery['status']>
+    : '';
+});
 
 function statusLabel(value: AdminWithdrawal['status']): string {
   return statusOptions.find((option) => option.value === value)?.label ?? value;
@@ -111,8 +117,9 @@ function search(): void { page.value = 1; void load(); }
 function reset(): void { withdrawalNo.value = ''; agentId.value = lockedAgentId.value; status.value = ''; amountRange.value = ['', '']; dateRange.value = null; page.value = 1; void load(); }
 function changePage(next: number): void { page.value = next; void load(); }
 
-watch(lockedAgentId, (value) => {
-  agentId.value = value;
+watch([lockedAgentId, linkedStatus], ([linkedAgentId, linkedWithdrawalStatus]) => {
+  agentId.value = linkedAgentId;
+  status.value = linkedWithdrawalStatus;
   page.value = 1;
   void load();
 }, { immediate: true });

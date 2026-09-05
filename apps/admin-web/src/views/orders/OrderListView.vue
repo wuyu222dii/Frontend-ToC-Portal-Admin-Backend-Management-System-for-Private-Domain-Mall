@@ -59,6 +59,19 @@ const fulfillmentStatusOptions = [
   { label: '已取消', value: 'CANCELLED' },
 ] as const;
 
+const linkedOrderStatus = computed<AdminOrderListItem['order_status'] | ''>(() => {
+  const value = routeText(route.query.order_status);
+  return orderStatusOptions.some((option) => option.value === value)
+    ? value as AdminOrderListItem['order_status']
+    : '';
+});
+const linkedFulfillmentStatus = computed<AdminOrderListItem['fulfillment_status'] | ''>(() => {
+  const value = routeText(route.query.fulfillment_status);
+  return fulfillmentStatusOptions.some((option) => option.value === value)
+    ? value as AdminOrderListItem['fulfillment_status']
+    : '';
+});
+
 function readableError(error: unknown): string {
   if (!(error instanceof AdminApiError)) return '订单列表加载失败，请稍后重试';
   if (error.status === 0) return '网络连接失败，请检查网络后重试';
@@ -155,8 +168,10 @@ function statusClass(item: AdminOrderListItem): string {
   return 'pending';
 }
 
-watch(lockedAgentId, (value) => {
-  agentId.value = value;
+watch([lockedAgentId, linkedOrderStatus, linkedFulfillmentStatus], ([linkedAgentId, linkedOrder, linkedFulfillment]) => {
+  agentId.value = linkedAgentId;
+  orderStatus.value = linkedOrder;
+  fulfillmentStatus.value = linkedFulfillment;
   page.value = 1;
   void loadOrders();
 }, { immediate: true });

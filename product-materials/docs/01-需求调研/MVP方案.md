@@ -10,7 +10,7 @@
 | 目标用户 | 终端消费者、一级代理、总部商城经营人员 |
 | 人员角色 | `SUPER_ADMIN`、`AGENT_ADMIN`、`CUSTOMER` |
 | 更新日期 | 2026-09-05 |
-| 文档状态 | B13 最终 SHA `250cbb824ad11f4b0e11338c19494655ec384ff6` 已取得同 SHA、依次成功的 development migration `33952031401` 与 rollback-only smoke `33952283771`；B13 development `GO`，CH-029 已失效。当前基线为 `v2.4.12 / CH-030 / OpenAPI 2.4.12-ch030`；B14.0 仅准入 ADM-02 治理与契约收口，B14.1 尚未准入，CH-031 仅覆盖 B14.1-B14.3。B12 orphan 与 B13.8 已登记 P2 继续阻断 staging、production、真实数据和真实资金。 |
+| 文档状态 | B14.0-B14.3 已完成；最终实现 SHA `f4521d4188cb74c3bac34b992016d8730468ae2a` 的 development migration Run `33960486774` 与随后 rollback-only smoke Run `33960618178` 同 SHA、依次执行且均为 `completed/success`；B14 development `GO`，CH-031 已自动失效。当前基线仍为 `v2.4.12 / CH-030 / OpenAPI 2.4.12-ch030`。B12 orphan 与 B13.8 已登记 P2 继续阻断 staging、production、真实数据和真实资金。 |
 
 ## 1. MVP 概述
 
@@ -418,14 +418,14 @@ Supabase 在当前 MVP 中仅作为 PostgreSQL 托管服务。消费者小程序
 
 ## 9. 里程碑建议
 
-B0-B13 development 已完成并维持 `GO`，历史证据保留。B13 最终同 SHA migration/smoke 已闭合，CH-029 已自动失效；B14.0 仅完成治理与契约准入，B14.1 尚未准入。任何 development 结果都不等同于 staging 或生产许可。
+B0-B14 development 已完成并维持 `GO`，历史证据保留。B14.0-B14.3 已完成，最终实现 SHA `f4521d4188cb74c3bac34b992016d8730468ae2a` 的 development migration Run `33960486774` 与随后 rollback-only smoke Run `33960618178` 同 SHA、依次执行且均为 `completed/success`，CH-031 已自动失效。任何 development 结果都不等同于 staging 或生产许可。
 
 | 阶段 | 主要交付物 | 当前状态 |
 |---|---|---|
-| 需求确认 | MVP、三端角色确认、变更记录 | 当前基线为 v2.4.12/CH-030；CH-029 已失效，CH-031 仅覆盖 B14.1-B14.3 脱敏 development；B14.0 已准入，B14.1 尚未准入 |
+| 需求确认 | MVP、三端角色确认、变更记录 | 当前基线仍为 v2.4.12/CH-030；B14.0-B14.3 已完成并取得 development `GO`，CH-031 已自动失效 |
 | 产品设计 | PRD、三端信息架构、可点击原型、Figma 重建规范 | B12 售后、验货、普通退款与金额补偿边界已同步；继续复用 21/9/22 页面，B12.5 已落地 MP-13/14 与 ADM-12/13/16 |
 | 技术设计 | 系统架构、数据库 ERD、接口文档、OpenAPI、Prisma 草案与部署拓扑 | OpenAPI `2.4.12-ch030` 保持既有 173 paths / 198 operations / 198 unique operationId；B14.0 不新增迁移、Worker 或图表依赖，既有 `0001` 至 `0006` 前向迁移链保持不变 |
-| 开发与测试 | 三端工程、API、数据库、自动化测试 | B0-B13 development `GO`；B13 最终 SHA `250cbb824ad11f4b0e11338c19494655ec384ff6` 的 development migration `33952031401` 与随后 rollback-only smoke `33952283771` 同 SHA 依次成功，CH-029 已自动失效；B14.0 仅完成治理与契约准入，B14.1 尚未准入 |
+| 开发与测试 | 三端工程、API、数据库、自动化测试 | B0-B14 development `GO`；B14.0-B14.3 已完成，最终实现 SHA `f4521d4188cb74c3bac34b992016d8730468ae2a` 的 development migration Run `33960486774` 与随后 rollback-only smoke Run `33960618178` 同 SHA、依次执行且均为 `completed/success`，CH-031 已自动失效 |
 | 上线准备 | 微信资质、真实支付退款、隐私合规、部署与验收 | 未开始 |
 
 ## 10. 风险与应对
@@ -509,7 +509,7 @@ B0-B13 development 已完成并维持 `GO`，历史证据保留。B13 最终同 
 
 - 尚无真实用户访谈、历史订单、代理规模、佣金预算、商品规模和并发数据；指标阈值需试运行后校准。
 - 尚无微信正式参数、物流合同、隐私文本、线下打款财务制度和法律审核结论。
-- 当前交付物仍不是完整可用商城业务系统。B0-B13 development 已完成；B13 最终 SHA `250cbb824ad11f4b0e11338c19494655ec384ff6` 的 development migration `33952031401` 与随后 rollback-only smoke `33952283771` 同 SHA 依次成功，B13 development `GO`，CH-029 已自动失效。当前基线为 `v2.4.12 / CH-030 / OpenAPI 2.4.12-ch030`；B14.0 仅完成治理与契约准入，B14.1 尚未准入，CH-031 仅覆盖 B14.1-B14.3。B12 orphan `P2=1` 与 B13.8 五类已登记 P2 继续阻断 staging/真实数据，真实微信支付/退款、第三方物流、staging 和 production 继续排除。
+- 当前交付物仍不是完整可用商城业务系统。B0-B14 development 已完成；B14.0-B14.3 已完成，最终实现 SHA `f4521d4188cb74c3bac34b992016d8730468ae2a` 的 development migration Run `33960486774` 与随后 rollback-only smoke Run `33960618178` 同 SHA、依次执行且均为 `completed/success`，B14 development `GO`，CH-031 已自动失效。当前基线仍为 `v2.4.12 / CH-030 / OpenAPI 2.4.12-ch030`。B12 orphan `P2=1` 与 B13.8 五类已登记 P2 继续阻断 staging/真实数据，真实微信支付/退款、第三方物流、staging 和 production 继续排除。
 
 ## 13. 后续建议
 
@@ -519,8 +519,8 @@ B0-B13 development 已完成并维持 `GO`，历史证据保留。B13 最终同 
 4. B10.6 最终 SHA `f5e59169b53a97704711c3aae3049e5b5d16a930` 已取得普通 CI 与 Supabase rollback-only 同 SHA 双绿，B10 development `GO`；不得扩大 runtime 权限或修改冻结迁移。
 5. CH-021 已在 B10 development 最终门禁通过后自动失效；第一次进入 staging 前仍须外部独立复核。
 6. B11.0-B11.5 与最终远端同 SHA 双绿均已完成；B11 development `GO`，CH-025 已自动失效，且不得用静态原型替代工程证据。
-7. 保留 B12 最终同 SHA 双绿、development `GO` 与 CH-027 失效的历史证据。B13 最终 SHA `250cbb824ad11f4b0e11338c19494655ec384ff6` 的 development migration `33952031401` 与随后 rollback-only smoke `33952283771` 同 SHA 依次成功，B13 development `GO`，CH-029 已自动失效。当前仅准入 v2.4.12/CH-030 的 B14.0 治理与契约收口；B14.1 尚未准入，CH-031 仅覆盖 B14.1-B14.3 的单维护者脱敏 development。既有 P2 在进入 staging/真实数据前必须闭合。
+7. 保留 B12-B13 最终同 SHA 门禁、development `GO` 与相应变更许可失效的历史证据。B14.0-B14.3 已完成；最终实现 SHA `f4521d4188cb74c3bac34b992016d8730468ae2a` 的 development migration Run `33960486774` 与随后 rollback-only smoke Run `33960618178` 同 SHA、依次执行且均为 `completed/success`，B14 development `GO`，CH-031 已自动失效。当前基线仍为 `v2.4.12 / CH-030 / OpenAPI 2.4.12-ch030`；既有 P2 在进入 staging/真实数据前必须闭合。
 
 ---
 
-项目状态：三端 MVP 产品/API 基线为 `v2.4.12 / CH-030 / OpenAPI 2.4.12-ch030`。B0 至 B13 development 已完成并保留远端证据；B13 最终 SHA `250cbb824ad11f4b0e11338c19494655ec384ff6` 的 development migration `33952031401` 与随后 rollback-only smoke `33952283771` 同 SHA 依次成功，B13 development `GO`，CH-029 已自动失效。B14.0 仅完成治理与契约准入，B14.1 尚未准入；CH-031 仅覆盖 B14.1-B14.3。B12 orphan `P2=1` 与 B13.8 五类已登记 P2 继续阻断 staging/真实数据；真实客户数据、真实支付/退款、真实物流、staging/production 仍为 `NO-GO`，进入 staging 前须外部独立复核。
+项目状态：三端 MVP 产品/API 基线仍为 `v2.4.12 / CH-030 / OpenAPI 2.4.12-ch030`。B0 至 B14 development 已完成并保留远端证据；B14 最终实现 SHA `f4521d4188cb74c3bac34b992016d8730468ae2a` 的 development migration Run `33960486774` 与随后 rollback-only smoke Run `33960618178` 同 SHA、依次执行且均为 `completed/success`，B14 development `GO`，CH-031 已自动失效。B12 orphan `P2=1` 与 B13.8 五类已登记 P2 继续阻断 staging/真实数据；真实客户数据、真实支付/退款、真实物流、staging/production 仍为 `NO-GO`，进入 staging 前须外部独立复核。

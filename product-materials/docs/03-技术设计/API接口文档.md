@@ -6,7 +6,7 @@
 |---|---|
 | 文档版本 | v2.4.12 |
 | 对应产品基线 | MVP/PRD v2.4.12、CH-001 至 CH-030；在线接口以 CH-030 为准 |
-| 接口阶段 | B13 development `GO`。B14.0 将 OpenAPI 升级为 `2.4.12-ch030`，仅修正既有 5 个 Admin Analytics GET 契约并保持 `173 paths / 198 operations` 与全部 operationId；B14.1 业务实现尚未准入。B12 orphan 与 B13 已登记 P2 继续阻断 staging、production、真实数据和真实资金。 |
+| 接口阶段 | B14.0-B14.3 已完成；既有 5 个 Admin Analytics GET 已实现并保持 `173 paths / 198 operations` 与全部 operationId。最终实现 SHA `f4521d4188cb74c3bac34b992016d8730468ae2a` 的 development migration Run `33960486774` 与随后 rollback-only smoke Run `33960618178` 同 SHA、依次为 `completed/success`；B14 development `GO`，CH-031 已自动失效。B12 orphan 与 B13 已登记 P2 继续阻断 staging、production、真实数据和真实资金。 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
 | 更新时间 | 2026-09-05 |
 

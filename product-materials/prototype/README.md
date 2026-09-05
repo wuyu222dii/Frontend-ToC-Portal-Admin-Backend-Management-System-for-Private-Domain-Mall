@@ -10,7 +10,7 @@
 
 三个原型均为纯静态文件，可直接用浏览器打开，不需要安装依赖或启动服务。所有数据均为原型演示数据。
 
-当前产品/API 基线为 `v2.4.12/CH-030`、OpenAPI `2.4.12-ch030`。B0-B13 development `GO`；B13 最终 SHA `250cbb824ad11f4b0e11338c19494655ec384ff6` 的 development migration `33952031401` 与随后 rollback-only smoke `33952283771` 同 SHA、依次成功，CH-029 已失效。B14.0 仅准入 ADM-02 治理与契约收口，B14.1 业务实现尚未准入；CH-031 仅适用于 B14.1-B14.3 单维护者脱敏 development。本目录只保留既有静态画板说明，不构成 B14 工程页面、真实客户数据、真实物流/资金链路或 staging/production 的验收证据；B12 orphan `P2=1` 与 B13 已登记 P2 继续阻断 staging、production、真实客户数据与真实资金。
+当前产品/API 基线仍为 `v2.4.12/CH-030`、OpenAPI `2.4.12-ch030`。B0-B14 development `GO`；B14.0-B14.3 已完成，最终实现 SHA `f4521d4188cb74c3bac34b992016d8730468ae2a` 的 development migration Run `33960486774` 与随后 rollback-only smoke Run `33960618178` 同 SHA、依次执行且均为 `completed/success`，CH-031 已自动失效。本目录只保留既有静态画板说明，不构成 B14 工程页面、真实客户数据、真实物流/资金链路或 staging/production 的验收证据；B12 orphan `P2=1` 与 B13 已登记 P2 继续阻断 staging、production、真实客户数据与真实资金。
 
 ## 验收脚本
 
@@ -44,7 +44,7 @@ CH-026 继续保持 21/9/22 页面数不变：MP-13/14 展示本人售后申请�
 
 库存页只展示 `physical_qty`、`locked_qty`、活动预占、`available_qty = physical_qty - locked_qty` 和版本；不再展示低库存阈值、预警值、售后占用或独立备注。调整必须提交非零整数 `physical_delta` 与原因，先 preview 再 confirm；重复确认只产生一条闭合类型流水，版本冲突返回 409，数量不足或越界返回 422，归档 SKU 保持只读。
 
-本目录仍是纯静态交互参考，不单独证明 B3 至 B13 的业务实现验收，也不证明 B14.1 业务实现。B10-B13 的工程与远端证据只以对应阶段文档为准；B14.0 仅完成治理与契约准入，不修改本目录页面设计或业务内容。本原型不能作为数据库事务、真实客户数据、真实物流/支付/退款、真实资金或 staging/production 证据。
+本目录仍是纯静态交互参考，不单独证明 B3 至 B14 的业务实现验收。B10-B14 的工程与远端证据只以对应阶段文档为准；B14.0 仅完成治理与契约准入，不修改本目录页面设计或业务内容。本原型不能作为数据库事务、真实客户数据、真实物流/支付/退款、真实资金或 staging/production 证据。
 
 安装根工程依赖后运行：
 

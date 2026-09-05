@@ -9,7 +9,7 @@
 | 文档版本 | v2.4.12 |
 | 对应阶段 | 三端标准 MVP |
 | 更新日期 | 2026-09-05 |
-| 当前状态 | B13 最终 SHA `250cbb824ad11f4b0e11338c19494655ec384ff6` 的 development migration `33952031401` 与随后 rollback-only smoke `33952283771` 同 SHA、依次成功；B13 development `GO`，CH-029 已失效。当前产品/API 基线为 `v2.4.12 / CH-030 / OpenAPI 2.4.12-ch030`；B14.0 仅准入 ADM-02 治理与契约收口，B14.1 业务实现尚未准入，CH-031 仅覆盖 B14.1-B14.3。B12 orphan 与 B13.8 已登记 P2 继续阻断 staging、production、真实数据和真实资金。 |
+| 当前状态 | B14.0-B14.3 已完成；最终实现 SHA `f4521d4188cb74c3bac34b992016d8730468ae2a` 的 development migration Run `33960486774` 与随后 rollback-only smoke Run `33960618178` 同 SHA、依次执行且均为 `completed/success`；B14 development `GO`，CH-031 已自动失效。当前产品/API 基线仍为 `v2.4.12 / CH-030 / OpenAPI 2.4.12-ch030`。B12 orphan 与 B13.8 已登记 P2 继续阻断 staging、production、真实数据和真实资金。 |
 | 产品终端 | 消费者微信小程序、一级代理工作台、总部管理后台 |
 | 人员角色 | `CUSTOMER`、`AGENT_ADMIN`、`SUPER_ADMIN` |
 
@@ -34,7 +34,7 @@
 | v2.4.9 | 2026-08-30 | 落实 CH-024：一单一包裹、总部人工物流、Store 本人物流/确认收货、Admin 订单/履约地址/发货/物流/兜底完成，以及完成时佣金一次入账；零迁移 | 已归档；B11 development `GO`，最终同 SHA 双绿已闭合 |
 | v2.4.10 | 2026-09-01 | 落实 CH-026：收紧 Store/Admin 售后、退货验货、普通退款/重试和纯金额补偿契约，准入 `0005_b12_aftersale_refund_guards` | 已归档；B12 development `GO`，CH-027 已自动失效 |
 | v2.4.11 | 2026-09-02 | 落实 CH-028：一级代理经营、归属、佣金、钱包和提现闭环治理，准入 B13.0 | 已归档；B13 development `GO`，CH-029 已失效 |
-| v2.4.12 | 2026-09-05 | 落实 CH-030：修正 ADM-02 经营概览、日/月报、商品与客户排行契约 | 当前产品版本；B14.0 已准入，B14.1 尚未准入 |
+| v2.4.12 | 2026-09-05 | 落实 CH-030：修正 ADM-02 经营概览、日/月报、商品与客户排行契约 | 当前产品版本；B14.0-B14.3 已完成，B14 development `GO`，CH-031 已自动失效 |
 
 ### 文档使用约定
 
@@ -1575,8 +1575,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | 验收场景 AC | 116 | 0 |
 | 用户故事 US | 24 | 0 |
 
-当前准入结论：B0 至 B13 development 已通过并维持 `GO`。B13 最终 SHA `250cbb824ad11f4b0e11338c19494655ec384ff6` 的 development migration `33952031401` 与随后 rollback-only smoke `33952283771` 同 SHA 依次成功，CH-029 已自动失效。当前产品/API 基线为 `v2.4.12 / CH-030 / OpenAPI 2.4.12-ch030`；B14.0 仅完成 ADM-02 治理与契约准入，B14.1 尚未准入，CH-031 仅覆盖 B14.1-B14.3。B12 orphan `P2=1` 与 B13.8 五类已登记 P2 继续阻断 staging/真实数据；真实客户数据、真实支付/退款、真实物流、staging 和 production 均未放行。
+当前准入结论：B0 至 B14 development 已通过并维持 `GO`。B14.0-B14.3 已完成；最终实现 SHA `f4521d4188cb74c3bac34b992016d8730468ae2a` 的 development migration Run `33960486774` 与随后 rollback-only smoke Run `33960618178` 同 SHA、依次执行且均为 `completed/success`，CH-031 已自动失效。当前产品/API 基线仍为 `v2.4.12 / CH-030 / OpenAPI 2.4.12-ch030`。B12 orphan `P2=1` 与 B13.8 五类已登记 P2 继续阻断 staging/真实数据；真实客户数据、真实支付/退款、真实物流、staging 和 production 均未放行。
 
 ---
 
-PRD 状态：`v2.4.12 / CH-030 / OpenAPI 2.4.12-ch030` 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24。B0 至 B13 development `GO`；B13 最终 SHA `250cbb824ad11f4b0e11338c19494655ec384ff6` 的 development migration `33952031401` 与随后 rollback-only smoke `33952283771` 同 SHA 依次成功，CH-029 已自动失效。B14.0 仅完成 ADM-02 治理与契约准入，B14.1 尚未准入；CH-031 仅覆盖 B14.1-B14.3。B12 orphan `P2=1` 与 B13.8 五类已登记 P2 继续阻断 staging/真实数据，真实客户数据、真实支付/退款、真实物流、staging/production 尚未放行。
+PRD 状态：`v2.4.12 / CH-030 / OpenAPI 2.4.12-ch030` 仍为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24。B0 至 B14 development `GO`；B14.0-B14.3 已完成，最终实现 SHA `f4521d4188cb74c3bac34b992016d8730468ae2a` 的 development migration Run `33960486774` 与随后 rollback-only smoke Run `33960618178` 同 SHA、依次执行且均为 `completed/success`，CH-031 已自动失效。B12 orphan `P2=1` 与 B13.8 五类已登记 P2 继续阻断 staging/真实数据，真实客户数据、真实支付/退款、真实物流、staging/production 尚未放行。

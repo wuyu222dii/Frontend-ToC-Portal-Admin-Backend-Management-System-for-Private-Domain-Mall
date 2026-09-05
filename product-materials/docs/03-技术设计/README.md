@@ -1,11 +1,11 @@
 # 技术设计交付索引
 
-> 当前产品/API 基线为 MVP/PRD `v2.4.12`、CH-030，OpenAPI 为 `2.4.12-ch030`；数据库修复 CH-023 继续有效。B14.0-B14.3 已完成；最终实现 SHA `f4521d4188cb74c3bac34b992016d8730468ae2a` 的 development migration Run `33960486774` 与随后 rollback-only smoke Run `33960618178` 同 SHA、依次为 `completed/success`。B14 development `GO`，CH-031 已自动失效；既有 P2 继续阻断 staging、production、真实数据和真实资金。
+> 当前产品/API 基线为 MVP/PRD `v2.4.13`、CH-032，OpenAPI 为 `2.4.13-ch032`；数据库修复 CH-023 继续有效。B14 development `GO` 的最终同 SHA migration/smoke 证据保持，CH-031 已失效；B15.0 治理、契约与 generated contracts 已完成并暂停复审。六项既有 P2 在后续实现闭合前继续阻断 staging、production、真实数据和真实资金。
 
 | 文件 | 用途 |
 |---|---|
 | `技术架构说明.md` | 技术栈、三端边界、认证/RBAC、事务锁序、Provider、部署与扩展策略 |
-| `API接口文档.md` | 当前 CH-030 契约保持 173 paths、198 operations 及全部 operationId；既有 5 个 Admin Analytics GET 已实现 |
+| `API接口文档.md` | 当前 CH-032 契约保持 173 paths、198 operations 及全部 operationId；只闭合 B15 三类可靠性语义 |
 | `openapi.yaml` | OpenAPI 3.1 单一可解析契约；文本目录必须完全覆盖且 operationId 唯一 |
 | `数据库设计.md` | PostgreSQL/Supabase 表域、ERD、状态机、事务、索引、加密、RLS 与验收门禁 |
 | `schema.prisma` | Prisma 7.9.1 逻辑模型：76 models、59 enums、270 个 model-typed relation fields，全部位于 `public` |
@@ -17,6 +17,7 @@
 | `migrations/0005_b12_aftersale_refund_guards/migration.sql` | CH-026 前向退款防护：修复不可变验货读取锁权限，增加每退款活动/成功 attempt 唯一索引及可延迟来源包络/金额约束；不修改 0001-0004 |
 | `migrations/0006_b13_agent_finance_guards/migration.sql` | CH-028 前向代理与资金防护：只增加历史预检、闭合 CHECK、条件唯一索引和 SECURITY INVOKER 触发器，保护代理角色、邀请/推广/归属生命周期、佣金引用、银行卡快照与提现包络；不增加表或枚举，不修改 0001-0005 |
 | `../05-开发管理/B14-总部经营看板与销售分析闭环.md` | CH-030/031、B14.0-B14.3 串行范围、退出条件与边界 |
+| `../05-开发管理/B15-development可靠性与P2收敛.md` | CH-032/033、B15.0-B15.4 串行范围、六项 P2 与退出条件 |
 | `../05-开发管理/B4-商品与SKU.md` | B4.0 至 B4.4 串行批次、准入门禁、验收与回退边界 |
 | `../05-开发管理/B5-Banner与库存.md` | B5.0 CH-012 契约、CH-011 门禁及后续串行批次 |
 | `../05-开发管理/B6-消费者匿名商城目录.md` | B6.0 CH-014 契约、B6.1-B6.4 实施/最终证据及 CH-013 失效边界 |
@@ -28,7 +29,7 @@
 | `../05-开发管理/B12-售后验货与普通退款.md` | B12.0 CH-026 契约/0005 防护、B12.1-B12.6 串行批次、CH-027 前置边界与退出条件 |
 | `../05-开发管理/B13-一级代理经营与资金闭环.md` | CH-028/CH-029、B13.0-B13.9 一级代理经营与资金闭环批次、前向 0006 防护和退出条件 |
 
-上游真相顺序为：已批准需求变更记录、PRD v2.4.12、MVP v2.4.12、原型设计方案。发生冲突时先更新上游基线和本目录契约，不由开发人员临时选择口径。
+上游真相顺序为：已批准需求变更记录、PRD v2.4.13、MVP v2.4.13、原型设计方案。发生冲突时先更新上游基线和本目录契约，不由开发人员临时选择口径。
 
 ## CH-006 历史验证状态
 
@@ -149,7 +150,7 @@ B10 的 CH-021/CH-022/CH-023、契约/迁移边界与批次见 `../05-开发管�
 
 B11 的已批准 CH-024、冻结履约状态机、零迁移边界及批次见 `../05-开发管理/B11-订单履约与物流.md`。B11.1 已实现独立 Fulfillment 查询、Admin/Store 投影、受控履约地址和共享 `display_status`；B11.2 已实现唯一包裹、人工物流与 Store 本人物流；B11.3 已实现共享订单完成事务、送达封存、规则/售后期限冻结和佣金精确一次结转；B11.4 已实现 MP-10/11/12 与 ADM-09/10/11 工程交互；B11.5 已完成数据库、API、前端、真实纵向、全仓门禁、零残留复验和最终远端同 SHA 双绿。普通 CI 的 60 分钟裕量 P2 已由成功运行关闭；B11.2/B11.3 的历史非阻断 P2 继续保留。普通退款生产路径未纳入；正佣金钱包缺失或不一致时 fail-closed，钱包预创建由上游保证。B11 development `GO`，CH-025 已自动失效。
 
-B12 的已批准 CH-026/CH-027、普通售后/验货/普通退款契约、0005 防护和 B12.0-B12.6 批次见 `../05-开发管理/B12-售后验货与普通退款.md`。B12 development `GO`，CH-027 已失效；未绑定 evidence orphan `P2=1` 继续阻断 staging/真实数据。B13 的 CH-028/CH-029、代理契约与 B13.0-B13.9 批次见 `../05-开发管理/B13-一级代理经营与资金闭环.md`；各历史分批退出事实继续有效。B13 最终 SHA `250cbb824ad11f4b0e11338c19494655ec384ff6` 的 development migration `33952031401` 与随后 rollback-only smoke `33952283771` 同 SHA、依次成功，B13 development `GO`，CH-029 已失效。当前 `v2.4.12 / CH-030`、OpenAPI `2.4.12-ch030`；B14.0-B14.3 已完成，最终实现 SHA `f4521d4188cb74c3bac34b992016d8730468ae2a` 的 development migration `33960486774` 与随后 rollback-only smoke `33960618178` 同 SHA、依次成功，B14 development `GO`，CH-031 已自动失效。既有 P2 继续阻断 staging、production、真实数据和真实资金。
+B12-B14 的历史批次与退出证据继续以各开发记录为准。B14 最终实现 SHA `f4521d4188cb74c3bac34b992016d8730468ae2a` 的 development migration `33960486774` 与随后 rollback-only smoke `33960618178` 同 SHA、依次成功，B14 development `GO`，CH-031 已失效。当前 `v2.4.13 / CH-032`、OpenAPI `2.4.13-ch032`；B15.0 已准入，0007、Worker 与业务实现尚未准入，六项既有 P2 继续阻断 staging、production、真实数据和真实资金。
 
 ## 剩余上线门禁
 

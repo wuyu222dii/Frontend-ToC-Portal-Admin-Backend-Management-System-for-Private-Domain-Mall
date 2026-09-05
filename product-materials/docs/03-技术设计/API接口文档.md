@@ -4,11 +4,11 @@
 
 | 项目 | 内容 |
 |---|---|
-| 文档版本 | v2.4.12 |
-| 对应产品基线 | MVP/PRD v2.4.12、CH-001 至 CH-030；在线接口以 CH-030 为准 |
-| 接口阶段 | B14.0-B14.3 已完成；既有 5 个 Admin Analytics GET 已实现并保持 `173 paths / 198 operations` 与全部 operationId。最终实现 SHA `f4521d4188cb74c3bac34b992016d8730468ae2a` 的 development migration Run `33960486774` 与随后 rollback-only smoke Run `33960618178` 同 SHA、依次为 `completed/success`；B14 development `GO`，CH-031 已自动失效。B12 orphan 与 B13 已登记 P2 继续阻断 staging、production、真实数据和真实资金。 |
+| 文档版本 | v2.4.13 |
+| 对应产品基线 | MVP/PRD v2.4.13、CH-001 至 CH-032；在线接口以 CH-032 为准 |
+| 接口阶段 | B14 development `GO` 的历史证据保持；B15.0 契约已完成并暂停复审。OpenAPI 保持 `173 paths / 198 operations` 与全部 operationId，仅闭合 READY 文件回收、佣金版本目标快照及提现付款凭证恢复语义；0007、Worker 与业务实现尚未准入。 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
-| 更新时间 | 2026-09-05 |
+| 更新时间 | 2026-09-06 |
 
 ## 1. 设计目标
 

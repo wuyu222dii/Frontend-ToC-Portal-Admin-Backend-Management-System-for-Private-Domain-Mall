@@ -8,6 +8,7 @@ import {
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import type { PlatformRuntimeConfig } from '@qingxu/config';
 
+import { AdminAnalyticsModule } from './admin-analytics/admin-analytics.module';
 import { AdminAuditModule } from './admin-audit/admin-audit.module';
 import { AdminCatalogModule } from './admin-catalog/admin-catalog.module';
 import { AdminCommissionsModule } from './admin-commissions/admin-commissions.module';
@@ -48,6 +49,7 @@ import { StorePaymentsModule } from './store-payments/store-payments.module';
 
 @Module({
   imports: [
+    AdminAnalyticsModule,
     AdminAuditModule,
     AdminAgentsModule,
     AdminAftersalesModule,

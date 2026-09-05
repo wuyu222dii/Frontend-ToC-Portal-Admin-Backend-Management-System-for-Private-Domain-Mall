@@ -352,6 +352,18 @@ export function adminCustomerTransferReasonDigest(value: string, key: Uint8Array
   return reasonDigest(normalizeReason(value), key);
 }
 
+export function adminCustomerAlias(customerId: string, key: Uint8Array): string {
+  requireUlid(customerId, 'Customer ID');
+  if (!(key instanceof Uint8Array) || key.byteLength < ALIAS_KEY_MIN_BYTES) {
+    throw new TypeError('Admin Customer alias HMAC key must contain at least 32 bytes');
+  }
+  const digest = createHmac('sha256', Buffer.from(key))
+    .update(CUSTOMER_ALIAS_DOMAIN, 'utf8')
+    .update(customerId, 'utf8')
+    .digest('hex');
+  return `customer_${digest.slice(0, 26)}`;
+}
+
 function validateImpact(input: AdminCustomerAttributionTransferImpactInput): void {
   exactObject(input, ['customerId', 'targetAgentId'], ['customerId', 'targetAgentId'],
     'Customer attribution-transfer impact input');
@@ -556,12 +568,7 @@ export class AdminCustomerRepository {
   }
 
   private alias(customerId: string): string {
-    requireUlid(customerId, 'Stored Customer ID');
-    const digest = createHmac('sha256', this.aliasHmacKey)
-      .update(CUSTOMER_ALIAS_DOMAIN, 'utf8')
-      .update(customerId, 'utf8')
-      .digest('hex');
-    return `customer_${digest.slice(0, 26)}`;
+    return adminCustomerAlias(customerId, this.aliasHmacKey);
   }
 
   private async aliasMatches(

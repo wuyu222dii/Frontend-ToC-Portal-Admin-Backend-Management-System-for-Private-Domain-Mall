@@ -1,6 +1,7 @@
 export * from './advisory-lock';
 export * from './admin-auth.repository';
 export * from './admin-agent.repository';
+export * from './admin-analytics.repository';
 export * from './admin-aftersale.repository';
 export * from './admin-customer.repository';
 export * from './admin-refund.repository';

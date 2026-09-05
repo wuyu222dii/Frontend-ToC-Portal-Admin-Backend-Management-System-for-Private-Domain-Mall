@@ -63,13 +63,17 @@ function integer(value: unknown, minimum = 0): number {
   return value as number;
 }
 
-function httpsUrl(value: unknown): string {
+function webUrl(value: unknown, allowLoopbackHttp = false): string {
   const current = text(value, 1, 500);
-  const match = /^https:\/\/(?:\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::([0-9]{1,5}))?(?:[/?#][^\s]*)?$/i
+  const match = /^(https?):\/\/(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::([0-9]{1,5}))?(?:[/?#][^\s]*)?$/i
     .exec(current);
   if (!match) invalid();
-  if (match[1] !== undefined) {
-    const port = Number(match[1]);
+  const hostname = match[2]?.toLowerCase();
+  const loopback = hostname === 'localhost' || hostname?.endsWith('.localhost') === true ||
+    hostname === '127.0.0.1' || hostname === '[::1]';
+  if (match[1]?.toLowerCase() !== 'https' && (!allowLoopbackHttp || !loopback)) invalid();
+  if (match[3] !== undefined) {
+    const port = Number(match[3]);
     if (!Number.isInteger(port) || port < 1 || port > 65_535) invalid();
   }
   return current;
@@ -106,7 +110,7 @@ function decodeLegalDocument<T extends 'PHONE_AUTHORIZATION' | 'PRIVACY_POLICY' 
     type: expectedType,
     document_version: text(current.document_version, 1, 80),
     title: text(current.title, 1, 120),
-    content_url: httpsUrl(current.content_url),
+    content_url: webUrl(current.content_url),
     required: true as const,
   };
 }
@@ -132,7 +136,7 @@ function decodeLoginCandidate(value: unknown) {
     display_name: text(current.display_name),
     expires_at: dateTime(current.expires_at),
     attribution_eligible: true as const,
-    public_target_url: httpsUrl(current.public_target_url),
+    public_target_url: webUrl(current.public_target_url, true),
   };
 }
 
@@ -156,7 +160,7 @@ export function decodeCustomerProfile(value: unknown): CustomerProfile {
   const base = {
     customer_id: text(current.customer_id),
     nickname: nullableText(current.nickname),
-    avatar_url: current.avatar_url === null ? null : httpsUrl(current.avatar_url),
+    avatar_url: current.avatar_url === null ? null : webUrl(current.avatar_url),
     city: nullableText(current.city),
     version: integer(current.version, 1),
   };
@@ -193,7 +197,7 @@ export function decodeAttributionCandidate(value: unknown): AttributionCandidate
     display_name: text(current.display_name),
     confirmation_required: true,
     attribution_eligible: true,
-    public_target_url: httpsUrl(current.public_target_url),
+    public_target_url: webUrl(current.public_target_url, true),
     expires_at: dateTime(current.expires_at),
     remaining_seconds: integer(current.remaining_seconds),
   };
@@ -231,7 +235,7 @@ export function decodeAttributionCandidateCreate(value: unknown): AttributionCan
     service_agent: null,
     public_fallback: {
       attribution_eligible: false,
-      public_target_url: httpsUrl(fallback.public_target_url),
+      public_target_url: webUrl(fallback.public_target_url, true),
     },
   };
 }

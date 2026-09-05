@@ -22,6 +22,9 @@ const packagePath = join(repositoryRoot, 'package.json');
 const ciWorkflowPath = join(repositoryRoot, '.github/workflows/ci.yml');
 const smokeWorkflowPath = join(repositoryRoot, '.github/workflows/supabase-smoke.yml');
 const b13RunnerPath = join(repositoryRoot, 'scripts/ci/test-b13-agent.mjs');
+const b13VerticalRunnerPath = join(repositoryRoot, 'scripts/ci/test-b13-vertical.mjs');
+const b13VerticalPlaywrightConfigPath = join(repositoryRoot, 'playwright.b13-vertical.config.ts');
+const b13VerticalSpecPath = join(repositoryRoot, 'tests/vertical/b13-agent-finance.vertical.spec.ts');
 const redoclyCli = join(repositoryRoot, 'node_modules/@redocly/cli/bin/cli.js');
 const temporaryDirectory = mkdtempSync(join(tmpdir(), 'qingxu-ch028-contract-'));
 const bundledPath = join(temporaryDirectory, 'openapi.json');
@@ -157,6 +160,9 @@ try {
   const ciWorkflow = readFileSync(ciWorkflowPath, 'utf8');
   const smokeWorkflow = readFileSync(smokeWorkflowPath, 'utf8');
   const b13Runner = readFileSync(b13RunnerPath, 'utf8');
+  const b13VerticalRunner = readFileSync(b13VerticalRunnerPath, 'utf8');
+  const b13VerticalPlaywrightConfig = readFileSync(b13VerticalPlaywrightConfigPath, 'utf8');
+  const b13VerticalSpec = readFileSync(b13VerticalSpecPath, 'utf8');
   const schemas = document.components.schemas;
   const operationManifest = Object.entries(document.paths).flatMap(([path, pathItem]) =>
     Object.entries(pathItem)
@@ -183,6 +189,64 @@ try {
 
   assert.equal(rootPackage.scripts['db:test-b13-agent'], 'node scripts/ci/test-b13-agent.mjs',
     'B13 Agent database gate package alias drifted');
+  assert.equal(rootPackage.scripts['e2e:b13:vertical'], 'node scripts/ci/test-b13-vertical.mjs',
+    'B13 three-realm vertical gate package alias drifted');
+  const ciB12VerticalIndex = ciWorkflow.indexOf(
+    'Run B12 browser to Nest, PostgreSQL, Redis, MinIO and Worker aftersales vertical smoke',
+  );
+  const ciB13VerticalIndex = ciWorkflow.indexOf(
+    'Run B13 Admin, Agent and Store realms through Nest, PostgreSQL, Redis, MinIO and Worker',
+  );
+  assert.ok(ciB12VerticalIndex >= 0 && ciB13VerticalIndex > ciB12VerticalIndex,
+    'B13 three-realm vertical gate must run after B12 vertical');
+  const ciB13VerticalStep = workflowStep(
+    ciWorkflow,
+    'Run B13 Admin, Agent and Store realms through Nest, PostgreSQL, Redis, MinIO and Worker',
+  );
+  assert.match(ciB13VerticalStep, /B13_VERTICAL_TEST_MODE: full/);
+  assert.match(ciB13VerticalStep, /run: pnpm e2e:b13:vertical/);
+  assert.match(b13VerticalRunner, /B13_VERTICAL_TEST_MODE[^\n]+full/,
+    'B13 three-realm vertical runner must require explicit full mode');
+  assert.match(b13VerticalRunner,
+    /['"]playwright['"], ['"]test['"], ['"]--config['"], ['"]playwright\.b13-vertical\.config\.ts['"]/,
+    'B13 vertical runner must execute the three-client Playwright journey');
+  assert.match(b13VerticalRunner, /B13_VERTICAL_RESULT_PATH: resultPath/,
+    'B13 vertical runner must receive the browser journey result manifest');
+  assert.match(b13VerticalPlaywrightConfig, /B13_VERTICAL_TEST_MODE !== 'full'/,
+    'B13 vertical Playwright must require explicit full mode');
+  assert.match(b13VerticalPlaywrightConfig, /testMatch: 'b13-agent-finance\.vertical\.spec\.ts'/,
+    'B13 vertical Playwright spec wiring drifted');
+  for (const command of [
+    '@qingxu/admin-web exec vite',
+    '@qingxu/agent-web exec vite',
+    'node_modules/.bin/uni -p h5',
+  ]) {
+    assert.ok(b13VerticalPlaywrightConfig.includes(command), `B13 vertical frontend wiring is missing: ${command}`);
+  }
+  for (const route of [
+    '/api/v1/admin/auth/login',
+    '/api/v1/admin/agents',
+    '/api/v1/agent/auth/login',
+    '/api/v1/agent/auth/change-temporary-password',
+    '/api/v1/agent/promotion-assets',
+    '/api/v1/store/attribution/candidates',
+    '/api/v1/store/auth/wechat/login',
+    '/api/v1/store/attribution/candidate/confirm',
+    '/api/v1/store/checkout/quotes',
+    '/api/v1/store/orders',
+    '/payment-intents',
+    '/confirm-receipt',
+    '/api/v1/agent/bank-accounts',
+    '/api/v1/agent/withdrawals',
+    '/approve-preview',
+    '/api/v1/admin/auth/reauth',
+    '/payout-account-reveal',
+    '/api/v1/files/upload-intents',
+    '/proofs',
+    '/mark-paid-preview',
+  ]) {
+    assert.ok(b13VerticalSpec.includes(route), `B13 vertical browser journey is missing: ${route}`);
+  }
   const ciB13Step = workflowStep(
     ciWorkflow,
     'Test B13.1-B13.6 Agent authentication, commerce, operations and finance with PostgreSQL and Redis',

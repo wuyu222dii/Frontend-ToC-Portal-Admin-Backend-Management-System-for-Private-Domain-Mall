@@ -124,6 +124,21 @@ describe('B7 identity exact-shape response decoders', () => {
 
   it('enforces all three mutually exclusive candidate create branches', () => {
     expect(decodeAttributionCandidateCreate({
+      candidate: {
+        ...candidate,
+        public_target_url: 'http://127.0.0.1:4173/products/one',
+      },
+      candidate_token: 't'.repeat(32),
+      service_agent: null,
+      public_fallback: null,
+    })).toMatchObject({ candidate: { public_target_url: 'http://127.0.0.1:4173/products/one' } });
+    expect(() => decodeAttributionCandidateCreate({
+      candidate: { ...candidate, public_target_url: 'http://mall.example.test/products/one' },
+      candidate_token: 't'.repeat(32),
+      service_agent: null,
+      public_fallback: null,
+    })).toThrow(StoreEnvelopeFormatError);
+    expect(decodeAttributionCandidateCreate({
       candidate,
       candidate_token: 't'.repeat(32),
       service_agent: null,

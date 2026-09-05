@@ -240,6 +240,11 @@ jobs:
           B12_VERTICAL_TEST_MODE: full
         run: pnpm e2e:b12:vertical
 
+      - name: Run B13 Admin, Agent and Store realms through Nest, PostgreSQL, Redis, MinIO and Worker
+        env:
+          B13_VERTICAL_TEST_MODE: full
+        run: pnpm e2e:b13:vertical
+
       - name: Test B1 persistence and worker concurrency
         env:
           B1_DATABASE_TEST_MODE: full

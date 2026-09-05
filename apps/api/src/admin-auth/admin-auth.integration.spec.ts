@@ -8,6 +8,7 @@ import {
   runSerializableTransaction,
   type InitialAdminSessionMaterial,
   type DatabaseRuntime,
+  type DatabaseTransaction,
 } from '@qingxu/database';
 import { generateUlid, hashIpAddress, hashPassword, signAccessToken } from '@qingxu/platform-core';
 import request from 'supertest';
@@ -397,6 +398,114 @@ integrationDescribe('B2 administrator authentication PostgreSQL API integration'
       where: { revoked_at: null, session_family: logoutFirst.sessionFamily },
     })).toBe(0);
   }, 30_000);
+
+  it('serializes refresh against password change in both commit orders', async () => {
+    const repository = new AdminAuthRepository(database.prisma);
+    const observeBlockedAdvisoryLockPairs = async (): Promise<number> => {
+      for (let observation = 0; observation < 200; observation += 1) {
+        const result = await database.pool.query<{ blocked_count: number }>(`
+          WITH advisory_locks AS (
+            SELECT classid, objid, objsubid, pid, granted
+            FROM pg_locks
+            WHERE locktype = 'advisory'
+              AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+          )
+          SELECT COUNT(*)::integer AS blocked_count
+          FROM advisory_locks AS waiter
+          INNER JOIN advisory_locks AS holder
+            ON holder.classid = waiter.classid
+           AND holder.objid = waiter.objid
+           AND holder.objsubid = waiter.objsubid
+           AND holder.pid <> waiter.pid
+          WHERE waiter.granted = false AND holder.granted = true
+        `);
+        const blockedCount = result.rows[0]?.blocked_count ?? 0;
+        if (blockedCount > 0) return blockedCount;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      return 0;
+    };
+
+    for (const order of ['refresh-first', 'password-first'] as const) {
+      const account = await database.prisma.account.findUniqueOrThrow({ where: { id: accountId } });
+      if (!account.password_hash) throw new TypeError('B2 API integration requires an administrator password');
+      const expectedPasswordHash = account.password_hash;
+      const passwordSession = await createAuthenticatedSession();
+      const refreshSource = await createAuthenticatedSession();
+      const refreshChild = sessionMaterial(`${order}-refresh-child`, refreshSource.material.sessionFamily);
+      const nextPassword = `B2-${randomBytes(24).toString('base64url')}!`;
+      const nextPasswordHash = await hashPassword(nextPassword);
+      const rotate = (transaction: DatabaseTransaction) => repository.rotateRefreshInTransaction(transaction, {
+        presentedRefreshTokenHashCandidates: [refreshSource.material.refreshTokenHash],
+        session: refreshChild,
+      });
+      const changePassword = (transaction: DatabaseTransaction) => repository.changePasswordInTransaction(transaction, {
+        accountId,
+        currentSessionId: passwordSession.material.id,
+        expectedPasswordHash,
+        expectedVersion: account.version,
+        newPasswordHash: nextPasswordHash,
+      });
+      let markFirstHeld!: () => void;
+      const firstHeld = new Promise<void>((resolve) => { markFirstHeld = resolve; });
+      let releaseFirst!: () => void;
+      const firstReleased = new Promise<void>((resolve) => { releaseFirst = resolve; });
+      const firstOperation = runSerializableTransaction(database.prisma, async (transaction) => {
+        const result = order === 'refresh-first'
+          ? await rotate(transaction)
+          : await changePassword(transaction);
+        markFirstHeld();
+        await firstReleased;
+        return result;
+      });
+      let secondOperation: ReturnType<typeof rotate> | ReturnType<typeof changePassword> | undefined;
+      let barrierError: unknown;
+      try {
+        await Promise.race([
+          firstHeld,
+          firstOperation.then(
+            () => Promise.reject(new Error(`${order} operation committed before holding its transaction lock`)),
+            (error: unknown) => Promise.reject(error),
+          ),
+        ]);
+        secondOperation = order === 'refresh-first'
+          ? runSerializableTransaction(database.prisma, changePassword)
+          : runSerializableTransaction(database.prisma, rotate);
+        expect(await observeBlockedAdvisoryLockPairs()).toBeGreaterThan(0);
+      } catch (error) {
+        barrierError = error;
+      } finally {
+        releaseFirst();
+      }
+      if (!secondOperation) {
+        await firstOperation.catch(() => undefined);
+        throw barrierError ?? new Error(`${order} operation did not reach its transaction lock`);
+      }
+      const [firstResult, secondResult] = await Promise.all([firstOperation, secondOperation]);
+      if (barrierError !== undefined) throw barrierError;
+
+      const refreshResult = order === 'refresh-first' ? firstResult : secondResult;
+      const passwordResult = order === 'refresh-first' ? secondResult : firstResult;
+      expect(passwordResult).toMatchObject({ version: account.version + 1 });
+      expect(refreshResult).toMatchObject(order === 'refresh-first'
+        ? { kind: 'rotated', sessionId: refreshChild.id }
+        : { kind: 'replay_detected', sessionFamily: refreshSource.material.sessionFamily });
+      expect(await database.prisma.account.findUniqueOrThrow({ where: { id: accountId } }))
+        .toMatchObject({ password_hash: nextPasswordHash, version: account.version + 1 });
+      expect(await database.prisma.authSession.findMany({
+        where: { account_id: accountId, revoked_at: null },
+        orderBy: { id: 'asc' },
+        select: { id: true },
+      })).toEqual([{ id: passwordSession.material.id }]);
+      expect(await database.prisma.authSession.count({
+        where: { session_family: refreshSource.material.sessionFamily, revoked_at: null },
+      })).toBe(0);
+      const storedRefreshChild = await database.prisma.authSession.findUnique({ where: { id: refreshChild.id } });
+      if (order === 'refresh-first') expect(storedRefreshChild).toMatchObject({ revoked_at: expect.any(Date) });
+      else expect(storedRefreshChild).toBeNull();
+      password = nextPassword;
+    }
+  }, 60_000);
 
   it('replays known, unknown, and disabled login failures without changing their outcomes or counters', async () => {
     await clearLoopbackSourceLimits(redis, config);

@@ -1,12 +1,13 @@
 import { ApplicationError, isValidUlid } from '@qingxu/platform-core';
 
-import type { PrismaClient } from '../.generated/prisma/client';
+import { Prisma, type PrismaClient } from '../.generated/prisma/client';
 import type { FilePurpose, FileStatus, FileVisibility } from '../.generated/prisma/enums';
 import type { DatabaseTransaction } from './idempotency.repository';
 import { acquireTransactionLock } from './advisory-lock';
 
 export const FILE_ASSET_MAX_BYTES = 5n * 1_024n * 1_024n;
 export const FILE_ASSET_PENDING_TTL_MS = 24 * 60 * 60 * 1_000;
+export const FILE_ASSET_READY_ORPHAN_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 export const FILE_STAGING_CLEANUP_EVENT_TYPE = 'file.staging_cleanup_requested';
 
 export type FileAssetMimeType = 'image/jpeg' | 'image/png';
@@ -88,6 +89,23 @@ export interface ReadyFileStagingCleanup {
   stagingObjectKey: string;
 }
 
+export interface ReadyFileOrphanCleanupCandidate {
+  id: string;
+  objectKey: string;
+  purpose: SupportedFilePurpose;
+  readyAt: Date;
+  stagingObjectKey: string;
+  status: 'READY' | 'REJECTED';
+}
+
+export interface ReadyFileOrphanCleanupInput {
+  fileId: string;
+  expectedObjectKey: string;
+  olderThan: Date;
+}
+
+export type ReadyFileOrphanCleanupPreparation = 'RESUME' | 'TRANSITIONED';
+
 const FILE_PURPOSE = new Set<SupportedFilePurpose>([
   'PRODUCT_IMAGE',
   'BRAND_LOGO',
@@ -127,6 +145,7 @@ const MARK_READY_FIELDS = new Set([
 const LIST_CANDIDATE_FIELDS = new Set(['limit', 'olderThan']);
 const RECHECK_CANDIDATE_FIELDS = new Set(['expectedObjectKey', 'fileId', 'olderThan']);
 const RECHECK_READY_STAGING_FIELDS = new Set(['fileId']);
+const READY_ORPHAN_INPUT_FIELDS = new Set(['expectedObjectKey', 'fileId', 'olderThan']);
 const SHA256 = /^[a-f0-9]{64}$/;
 
 function isExactPlainObject(value: unknown, fields: ReadonlySet<string>): value is Record<string, unknown> {
@@ -276,6 +295,13 @@ export class FileAssetRepository {
     requireDate(olderThan, 'File cleanup threshold');
     if (olderThan.getTime() > this.currentTime().getTime() - FILE_ASSET_PENDING_TTL_MS) {
       throw new TypeError('File cleanup threshold must be at least 24 hours old');
+    }
+  }
+
+  private validateReadyOrphanThreshold(olderThan: Date): void {
+    requireDate(olderThan, 'Ready file orphan cleanup threshold');
+    if (olderThan.getTime() > this.currentTime().getTime() - FILE_ASSET_READY_ORPHAN_TTL_MS) {
+      throw new TypeError('Ready file orphan cleanup threshold must be at least 7 days old');
     }
   }
 
@@ -445,6 +471,148 @@ export class FileAssetRepository {
       transaction.withdrawalProof.count({ where: { file_id: fileId } }),
     ]);
     return counts.some((count) => count > 0);
+  }
+
+  async listReadyOrphanCleanupCandidates(
+    input: ListFileCleanupCandidatesInput,
+  ): Promise<ReadyFileOrphanCleanupCandidate[]> {
+    if (!isExactPlainObject(input, LIST_CANDIDATE_FIELDS)) {
+      throw new TypeError('Ready file orphan cleanup query contains unsupported fields');
+    }
+    this.validateReadyOrphanThreshold(input.olderThan);
+    if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100) {
+      throw new TypeError('Ready file orphan cleanup limit must be between 1 and 100');
+    }
+    const rows = await this.prisma.$queryRaw<Array<{
+      id: string;
+      object_key: string;
+      purpose: FilePurpose;
+      ready_at: Date;
+      status: string;
+    }>>(Prisma.sql`
+      SELECT f.id, f.object_key, f.purpose, e.created_at AS ready_at, f.status::text AS status
+      FROM public.file_asset f
+      JOIN public.outbox_event e
+        ON e.aggregate_type = 'file'
+       AND e.aggregate_id = f.id
+       AND e.event_type = ${FILE_STAGING_CLEANUP_EVENT_TYPE}
+      WHERE f.deleted_at IS NULL
+        AND f.status IN ('READY', 'REJECTED')
+        AND e.created_at <= ${input.olderThan}
+        AND e.payload = jsonb_build_object(
+          'event_version', 1,
+          'resource_type', 'file',
+          'resource_id', f.id,
+          'resource_version', 1
+        )
+        AND (
+          SELECT count(*)
+          FROM public.outbox_event duplicate
+          WHERE duplicate.aggregate_type = 'file'
+            AND duplicate.aggregate_id = f.id
+            AND duplicate.event_type = ${FILE_STAGING_CLEANUP_EVENT_TYPE}
+        ) = 1
+      ORDER BY e.created_at ASC, f.id ASC
+      LIMIT ${input.limit}
+    `);
+    return rows.flatMap((row): ReadyFileOrphanCleanupCandidate[] => {
+      requirePurpose(row.purpose);
+      requireDate(row.ready_at, 'Ready file orphan completion time');
+      if ((row.status !== 'READY' && row.status !== 'REJECTED') ||
+        row.object_key !== buildFinalObjectKey(row.id, row.purpose)) return [];
+      return [{
+        id: row.id,
+        objectKey: row.object_key,
+        purpose: row.purpose,
+        readyAt: row.ready_at,
+        stagingObjectKey: buildStagingObjectKey(row.id),
+        status: row.status,
+      }];
+    });
+  }
+
+  private validateReadyOrphanInput(input: ReadyFileOrphanCleanupInput): void {
+    if (!isExactPlainObject(input, READY_ORPHAN_INPUT_FIELDS)) {
+      throw new TypeError('Ready file orphan cleanup recheck contains unsupported fields');
+    }
+    requireFileId(input.fileId, 'File ID');
+    if (input.expectedObjectKey !== `public/${input.fileId}` &&
+      input.expectedObjectKey !== `private/${input.fileId}`) {
+      throw new TypeError('Ready file orphan object key is invalid');
+    }
+    this.validateReadyOrphanThreshold(input.olderThan);
+  }
+
+  private async recheckReadyOrphanLocked(
+    transaction: DatabaseTransaction,
+    input: ReadyFileOrphanCleanupInput,
+  ): Promise<'READY' | 'REJECTED' | null> {
+    const rows = await transaction.$queryRaw<Array<{
+      deleted_at: Date | null;
+      id: string;
+      object_key: string;
+      purpose: FilePurpose;
+      status: string;
+    }>>(Prisma.sql`
+      SELECT id, object_key, purpose, status::text AS status, deleted_at
+      FROM public.file_asset
+      WHERE id = ${input.fileId}
+      FOR UPDATE
+    `);
+    const asset = rows[0];
+    if (rows.length !== 1 || asset === undefined || asset.deleted_at !== null ||
+      (asset.status !== 'READY' && asset.status !== 'REJECTED')) return null;
+    requirePurpose(asset.purpose);
+    if (asset.object_key !== input.expectedObjectKey ||
+      asset.object_key !== buildFinalObjectKey(asset.id, asset.purpose)) return null;
+    const eventCounts = await transaction.$queryRaw<Array<{ total: number; valid: number }>>(Prisma.sql`
+      SELECT
+        count(*)::integer AS total,
+        count(*) FILTER (WHERE
+          created_at <= ${input.olderThan}
+          AND payload = jsonb_build_object(
+            'event_version', 1,
+            'resource_type', 'file',
+            'resource_id', ${input.fileId},
+            'resource_version', 1
+          )
+        )::integer AS valid
+      FROM public.outbox_event
+      WHERE aggregate_type = 'file'
+        AND aggregate_id = ${input.fileId}
+        AND event_type = ${FILE_STAGING_CLEANUP_EVENT_TYPE}
+    `);
+    if (eventCounts[0]?.total !== 1 || eventCounts[0]?.valid !== 1 ||
+      await this.hasAttachment(transaction, input.fileId)) return null;
+    return asset.status;
+  }
+
+  async prepareReadyOrphanCleanupInTransaction(
+    transaction: DatabaseTransaction,
+    input: ReadyFileOrphanCleanupInput,
+  ): Promise<ReadyFileOrphanCleanupPreparation | null> {
+    this.validateReadyOrphanInput(input);
+    const status = await this.recheckReadyOrphanLocked(transaction, input);
+    if (status === null) return null;
+    if (status === 'REJECTED') return 'RESUME';
+    const result = await transaction.fileAsset.updateMany({
+      data: { status: 'REJECTED' },
+      where: { deleted_at: null, id: input.fileId, object_key: input.expectedObjectKey, status: 'READY' },
+    });
+    return result.count === 1 ? 'TRANSITIONED' : null;
+  }
+
+  async markReadyOrphanDeletedInTransaction(
+    transaction: DatabaseTransaction,
+    input: ReadyFileOrphanCleanupInput,
+  ): Promise<boolean> {
+    this.validateReadyOrphanInput(input);
+    if (await this.recheckReadyOrphanLocked(transaction, input) !== 'REJECTED') return false;
+    const result = await transaction.fileAsset.updateMany({
+      data: { deleted_at: this.currentTime(), status: 'DELETED' },
+      where: { deleted_at: null, id: input.fileId, object_key: input.expectedObjectKey, status: 'REJECTED' },
+    });
+    return result.count === 1;
   }
 
   private async recheckCleanupCandidateLocked(

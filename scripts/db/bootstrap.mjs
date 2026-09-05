@@ -33,6 +33,12 @@ const agentFinanceGuardFrozenPath =
   "product-materials/docs/03-技术设计/migrations/0006_b13_agent_finance_guards/migration.sql";
 const expectedAgentFinanceGuardDigest =
   "355311f6a5091f03bcb879f927ca78c984ec2cb26efb7f14bb4133161ccc2ea0";
+const developmentConvergenceGuardMigrationPath =
+  "prisma/migrations/0007_b15_development_convergence_guards/migration.sql";
+const developmentConvergenceGuardFrozenPath =
+  "product-materials/docs/03-技术设计/migrations/0007_b15_development_convergence_guards/migration.sql";
+const expectedDevelopmentConvergenceGuardDigest =
+  "f4c0b4888b5734e7a99fe947fb9d42c18916c4b8f3947d9626b02420d5e7764a";
 
 function digest(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -172,6 +178,12 @@ try {
   ) {
     throw new Error("B13 migration differs from its frozen artifact");
   }
+  if (
+    digest(developmentConvergenceGuardMigrationPath) !== expectedDevelopmentConvergenceGuardDigest ||
+    digest(developmentConvergenceGuardFrozenPath) !== expectedDevelopmentConvergenceGuardDigest
+  ) {
+    throw new Error("B15 migration differs from its frozen artifact");
+  }
 
   const state = runPsql(owner, [
     "-Atqc",
@@ -245,6 +257,12 @@ try {
              AND m.finished_at IS NOT NULL
              AND m.rolled_back_at IS NULL
          ),
+         count(*) FILTER (
+           WHERE m.migration_name = '0007_b15_development_convergence_guards'
+             AND m.checksum = 'f4c0b4888b5734e7a99fe947fb9d42c18916c4b8f3947d9626b02420d5e7764a'
+             AND m.finished_at IS NOT NULL
+             AND m.rolled_back_at IS NULL
+         ),
          count(*) FILTER (WHERE m.finished_at IS NULL OR m.rolled_back_at IS NOT NULL),
          count(*) FILTER (
            WHERE m.migration_name NOT IN (
@@ -253,7 +271,8 @@ try {
              '0003_b10_payment_fact_indexes',
              '0004_b10_commission_position_trigger_fix',
              '0005_b12_aftersale_refund_guards',
-             '0006_b13_agent_finance_guards'
+             '0006_b13_agent_finance_guards',
+             '0007_b15_development_convergence_guards'
            )
          )
        )
@@ -263,8 +282,8 @@ try {
        WHERE n.nspname = 'public' AND c.relname = '_prisma_migrations'
        GROUP BY c.relowner`,
     ], undefined, true);
-    if (history !== "mall_migrator|1|1|1|1|1|1|0|0") {
-      throw new Error("existing Prisma migration history is not the completed B13 migration chain");
+    if (history !== "mall_migrator|1|1|1|1|1|1|1|0|0") {
+      throw new Error("existing Prisma migration history is not the completed B15 migration chain");
     }
   }
   if (state === "EMPTY") {

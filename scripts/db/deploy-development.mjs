@@ -1,12 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { postgresEnvironment, readConnection } from "./lib/connection.mjs";
-import { B13_PREDEPLOY_CHECKS } from "./lib/b13-preflight.mjs";
 import {
-  B13_DEPLOYED_HISTORY,
-  B13_MIGRATION_HISTORY_SQL,
-  isApprovedB13Predecessor,
-  isExactB13History,
-  requiresB13HistoricalPreflight,
+  B15_DEPLOYED_HISTORY,
+  B15_MIGRATION_HISTORY_SQL,
+  isApprovedB15Predecessor,
+  isExactB15History,
 } from "./lib/migration-history.mjs";
 import { prismaEnvironment, prismaInvocation } from "./lib/prisma.mjs";
 
@@ -39,7 +37,7 @@ function runPrisma(connection, args, label) {
 function readHistory(connection) {
   return runPsql(connection, [
     "-Atqc",
-    B13_MIGRATION_HISTORY_SQL,
+    B15_MIGRATION_HISTORY_SQL,
   ], true);
 }
 
@@ -50,8 +48,8 @@ try {
 
   const migrator = readConnection("DIRECT_URL", "migrator");
   const before = readHistory(migrator);
-  if (!isApprovedB13Predecessor(before)) {
-    throw new Error(`migration history is not an approved B13 predecessor state: ${before || "empty"}`);
+  if (!isApprovedB15Predecessor(before)) {
+    throw new Error(`migration history is not an approved B15 predecessor state: ${before || "empty"}`);
   }
 
   const duplicatePaymentFacts = runPsql(migrator, [
@@ -178,25 +176,16 @@ try {
     throw new Error(`refunds have ${invalidRefundAmounts} head-to-item amount mismatch(es)`);
   }
 
-  if (requiresB13HistoricalPreflight(before)) {
-    for (const check of B13_PREDEPLOY_CHECKS) {
-      const invalidFacts = runPsql(migrator, ["-Atqc", check.sql], true);
-      if (invalidFacts !== "0") {
-        throw new Error(`${check.error}: ${invalidFacts}`);
-      }
-    }
-  }
-
   runPrisma(
     migrator,
     ["migrate", "deploy", "--config", "prisma.config.ts"],
-    "B13 database migration deployment failed",
+    "B15 database migration deployment failed",
   );
 
   const after = readHistory(migrator);
-  if (!isExactB13History(after)) {
+  if (!isExactB15History(after)) {
     throw new Error(
-      `migration history did not converge to the B13 target: ${after || "empty"}; expected ${B13_DEPLOYED_HISTORY}`,
+      `migration history did not converge to the B15 target: ${after || "empty"}; expected ${B15_DEPLOYED_HISTORY}`,
     );
   }
 
@@ -216,7 +205,7 @@ try {
       "--config",
       "prisma.config.ts",
     ],
-    "B13 post-migration Prisma drift check failed",
+    "B15 post-migration Prisma drift check failed",
   );
 
   console.log("Supabase development migration and post-verification passed");

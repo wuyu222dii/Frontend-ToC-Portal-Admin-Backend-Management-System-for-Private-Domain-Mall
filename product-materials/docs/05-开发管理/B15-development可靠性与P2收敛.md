@@ -1,6 +1,6 @@
 # B15 development 可靠性与 P2 收敛
 
-> 批次：B15；产品/API 基线：`v2.4.13 / CH-032`、OpenAPI `2.4.13-ch032`；交付门禁：CH-033；更新日期：2026-09-06；当前状态：B15.0 已完成并暂停复审，B15.1 业务代码尚未准入。
+> 批次：B15；产品/API 基线：`v2.4.13 / CH-032`、OpenAPI `2.4.13-ch032`；交付门禁：CH-033；更新日期：2026-09-06；当前状态：B15.1 已完成并暂停复审，B15.2 尚未准入。
 
 ## 1. 上游与治理
 
@@ -48,7 +48,7 @@ Admin Web 只在当前登录会话的 `sessionStorage` 保存：`schema_version`
 | 批次 | 交付内容 | 最小退出条件 | 当前状态 |
 |---|---|---|---|
 | B15.0 | B14 收口登记；B15 主记录；CH-032/033；OpenAPI 与 generated contracts | Redocly、连续两次生成无漂移、contracts build、`git diff --check` 通过；不含迁移/Worker/业务实现 | **已完成并暂停** |
-| B15.1 | `0007_b15_development_convergence_guards`、READY 回收和佣金历史数据底座 | 既有 Worker 完成两阶段回收；引用/清理竞态、Outbox 异常和迁移原子失败闭合；一个定向服务端测试及受影响构建通过 | **未准入** |
+| B15.1 | `0007_b15_development_convergence_guards`、READY 回收和佣金历史数据底座 | 既有 Worker 完成两阶段回收；引用/清理竞态、Outbox 异常和迁移原子失败闭合；一个定向服务端测试及受影响构建通过 | **已完成并暂停复审** |
 | B15.2 | 佣金版本历史解释、发布冲突恢复、来源变化 preview、代理重新启用保护 | 严格响应、旧/新名称快照、审计跳转、409 刷新和重复点击闭合；复用 B15 服务端测试及受影响构建 | **未准入** |
 | B15.3 | 提现付款凭证 session journal | 丢包/重认证同键恢复、确定性清除和跨账号零请求闭合；一个定向前端测试及 Admin Web build 通过 | **未准入** |
 | B15.4 | 最终复审、文档同步与 development 远端门禁 | `P0=0/P1=0`；最终 SHA migration attestation 后 rollback-only smoke 成功；B15 development `GO`，CH-033 失效 | **未准入** |
@@ -76,9 +76,9 @@ B15 仅限 Mock Provider、虚构文件与脱敏 development。真实微信身�
 | B14 上游 | **development `GO`；最终 SHA 两项远端门禁同 SHA、依次成功** |
 | CH-031 | **已失效，不得用于 B15** |
 | CH-032 | **已批准；当前基线 `v2.4.13 / 2.4.13-ch032`** |
-| CH-033 | **已批准；仅待 B15.0 通过后覆盖 B15.1-B15.4** |
-| B15.0 | **已完成并暂停；业务代码、0007 与 Worker 尚未准入** |
-| staging/真实数据 | **六项 P2 尚未以实现证据闭合，继续 `NO-GO`** |
+| CH-033 | **已批准；覆盖 B15.1-B15.4 单维护者脱敏 development** |
+| B15.1 | **已完成并暂停复审；B15.2 尚未准入** |
+| staging/真实数据 | **其余 P2 尚未以实现证据闭合，继续 `NO-GO`** |
 
 ## 9. B15.0 退出证据
 
@@ -87,3 +87,13 @@ B15 仅限 Mock Provider、虚构文件与脱敏 development。真实微信身�
 - `pnpm --filter @qingxu/contracts build` 与 `git diff --check` 通过。
 - 未新增迁移、Worker、依赖、GitHub workflow、业务实现或测试文件；B15.1 保持未准入。
 - 本机 `shasum` 因不可用的 `C.UTF-8` locale 崩溃，哈希改由系统 `openssl dgst -sha256` 计算；该限制不影响生成文件或 TypeScript 构建。
+
+## 10. B15.1 退出证据
+
+- `0007_b15_development_convergence_guards` 两份迁移逐字节一致，增加 READY 完成事件历史预检/唯一索引、佣金目标名快照回填与发布期守卫，并以文件行 `FOR SHARE/FOR UPDATE` 串行化关联和清理。
+- 既有 FileCleanup Worker 按唯一完成事件的时间执行 7 天回收，状态固定为 `READY -> REJECTED -> DELETED`；对象删除失败停留在 `REJECTED` 并可由下一轮恢复，不新增 Worker、队列、配置或依赖。
+- 新发布佣金版本在同一事务锁定并冻结 PLATFORM/CATEGORY/SKU 目标名；历史数据由迁移标记 `MIGRATION_CAPTURED`，新增数据标记 `PUBLISH_CAPTURED`。
+- `pnpm --filter @qingxu/database build`、`pnpm --filter @qingxu/worker build` 通过；唯一新增的服务端状态机测试 `2 passed`。未重复运行已通过的历史测试或全仓测试。
+- PostgreSQL 18.3 一次性空库完成 `0001 -> 0007` 回放；结构核对为 76 tables、59 enums、24 partial indexes、177 CHECK、47 user triggers、28 owned functions，三项原生定义指纹均已冻结并通过。
+- 异常 READY 历史的 `0006 -> 0007` 故障注入按预期以 `23514` 拒绝，失败后快照列、唯一索引和 CHECK 残留均为零；一次性容器及两套数据库已删除。
+- development 尚未部署 `0007`；该远端迁移和 rollback-only smoke 只在 B15.4 最终 SHA 执行，不把本次临时回放记为 development 证据。

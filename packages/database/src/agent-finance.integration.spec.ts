@@ -510,6 +510,8 @@ async function seedFixture(
       rule_version_id: ids.commissionRuleId,
       target_id: null,
       target_key: 'PLATFORM',
+      target_name_snapshot: '平台默认',
+      target_name_snapshot_source: 'PUBLISH_CAPTURED',
       target_type: 'PLATFORM',
     },
   });

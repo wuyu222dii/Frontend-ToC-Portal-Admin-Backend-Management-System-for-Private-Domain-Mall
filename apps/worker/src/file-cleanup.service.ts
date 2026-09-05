@@ -4,11 +4,13 @@ import { Inject, Injectable, Logger, type OnApplicationShutdown, type OnModuleIn
 import type { PlatformRuntimeConfig } from '@qingxu/config';
 import {
   FILE_STAGING_CLEANUP_EVENT_TYPE,
+  FILE_ASSET_READY_ORPHAN_TTL_MS,
   type AuditRepository,
   type DatabaseRuntime,
   type FileAssetRepository,
   type OutboxEventModel,
   type OutboxRepository,
+  type ReadyFileOrphanCleanupCandidate,
 } from '@qingxu/database';
 import {
   FILE_OBJECT_LEASE_TTL_MS,
@@ -26,7 +28,10 @@ export const WORKER_REDIS_CLIENT = Symbol('WORKER_REDIS_CLIENT');
 
 export type FileCleanupRepository = Pick<FileAssetRepository,
   | 'listCleanupCandidates'
+  | 'listReadyOrphanCleanupCandidates'
   | 'markRejectedAfterCleanupInTransaction'
+  | 'markReadyOrphanDeletedInTransaction'
+  | 'prepareReadyOrphanCleanupInTransaction'
   | 'recheckCleanupCandidateInTransaction'
   | 'recheckReadyForStagingCleanupInTransaction'
 >;
@@ -155,6 +160,15 @@ export class FileCleanupService implements OnModuleInit, OnApplicationShutdown {
       await this.cleanupReadyStagingEvents();
     } catch {
       this.logger.error({ code: 'FILE_STAGING_CLEANUP_POLL_FAILED' });
+    }
+    try {
+      const candidates = await this.files.listReadyOrphanCleanupCandidates({
+        olderThan: new Date(Date.now() - FILE_ASSET_READY_ORPHAN_TTL_MS),
+        limit: this.config.worker.batchSize,
+      });
+      for (const candidate of candidates) await this.cleanupReadyOrphan(candidate);
+    } catch {
+      this.logger.error({ code: 'FILE_READY_ORPHAN_CLEANUP_POLL_FAILED' });
     } finally {
       this.running = false;
     }
@@ -255,6 +269,68 @@ export class FileCleanupService implements OnModuleInit, OnApplicationShutdown {
       if (!await this.renewLease(lease)) throw new Error('File object lease was lost');
     } finally {
       await this.releaseLease(fileId, lease);
+    }
+  }
+
+  private async cleanupReadyOrphan(candidate: ReadyFileOrphanCleanupCandidate): Promise<void> {
+    let lease: FileObjectLease | undefined;
+    try {
+      lease = await this.acquireLease(candidate.id);
+      if (!lease) return;
+      const requestId = `trace_${randomUUID().replaceAll('-', '')}`;
+      const input = {
+        expectedObjectKey: candidate.objectKey,
+        fileId: candidate.id,
+        olderThan: candidate.readyAt,
+      };
+      const preparation = await this.database.withPrismaTransaction(async (transaction) => {
+        const result = await this.files.prepareReadyOrphanCleanupInTransaction(transaction, input);
+        if (result === 'TRANSITIONED') {
+          await this.audit.append(transaction, {
+            action: 'REJECT',
+            after: { status: 'REJECTED' },
+            before: { status: 'READY' },
+            module: 'file',
+            objectId: candidate.id,
+            objectType: 'file',
+            requestId,
+            result: 'SUCCESS',
+            resultCode: 'OK',
+            summaryPolicy: 'STATUS_VERSION',
+          });
+        }
+        return result;
+      }, { isolationLevel: 'Serializable' });
+      if (preparation === null) return;
+
+      if (!await this.renewLease(lease)) return;
+      await this.storage.deleteIfExists(candidate.objectKey);
+      if (!await this.renewLease(lease)) return;
+      await this.storage.deleteIfExists(candidate.stagingObjectKey);
+      if (!await this.renewLease(lease)) return;
+
+      const deleted = await this.database.withPrismaTransaction(async (transaction) => {
+        const transitioned = await this.files.markReadyOrphanDeletedInTransaction(transaction, input);
+        if (!transitioned) return false;
+        await this.audit.append(transaction, {
+          action: 'DELETE',
+          after: { status: 'DELETED' },
+          before: { status: 'REJECTED' },
+          module: 'file',
+          objectId: candidate.id,
+          objectType: 'file',
+          requestId,
+          result: 'SUCCESS',
+          resultCode: 'OK',
+          summaryPolicy: 'STATUS_VERSION',
+        });
+        return true;
+      }, { isolationLevel: 'Serializable' });
+      if (!deleted) this.logger.error({ code: 'FILE_READY_ORPHAN_CLEANUP_STATE_CHANGED', fileId: candidate.id });
+    } catch {
+      this.logger.error({ code: 'FILE_READY_ORPHAN_CLEANUP_FAILED', fileId: candidate.id });
+    } finally {
+      if (lease) await this.releaseLease(candidate.id, lease);
     }
   }
 

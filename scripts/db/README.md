@@ -42,12 +42,13 @@ passwords over PostgreSQL stdin, and then runs `prisma migrate resolve` through
 including `0002_b9_inventory_fact_indexes` and `0003_b10_payment_fact_indexes`,
 plus the CH-023 `0004_b10_commission_position_trigger_fix` and the CH-026
 `0005_b12_aftersale_refund_guards`, followed by the CH-028
-`0006_b13_agent_finance_guards`, through `mall_migrator`. Prisma
+`0006_b13_agent_finance_guards` and CH-032
+`0007_b15_development_convergence_guards`, through `mall_migrator`. Prisma
 therefore creates and records `_prisma_migrations` itself; the script never
-inserts or fabricates a migration-history row. The resulting six-row migration
+inserts or fabricates a migration-history row. The resulting seven-row migration
 history is owned by `mall_migrator` and inaccessible to `mall_runtime`. The
 operation can be retried after interruption only in an empty or fully registered
-B13 state. A baseline-only or otherwise partial state is refused for manual
+B15 state. A baseline-only or otherwise partial state is refused for manual
 inspection; the script never resets or overwrites it.
 
 After the first `SUPER_ADMIN` exists and the legal retention period has external
@@ -90,14 +91,11 @@ provide all three inputs:
 The protected `supabase-development` environment supplies
 `SUPABASE_DIRECT_URL` for `mall_migrator`. The workflow pins and verifies the
 Supabase CA and validates the project-scoped connection and checksum-complete
-migration history, requiring either the exact `0001 -> 0005` predecessor or the idempotent exact
-`0001 -> 0006` target. Only the predecessor runs the B13 migration-time historical
-preflight; an already deployed `0006` skips that one-time predicate and proceeds to
-the no-op deploy plus post-verification, so a later bank-card change cannot invalidate
-an immutable withdrawal snapshot. The deploy also preflights the B9-B12 uniqueness
-and refund envelopes before running `prisma migrate deploy`. Migration `0006` acquires a
-five-second, fail-fast `SHARE` write boundary over every table read by its preflight
-or guarded by its triggers, then repeats those checks transactionally. The workflow
+migration history, requiring either the exact `0001 -> 0006` predecessor or the idempotent exact
+`0001 -> 0007` target. The deploy preflights the B9-B12 uniqueness and refund envelopes
+before running `prisma migrate deploy`; migration `0007` performs its READY-file and
+commission-target historical preflight transactionally under a five-second, fail-fast
+`SHARE` write boundary. The workflow
 reconciles function privileges and finally uses read-only checks for exact history,
 permissions, native object fingerprints, and Prisma drift. A successful run publishes
 an attestation bound to the exact main SHA and Supabase project reference. The
@@ -105,7 +103,7 @@ rollback-only smoke requires that attestation from a successful migration run cr
 before the smoke run; dispatch the smoke only after migration completes. Both workflows
 share one database concurrency group, so they cannot execute concurrently.
 
-Pause development writers before dispatching `0006`; the short lock timeout is an
+Pause development writers before dispatching `0007`; the short lock timeout is an
 intentional fail-closed control, not an online-migration retry loop. If deploy fails,
 inspect the exact `_prisma_migrations` row and database error before using the
 approved Prisma recovery procedure. Do not blindly rerun the workflow or edit

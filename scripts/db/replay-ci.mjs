@@ -2238,6 +2238,10 @@ try {
   }
   verifyB13MigrationFailurePaths(replay, migratorConnection);
 
+  runPsql(migratorConnection, ["-f", "prisma/migrations/0006_b13_agent_finance_guards/migration.sql"]);
+  resolveAppliedMigration(migratorConnection, migratorUrl.toString(), "0006_b13_agent_finance_guards");
+  verifyB13ChecksumTamperGate(replay);
+
   const deploy = prismaInvocation([
     "migrate",
     "deploy",
@@ -2253,7 +2257,6 @@ try {
 
   runPsql(replay, ["-f", "scripts/db/sql/post-bootstrap.sql"]);
   runPsql(replay, ["-At", "-f", "scripts/db/sql/verify.sql"]);
-  verifyB13ChecksumTamperGate(replay);
   verifyB9IndexPlans(migratorConnection);
   verifyB10IndexPlans(migratorConnection);
   verifyB10CommissionPositionRuntime(replay);

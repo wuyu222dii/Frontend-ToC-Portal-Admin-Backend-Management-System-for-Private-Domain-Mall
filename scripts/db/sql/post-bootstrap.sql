@@ -65,7 +65,13 @@ BEGIN
       AND rolled_back_at IS NULL
   ) <> 1 OR (
     SELECT count(*) FROM public."_prisma_migrations"
-  ) <> 6 OR EXISTS (
+    WHERE migration_name = '0007_b15_development_convergence_guards'
+      AND checksum = 'f4c0b4888b5734e7a99fe947fb9d42c18916c4b8f3947d9626b02420d5e7764a'
+      AND finished_at IS NOT NULL
+      AND rolled_back_at IS NULL
+  ) <> 1 OR (
+    SELECT count(*) FROM public."_prisma_migrations"
+  ) <> 7 OR EXISTS (
     SELECT 1 FROM public."_prisma_migrations"
     WHERE finished_at IS NULL
       OR rolled_back_at IS NOT NULL
@@ -75,10 +81,11 @@ BEGIN
         '0003_b10_payment_fact_indexes',
         '0004_b10_commission_position_trigger_fix',
         '0005_b12_aftersale_refund_guards',
-        '0006_b13_agent_finance_guards'
+        '0006_b13_agent_finance_guards',
+        '0007_b15_development_convergence_guards'
       )
   ) THEN
-    RAISE EXCEPTION 'Prisma migration history is not the exact completed B13 migration chain';
+    RAISE EXCEPTION 'Prisma migration history is not the exact completed B15 migration chain';
   END IF;
   IF (
     SELECT pg_get_userbyid(relowner)

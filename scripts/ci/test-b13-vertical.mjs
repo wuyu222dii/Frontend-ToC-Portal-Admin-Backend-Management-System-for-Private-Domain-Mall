@@ -306,6 +306,8 @@ async function seedFixture(createDatabaseRuntime, AdminAuthRepository, hashPassw
           rule_version_id: fixture.commissionRuleId,
           target_id: null,
           target_key: 'PLATFORM',
+          target_name_snapshot: '平台默认',
+          target_name_snapshot_source: 'PUBLISH_CAPTURED',
           target_type: 'PLATFORM',
         },
       });

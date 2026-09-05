@@ -1,6 +1,6 @@
 # 技术设计交付索引
 
-> 当前产品/API 基线为 MVP/PRD `v2.4.13`、CH-032，OpenAPI 为 `2.4.13-ch032`；数据库修复 CH-023 继续有效。B14 development `GO` 的最终同 SHA migration/smoke 证据保持，CH-031 已失效；B15.0 治理、契约与 generated contracts 已完成并暂停复审。六项既有 P2 在后续实现闭合前继续阻断 staging、production、真实数据和真实资金。
+> 当前产品/API 基线为 MVP/PRD `v2.4.13`、CH-032，OpenAPI 为 `2.4.13-ch032`；数据库修复 CH-023 继续有效。B14 development `GO` 的最终同 SHA migration/smoke 证据保持，CH-031 已失效；B15.1 的 `0007`、READY 文件回收与佣金名称快照底座已完成并暂停复审。其余 P2 在后续实现闭合前继续阻断 staging、production、真实数据和真实资金。
 
 | 文件 | 用途 |
 |---|---|
@@ -16,6 +16,7 @@
 | `migrations/0004_b10_commission_position_trigger_fix/migration.sql` | CH-023 前向函数修复：移除佣金 position 触发器不必要的 `FOR SHARE`，保持 SECURITY INVOKER 和最小权限；不修改 0001-0003 |
 | `migrations/0005_b12_aftersale_refund_guards/migration.sql` | CH-026 前向退款防护：修复不可变验货读取锁权限，增加每退款活动/成功 attempt 唯一索引及可延迟来源包络/金额约束；不修改 0001-0004 |
 | `migrations/0006_b13_agent_finance_guards/migration.sql` | CH-028 前向代理与资金防护：只增加历史预检、闭合 CHECK、条件唯一索引和 SECURITY INVOKER 触发器，保护代理角色、邀请/推广/归属生命周期、佣金引用、银行卡快照与提现包络；不增加表或枚举，不修改 0001-0005 |
+| `migrations/0007_b15_development_convergence_guards/migration.sql` | CH-032 前向 development 收敛：预检 READY 完成事件与佣金目标，增加完成事件唯一索引、佣金目标名快照列/约束及文件关联竞态守卫；不增加表或枚举，不修改 0001-0006 |
 | `../05-开发管理/B14-总部经营看板与销售分析闭环.md` | CH-030/031、B14.0-B14.3 串行范围、退出条件与边界 |
 | `../05-开发管理/B15-development可靠性与P2收敛.md` | CH-032/033、B15.0-B15.4 串行范围、六项 P2 与退出条件 |
 | `../05-开发管理/B4-商品与SKU.md` | B4.0 至 B4.4 串行批次、准入门禁、验收与回退边界 |

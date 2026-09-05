@@ -32,7 +32,7 @@ BEGIN
     AND pg_get_userbyid(c.relowner) = 'mall_migrator'
     AND c.relname <> '_prisma_migrations'
     AND i.indpred IS NOT NULL;
-  IF actual <> 23 THEN RAISE EXCEPTION 'expected 23 partial indexes, found %', actual; END IF;
+  IF actual <> 24 THEN RAISE EXCEPTION 'expected 24 partial indexes, found %', actual; END IF;
 
   IF NOT EXISTS (
     SELECT 1
@@ -147,6 +147,23 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'B13 withdrawal ledger lifecycle uniqueness index is missing or malformed';
   END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_index i
+    JOIN pg_class c ON c.oid = i.indrelid
+    JOIN pg_class ic ON ic.oid = i.indexrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = 'outbox_event'
+      AND ic.relname = 'uq_file_staging_cleanup_event_per_file'
+      AND i.indisunique
+      AND i.indnatts = 1
+      AND pg_get_indexdef(i.indexrelid, 1, true) = 'aggregate_id'
+      AND pg_get_expr(i.indpred, i.indrelid) =
+        '(((aggregate_type)::text = ''file''::text) AND ((event_type)::text = ''file.staging_cleanup_requested''::text))'
+  ) THEN
+    RAISE EXCEPTION 'B15 file completion-event uniqueness index is missing or malformed';
+  END IF;
 
   SELECT count(*) INTO actual
   FROM pg_constraint c
@@ -155,7 +172,7 @@ BEGIN
   WHERE n.nspname = 'public' AND c.contype = 'c'
     AND pg_get_userbyid(r.relowner) = 'mall_migrator'
     AND r.relname <> '_prisma_migrations';
-  IF actual <> 175 THEN RAISE EXCEPTION 'expected 175 CHECK constraints, found %', actual; END IF;
+  IF actual <> 177 THEN RAISE EXCEPTION 'expected 177 CHECK constraints, found %', actual; END IF;
   SELECT count(*) INTO actual
   FROM pg_constraint c
   JOIN pg_class r ON r.oid = c.conrelid
@@ -257,8 +274,8 @@ BEGIN
   JOIN pg_namespace n ON n.oid = p.pronamespace
   JOIN pg_language l ON l.oid = p.prolang
   WHERE n.nspname = 'public' AND pg_get_userbyid(p.proowner) = 'mall_migrator';
-  IF actual_hash <> 'af58e950c026d83e837f87edbef2f314' THEN
-    RAISE EXCEPTION 'application function definitions differ from the frozen B13 baseline: %', actual_hash;
+  IF actual_hash <> '7968b7aebda1d696ece364ec6a6ec26f' THEN
+    RAISE EXCEPTION 'application function definitions differ from the frozen B15 baseline: %', actual_hash;
   END IF;
 
   IF NOT EXISTS (
@@ -303,6 +320,31 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'refund envelope function is not the B12 SECURITY INVOKER definition';
   END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname = 'guard_commission_rule_entry'
+      AND pg_get_function_identity_arguments(p.oid) = ''
+      AND NOT p.prosecdef
+      AND position('PUBLISH_CAPTURED' IN upper(p.prosrc)) > 0
+      AND position('FOR SHARE' IN upper(p.prosrc)) > 0
+  ) THEN
+    RAISE EXCEPTION 'commission rule entry guard is not the B15 SECURITY INVOKER definition';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname = 'assert_file_attachment'
+      AND pg_get_function_identity_arguments(p.oid) = ''
+      AND NOT p.prosecdef
+      AND position('FOR SHARE' IN upper(p.prosrc)) > 0
+  ) THEN
+    RAISE EXCEPTION 'file attachment guard is not the B15 SECURITY INVOKER definition';
+  END IF;
 
   SELECT md5(string_agg(concat_ws(E'\x1f',
     c.relname,
@@ -343,7 +385,7 @@ BEGIN
   JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public' AND k.contype = 'c'
     AND pg_get_userbyid(c.relowner) = 'mall_migrator';
-  IF actual_hash <> 'aa50500fa26840d5728dedae27b5c9b1' THEN
+  IF actual_hash <> '1f180c00b757b152a6ee9b02c198610d' THEN
     RAISE EXCEPTION 'application CHECK definitions differ from the frozen baseline: %', actual_hash;
   END IF;
 
@@ -364,7 +406,7 @@ BEGIN
   JOIN pg_namespace n ON n.oid = c.relnamespace
   WHERE n.nspname = 'public' AND i.indpred IS NOT NULL
     AND pg_get_userbyid(c.relowner) = 'mall_migrator';
-  IF actual_hash <> 'e0fdfdd16fcbb5640ce584f3a9981ceb' THEN
+  IF actual_hash <> '10aae0ee114d0039426bf6736e568b1a' THEN
     RAISE EXCEPTION 'partial-index definitions differ from the frozen baseline: %', actual_hash;
   END IF;
   IF EXISTS (
@@ -512,7 +554,13 @@ BEGIN
       AND rolled_back_at IS NULL
   ) <> 1 OR (
     SELECT count(*) FROM public._prisma_migrations
-  ) <> 6 OR EXISTS (
+    WHERE migration_name = '0007_b15_development_convergence_guards'
+      AND checksum = 'f4c0b4888b5734e7a99fe947fb9d42c18916c4b8f3947d9626b02420d5e7764a'
+      AND finished_at IS NOT NULL
+      AND rolled_back_at IS NULL
+  ) <> 1 OR (
+    SELECT count(*) FROM public._prisma_migrations
+  ) <> 7 OR EXISTS (
     SELECT 1 FROM public._prisma_migrations
     WHERE finished_at IS NULL
       OR rolled_back_at IS NOT NULL
@@ -522,10 +570,11 @@ BEGIN
         '0003_b10_payment_fact_indexes',
         '0004_b10_commission_position_trigger_fix',
         '0005_b12_aftersale_refund_guards',
-        '0006_b13_agent_finance_guards'
+        '0006_b13_agent_finance_guards',
+        '0007_b15_development_convergence_guards'
       )
   ) THEN
-    RAISE EXCEPTION 'expected the exact completed 0001 -> 0002 -> 0003 -> 0004 -> 0005 -> 0006 B13 migration history';
+    RAISE EXCEPTION 'expected the exact completed 0001 -> 0002 -> 0003 -> 0004 -> 0005 -> 0006 -> 0007 B15 migration history';
   END IF;
   IF has_table_privilege('mall_runtime', 'public._prisma_migrations', 'SELECT')
     OR has_table_privilege('mall_runtime', 'public._prisma_migrations', 'INSERT')
@@ -817,8 +866,8 @@ END $$;
 SELECT json_build_object(
   'tables', 76,
   'enums', 59,
-  'partial_indexes', 23,
-  'check_constraints', 175,
+  'partial_indexes', 24,
+  'check_constraints', 177,
   'rls_tables', 76,
   'runtime_policies', 76,
   'runtime_policy_shape_verified', true,

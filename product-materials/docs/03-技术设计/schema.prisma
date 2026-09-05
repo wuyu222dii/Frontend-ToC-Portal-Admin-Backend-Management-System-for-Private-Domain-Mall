@@ -1978,13 +1978,15 @@ model CommissionRuleVersion {
 }
 
 model CommissionRuleEntry {
-  id              String               @id @db.Char(26)
-  rule_version_id String               @db.Char(26)
-  target_type     CommissionTargetType
-  target_id       String?              @db.Char(26)
-  target_key      String               @db.VarChar(80)
-  configured_rate Decimal              @db.Decimal(7, 4)
-  created_at      DateTime             @default(now()) @db.Timestamptz(3)
+  id                          String               @id @db.Char(26)
+  rule_version_id             String               @db.Char(26)
+  target_type                 CommissionTargetType
+  target_id                   String?              @db.Char(26)
+  target_key                  String               @db.VarChar(80)
+  target_name_snapshot        String               @db.VarChar(300)
+  target_name_snapshot_source String               @db.VarChar(30)
+  configured_rate             Decimal              @db.Decimal(7, 4)
+  created_at                  DateTime             @default(now()) @db.Timestamptz(3)
 
   rule_version CommissionRuleVersion @relation(fields: [rule_version_id], references: [id])
 

@@ -5,7 +5,7 @@ const artifacts = [
   {
     frozen: "product-materials/docs/03-技术设计/schema.prisma",
     formal: "prisma/schema.prisma",
-    sha256: "b691934957a712d93f3411ee21370e8a1aabdba4330425bda8b09e93794683c2",
+    sha256: "65715c5fe852bbe78b376897da9e6e114e1e5d714667e2a5bd07d990b683979f",
   },
   {
     frozen: "product-materials/docs/03-技术设计/migrations/0001_initial/migration.sql",
@@ -36,6 +36,11 @@ const artifacts = [
     frozen: "product-materials/docs/03-技术设计/migrations/0006_b13_agent_finance_guards/migration.sql",
     formal: "prisma/migrations/0006_b13_agent_finance_guards/migration.sql",
     sha256: "355311f6a5091f03bcb879f927ca78c984ec2cb26efb7f14bb4133161ccc2ea0",
+  },
+  {
+    frozen: "product-materials/docs/03-技术设计/migrations/0007_b15_development_convergence_guards/migration.sql",
+    formal: "prisma/migrations/0007_b15_development_convergence_guards/migration.sql",
+    sha256: "f4c0b4888b5734e7a99fe947fb9d42c18916c4b8f3947d9626b02420d5e7764a",
   },
 ];
 

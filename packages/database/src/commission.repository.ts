@@ -399,6 +399,11 @@ interface TargetRow {
   id: string;
 }
 
+interface RuleTargetNameRow {
+  target_id: string;
+  target_name: string;
+}
+
 interface WalletWindowRow {
   agent_id: string;
   available_balance_after: Prisma.Decimal;
@@ -1358,6 +1363,47 @@ export class CommissionRepository {
     return { categories, skus };
   }
 
+  private async readTargetNameSnapshots(
+    transaction: DatabaseTransaction,
+    values: ReadonlyMap<string, RuleValue>,
+  ): Promise<Map<string, string>> {
+    const categoryIds = [...values.values()].flatMap(({ targetId, targetType }) =>
+      targetType === 'CATEGORY' && targetId !== null ? [targetId] : []).sort();
+    const skuIds = [...values.values()].flatMap(({ targetId, targetType }) =>
+      targetType === 'SKU' && targetId !== null ? [targetId] : []).sort();
+    const categories = categoryIds.length === 0 ? [] : await transaction.$queryRaw<RuleTargetNameRow[]>(Prisma.sql`
+      SELECT id AS target_id, name AS target_name
+      FROM public.category
+      WHERE id IN (${Prisma.join(categoryIds, ', ')})
+      ORDER BY id ASC
+      FOR SHARE
+    `);
+    const skus = skuIds.length === 0 ? [] : await transaction.$queryRaw<RuleTargetNameRow[]>(Prisma.sql`
+      SELECT s.id AS target_id, p.name || ' / ' || s.code AS target_name
+      FROM public.sku s
+      JOIN public.product p ON p.id = s.product_id
+      WHERE s.id IN (${Prisma.join(skuIds, ', ')})
+      ORDER BY s.id ASC
+      FOR SHARE OF s, p
+    `);
+    if (categories.length !== categoryIds.length ||
+      categories.some((row, index) => row.target_id !== categoryIds[index]) ||
+      skus.length !== skuIds.length || skus.some((row, index) => row.target_id !== skuIds[index])) {
+      throw internal('Commission rule target name snapshot cannot be resolved');
+    }
+    const snapshots = new Map<string, string>([['PLATFORM', '平台默认']]);
+    for (const row of categories) {
+      snapshots.set(`CATEGORY:${row.target_id}`, storedText(row.target_name, 300, 'Commission category target name'));
+    }
+    for (const row of skus) {
+      snapshots.set(`SKU:${row.target_id}`, storedText(row.target_name, 300, 'Commission SKU target name'));
+    }
+    if ([...values.keys()].some((key) => !snapshots.has(key))) {
+      throw internal('Commission rule target name snapshot is incomplete');
+    }
+    return snapshots;
+  }
+
   private async readHistory(transaction: DatabaseTransaction, lock: boolean): Promise<RuleRecord[]> {
     let lockedIds: string[] | null = null;
     if (lock) {
@@ -1443,6 +1489,7 @@ export class CommissionRepository {
     await hooks.verifyPreview(preview);
     const facts = historyFacts(records);
     const nextValues = applyChanges(facts.currentValues, normalized.changes);
+    const targetNames = await this.readTargetNameSnapshots(transaction, nextValues);
     const occurredAt = await this.transactionTime(transaction);
     const nextVersionNo = facts.maxVersionNo + 1;
     if (nextVersionNo > MAX_POSTGRES_INTEGER) throw internal('Commission rule version is exhausted');
@@ -1462,15 +1509,21 @@ export class CommissionRepository {
     });
     await transaction.commissionRuleEntry.createMany({
       data: [...nextValues.values()].sort((left, right) => left.targetKey.localeCompare(right.targetKey))
-        .map((entry) => ({
-          configured_rate: entry.rate,
-          created_at: occurredAt,
-          id: generateUlid(occurredAt.getTime()),
-          rule_version_id: versionId,
-          target_id: entry.targetId,
-          target_key: entry.targetKey,
-          target_type: entry.targetType,
-        })),
+        .map((entry) => {
+          const targetName = targetNames.get(entry.targetKey);
+          if (targetName === undefined) throw internal('Commission rule target name snapshot is missing');
+          return {
+            configured_rate: entry.rate,
+            created_at: occurredAt,
+            id: generateUlid(occurredAt.getTime()),
+            rule_version_id: versionId,
+            target_id: entry.targetId,
+            target_key: entry.targetKey,
+            target_name_snapshot: targetName,
+            target_name_snapshot_source: 'PUBLISH_CAPTURED',
+            target_type: entry.targetType,
+          };
+        }),
     });
     if (facts.current !== null) {
       const archived = await transaction.commissionRuleVersion.updateMany({

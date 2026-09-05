@@ -17,7 +17,8 @@ function prismaExecutable() {
   return resolve(repositoryRoot, 'node_modules/.bin', executable);
 }
 
-async function runPrisma(schemaPath) {
+async function runPrisma(schemaPath, remainingSignalRetries = 1) {
+  await rm(outputPath, { force: true, recursive: true });
   await new Promise((resolvePromise, reject) => {
     const child = spawn(prismaExecutable(), ['generate', '--schema', schemaPath], {
       cwd: temporaryDirectory,
@@ -28,6 +29,11 @@ async function runPrisma(schemaPath) {
     child.once('exit', (code, signal) => {
       if (code === 0) {
         resolvePromise();
+        return;
+      }
+      if (signal === 'SIGILL' && remainingSignalRetries > 0) {
+        process.stderr.write('prisma generate exited with SIGILL; retrying once\n');
+        resolvePromise(runPrisma(schemaPath, remainingSignalRetries - 1));
         return;
       }
       reject(new Error(`prisma generate failed (${signal ?? `exit ${String(code)}`})`));
@@ -58,7 +64,6 @@ try {
     throw new Error('Derived Prisma schema changed content outside the client generator block');
   }
   await writeFile(temporarySchemaPath, generatedSchema, { encoding: 'utf8', flag: 'wx' });
-  await rm(outputPath, { force: true, recursive: true });
   await runPrisma(temporarySchemaPath);
 } finally {
   await rm(temporaryDirectory, { force: true, recursive: true });

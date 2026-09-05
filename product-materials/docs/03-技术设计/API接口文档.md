@@ -4,11 +4,11 @@
 
 | 项目 | 内容 |
 |---|---|
-| 文档版本 | v2.4.11 |
-| 对应产品基线 | MVP/PRD v2.4.11、CH-001 至 CH-028；在线接口以 CH-028 为准 |
-| 接口阶段 | B0-B12 development 已完成并维持 `GO`。CH-028 已批准；OpenAPI 基线为 `2.4.11-ch028`，本地实测 `173 paths / 198 operations / 198 unique operationId / 330 schemas / 725 schema refs / 2,770 local refs / 0 dangling refs`，Redocly 0 warning，generated contracts SHA-256 为 `b44fb82d4fe5fbdda2ca151d48eb10ef7346a746529c882cbd3a162bcd7b4393`，完整 manifest SHA-256 仍为 `128509f76f2e62ebe78cd0465205a94236f87f70904bf614664dd1b02548dc80`。B13.0 最终 SHA `250f4c8fabb08e170c012889c392461794ed8875` 的普通 CI `33615918343`、development migration `33618959837` 与 rollback-only smoke `33619152221` 已按顺序同 SHA 三绿，B13.0 已退出。B13.1 于 2026-09-03 最终 SHA `a565a3c406ad2f1af498f9f58b556315d30262d6` 的普通 CI `33704252016`、development migration `33706364405` 与 rollback-only smoke `33706498758` 同 SHA 三绿，B13.1 已退出。B13.2 最终 SHA `8df89b98f8b243e36c3bf8bf86b95a8e9d418acd` 的普通 CI `33718349743`、development migration `33721734961` 与 rollback-only smoke `33722097476` 已按顺序同 SHA 三绿并退出；B13.3 最终 SHA `3707c67c7dc1b21de796f41ccf7b811556bbc47f` 的普通 CI `33731197140`、development migration `33734111086` 与 rollback-only smoke `33734431011` 已按顺序同 SHA 三绿并退出；B13.4-B13.6 均已分别取得各自同 SHA 三绿并退出；B13.7 最终 SHA `ff656e815b89f5b001865b062e88f18cc63d469c` 的普通 CI `33855776072`、development migration `33858793448` 与 rollback-only smoke `33858955679` 已按顺序同 SHA 三绿并退出；B13.8 本地候选与复审已完成（`P0=0/P1=0`），正在等待最终 SHA 三门禁，B13.9 尚未准入；B13.1-B13.6 后端业务 operation 已实现；B13.7 Agent Web 已随最终 SHA 三门禁退出，B13 development 未标记 `GO`。B12 orphan `P2=1` 继续阻断 staging/真实数据；真实客户数据、staging、production、真实微信退款与真实物流集成均为 `NO-GO` |
+| 文档版本 | v2.4.12 |
+| 对应产品基线 | MVP/PRD v2.4.12、CH-001 至 CH-030；在线接口以 CH-030 为准 |
+| 接口阶段 | B13 development `GO`。B14.0 将 OpenAPI 升级为 `2.4.12-ch030`，仅修正既有 5 个 Admin Analytics GET 契约并保持 `173 paths / 198 operations` 与全部 operationId；B14.1 业务实现尚未准入。B12 orphan 与 B13 已登记 P2 继续阻断 staging、production、真实数据和真实资金。 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
-| 更新时间 | 2026-09-04 |
+| 更新时间 | 2026-09-05 |
 
 ## 1. 设计目标
 
@@ -615,7 +615,7 @@ CH-023 不修改上述 API 或事务语义。它只新增 `0004_b10_commission_p
 
 所有签发 access/refresh、临时改密受限 token、管理员 pre-auth/reauth grant 的成功响应，以及新建代理的临时密码与初始邀请码、重置密码临时值，都必须返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；一次性值不写入幂等响应体、日志、审计前后值或追踪系统。
 
-B13.1 已实现上表 7 个认证接口。`/agent/**` 只接受独立 Agent realm：`aud=qingxu-agent-web`、`role=AGENT_ADMIN`、`assurance=PASSWORD`；临时密码会话固定 `CHANGE_PASSWORD_ONLY` 且无 refresh。密码变更、refresh 轮换/旧 token replay、当前会话/全部会话撤销、停用代理与登录限流/账号枚举均已回归。创建代理与重置密码仅在首次响应披露秘密；同幂等键重放只返回脱敏资源和重新签发指引，不持久化或再次披露明文。B13.1 最终 SHA `a565a3c406ad2f1af498f9f58b556315d30262d6` 同 SHA 三绿并已退出；B13.2 最终 SHA `8df89b98f8b243e36c3bf8bf86b95a8e9d418acd` 的普通 CI `33718349743`、development migration `33721734961` 与 rollback-only smoke `33722097476` 已按顺序同 SHA 三绿并退出；B13.3 最终 SHA `3707c67c7dc1b21de796f41ccf7b811556bbc47f` 的普通 CI `33731197140`、development migration `33734111086` 与 rollback-only smoke `33734431011` 已按顺序同 SHA 三绿并退出；B13.4-B13.6 均已分别取得各自同 SHA 三绿并退出；B13.7 最终 SHA `ff656e815b89f5b001865b062e88f18cc63d469c` 的普通 CI `33855776072`、development migration `33858793448` 与 rollback-only smoke `33858955679` 已按顺序同 SHA 三绿并退出；B13.8 本地候选与复审已完成（`P0=0/P1=0`），正在等待最终 SHA 三门禁，B13.9 尚未准入。
+B13.1 已实现上表 7 个认证接口。`/agent/**` 只接受独立 Agent realm：`aud=qingxu-agent-web`、`role=AGENT_ADMIN`、`assurance=PASSWORD`；临时密码会话固定 `CHANGE_PASSWORD_ONLY` 且无 refresh。密码变更、refresh 轮换/旧 token replay、当前会话/全部会话撤销、停用代理与登录限流/账号枚举均已回归。创建代理与重置密码仅在首次响应披露秘密；同幂等键重放只返回脱敏资源和重新签发指引，不持久化或再次披露明文。B13.1-B13.8 的历史分批退出事实继续有效；B13 最终 SHA `250cbb824ad11f4b0e11338c19494655ec384ff6` 的 development migration `33952031401` 与随后 rollback-only smoke `33952283771` 同 SHA、依次成功，B13 development `GO`，CH-029 已失效。
 
 创建推广素材时保存目标与授权事实。商品被移出白名单后禁止创建新素材，并使既有商品素材失去新归因资格；商城主页素材仍按代理和邀请码状态判断。
 
@@ -663,13 +663,13 @@ TOTP enroll 中的 `otpauth_uri`、enroll verify/恢复码轮换中的一次性 
 
 HR-15 预览只提交 `reason/reset_password/reset_totp`，不得提交 TOTP、恢复码或其他 credential；确认请求才在相同业务字段和预览确认字段之外携带 `credential_type=TOTP|RECOVERY_CODE` 与 `credential`，并原子验证/消费。凭据不进入 preview request hash、影响摘要、幂等响应体或日志。密码和 TOTP 均丢失时不开放 HTTP 接口：首个管理员 bootstrap CLI 仅创建密码主体，不预生成或预验证 TOTP；首次登录使用 enrollment-required pre-auth 现场绑定。双人审批恢复由受控 CLI 执行，至少两名不同且非目标的在职 SUPER_ADMIN 批准，执行记录凭据指纹、撤销目标全部会话并写审计。
 
-总部看板使用 `AdminDashboardResponse`，明确返回全店 `today/month/total` 金额与订单、`customer_total_snapshot/new_registration_count/new_binding_count/active_agent_count`、待办和商品排行，并携带 `timezone/as_of`；它与代理 `AgentDashboardResponse` 互不复用。四类报表统一接受 `timezone`（首期仅 `Asia/Shanghai`）、`date_from/date_to` 和 `scope`；`scope=AGENT` 时 `agent_id` 必填，月报另接受 `month_from/month_to`，排行接受 `page/page_size`。四类响应不共用通配行：
+总部看板使用 `AdminDashboardResponse`，明确返回全店今日、本月、累计净销售额、本月代理渠道净销售额、今日创建/有效支付订单、客户、代理、待办和本月商品排行，并携带 `timezone/as_of`；它与代理 `AgentDashboardResponse` 互不复用。日报使用 `date_from/date_to`，月报只使用 `month_from/month_to`，商品和客户排行使用日期范围；起止边界必须成对传入或同时省略，且起始值不得晚于结束值，四类均支持 `page/page_size`，时间固定 `Asia/Shanghai`。`scope=AGENT` 且省略 `agent_id` 表示全部代理渠道，传入时限定指定代理；`GLOBAL/DIRECT` 禁止携带 `agent_id`。日报默认今日，月报默认当前月，排行默认本月首日至今日；未来范围拒绝，日期范围最多 366 天、月范围最多 60 个月。五个成功响应均明确 `no-store, private`，四类报表固定 `data_freshness=REALTIME` 并使用各自闭合行结构：
 
 ```json
 {
   "timezone": "Asia/Shanghai",
   "as_of": "2026-08-11T05:00:00Z",
-  "data_freshness": "REBUILT",
+  "data_freshness": "REALTIME",
   "rows": [
     {
       "business_date": "2026-08-11",
@@ -836,7 +836,7 @@ CH-026 下所有 Admin 售后/退款写操作使用 `HASH_ONLY`；已有售后�
 
 启停代理必须返回受影响的有效绑定数、待确认候选数和待付款候选订单数供前端二次确认。停用使新登录、新绑定和支付时新归因失效，但不修改已支付佣金快照。
 
-B13.1 已交付 `GET/POST /admin/agents`、`GET/PATCH /admin/agents/{agent_id}`、停用 status-change preview/confirm、reactivate 和 password-reset preview/confirm；B13.2 最终 SHA `8df89b98f8b243e36c3bf8bf86b95a8e9d418acd` 的普通 CI `33718349743`、development migration `33721734961` 与 rollback-only smoke `33722097476` 已按顺序同 SHA 三绿并退出；B13.3 最终 SHA `3707c67c7dc1b21de796f41ccf7b811556bbc47f` 的普通 CI `33731197140`、development migration `33734111086` 与 rollback-only smoke `33734431011` 已按顺序同 SHA 三绿并退出；B13.4-B13.6 均已分别取得各自同 SHA 三绿并退出；B13.7 最终 SHA `ff656e815b89f5b001865b062e88f18cc63d469c` 的普通 CI `33855776072`、development migration `33858793448` 与 rollback-only smoke `33858955679` 已按顺序同 SHA 三绿并退出；B13.8 本地候选与复审已完成（`P0=0/P1=0`），正在等待最终 SHA 三门禁，B13.9 尚未准入，本节佣金与钱包接口已完成本地候选，仍须等待同 SHA 三门禁。status/password preview 中的动态影响数量仅是预览时点估算，不纳入确认身份；confirm 仍绑定稳定的 actor/session/action/target/request/version，并在共享 Agent 锁内以当前事实重验。因此数量漂移要求管理员根据新投影重新判断，不得把旧数量当作停用或重置的授权事实。
+B13.1 已交付 `GET/POST /admin/agents`、`GET/PATCH /admin/agents/{agent_id}`、停用 status-change preview/confirm、reactivate 和 password-reset preview/confirm；后续代理经营、佣金与钱包接口均已随 B13 完成退出。B13 最终 SHA `250cbb824ad11f4b0e11338c19494655ec384ff6` 的 development migration `33952031401` 与随后 rollback-only smoke `33952283771` 同 SHA、依次成功，B13 development `GO`，CH-029 已失效。status/password preview 中的动态影响数量仅是预览时点估算，不纳入确认身份；confirm 仍绑定稳定的 actor/session/action/target/request/version，并在共享 Agent 锁内以当前事实重验。因此数量漂移要求管理员根据新投影重新判断，不得把旧数量当作停用或重置的授权事实。
 
 ### 6.5 佣金规则
 

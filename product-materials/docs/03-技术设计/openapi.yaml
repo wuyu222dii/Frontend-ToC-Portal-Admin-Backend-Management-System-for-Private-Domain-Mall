@@ -1,8 +1,8 @@
 openapi: "3.1.0"
 info:
   title: "洗化产品私域商城 API"
-  version: "2.4.11-ch028"
-  description: "CH-028 单一线协议，继承 CH-006、CH-008、CH-010、CH-012、CH-014、CH-016、CH-018、CH-020、CH-022、CH-024 与 CH-026，并准入 B13 一级代理经营与资金闭环的契约、配置和数据库防护基础。B13.0 只闭合 Agent 独立认证 realm、当前代理 DTO、已上架授权商品查询、敏感一次性披露状态、银行卡哈希密钥配置与前向 0006 防护迁移；B13 业务路由、真实资金、staging 和 production 继续不开放；所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
+  version: "2.4.12-ch030"
+  description: "CH-030 单一线协议，继承 CH-006、CH-008、CH-010、CH-012、CH-014、CH-016、CH-018、CH-020、CH-022、CH-024、CH-026 与 CH-028；B13 一级代理经营与资金闭环已取得 development GO，CH-029 已失效，现准入 B14 ADM-02 总部经营看板与固定销售分析。B14.0 仅修正既有五个 Admin operation 的范围、日期、实时口径和看板响应字段，不新增 path、operation 或 schema；真实资金、真实客户数据、staging 和 production 继续不开放；所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
   license:
     name: "Proprietary"
     identifier: "LicenseRef-Proprietary"
@@ -4459,6 +4459,11 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -4502,7 +4507,7 @@ paths:
           schema:
             type: "string"
             format: "date"
-          description: "Asia/Shanghai 自然日；date_to 包含当日"
+          description: "Asia/Shanghai 自然日；必须与 date_to 成对传入或同时省略，同时省略时默认今日；date_from 不得晚于 date_to，且二者不得晚于今日；闭合范围最多 366 天"
         -
           name: "date_to"
           in: "query"
@@ -4510,7 +4515,7 @@ paths:
           schema:
             type: "string"
             format: "date"
-          description: "Asia/Shanghai 自然日；date_to 包含当日"
+          description: "Asia/Shanghai 自然日，包含当日；必须与 date_from 成对传入或同时省略，同时省略时默认今日；date_from 不得晚于 date_to，且二者不得晚于今日；闭合范围最多 366 天"
         -
           name: "scope"
           in: "query"
@@ -4521,7 +4526,7 @@ paths:
               - "GLOBAL"
               - "DIRECT"
               - "AGENT"
-          description: "默认 GLOBAL；AGENT 时 agent_id 必填"
+          description: "默认 GLOBAL；AGENT 不传 agent_id 时汇总全部代理渠道，传入时仅统计指定代理；GLOBAL/DIRECT 禁止传 agent_id"
         -
           name: "agent_id"
           in: "query"
@@ -4529,10 +4534,15 @@ paths:
           schema:
             type: "string"
             minLength: 1
-          description: "scope=AGENT 时必填"
+          description: "仅 scope=AGENT 可传；省略表示全部代理渠道，传入表示指定代理；GLOBAL/DIRECT 禁止传入"
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -4570,22 +4580,6 @@ paths:
         -
           "$ref": "#/components/parameters/Timezone"
         -
-          name: "date_from"
-          in: "query"
-          required: false
-          schema:
-            type: "string"
-            format: "date"
-          description: "Asia/Shanghai 自然日；date_to 包含当日"
-        -
-          name: "date_to"
-          in: "query"
-          required: false
-          schema:
-            type: "string"
-            format: "date"
-          description: "Asia/Shanghai 自然日；date_to 包含当日"
-        -
           name: "scope"
           in: "query"
           required: false
@@ -4595,7 +4589,7 @@ paths:
               - "GLOBAL"
               - "DIRECT"
               - "AGENT"
-          description: "默认 GLOBAL；AGENT 时 agent_id 必填"
+          description: "默认 GLOBAL；AGENT 不传 agent_id 时汇总全部代理渠道，传入时仅统计指定代理；GLOBAL/DIRECT 禁止传 agent_id"
         -
           name: "agent_id"
           in: "query"
@@ -4603,7 +4597,7 @@ paths:
           schema:
             type: "string"
             minLength: 1
-          description: "scope=AGENT 时必填"
+          description: "仅 scope=AGENT 可传；省略表示全部代理渠道，传入表示指定代理；GLOBAL/DIRECT 禁止传入"
         -
           name: "month_from"
           in: "query"
@@ -4611,7 +4605,7 @@ paths:
           schema:
             type: "string"
             pattern: "^[0-9]{4}-(?:0[1-9]|1[0-2])$"
-          description: "起始业务月"
+          description: "Asia/Shanghai 起始业务月；必须与 month_to 成对传入或同时省略，同时省略时默认当前月；month_from 不得晚于 month_to，且二者不得晚于当前月；闭合范围最多 60 个自然月"
         -
           name: "month_to"
           in: "query"
@@ -4619,10 +4613,15 @@ paths:
           schema:
             type: "string"
             pattern: "^[0-9]{4}-(?:0[1-9]|1[0-2])$"
-          description: "结束业务月，包含当月"
+          description: "Asia/Shanghai 结束业务月，包含当月；必须与 month_from 成对传入或同时省略，同时省略时默认当前月；month_from 不得晚于 month_to，且二者不得晚于当前月；闭合范围最多 60 个自然月"
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -4666,7 +4665,7 @@ paths:
           schema:
             type: "string"
             format: "date"
-          description: "Asia/Shanghai 自然日；date_to 包含当日"
+          description: "Asia/Shanghai 自然日；必须与 date_to 成对传入或同时省略，同时省略时默认本月首日至今日；date_from 不得晚于 date_to，且二者不得晚于今日；闭合范围最多 366 天"
         -
           name: "date_to"
           in: "query"
@@ -4674,7 +4673,7 @@ paths:
           schema:
             type: "string"
             format: "date"
-          description: "Asia/Shanghai 自然日；date_to 包含当日"
+          description: "Asia/Shanghai 自然日，包含当日；必须与 date_from 成对传入或同时省略，同时省略时默认本月首日至今日；date_from 不得晚于 date_to，且二者不得晚于今日；闭合范围最多 366 天"
         -
           name: "scope"
           in: "query"
@@ -4685,7 +4684,7 @@ paths:
               - "GLOBAL"
               - "DIRECT"
               - "AGENT"
-          description: "默认 GLOBAL；AGENT 时 agent_id 必填"
+          description: "默认 GLOBAL；AGENT 不传 agent_id 时汇总全部代理渠道，传入时仅统计指定代理；GLOBAL/DIRECT 禁止传 agent_id"
         -
           name: "agent_id"
           in: "query"
@@ -4693,10 +4692,15 @@ paths:
           schema:
             type: "string"
             minLength: 1
-          description: "scope=AGENT 时必填"
+          description: "仅 scope=AGENT 可传；省略表示全部代理渠道，传入表示指定代理；GLOBAL/DIRECT 禁止传入"
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -4740,7 +4744,7 @@ paths:
           schema:
             type: "string"
             format: "date"
-          description: "Asia/Shanghai 自然日；date_to 包含当日"
+          description: "Asia/Shanghai 自然日；必须与 date_to 成对传入或同时省略，同时省略时默认本月首日至今日；date_from 不得晚于 date_to，且二者不得晚于今日；闭合范围最多 366 天"
         -
           name: "date_to"
           in: "query"
@@ -4748,7 +4752,7 @@ paths:
           schema:
             type: "string"
             format: "date"
-          description: "Asia/Shanghai 自然日；date_to 包含当日"
+          description: "Asia/Shanghai 自然日，包含当日；必须与 date_from 成对传入或同时省略，同时省略时默认本月首日至今日；date_from 不得晚于 date_to，且二者不得晚于今日；闭合范围最多 366 天"
         -
           name: "scope"
           in: "query"
@@ -4759,7 +4763,7 @@ paths:
               - "GLOBAL"
               - "DIRECT"
               - "AGENT"
-          description: "默认 GLOBAL；AGENT 时 agent_id 必填"
+          description: "默认 GLOBAL；AGENT 不传 agent_id 时汇总全部代理渠道，传入时仅统计指定代理；GLOBAL/DIRECT 禁止传 agent_id"
         -
           name: "agent_id"
           in: "query"
@@ -4767,10 +4771,15 @@ paths:
           schema:
             type: "string"
             minLength: 1
-          description: "scope=AGENT 时必填"
+          description: "仅 scope=AGENT 可传；省略表示全部代理渠道，传入表示指定代理；GLOBAL/DIRECT 禁止传入"
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/AdminCacheControlNoStoreRequired"
+            Pragma:
+              "$ref": "#/components/headers/AdminPragmaNoCacheRequired"
           content:
             application/json:
               schema:
@@ -20610,6 +20619,7 @@ components:
             - "as_of"
             - "data_freshness"
             - "scope"
+            - "agent_id"
             - "rows"
             - "pagination"
           properties:
@@ -20619,10 +20629,7 @@ components:
               type: "string"
               format: "date-time"
             data_freshness:
-              type: "string"
-              enum:
-                - "REALTIME"
-                - "REBUILT"
+              const: "REALTIME"
             scope:
               type: "string"
               enum:
@@ -20678,6 +20685,7 @@ components:
             - "as_of"
             - "data_freshness"
             - "scope"
+            - "agent_id"
             - "rows"
             - "pagination"
           properties:
@@ -20687,10 +20695,7 @@ components:
               type: "string"
               format: "date-time"
             data_freshness:
-              type: "string"
-              enum:
-                - "REALTIME"
-                - "REBUILT"
+              const: "REALTIME"
             scope:
               type: "string"
               enum:
@@ -20746,6 +20751,7 @@ components:
             - "as_of"
             - "data_freshness"
             - "scope"
+            - "agent_id"
             - "rows"
             - "pagination"
           properties:
@@ -20755,10 +20761,7 @@ components:
               type: "string"
               format: "date-time"
             data_freshness:
-              type: "string"
-              enum:
-                - "REALTIME"
-                - "REBUILT"
+              const: "REALTIME"
             scope:
               type: "string"
               enum:
@@ -20814,6 +20817,7 @@ components:
             - "as_of"
             - "data_freshness"
             - "scope"
+            - "agent_id"
             - "rows"
             - "pagination"
           properties:
@@ -20823,10 +20827,7 @@ components:
               type: "string"
               format: "date-time"
             data_freshness:
-              type: "string"
-              enum:
-                - "REALTIME"
-                - "REBUILT"
+              const: "REALTIME"
             scope:
               type: "string"
               enum:
@@ -21117,8 +21118,10 @@ components:
             - "as_of"
             - "today_sales_amount"
             - "month_sales_amount"
+            - "month_agent_net_sales_amount"
             - "total_sales_amount"
-            - "today_order_count"
+            - "today_created_order_count"
+            - "today_effective_paid_order_count"
             - "customer_total_snapshot"
             - "new_registration_count"
             - "new_binding_count"
@@ -21133,30 +21136,47 @@ components:
               format: "date-time"
             today_sales_amount:
               "$ref": "#/components/schemas/SignedMoney"
+              description: "今日净销售额。"
             month_sales_amount:
               "$ref": "#/components/schemas/SignedMoney"
+              description: "本月净销售额。"
+            month_agent_net_sales_amount:
+              "$ref": "#/components/schemas/SignedMoney"
+              description: "本月全部代理渠道净销售额。"
             total_sales_amount:
               "$ref": "#/components/schemas/SignedMoney"
-            today_order_count:
+              description: "累计净销售额。"
+            today_created_order_count:
               type: "integer"
               minimum: 0
+              description: "created_at 落入今日 Asia/Shanghai 自然日的全部去重订单数，包含待付款和已关闭订单。"
+            today_effective_paid_order_count:
+              type: "integer"
+              minimum: 0
+              description: "今日首次支付成功且截至 as_of 剩余实付金额大于零的去重订单数。"
             customer_total_snapshot:
               type: "integer"
               minimum: 0
+              description: "截至 as_of 当前未注销消费者总数。"
             new_registration_count:
               type: "integer"
               minimum: 0
+              description: "今日首次注册数；后续注销不回写历史。"
             new_binding_count:
               type: "integer"
               minimum: 0
+              description: "本月首次形成有效代理绑定的消费者数。"
             active_agent_count:
               type: "integer"
               minimum: 0
+              description: "截至 as_of 当前为 ACTIVE 且本月存在成功归属支付的代理去重数。"
             pending_withdrawal_count:
               type: "integer"
               minimum: 0
+              description: "截至 as_of 待总部审核的提现申请数。"
             product_ranking:
               type: "array"
+              description: "本月商品净销量排行，按 net_units 降序、sku_id 升序稳定收口。"
               items:
                 "$ref": "#/components/schemas/ProductRankingRow"
         request_id:

@@ -2,7 +2,7 @@
 
 本目录集中管理三端商城的需求、方案、技术、风控、开发文档和可点击原型。
 
-当前交付状态：B0 至 B12 development 均已通过。B11 历史批次与最终双绿证据继续保留；B12 最终 SHA `8c3589afcf7bb0dd5a4b8711d418e4c61b1ad09c` 的[普通 CI Run `33592754575`](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33592754575)与[Supabase development rollback-only smoke Run `33594513127`](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/33594513127)均成功且 head SHA 相同，B12 development `GO`，CH-027 已自动失效。B13.0 最终 SHA `250f4c8fabb08e170c012889c392461794ed8875` 的普通 CI `33615918343`、development migration `33618959837` 与 rollback-only smoke `33619152221` 已按顺序同 SHA 三绿，B13.0 已退出。B13.1 于 2026-09-03 最终 SHA `a565a3c406ad2f1af498f9f58b556315d30262d6` 的普通 CI `33704252016`、development migration `33706364405` 与 rollback-only smoke `33706498758` 已按顺序同 SHA 三绿，B13.1 已退出，B13.2 最终 SHA `8df89b98f8b243e36c3bf8bf86b95a8e9d418acd` 的普通 CI `33718349743`、development migration `33721734961` 与 rollback-only smoke `33722097476` 已按顺序同 SHA 三绿并退出；B13.3 最终 SHA `3707c67c7dc1b21de796f41ccf7b811556bbc47f` 的普通 CI `33731197140`、development migration `33734111086` 与 rollback-only smoke `33734431011` 已按顺序同 SHA 三绿并退出；B13.4-B13.6 均已分别取得各自同 SHA 三绿并退出；B13.7 最终 SHA `ff656e815b89f5b001865b062e88f18cc63d469c` 的普通 CI `33855776072`、development migration `33858793448` 与 rollback-only smoke `33858955679` 已按顺序同 SHA 三绿并退出；B13.8 最终 SHA `b0968b2171317175f214c925c1a71f0ba543813d` 的普通 CI `33925520023`、development migration `33927951946` 与 rollback-only smoke `33928204571` 已按顺序同 SHA 三绿并退出；B13.9 本地实现候选已形成，待真实纵向、全仓回归、最终复审及同 SHA 远端双绿后退出，B13 development 仍未标记 `GO`。当前契约基线保持 `v2.4.11 / CH-028`、OpenAPI `2.4.11-ch028`；CH-029 仅覆盖 B13.1-B13.9 脱敏 development。B12 orphan `P2=1` 仍阻断 staging/真实数据；第三方物流、自动确认、多包裹、真实支付/退款、真实客户数据、staging 和 production 继续 `NO-GO`。
+当前交付状态：B0 至 B13 development 均已通过。B13 最终 SHA `250cbb824ad11f4b0e11338c19494655ec384ff6` 的 development migration Run `33952031401` 与 rollback-only smoke Run `33952283771` 同 SHA、依次成功；B13 development `GO`，CH-029 已失效。B14.0 已准入，当前基线为 `v2.4.12 / CH-030`、OpenAPI `2.4.12-ch030`；CH-031 仅适用于 B14.1-B14.3 单维护者脱敏 development。既有 P2 继续阻断 staging、production、真实客户数据与真实资金。
 
 > 2026-09-05 起取消 GitHub 普通 CI；远端测试仅保留手动 Supabase rollback-only smoke，历史 CI Run 记录继续保留。
 
@@ -33,4 +33,5 @@
 - [B11 订单履约与物流](docs/05-开发管理/B11-订单履约与物流.md)
 - [B12 售后验货与普通退款](docs/05-开发管理/B12-售后验货与普通退款.md)
 - [B13 一级代理经营与资金闭环](docs/05-开发管理/B13-一级代理经营与资金闭环.md)
+- [B14 总部经营看板与销售分析闭环](docs/05-开发管理/B14-总部经营看板与销售分析闭环.md)
 - [三端可点击原型](prototype/README.md)

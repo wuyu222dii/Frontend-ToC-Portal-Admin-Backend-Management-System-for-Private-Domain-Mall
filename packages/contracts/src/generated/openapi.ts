@@ -6641,11 +6641,11 @@ export interface components {
                 timezone: "Asia/Shanghai";
                 /** Format: date-time */
                 as_of: string;
-                /** @enum {string} */
-                data_freshness: "REALTIME" | "REBUILT";
+                /** @constant */
+                data_freshness: "REALTIME";
                 /** @enum {string} */
                 scope: "GLOBAL" | "DIRECT" | "AGENT";
-                agent_id?: string | null;
+                agent_id: string | null;
                 rows: components["schemas"]["DailySalesRow"][];
                 pagination: {
                     page: number;
@@ -6665,11 +6665,11 @@ export interface components {
                 timezone: "Asia/Shanghai";
                 /** Format: date-time */
                 as_of: string;
-                /** @enum {string} */
-                data_freshness: "REALTIME" | "REBUILT";
+                /** @constant */
+                data_freshness: "REALTIME";
                 /** @enum {string} */
                 scope: "GLOBAL" | "DIRECT" | "AGENT";
-                agent_id?: string | null;
+                agent_id: string | null;
                 rows: components["schemas"]["MonthlySalesRow"][];
                 pagination: {
                     page: number;
@@ -6689,11 +6689,11 @@ export interface components {
                 timezone: "Asia/Shanghai";
                 /** Format: date-time */
                 as_of: string;
-                /** @enum {string} */
-                data_freshness: "REALTIME" | "REBUILT";
+                /** @constant */
+                data_freshness: "REALTIME";
                 /** @enum {string} */
                 scope: "GLOBAL" | "DIRECT" | "AGENT";
-                agent_id?: string | null;
+                agent_id: string | null;
                 rows: components["schemas"]["ProductRankingRow"][];
                 pagination: {
                     page: number;
@@ -6713,11 +6713,11 @@ export interface components {
                 timezone: "Asia/Shanghai";
                 /** Format: date-time */
                 as_of: string;
-                /** @enum {string} */
-                data_freshness: "REALTIME" | "REBUILT";
+                /** @constant */
+                data_freshness: "REALTIME";
                 /** @enum {string} */
                 scope: "GLOBAL" | "DIRECT" | "AGENT";
-                agent_id?: string | null;
+                agent_id: string | null;
                 rows: components["schemas"]["CustomerRankingRow"][];
                 pagination: {
                     page: number;
@@ -6845,15 +6845,29 @@ export interface components {
                 timezone: "Asia/Shanghai";
                 /** Format: date-time */
                 as_of: string;
+                /** @description 今日净销售额。 */
                 today_sales_amount: components["schemas"]["SignedMoney"];
+                /** @description 本月净销售额。 */
                 month_sales_amount: components["schemas"]["SignedMoney"];
+                /** @description 本月全部代理渠道净销售额。 */
+                month_agent_net_sales_amount: components["schemas"]["SignedMoney"];
+                /** @description 累计净销售额。 */
                 total_sales_amount: components["schemas"]["SignedMoney"];
-                today_order_count: number;
+                /** @description created_at 落入今日 Asia/Shanghai 自然日的全部去重订单数，包含待付款和已关闭订单。 */
+                today_created_order_count: number;
+                /** @description 今日首次支付成功且截至 as_of 剩余实付金额大于零的去重订单数。 */
+                today_effective_paid_order_count: number;
+                /** @description 截至 as_of 当前未注销消费者总数。 */
                 customer_total_snapshot: number;
+                /** @description 今日首次注册数；后续注销不回写历史。 */
                 new_registration_count: number;
+                /** @description 本月首次形成有效代理绑定的消费者数。 */
                 new_binding_count: number;
+                /** @description 截至 as_of 当前为 ACTIVE 且本月存在成功归属支付的代理去重数。 */
                 active_agent_count: number;
+                /** @description 截至 as_of 待总部审核的提现申请数。 */
                 pending_withdrawal_count: number;
+                /** @description 本月商品净销量排行，按 net_units 降序、sku_id 升序稳定收口。 */
                 product_ranking: components["schemas"]["ProductRankingRow"][];
             };
             request_id: string;
@@ -11183,6 +11197,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -11205,13 +11221,13 @@ export interface operations {
                 page?: components["parameters"]["Page"];
                 page_size?: components["parameters"]["PageSize"];
                 timezone?: components["parameters"]["Timezone"];
-                /** @description Asia/Shanghai 自然日；date_to 包含当日 */
+                /** @description Asia/Shanghai 自然日；必须与 date_to 成对传入或同时省略，同时省略时默认今日；date_from 不得晚于 date_to，且二者不得晚于今日；闭合范围最多 366 天 */
                 date_from?: string;
-                /** @description Asia/Shanghai 自然日；date_to 包含当日 */
+                /** @description Asia/Shanghai 自然日，包含当日；必须与 date_from 成对传入或同时省略，同时省略时默认今日；date_from 不得晚于 date_to，且二者不得晚于今日；闭合范围最多 366 天 */
                 date_to?: string;
-                /** @description 默认 GLOBAL；AGENT 时 agent_id 必填 */
+                /** @description 默认 GLOBAL；AGENT 不传 agent_id 时汇总全部代理渠道，传入时仅统计指定代理；GLOBAL/DIRECT 禁止传 agent_id */
                 scope?: "GLOBAL" | "DIRECT" | "AGENT";
-                /** @description scope=AGENT 时必填 */
+                /** @description 仅 scope=AGENT 可传；省略表示全部代理渠道，传入表示指定代理；GLOBAL/DIRECT 禁止传入 */
                 agent_id?: string;
             };
             header?: never;
@@ -11223,6 +11239,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -11245,17 +11263,13 @@ export interface operations {
                 page?: components["parameters"]["Page"];
                 page_size?: components["parameters"]["PageSize"];
                 timezone?: components["parameters"]["Timezone"];
-                /** @description Asia/Shanghai 自然日；date_to 包含当日 */
-                date_from?: string;
-                /** @description Asia/Shanghai 自然日；date_to 包含当日 */
-                date_to?: string;
-                /** @description 默认 GLOBAL；AGENT 时 agent_id 必填 */
+                /** @description 默认 GLOBAL；AGENT 不传 agent_id 时汇总全部代理渠道，传入时仅统计指定代理；GLOBAL/DIRECT 禁止传 agent_id */
                 scope?: "GLOBAL" | "DIRECT" | "AGENT";
-                /** @description scope=AGENT 时必填 */
+                /** @description 仅 scope=AGENT 可传；省略表示全部代理渠道，传入表示指定代理；GLOBAL/DIRECT 禁止传入 */
                 agent_id?: string;
-                /** @description 起始业务月 */
+                /** @description Asia/Shanghai 起始业务月；必须与 month_to 成对传入或同时省略，同时省略时默认当前月；month_from 不得晚于 month_to，且二者不得晚于当前月；闭合范围最多 60 个自然月 */
                 month_from?: string;
-                /** @description 结束业务月，包含当月 */
+                /** @description Asia/Shanghai 结束业务月，包含当月；必须与 month_from 成对传入或同时省略，同时省略时默认当前月；month_from 不得晚于 month_to，且二者不得晚于当前月；闭合范围最多 60 个自然月 */
                 month_to?: string;
             };
             header?: never;
@@ -11267,6 +11281,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -11289,13 +11305,13 @@ export interface operations {
                 page?: components["parameters"]["Page"];
                 page_size?: components["parameters"]["PageSize"];
                 timezone?: components["parameters"]["Timezone"];
-                /** @description Asia/Shanghai 自然日；date_to 包含当日 */
+                /** @description Asia/Shanghai 自然日；必须与 date_to 成对传入或同时省略，同时省略时默认本月首日至今日；date_from 不得晚于 date_to，且二者不得晚于今日；闭合范围最多 366 天 */
                 date_from?: string;
-                /** @description Asia/Shanghai 自然日；date_to 包含当日 */
+                /** @description Asia/Shanghai 自然日，包含当日；必须与 date_from 成对传入或同时省略，同时省略时默认本月首日至今日；date_from 不得晚于 date_to，且二者不得晚于今日；闭合范围最多 366 天 */
                 date_to?: string;
-                /** @description 默认 GLOBAL；AGENT 时 agent_id 必填 */
+                /** @description 默认 GLOBAL；AGENT 不传 agent_id 时汇总全部代理渠道，传入时仅统计指定代理；GLOBAL/DIRECT 禁止传 agent_id */
                 scope?: "GLOBAL" | "DIRECT" | "AGENT";
-                /** @description scope=AGENT 时必填 */
+                /** @description 仅 scope=AGENT 可传；省略表示全部代理渠道，传入表示指定代理；GLOBAL/DIRECT 禁止传入 */
                 agent_id?: string;
             };
             header?: never;
@@ -11307,6 +11323,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {
@@ -11329,13 +11347,13 @@ export interface operations {
                 page?: components["parameters"]["Page"];
                 page_size?: components["parameters"]["PageSize"];
                 timezone?: components["parameters"]["Timezone"];
-                /** @description Asia/Shanghai 自然日；date_to 包含当日 */
+                /** @description Asia/Shanghai 自然日；必须与 date_to 成对传入或同时省略，同时省略时默认本月首日至今日；date_from 不得晚于 date_to，且二者不得晚于今日；闭合范围最多 366 天 */
                 date_from?: string;
-                /** @description Asia/Shanghai 自然日；date_to 包含当日 */
+                /** @description Asia/Shanghai 自然日，包含当日；必须与 date_from 成对传入或同时省略，同时省略时默认本月首日至今日；date_from 不得晚于 date_to，且二者不得晚于今日；闭合范围最多 366 天 */
                 date_to?: string;
-                /** @description 默认 GLOBAL；AGENT 时 agent_id 必填 */
+                /** @description 默认 GLOBAL；AGENT 不传 agent_id 时汇总全部代理渠道，传入时仅统计指定代理；GLOBAL/DIRECT 禁止传 agent_id */
                 scope?: "GLOBAL" | "DIRECT" | "AGENT";
-                /** @description scope=AGENT 时必填 */
+                /** @description 仅 scope=AGENT 可传；省略表示全部代理渠道，传入表示指定代理；GLOBAL/DIRECT 禁止传入 */
                 agent_id?: string;
             };
             header?: never;
@@ -11347,6 +11365,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["AdminCacheControlNoStoreRequired"];
+                    Pragma: components["headers"]["AdminPragmaNoCacheRequired"];
                     [name: string]: unknown;
                 };
                 content: {

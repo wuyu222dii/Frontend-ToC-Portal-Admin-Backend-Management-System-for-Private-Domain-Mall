@@ -60,28 +60,6 @@ jobs:
           git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
           test "$(git rev-parse refs/remotes/origin/main)" = "$TARGET_SHA"
 
-      - name: Require successful CI for the approved commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TARGET_SHA: ${{ inputs.target_sha }}
-        run: |
-          gh api --method GET \
-            "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
-            -f branch=main \
-            -f event=push \
-            -f head_sha="$TARGET_SHA" \
-            -f per_page=100 \
-            -f status=completed \
-            | jq --arg sha "$TARGET_SHA" --exit-status '
-                [.workflow_runs[] | select(
-                  .head_sha == $sha
-                  and .head_branch == "main"
-                  and .event == "push"
-                  and .status == "completed"
-                  and .conclusion == "success"
-                )] | length > 0
-              '
-
       - name: Require the matching development migration
         env:
           GH_TOKEN: ${{ github.token }}

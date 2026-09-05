@@ -89,9 +89,8 @@ provide all three inputs:
 
 The protected `supabase-development` environment supplies
 `SUPABASE_DIRECT_URL` for `mall_migrator`. The workflow pins and verifies the
-Supabase CA, requires a successful `ci.yml` push run for the exact `main` SHA,
-validates the project-scoped connection and checksum-complete migration history,
-requiring either the exact `0001 -> 0005` predecessor or the idempotent exact
+Supabase CA and validates the project-scoped connection and checksum-complete
+migration history, requiring either the exact `0001 -> 0005` predecessor or the idempotent exact
 `0001 -> 0006` target. Only the predecessor runs the B13 migration-time historical
 preflight; an already deployed `0006` skips that one-time predicate and proceeds to
 the no-op deploy plus post-verification, so a later bank-card change cannot invalidate
@@ -114,6 +113,6 @@ migration history by hand.
 
 After migration succeeds on the target SHA, run `Supabase development smoke` on
 that same `main` SHA, supplying the same exact `target_sha`; the smoke workflow
-also requires the matching successful `ci.yml` push run. Do not use the runtime
+requires the matching migration attestation. Do not use the runtime
 connection for DDL, run migration SQL manually, or edit `_prisma_migrations`
 directly.

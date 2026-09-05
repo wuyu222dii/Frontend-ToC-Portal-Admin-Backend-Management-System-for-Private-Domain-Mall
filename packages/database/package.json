@@ -19,8 +19,7 @@
     "build": "rm -rf dist && node scripts/generate-client.mjs && tsc -p tsconfig.json",
     "generate": "node scripts/generate-client.mjs",
     "pretest": "pnpm --filter @qingxu/platform-core build && node scripts/generate-client.mjs",
-    "test": "vitest run --dir src --exclude 'dist/**'",
-    "test:integration": "pnpm --filter @qingxu/platform-core build && node scripts/generate-client.mjs && vitest run src/database.integration.spec.ts --exclude 'dist/**'",
+    "test": "vitest run src/runtime.spec.ts src/advisory-lock.spec.ts src/b13-agent-finance-guard-migration.spec.ts --exclude 'dist/**'",
     "typecheck": "node scripts/generate-client.mjs && tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

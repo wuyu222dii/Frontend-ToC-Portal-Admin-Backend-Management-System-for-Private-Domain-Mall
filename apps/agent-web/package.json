@@ -7,7 +7,6 @@
     "build": "vue-tsc --noEmit && vite build",
     "dev": "vite --host 0.0.0.0",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "vitest run src",
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {

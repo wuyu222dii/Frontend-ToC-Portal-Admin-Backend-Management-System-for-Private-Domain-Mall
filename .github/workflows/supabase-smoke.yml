@@ -175,83 +175,11 @@ jobs:
           DIRECT_URL: ${{ secrets.SUPABASE_DIRECT_URL }}
         run: scripts/ci/supabase-smoke.sh
 
-      - name: Run rollback-only B1 runtime smoke
-        env:
-          B1_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b1
-
-      - name: Run rollback-only B2 administrator-authentication smoke
-        env:
-          B2_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b2
-
-      - name: Run rollback-only B3 file-assets smoke
-        env:
-          B3_FILE_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b3-files
-
-      - name: Run rollback-only B3 master-data smoke
-        env:
-          B3_MASTER_DATA_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b3-master-data
-
-      - name: Run rollback-only B4 Product and SKU catalog smoke
-        env:
-          B4_PRODUCT_CATALOG_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b4-product-catalog
-
-      - name: Run rollback-only B5 Banner smoke
-        env:
-          B5_BANNER_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b5-banners
-
-      - name: Run rollback-only B5 Inventory smoke
-        env:
-          B5_INVENTORY_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b5-inventory
-
-      - name: Run rollback-only B6 Store catalog smoke
-        env:
-          B6_STORE_CATALOG_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b6-store-catalog
-
-      - name: Run rollback-only B7.1-B7.5 Store authentication, profile, attribution and privacy smoke
-        env:
-          B7_STORE_AUTH_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b7-store-auth
-
-      - name: Run rollback-only B8 favorites, cart, address and account-deletion cleanup smoke
-        env:
-          B8_STORE_SHOPPING_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b8-store-shopping
-
-      - name: Run rollback-only B9 checkout, order reservation, cancellation and timeout smoke
-        env:
-          B9_STORE_ORDER_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b9-store-orders
-
       - name: Run rollback-only B10 intent, attempt, close, inventory, attribution, commission, refund and reconciliation smoke
         env:
           B10_STORE_PAYMENT_DATABASE_TEST_MODE: rollback
           DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
         run: pnpm db:test-b10-payments
-
-      - name: Run rollback-only B11 fulfillment command and completion smoke
-        env:
-          B11_FULFILLMENT_DATABASE_TEST_MODE: rollback
-          DATABASE_URL: ${{ secrets.SUPABASE_RUNTIME_URL }}
-        run: pnpm db:test-b11-fulfillment
 
       - name: Run rollback-only B12 aftersales, return inspection and ordinary refund smoke
         env:

@@ -17,36 +17,10 @@ const syntheticPrototypePhoneFiles = new Set([
   "product-materials/prototype/verify-prototype.cjs",
 ]);
 const syntheticPhoneFixtures = new Map([
-  ["apps/api/src/admin-agents/admin-agents.dto.spec.ts", new Set(["13900001234"])],
-  ["apps/api/src/admin-agents/admin-agents.routes.e2e.spec.ts", new Set(["13812345678"])],
   ["apps/api/src/agent-auth/agent-auth.integration.spec.ts", new Set(["13800138000"])],
   ["apps/api/src/platform/security/agent-security.spec.ts", new Set(["13900001234"])],
-  ["apps/api/src/store-address/store-address.dto.spec.ts", new Set(["13800000000"])],
-  ["apps/api/src/store-address/store-address.routes.e2e.spec.ts", new Set(["13800000000"])],
-  ["apps/api/src/store-address/store-address.service.spec.ts", new Set(["13800006821"])],
-  ["apps/api/src/store-profile/store-phone-provider.spec.ts", new Set(["13800000000"])],
-  ["apps/api/src/store-profile/store-profile.dto.spec.ts", new Set(["13800000000"])],
-  ["apps/api/src/store-profile/store-profile.integration.spec.ts", new Set([
-    "13800006820",
-    "13800006821",
-    "13900007932",
-  ])],
-  ["apps/api/src/store-profile/store-profile.routes.e2e.spec.ts", new Set(["13800000000"])],
-  ["apps/api/src/store-profile/store-profile.service.spec.ts", new Set(["13812345678"])],
-  ["packages/database/src/store-profile.repository.spec.ts", new Set([
-    "13800138000",
-    "13900139000",
-  ])],
-  ["packages/platform-core/test/store-phone.test.ts", new Set([
-    "13800006821",
-    "13900006821",
-  ])],
-  ["packages/platform-core/test/store-address.test.ts", new Set(["13800006821"])],
 ]);
 const syntheticBankAccountFixtures = new Map([
-  ["apps/api/src/agent-operations/agent-finance.service.spec.ts", new Set(["1234567890123456"])],
-  ["apps/api/src/agent-operations/agent-operations.controller.spec.ts", new Set(["6222020012345678"])],
-  ["apps/api/src/agent-operations/agent-operations.dto.spec.ts", new Set(["1234567890123456"])],
   ["apps/api/src/platform/security/bank-account-security.spec.ts", new Set(["1234567890123456"])],
   ["packages/database/src/agent-finance.integration.spec.ts", new Set([
     "1234567890123456",
@@ -54,45 +28,6 @@ const syntheticBankAccountFixtures = new Map([
   ])],
 ]);
 const exactSyntheticSecrets = new Map([
-  ["apps/api/src/admin-auth/admin-auth.controller.spec.ts", new Set([
-    "password: '12345678'",
-    "password: 'password123'",
-  ])],
-  ["apps/api/src/agent-auth/agent-auth.controller.spec.ts", new Set([
-    "password: 'temporary-password'",
-    "current_password: 'temporary-password'",
-    "new_password: 'new-secure-password'",
-  ])],
-  ["apps/api/src/agent-auth/agent-auth.dto.spec.ts", new Set([
-    "password: 'temporary-password'",
-    "current_password: 'temporary-password'",
-    "new_password: 'new-secure-password'",
-    "password: 'password'",
-    "current_password: 'current-password'",
-  ])],
-  ["apps/api/src/agent-auth/agent-auth.routes.e2e.spec.ts", new Set([
-    "password: 'temporary-password-1'",
-    "current_password: 'temporary-password-1'",
-    "new_password: 'temporary-password-1'",
-    "new_password: 'new-password-123'",
-    "current_password: 'current-password-1'",
-  ])],
-  ["apps/api/src/agent-auth/agent-auth.service.spec.ts", new Set([
-    "NEW_PASSWORD = 'new-secure-password'",
-  ])],
-  ["apps/api/src/admin-auth/admin-auth.integration.spec.ts", new Set([
-    "password: 'B2-invalid-password'",
-  ])],
-  ["apps/api/src/admin-auth/admin-auth.routes.e2e.spec.ts", new Set([
-    "password: 'password123'",
-    "new_password: 'new-password-123'",
-  ])],
-  ["apps/api/src/platform/http/access-log.middleware.spec.ts", new Set([
-    "password: 'should-not-be-logged'",
-  ])],
-  ["apps/worker/src/outbox-dispatcher.service.spec.ts", new Set([
-    "secret: 'payload-must-not-be-logged'",
-  ])],
   ["packages/platform-core/test/admin-auth-primitives.test.ts", new Set([
     "password = 'local-test-password-only'",
   ])],
@@ -103,9 +38,6 @@ const exactSyntheticSecrets = new Map([
     "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIwMUhGN1lBVDAwIn0.signature-value",
     "password: 'never-log-this'",
     "secret: 'secret-value'",
-  ])],
-  ["tests/e2e/b2-admin-auth.spec.ts", new Set([
-    "otpauth://totp/Qingxu:admin.operator?secret=RUNTIMEONLY&issuer=Qingxu",
   ])],
 ]);
 const rules = [

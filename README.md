@@ -47,28 +47,23 @@ pnpm dev:agent
 pnpm dev:admin
 pnpm dev:api
 pnpm dev:worker
-pnpm e2e:b3 # B3.3 总部后台五视口与异常路径 E2E
-pnpm e2e:b4 # B4 ADM-03/04 五视口与异常路径 E2E
-pnpm e2e:b5 # B5 ADM-07/08 五视口与异常路径 E2E
-pnpm e2e:b13 # B13 Agent 与 Admin 工作台五视口与异常路径 E2E
 pnpm admin:bootstrap # 受控创建首个 SUPER_ADMIN；读取 TTY 或 0600 密码文件
 pnpm admin:bootstrap-business-rules # 受控创建唯一首版经营规则
 pnpm contracts:lint
-pnpm contracts:check
 pnpm prisma:validate
 pnpm db:migrate:baseline # CI 临时空库专用
 pnpm db:supabase:bootstrap # 受控的 Supabase 首次初始化
-pnpm db:test-b3-master-data # B3.2 数据库 full/rollback 门禁
-pnpm db:test-b3-catalog-api # B3.2 真实 Nest + PostgreSQL + Redis 纵向门禁
-pnpm db:test-b5-inventory # B5.2 Inventory 数据库/API full/rollback 门禁
-pnpm db:test-b7-store-auth # B7.1-B7.4 Store 身份/profile/归因/privacy full/rollback 门禁
-pnpm db:test-b13-agent # B13.1 Agent 生命周期/认证 PostgreSQL + Redis full/rollback 门禁
+pnpm db:test-permissions # 数据库权限与故障注入门禁
+pnpm db:test-b10-payments # 支付、结算、佣金与迟到退款门禁
+pnpm db:test-b12-aftersales # 售后、验货与退款门禁
+pnpm db:test-b13-agent # Agent 认证、经营、佣金与提现门禁
+pnpm e2e:b13:vertical # Admin、Agent、Store 三端真实基础设施纵向门禁
 pnpm db:diff
 ```
 
 B7.2 账户手机号 HMAC 轮换是受控维护操作，不是日常启动命令。先排空所有仍持有旧 current key 的 API 写实例，并以 `mall_migrator` 连接一次性注入 `STORE_PHONE_HASH_DRAIN_OLD_WRITERS_APPROVAL=DRAIN_OLD_STORE_PHONE_HASH_WRITERS_APPROVED`，运行 `pnpm store:phone-hash:rehash`。重算成功后从配置移除 previous key，再以相同一次性审批运行 `pnpm store:phone-hash:verify`；current-only 验证成功前不得销毁旧密钥。审批变量不得写入 `.env` 或长期 Secret。
 
-`pnpm e2e:b4:vertical`、`pnpm db:test-b4-product-catalog` 与 `pnpm db:test-b5-inventory` 不是日常开发命令：full 模式只允许显式 `CI=true`、`NODE_ENV=test` 和一次性回环 PostgreSQL；B5.2 rollback 模式只允许带可信 CA 的受控 Supabase development runtime 连接，并以外层事务归零。禁止指向 Supabase development 日常数据库执行 full 模式。
+数据库与纵向门禁的 full 模式只允许显式 `CI=true`、`NODE_ENV=test` 和一次性本地测试基础设施；rollback 模式只允许带可信 CA 的受控 Supabase development runtime 连接，并以外层事务归零。禁止指向 Supabase development 日常数据库执行 full 模式。
 
 Supabase 项目创建、连接分权和受保护烟测见 [B0 工程与 Supabase](product-materials/docs/05-开发管理/B0-工程与Supabase.md)，公共内核边界见 [B1 平台公共内核](product-materials/docs/05-开发管理/B1-平台公共内核.md)，总部认证实现与安全操作见 [B2 总部安全入口](product-materials/docs/05-开发管理/B2-总部安全入口.md)，B3-B8 历史批次见对应开发记录；B9 的订单与库存预占见 [B9 订单报价与库存预占](product-materials/docs/05-开发管理/B9-订单报价与库存预占.md)，B10 的支付、对账和迟到支付退款见 [B10 支付对账与迟到支付退款](product-materials/docs/05-开发管理/B10-支付对账与迟到支付退款.md)，B11 的准入边界与实施批次见 [B11 订单履约与物流](product-materials/docs/05-开发管理/B11-订单履约与物流.md)，B12 的准入、售后边界和分批计划见 [B12 售后验货与普通退款](product-materials/docs/05-开发管理/B12-售后验货与普通退款.md)，B13 的一级代理经营与资金闭环见 [B13 一级代理经营与资金闭环](product-materials/docs/05-开发管理/B13-一级代理经营与资金闭环.md)。普通 PR 只使用 CI 的临时 PostgreSQL，不读取 Supabase 凭据。
 

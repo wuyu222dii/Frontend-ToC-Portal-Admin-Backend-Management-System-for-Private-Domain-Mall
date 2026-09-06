@@ -8,7 +8,7 @@ B17 以 B16 收口为前置，不新增业务功能、数据库迁移、Worker�
 
 当前代码起点为 `b689efb`，产品/API 基线为 `v2.4.13 / CH-032`。B17.0 完成后，以包含本批代码的精确提交 SHA 作为唯一候选；后续构建、迁移、smoke 和外部复核不得混用其他提交。
 
-B12 的 `READY/PRIVATE` evidence orphan 已在 B15 实现两阶段回收代码：数据库锁内重验无历史、软删除和当前引用，依次执行 `READY -> REJECTED -> 对象删除 -> DELETED`。在一次性脱敏环境完成引用预检、对象删除和零残留证据前，仍视为 staging 硬阻断，不把代码存在误记为证据闭合。
+B12 的 `READY/PRIVATE` evidence orphan 已在 B15 实现两阶段回收代码：数据库锁内重验无历史、软删除和当前引用，依次执行 `READY -> REJECTED -> 对象删除 -> DELETED`。本次已在全新、仅虚构数据的临时 PostgreSQL/Redis/MinIO 环境完成引用保护、删除失败续跑、审计顺序和零残留演练；该证据仍需绑定最终候选 SHA，不能替代独立 staging 项目证据。
 
 ## 2. B16 收口核验
 
@@ -23,7 +23,7 @@ B12 的 `READY/PRIVATE` evidence orphan 已在 B15 实现两阶段回收代码�
 
 | 批次 | 交付内容 | 退出条件 | 状态 |
 |---|---|---|---|
-| B17.0 | B16 证据核验、状态同步、CH-035、候选 SHA 冻结；闭合 B12 orphan | 唯一证据包、历史风险复核、外部复核人确认 | **进行中** |
+| B17.0 | B16 证据核验、状态同步、CH-035、候选 SHA 冻结；闭合 B12 orphan | 唯一证据包、历史风险复核、外部复核人确认 | **orphan 隔离演练完成；候选 SHA/外部复核待执行** |
 | B17.1 | 独立 staging 环境、密钥、数据库角色/RLS、TLS、Data API 和 Mock 配置 | `config:check`、密钥/权限清单和环境隔离均通过 | **代码门禁已实现；现场证据待执行** |
 | B17.2 | clone 项目迁移、PITR/快照、MinIO/Redis 恢复与回滚演练 | 迁移历史、权限、RLS、事实、对象和 `migration diff=0` 一致 | 待执行 |
 | B17.3 | API/Worker 发布、readiness、Admin/Agent/Store 脱敏核心 smoke、依赖故障与清理 | 正常 `200`、依赖异常 `503`、恢复 `200`，无残留/敏感泄露 | 待执行 |
@@ -57,11 +57,18 @@ Mock Provider 仅在 development、test 或通过上述显式确认的 staging �
 
 现场结果统一填写 [B17 staging 证据模板](B17-staging证据模板.md)，不得另建包含原始响应或秘密的附件。
 
+### B17.0 本地隔离 orphan 演练（2026-09-06）
+
+- 迁移链：临时 PostgreSQL 空库 `0001 -> 0007`；不连接 development 或远端项目。
+- 场景：无引用 PRIVATE 文件、当前 BRAND_LOGO 引用、软删除引用仍保护、对象删除失败后从 `REJECTED` 续跑。
+- 结果：`READY -> REJECTED -> 对象删除 -> DELETED`、拒绝审计先于对象删除；3 个虚构文件、6 条审计转换、数据库/对象/Redis 残留均为 `0`。
+- 该结果仅证明代码在脱敏隔离环境的行为，最终仍需用候选 SHA 重做 staging 证据包并由外部复核人签字。
+
 ## 6. 当前 Go/No-Go
 
 | 门禁 | 当前结论 |
 |---|---|
-| B12 orphan 两阶段回收现场证据 | **未提供，阻断** |
+| B12 orphan 两阶段回收现场证据 | **本地隔离演练已通过；候选 SHA 绑定和 staging 证据待执行** |
 | B13/B15 残余 P2 与历史文档一致性 | 代码收敛已记录；外部 staging 复核待执行 |
 | 独立 staging 项目、Secret Manager、TLS、RLS | **未提供，阻断** |
 | clone 恢复、迁移回滚、依赖故障注入 | **未执行，阻断** |

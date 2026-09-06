@@ -573,7 +573,7 @@ export class FileAssetRepository {
           AND payload = jsonb_build_object(
             'event_version', 1,
             'resource_type', 'file',
-            'resource_id', ${input.fileId},
+            'resource_id', ${input.fileId}::text,
             'resource_version', 1
           )
         )::integer AS valid

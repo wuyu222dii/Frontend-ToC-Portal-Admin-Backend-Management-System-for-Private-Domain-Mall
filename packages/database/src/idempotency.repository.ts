@@ -97,6 +97,11 @@ export type IdempotencyResult =
       responseBody: CacheableAgentFinanceResponse;
     })
   | (IdempotencyResultBase & {
+      storage: 'CACHEABLE';
+      policy: 'SECURITY_RESET_RESPONSE';
+      responseBody: CacheableSecurityResetResponse;
+    })
+  | (IdempotencyResultBase & {
       storage: 'HASH_ONLY';
       resourceId?: string;
       responseForHash: unknown;
@@ -350,6 +355,32 @@ export type CacheableAgentFinanceResponse = {
   message: 'success';
   request_id: string;
 } & ({ data: CacheableAgentBankAccountView } | { data: CacheableAgentWithdrawalView });
+
+export interface CacheableSecurityResetResponse {
+  code: 'OK';
+  message: 'success';
+  data: {
+    account_id: string;
+    password_reset: boolean;
+    sessions_revoked_at: string;
+    totp_reset: boolean;
+    version: number;
+  };
+  request_id: string;
+}
+
+export interface CacheableSecurityResetResponse {
+  code: 'OK';
+  message: 'success';
+  data: {
+    account_id: string;
+    password_reset: boolean;
+    sessions_revoked_at: string;
+    totp_reset: boolean;
+    version: number;
+  };
+  request_id: string;
+}
 
 const COMMAND_RESPONSE_TOP_LEVEL_FIELDS = new Set(['code', 'data', 'message', 'request_id']);
 const COMMAND_RESPONSE_DATA_FIELDS = new Set([
@@ -888,6 +919,17 @@ function isCacheableAgentFinanceResponse(value: unknown): value is CacheableAgen
   return isCacheableAgentBankAccountView(value.data) || isCacheableAgentWithdrawalView(value.data);
 }
 
+function isCacheableSecurityResetResponse(value: unknown): value is CacheableSecurityResetResponse {
+  if (!isExactPlainObject(value, CATALOG_RESPONSE_TOP_LEVEL_FIELDS) || value.code !== 'OK' ||
+    value.message !== 'success' || !REQUEST_ID.test(String(value.request_id)) ||
+    !isExactPlainObject(value.data, new Set(['account_id', 'password_reset', 'sessions_revoked_at', 'totp_reset', 'version']))) {
+    return false;
+  }
+  return isValidUlid(value.data.account_id) && typeof value.data.password_reset === 'boolean' &&
+    typeof value.data.totp_reset === 'boolean' && typeof value.data.sessions_revoked_at === 'string' &&
+    ISO_TIMESTAMP.test(value.data.sessions_revoked_at) && isPositiveInteger(value.data.version);
+}
+
 function isCacheableSkuSpec(value: unknown): value is CacheableSkuSpec {
   if (!isExactPlainObject(value, SKU_SPEC_FIELDS) || !Array.isArray(value.attributes) ||
     value.attributes.length === 0) return false;
@@ -977,7 +1019,8 @@ function cacheableResourceId(
   response: CacheableCommandResponse | CacheableFileUploadCompleteResponse |
     CacheableCatalogResourceResponse | CacheableProductCatalogResponse | CacheableBannerResourceResponse |
     CacheableAgentResourceResponse | CacheableAgentProductAuthorizationResponse |
-    CacheableAgentInviteRotateReplay | CacheableAdminCustomerResponse | CacheableAgentFinanceResponse,
+    CacheableAgentInviteRotateReplay | CacheableAdminCustomerResponse | CacheableAgentFinanceResponse |
+    CacheableSecurityResetResponse,
 ): string {
   if (isCacheableCommandResponse(response)) return response.data.resource_id;
   if (isCacheableFileUploadCompleteResponse(response)) return response.data.file_id;
@@ -989,6 +1032,7 @@ function cacheableResourceId(
   if (isCacheableAgentFinanceResponse(response)) {
     return 'bank_account_id' in response.data ? response.data.bank_account_id : response.data.withdrawal_id;
   }
+  if (isCacheableSecurityResetResponse(response)) return response.data.account_id;
   if (isCacheableProductCatalogResponse(response)) {
     return 'product_id' in response.data ? response.data.product_id : response.data.sku_id;
   }
@@ -1064,6 +1108,10 @@ function validateResult(result: IdempotencyResult): void {
       (isCacheableAgentWithdrawalView(result.responseBody.data) && result.responseStatus !== 201))) {
     throw new TypeError('AGENT_FINANCE_RESPONSE uses an invalid response status');
   }
+  if (result.storage === 'CACHEABLE' && result.policy === 'SECURITY_RESET_RESPONSE' &&
+    (result.responseStatus !== 200 || !isCacheableSecurityResetResponse(result.responseBody))) {
+    throw new TypeError('SECURITY_RESET_RESPONSE uses an invalid response');
+  }
   if (result.storage === 'CACHEABLE') {
     if (result.policy === 'COMMAND_RESPONSE') {
       if (!isCacheableCommandResponse(result.responseBody)) {
@@ -1106,6 +1154,10 @@ function validateResult(result: IdempotencyResult): void {
     } else if (result.policy === 'AGENT_FINANCE_RESPONSE') {
       if (!isCacheableAgentFinanceResponse(result.responseBody)) {
         throw new TypeError('Only a valid Agent finance response may use the Agent finance cache policy');
+      }
+    } else if (result.policy === 'SECURITY_RESET_RESPONSE') {
+      if (!isCacheableSecurityResetResponse(result.responseBody)) {
+        throw new TypeError('Only a valid security reset response may use the security reset cache policy');
       }
     } else {
       throw new TypeError('CACHEABLE idempotency policy is not registered');
@@ -1239,10 +1291,11 @@ export class IdempotencyRepository {
     const inviteRotateReplay = isCacheableAgentInviteRotateReplay(response);
     const adminCustomerResponse = isCacheableAdminCustomerResponse(response);
     const agentFinanceResponse = isCacheableAgentFinanceResponse(response);
+    const securityResetResponse = isCacheableSecurityResetResponse(response);
     if (record.response_status < 200 || record.response_status > 299 ||
       (!commandResponse && !fileCompleteResponse && !catalogResponse && !productCatalogResponse && !bannerResponse &&
         !agentResponse && !agentAuthorizationResponse && !inviteRotateReplay && !adminCustomerResponse &&
-        !agentFinanceResponse) ||
+        !agentFinanceResponse && !securityResetResponse) ||
       (fileCompleteResponse && record.response_status !== 200) ||
       (catalogResponse && record.response_status !== 200 && record.response_status !== 201) ||
       (productCatalogResponse && record.response_status !== 200 && record.response_status !== 201) ||
@@ -1253,6 +1306,7 @@ export class IdempotencyRepository {
       (adminCustomerResponse && record.response_status !== 200) ||
       (agentFinanceResponse && isCacheableAgentBankAccountView(response.data) && record.response_status !== 200) ||
       (agentFinanceResponse && isCacheableAgentWithdrawalView(response.data) && record.response_status !== 201) ||
+      (securityResetResponse && record.response_status !== 200) ||
       integrityContext === undefined ||
       record.resource_id !== cacheableResourceId(response) ||
       !this.responseHashMatches(record.response_body, integrityContext, record.response_body_hash)) {
@@ -1352,6 +1406,14 @@ export class IdempotencyRepository {
     this.assertReplayIntegrity(record);
     if (!isCacheableAgentFinanceResponse(record.response_body)) {
       throw new ApplicationError('INTERNAL_ERROR', 'Idempotency record is not an Agent finance response');
+    }
+    return record.response_body;
+  }
+
+  securityResetReplay(record: IdempotencyRecord): CacheableSecurityResetResponse {
+    this.assertReplayIntegrity(record);
+    if (!isCacheableSecurityResetResponse(record.response_body)) {
+      throw new ApplicationError('INTERNAL_ERROR', 'Idempotency record is not a security reset response');
     }
     return record.response_body;
   }

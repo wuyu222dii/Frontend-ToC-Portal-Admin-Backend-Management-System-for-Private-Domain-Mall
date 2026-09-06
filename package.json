@@ -13,6 +13,7 @@
     "build:packages": "pnpm --filter './packages/**' --if-present build",
     "build:miniapp": "pnpm --filter @qingxu/miniapp build:mp-weixin",
     "admin:bootstrap": "pnpm build:packages && pnpm --filter @qingxu/api exec tsx src/admin-auth/bootstrap-super-admin.cli.ts",
+    "admin:offline-recovery": "pnpm build:packages && pnpm --filter @qingxu/api exec tsx src/admin-auth/admin-offline-recovery.cli.ts",
     "admin:bootstrap-business-rules": "pnpm build:packages && pnpm --filter @qingxu/api exec tsx src/admin-settings/bootstrap-business-rules.cli.ts",
     "store:phone-hash:rehash": "STORE_PHONE_HASH_MAINTENANCE_MODE=REHASH_AND_VERIFY pnpm build:packages && STORE_PHONE_HASH_MAINTENANCE_MODE=REHASH_AND_VERIFY pnpm --filter @qingxu/api exec tsx src/store-profile/store-phone-hash-maintenance.cli.ts",
     "store:phone-hash:verify": "STORE_PHONE_HASH_MAINTENANCE_MODE=VERIFY_CURRENT pnpm build:packages && STORE_PHONE_HASH_MAINTENANCE_MODE=VERIFY_CURRENT pnpm --filter @qingxu/api exec tsx src/store-profile/store-phone-hash-maintenance.cli.ts",

@@ -4,10 +4,10 @@
 
 | 字段 | 记录 |
 |---|---|
-| 候选 SHA | 待填写 |
-| staging 项目/Redis/S3 脱敏标识 | 待填写 |
-| Secret Manager 与 key ID 清单 | 待填写（仅 ID/版本） |
-| 外部复核人/时间 | 待填写 |
+| 候选 SHA | 54362e19c9140e2a72a34163178aa4048f836136 |
+| staging 项目/Redis/S3 脱敏标识 | 未提供 |
+| Secret Manager 与 key ID 清单 | 未提供 |
+| 外部复核人/时间 | 未完成 |
 | 最终结论 | `NO-GO` |
 
 ## B17.0 orphan 与残余风险

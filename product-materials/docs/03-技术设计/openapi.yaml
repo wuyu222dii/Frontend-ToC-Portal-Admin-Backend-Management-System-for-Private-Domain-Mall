@@ -1,8 +1,8 @@
 openapi: "3.1.0"
 info:
   title: "洗化产品私域商城 API"
-  version: "2.4.13-ch032"
-  description: "CH-032 单一线协议，继承 CH-006、CH-008、CH-010、CH-012、CH-014、CH-016、CH-018、CH-020、CH-022、CH-024、CH-026、CH-028 与 CH-030；B0-B15 development 交付保持，B17 仅增加脱敏 Mock staging 的环境门禁、readiness 与证据边界，不改变业务 paths、operationId、数据库表或迁移链。真实资金、真实客户数据、真实 Provider、staging 和 production 在 B17 证据闭合前继续不开放；所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
+  version: "2.4.14-ch036"
+  description: "CH-036 单一线协议，继承既有变更；B19 增加 HR-15 本人凭据重置的条件新密码字段，保留既有 paths、operationId、数据库表和迁移链。双人全凭据恢复仅由受控 CLI 执行，不开放 HTTP。真实资金、真实客户数据、真实 Provider、staging 和 production 在 B16/B17 证据闭合前继续不开放；所有路径相对 /api/v1。"
   license:
     name: "Proprietary"
     identifier: "LicenseRef-Proprietary"
@@ -4426,6 +4426,11 @@ paths:
       responses:
         200:
           description: "成功"
+          headers:
+            Cache-Control:
+              "$ref": "#/components/headers/CacheControlNoStore"
+            Pragma:
+              "$ref": "#/components/headers/PragmaNoCache"
           content:
             application/json:
               schema:
@@ -13784,6 +13789,12 @@ components:
           type: "string"
           minLength: 6
           writeOnly: true
+        new_password:
+          type: "string"
+          minLength: 12
+          maxLength: 128
+          writeOnly: true
+          description: "仅 reset_password=true 时必填；不得出现在预览、审计、幂等响应或日志。"
     PayoutRevealRequest:
       type: "object"
       additionalProperties: false

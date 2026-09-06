@@ -13,6 +13,8 @@ import {
   changePassword,
   getCurrentAccount,
   logoutAll,
+  previewSecurityReset,
+  resetSecurity,
   rotateRecoveryCodes,
 } from '../../services/admin-auth';
 import { authSession } from '../../stores/auth-session';
@@ -26,6 +28,11 @@ const rotateDialog = ref(false);
 const passwordPending = ref(false);
 const rotatePending = ref(false);
 const logoutAllPending = ref(false);
+const securityResetDialog = ref(false);
+const securityResetPending = ref(false);
+const securityResetError = ref('');
+const securityResetPreview = ref<Awaited<ReturnType<typeof previewSecurityReset>> | null>(null);
+const securityResetForm = reactive({ reason: '', resetPassword: true, resetTotp: true, credentialType: 'TOTP' as 'TOTP' | 'RECOVERY_CODE', credential: '', newPassword: '', confirmPassword: '' });
 const passwordError = ref('');
 const rotateError = ref('');
 const passwordForm = reactive({ current: '', next: '', confirm: '' });
@@ -42,6 +49,41 @@ function clearPasswordForm(): void {
 function clearTotp(): void {
   totpCode.value = '';
   rotateError.value = '';
+}
+
+function clearSecurityReset(): void {
+  securityResetError.value = '';
+  securityResetPreview.value = null;
+  securityResetForm.reason = '';
+  securityResetForm.credential = '';
+  securityResetForm.newPassword = '';
+  securityResetForm.confirmPassword = '';
+}
+
+async function submitSecurityReset(): Promise<void> {
+  securityResetError.value = '';
+  if (!securityResetForm.resetPassword && !securityResetForm.resetTotp) { securityResetError.value = '至少选择一项重置内容'; return; }
+  if (securityResetForm.reason.trim().length < 2) { securityResetError.value = '请填写重置原因'; return; }
+  securityResetPending.value = true;
+  try {
+    if (!securityResetPreview.value) {
+      securityResetPreview.value = await previewSecurityReset({ reason: securityResetForm.reason, resetPassword: securityResetForm.resetPassword, resetTotp: securityResetForm.resetTotp });
+      return;
+    }
+    if (securityResetForm.credential.length < 6) { securityResetError.value = '请输入动态验证码或恢复码'; return; }
+    if (securityResetForm.resetPassword && (securityResetForm.newPassword.length < 12 || securityResetForm.newPassword !== securityResetForm.confirmPassword)) { securityResetError.value = '新密码至少 12 位且两次输入必须一致'; return; }
+    const version = current.value?.version;
+    if (!version) throw new AdminApiError('账户版本不可用', { status: 409, code: 'STATE_CONFLICT' });
+    await resetSecurity({ reason: securityResetForm.reason, resetPassword: securityResetForm.resetPassword, resetTotp: securityResetForm.resetTotp, credentialType: securityResetForm.credentialType, credential: securityResetForm.credential, newPassword: securityResetForm.resetPassword ? securityResetForm.newPassword : null, previewToken: securityResetPreview.value.preview_token, confirmationHash: securityResetPreview.value.confirmation_hash, version });
+    securityResetDialog.value = false;
+    clearSecurityReset();
+    await router.replace('/login');
+  } catch (error) {
+    securityResetError.value = error instanceof AdminApiError ? error.message : '安全重置未完成';
+    clearSecurityReset();
+    authSession.clearSession();
+    await router.replace('/login');
+  } finally { securityResetPending.value = false; }
 }
 
 async function redirectIfSessionExpired(error: unknown): Promise<boolean> {
@@ -209,6 +251,11 @@ onBeforeUnmount(() => {
             </div>
             <el-button type="danger" plain :loading="logoutAllPending" @click="endAllSessions">退出全部会话</el-button>
           </article>
+          <article class="security-card">
+            <span class="security-icon coral"><el-icon><Lock /></el-icon></span>
+            <div><h2>本人安全重置</h2><p>重置密码或动态验证后，全部后台会话立即失效。</p><small>需要当前动态验证码或一次性恢复码。</small></div>
+            <el-button @click="securityResetDialog = true">开始重置</el-button>
+          </article>
         </div>
 
         <BusinessRulesPanel @auth-expired="settingsAuthExpired" />
@@ -233,6 +280,21 @@ onBeforeUnmount(() => {
         <p v-if="rotateError" class="inline-error" role="alert">{{ rotateError }}</p>
       </el-form>
       <template #footer><el-button @click="rotateDialog = false">取消</el-button><el-button type="primary" :icon="RefreshRight" :loading="rotatePending" @click="submitRotate">确认轮换</el-button></template>
+    </el-dialog>
+
+    <el-dialog v-model="securityResetDialog" title="本人安全重置" width="min(520px, calc(100vw - 32px))" @closed="clearSecurityReset">
+      <el-form label-position="top">
+        <el-form-item label="重置原因"><el-input v-model="securityResetForm.reason" maxlength="500" :disabled="Boolean(securityResetPreview)" /></el-form-item>
+        <el-checkbox v-model="securityResetForm.resetPassword" :disabled="Boolean(securityResetPreview)">重置登录密码</el-checkbox>
+        <el-checkbox v-model="securityResetForm.resetTotp" :disabled="Boolean(securityResetPreview)">重置动态验证</el-checkbox>
+        <el-form-item v-if="securityResetForm.resetPassword" label="新密码"><el-input v-model="securityResetForm.newPassword" type="password" show-password autocomplete="new-password" /></el-form-item>
+        <el-form-item v-if="securityResetForm.resetPassword" label="确认新密码"><el-input v-model="securityResetForm.confirmPassword" type="password" show-password autocomplete="new-password" /></el-form-item>
+        <el-radio-group v-model="securityResetForm.credentialType"><el-radio value="TOTP">动态验证码</el-radio><el-radio value="RECOVERY_CODE">恢复码</el-radio></el-radio-group>
+        <el-form-item label="当前凭据"><el-input v-model="securityResetForm.credential" autocomplete="one-time-code" /></el-form-item>
+        <el-alert v-if="securityResetPreview" type="warning" :closable="false" title="预览已生成，确认后当前全部会话将立即失效。" />
+        <p v-if="securityResetError" class="inline-error" role="alert">{{ securityResetError }}</p>
+      </el-form>
+      <template #footer><el-button @click="securityResetDialog = false">取消</el-button><el-button type="primary" :loading="securityResetPending" @click="submitSecurityReset">{{ securityResetPreview ? '确认重置' : '生成预览' }}</el-button></template>
     </el-dialog>
 
     <OneTimeCodesDialog :codes="authSession.state.recoveryCodes" @acknowledged="acknowledgeCodes" />

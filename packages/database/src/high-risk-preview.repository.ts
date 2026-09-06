@@ -31,6 +31,7 @@ export type HighRiskPreviewTargetType =
   | 'WITHDRAWAL';
 export type HighRiskPreviewAction =
   | 'ACCOUNT.ANONYMIZE'
+  | 'ACCOUNT.SECURITY_RESET'
   | 'AGENT.DISABLE'
   | 'AGENT.INVITE_ROTATE'
   | 'AGENT.INVITE_STATUS'
@@ -107,6 +108,7 @@ const HASH_KEY_ID = /^[A-Za-z0-9._:-]{3,80}$/;
 const MAX_PREVIOUS_HASH_KEYS = 3;
 const PREVIEW_ACTION = new Set<HighRiskPreviewAction>([
   'ACCOUNT.ANONYMIZE',
+  'ACCOUNT.SECURITY_RESET',
   'AGENT.DISABLE',
   'AGENT.INVITE_ROTATE',
   'AGENT.INVITE_STATUS',

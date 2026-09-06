@@ -16,6 +16,7 @@ import type {
   RecoveryCodesData,
   TotpEnrollData,
 } from '../types/auth';
+import { authSession } from '../stores/auth-session';
 
 type CommandResponse = components['schemas']['CommandResponse'];
 export { AdminApiError } from './admin-api';
@@ -101,6 +102,49 @@ export function changePassword(input: ChangePasswordInput): Promise<CommandRespo
       idempotencyKey: requestKey,
       method: 'POST',
     }));
+}
+
+export interface SecurityResetPreview {
+  confirmation_hash: string;
+  expires_at: string;
+  impact: { affected_count: number; metrics: Array<{ key: string; label: string; before: string | null; after: string | null }>; warnings: string[] };
+  preview_token: string;
+  resource_etag: string;
+}
+
+export async function previewSecurityReset(input: { reason: string; resetPassword: boolean; resetTotp: boolean }): Promise<SecurityResetPreview> {
+  const account = authSession.state.current;
+  if (!account) throw new AdminApiError('登录状态已失效，请重新登录', { status: 401, code: 'AUTH_REQUIRED' });
+  const response = await request<{ data: SecurityResetPreview }>(`/admin/admin-accounts/${encodeURIComponent(account.account_id)}/security-reset-preview`, {
+    auth: 'access',
+    body: { reason: input.reason, reset_password: input.resetPassword, reset_totp: input.resetTotp },
+    idempotencyKey: idempotencyKey(), method: 'POST',
+  });
+  return response.data;
+}
+
+export async function resetSecurity(input: {
+  reason: string; resetPassword: boolean; resetTotp: boolean; credentialType: 'TOTP' | 'RECOVERY_CODE';
+  credential: string; newPassword: string | null; previewToken: string; confirmationHash: string; version: number;
+}): Promise<components['schemas']['SecurityResetResponse']['data']> {
+  const account = authSession.state.current;
+  if (!account) throw new AdminApiError('登录状态已失效，请重新登录', { status: 401, code: 'AUTH_REQUIRED' });
+  try {
+    const response = await request<components['schemas']['SecurityResetResponse']>(`/admin/admin-accounts/${encodeURIComponent(account.account_id)}/security-resets`, {
+      auth: 'access',
+      body: {
+        reason: input.reason, reset_password: input.resetPassword, reset_totp: input.resetTotp,
+        credential_type: input.credentialType, credential: input.credential,
+        ...(input.newPassword === null ? {} : { new_password: input.newPassword }),
+        preview_token: input.previewToken, confirmation_hash: input.confirmationHash,
+      },
+      headers: { 'If-Match': `"${input.version}"` },
+      idempotencyKey: idempotencyKey(), method: 'POST',
+    });
+    return response.data;
+  } finally {
+    authSession.clearSession();
+  }
 }
 
 export async function rotateRecoveryCodes(code: string): Promise<RecoveryCodesData> {

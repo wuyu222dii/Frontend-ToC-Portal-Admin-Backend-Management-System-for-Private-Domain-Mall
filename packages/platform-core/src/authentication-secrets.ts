@@ -20,9 +20,9 @@ export function hmacAuthenticationSecret(
   value: string,
   key: Uint8Array,
   domain: 'agent-refresh-token' | 'candidate-token' | 'challenge' | 'invite-code' | 'reauth-challenge' |
-    'reauth-grant' | 'recovery-code' | 'refresh-token' | 'store-refresh-token' | 'totp-secret',
+  'reauth-grant' | 'recovery-code' | 'refresh-token' | 'security-reset-credential' | 'store-refresh-token' | 'totp-secret',
 ): string {
-  const minimumLength = domain === 'invite-code' ? 1 : 8;
+  const minimumLength = domain === 'invite-code' || domain === 'security-reset-credential' ? 1 : 8;
   if (typeof value !== 'string' || value.length < minimumLength || value.length > 2_048) {
     throw new TypeError('Authentication secrets have an invalid length');
   }
@@ -49,7 +49,7 @@ export function authenticationSecretHashMatches(
   expectedHash: string,
   key: Uint8Array,
   domain: 'agent-refresh-token' | 'candidate-token' | 'challenge' | 'invite-code' | 'reauth-challenge' |
-    'reauth-grant' | 'recovery-code' | 'refresh-token' | 'store-refresh-token' | 'totp-secret',
+  'reauth-grant' | 'recovery-code' | 'refresh-token' | 'security-reset-credential' | 'store-refresh-token' | 'totp-secret',
 ): boolean {
   if (!/^[a-f0-9]{64}$/.test(expectedHash)) return false;
   const actual = Buffer.from(hmacAuthenticationSecret(value, key, domain), 'hex');

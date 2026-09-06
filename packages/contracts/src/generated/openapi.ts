@@ -4063,6 +4063,8 @@ export interface components {
             /** @enum {string} */
             credential_type: "TOTP" | "RECOVERY_CODE";
             credential: string;
+            /** @description 仅 reset_password=true 时必填；不得出现在预览、审计、幂等响应或日志。 */
+            new_password?: string;
         };
         PayoutRevealRequest: {
             reauth_grant: string;
@@ -11179,6 +11181,8 @@ export interface operations {
             /** @description 成功 */
             200: {
                 headers: {
+                    "Cache-Control": components["headers"]["CacheControlNoStore"];
+                    Pragma: components["headers"]["PragmaNoCache"];
                     [name: string]: unknown;
                 };
                 content: {

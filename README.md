@@ -1,6 +1,6 @@
 # 青序生活三端私域商城
 
-本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。B15 development `GO` 的最终 SHA `8a743a9` 已完成 migration Run `23` 与 rollback-only smoke Run `45`；CH-033 已失效。B16 准备项已记录，当前进入 B17 首次脱敏 Mock staging 受控准入；产品/API 基线保持 `v2.4.13 / CH-032`、OpenAPI `2.4.13-ch032`，staging 仍为 `NO-GO`。
+本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。B15 development `GO` 已完成；当前进入 B19 管理员凭据重置与双人离线恢复 development 实施，产品/API 基线为 `v2.4.14 / CH-036`、OpenAPI `2.4.14-ch036`。B16/B17 staging 证据尚未闭合，staging/production 仍为 `NO-GO`。
 
 > 2026-09-05 起取消 GitHub 普通 CI；远端测试仅保留手动 Supabase rollback-only smoke，development migration 继续作为同 SHA 前置部署与 attestation。历史 CI Run 记录保持不变。
 

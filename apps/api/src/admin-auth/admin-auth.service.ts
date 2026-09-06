@@ -6,6 +6,7 @@ import {
   AdminAuthRepository,
   AuditRepository,
   IdempotencyRepository,
+  HighRiskPreviewRepository,
   InvalidAdminLoginNameError,
   runSerializableTransaction,
   type CurrentAdminSession,
@@ -14,6 +15,7 @@ import {
   type IdempotencyClaim,
   type InitialAdminSessionMaterial,
   type RecoveryCodeMaterial,
+  type CacheableSecurityResetResponse,
 } from '@qingxu/database';
 import {
   ApplicationError,
@@ -31,6 +33,7 @@ import {
   signPreAuthToken,
   verifyPasswordHash,
   verifyTotpCode,
+  formatVersionEtag,
   type EncryptedEnvelope,
   type VerifiedPreAuthClaims,
 } from '@qingxu/platform-core';
@@ -49,6 +52,11 @@ interface RecoveryInput { challengeId: string; recoveryCode: string }
 interface TotpInput { totpCode: string }
 interface ReauthChallengeInput { purpose: 'REAUTH'; targetId?: string | null }
 interface PayoutReauthInput { action: 'PAYOUT_ACCOUNT_REVEAL'; withdrawalId: string; totpCode: string }
+interface SecurityResetPreviewInput { reason: string; resetPassword: boolean; resetTotp: boolean }
+interface SecurityResetInput extends SecurityResetPreviewInput {
+  credential: string; credentialType: 'TOTP' | 'RECOVERY_CODE'; newPassword: string | null;
+  confirmationHash: string; previewToken: string;
+}
 
 interface SessionDraft {
   accessExpiresAt: Date;
@@ -68,6 +76,8 @@ const ROUTES = {
   reauthChallenge: '/admin/auth/mfa/challenges',
   recovery: '/admin/auth/mfa/recovery',
   recoveryRotate: '/admin/auth/mfa/recovery-codes/rotate',
+  securityResetPreview: '/admin/admin-accounts/{account_id}/security-reset-preview',
+  securityReset: '/admin/admin-accounts/{account_id}/security-resets',
   refresh: '/admin/auth/refresh',
 } as const;
 
@@ -121,6 +131,7 @@ export class AdminAuthService {
   private readonly auth!: AdminAuthRepository;
   private readonly audit!: AuditRepository;
   private readonly idempotency!: IdempotencyRepository;
+  private readonly previews!: HighRiskPreviewRepository;
   private readonly dummyPasswordHash = hashPassword(randomBytes(32).toString('base64url'));
 
   constructor(
@@ -138,6 +149,7 @@ export class AdminAuthService {
     this.auth = new AdminAuthRepository(database.prisma);
     this.audit = new AuditRepository(config.encryption.ipHashKey);
     this.idempotency = new IdempotencyRepository(config.encryption.idempotencyHashKeys);
+    this.previews = new HighRiskPreviewRepository(database.prisma, config.encryption.idempotencyHashKeys);
   }
 
   private get tokenConfig() {
@@ -446,6 +458,98 @@ export class AdminAuthService {
     });
     if (result.kind === 'invalid') throw invalidAuthentication();
     return result.response;
+  }
+
+  async previewSecurityReset(session: CurrentAdminSession, input: SecurityResetPreviewInput, key: string) {
+    if (!input.resetPassword && !input.resetTotp) throw new ApplicationError('INVALID_ARGUMENT', 'At least one security reset action is required');
+    const claim = this.claim(session.accountId, key, ROUTES.securityResetPreview, input, { account_id: session.accountId });
+    return runSerializableTransaction(this.database.prisma, async (transaction) => {
+      if ((await this.idempotency.claim(transaction, claim)).kind === 'replay') {
+        throw new ApplicationError('STATE_CONFLICT', 'Security reset preview must use a new idempotency key');
+      }
+      const account = await transaction.account.findUnique({ where: { id: session.accountId } });
+      if (!account || account.role !== 'SUPER_ADMIN' || account.status !== 'ACTIVE') {
+        throw new ApplicationError('AUTH_REQUIRED', 'Administrator account is unavailable');
+      }
+      const activeSessions = await transaction.authSession.count({ where: { account_id: session.accountId, revoked_at: null } });
+      const previewToken = `pvw_${randomBytes(32).toString('base64url')}`;
+      const previewRequest = { reason: input.reason, reset_password: input.resetPassword, reset_totp: input.resetTotp };
+      const issued = await this.previews.issueInTransaction(transaction, {
+        action: 'ACCOUNT.SECURITY_RESET', actorId: session.accountId, previewToken, request: previewRequest,
+        resourceVersion: account.version, sessionId: session.sessionId, targetId: session.accountId, targetType: 'ACCOUNT',
+      });
+      const response = {
+        confirmation_hash: issued.confirmationHash, expires_at: issued.expiresAt.toISOString(),
+        impact: { affected_count: activeSessions + 1, metrics: [
+          { key: 'active_sessions', label: '活跃会话', before: String(activeSessions), after: '0' },
+          { key: 'password_reset', label: '密码重置', before: 'false', after: String(input.resetPassword) },
+          { key: 'totp_reset', label: 'TOTP 重置', before: 'false', after: String(input.resetTotp) },
+        ], warnings: ['重置后全部管理员会话立即失效，请使用新密码重新登录。'] },
+        preview_token: previewToken, resource_etag: formatVersionEtag(account.version),
+      };
+      await this.idempotency.complete(transaction, claim, {
+        responseForHash: { confirmation_hash: response.confirmation_hash, expires_at: response.expires_at, impact: response.impact, resource_etag: response.resource_etag },
+        responseStatus: 200, storage: 'HASH_ONLY', resourceId: session.accountId,
+      });
+      return response;
+    });
+  }
+
+  async resetSecurity(session: CurrentAdminSession, input: SecurityResetInput, expectedVersion: number,
+    key: string, requestId: string, ipAddress?: string) {
+    const claimBody = { reason: input.reason, reset_password: input.resetPassword, reset_totp: input.resetTotp,
+      credential_type: input.credentialType,
+      credential_fingerprint: this.currentSecretHash(input.credential, 'security-reset-credential'),
+      ...(input.newPassword === null ? {} : {
+        new_password_fingerprint: this.currentSecretHash(input.newPassword, 'security-reset-credential'),
+      }),
+      preview_token: input.previewToken, confirmation_hash: input.confirmationHash, expected_version: expectedVersion };
+    const claim = this.claim(session.accountId, key, ROUTES.securityReset, claimBody, { account_id: session.accountId });
+    const newPasswordHash = input.newPassword === null ? undefined : await hashPassword(input.newPassword);
+    const verification = input.credentialType === 'TOTP'
+      ? await verifyTotpCode(this.decryptFactorSecret(session.factorId, session.factorSecretCiphertext, session.factorEncryptionKeyId), input.credential)
+      : null;
+    const result = await runSerializableTransaction(this.database.prisma, async (transaction) => {
+      const claimed = await this.idempotency.claim(transaction, claim);
+      if (claimed.kind === 'replay') {
+        if (claimed.record.response_body === null) throw noReplay();
+        return { kind: 'replay' as const, response: this.idempotency.securityResetReplay(claimed.record) };
+      }
+      if (input.credentialType === 'TOTP' && !verification?.valid) {
+        const failure = await this.auth.recordAuthenticationFailureInTransaction(transaction, {
+          accountId: session.accountId, currentSessionId: session.sessionId, expectedAccountVersion: session.accountVersion,
+          factorId: session.factorId, purpose: 'RECOVERY',
+        });
+        await this.idempotency.complete(transaction, claim, { responseForHash: { result: failure.kind }, responseStatus: failure.kind === 'locked' ? 429 : 403, storage: 'HASH_ONLY' });
+        return { kind: 'invalid' as const };
+      }
+      await this.previews.consumeInTransaction(transaction, {
+        action: 'ACCOUNT.SECURITY_RESET', actorId: session.accountId, previewToken: input.previewToken,
+        request: { reason: input.reason, reset_password: input.resetPassword, reset_totp: input.resetTotp },
+        resourceVersion: expectedVersion, sessionId: session.sessionId, targetId: session.accountId, targetType: 'ACCOUNT',
+        confirmationHash: input.confirmationHash,
+      });
+      const changed = await this.auth.resetSecurityInTransaction(transaction, {
+        accountId: session.accountId, currentSessionId: session.sessionId, factorId: session.factorId,
+        expectedVersion, credentialType: input.credentialType,
+        ...(input.credentialType === 'RECOVERY_CODE' ? { credentialHashCandidates: this.secretHashes(input.credential, 'recovery-code') } : {}),
+        ...(verification?.timestep === undefined ? {} : { acceptedTimestep: verification.timestep }),
+        resetPassword: input.resetPassword, resetTotp: input.resetTotp,
+        ...(newPasswordHash === undefined ? {} : { newPasswordHash }),
+      });
+      if (changed.kind !== 'reset') return { kind: 'invalid' as const };
+      const response: CacheableSecurityResetResponse = {
+        code: 'OK', message: 'success', request_id: requestId,
+        data: { account_id: session.accountId, password_reset: input.resetPassword, totp_reset: input.resetTotp,
+          sessions_revoked_at: changed.sessionsRevokedAt!.toISOString(), version: changed.version! },
+      };
+      await this.auditSuccess(transaction, session.accountId, 'UPDATE', requestId, key, 'account', session.accountId, ipAddress);
+      await this.idempotency.complete(transaction, claim, { policy: 'SECURITY_RESET_RESPONSE', responseBody: response, responseStatus: 200, storage: 'CACHEABLE' });
+      return { kind: 'reset' as const, response };
+    });
+    if (result.kind === 'replay') return preEnvelopedResponse(result.response);
+    if (result.kind === 'invalid') throw new ApplicationError('AUTH_REQUIRED', 'Security reset credential is invalid');
+    return preEnvelopedResponse(result.response);
   }
 
   async enroll(preAuth: VerifiedPreAuthClaims, token: string, input: EnrollInput, key: string,
@@ -836,14 +940,14 @@ export class AdminAuthService {
   }
 
   private secretHashes(value: string,
-    domain: 'challenge' | 'reauth-challenge' | 'reauth-grant' | 'recovery-code' | 'refresh-token') {
+    domain: 'challenge' | 'reauth-challenge' | 'reauth-grant' | 'recovery-code' | 'refresh-token' | 'security-reset-credential') {
     return [this.config.authentication.secretHashKeys.current,
       ...this.config.authentication.secretHashKeys.previous]
       .map(({ key }) => hmacAuthenticationSecret(value, key, domain));
   }
 
   private currentSecretHash(value: string,
-    domain: 'challenge' | 'reauth-challenge' | 'reauth-grant' | 'recovery-code' | 'refresh-token' | 'totp-secret') {
+    domain: 'challenge' | 'reauth-challenge' | 'reauth-grant' | 'recovery-code' | 'refresh-token' | 'security-reset-credential' | 'totp-secret') {
     return hmacAuthenticationSecret(value, this.config.authentication.secretHashKeys.current.key, domain);
   }
 

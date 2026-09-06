@@ -561,15 +561,26 @@ function commissionCategory(value: unknown, path: string): string {
   return categoryId;
 }
 
-function commissionChange(value: unknown, path: string): void {
-  const result = object(value, ['target_type', 'target_id', 'configured_rate'], path);
+function commissionVersionChange(value: unknown, path: string): void {
+  const result = object(value, [
+    'target_type', 'target_id', 'target_name_snapshot', 'target_name_snapshot_source',
+    'before_configured_rate', 'configured_rate',
+  ], path);
   const targetType = enumeration(result.target_type, ['PLATFORM', 'CATEGORY', 'SKU'] as const, `${path}.target_type`);
   if (targetType === 'PLATFORM') {
     if (result.target_id !== null) invalid(`${path}.target_id`);
   } else {
     ulid(result.target_id, `${path}.target_id`);
   }
-  if (result.configured_rate !== null) match(result.configured_rate, RATE, `${path}.configured_rate`);
+  text(result.target_name_snapshot, `${path}.target_name_snapshot`);
+  enumeration(
+    result.target_name_snapshot_source,
+    ['MIGRATION_CAPTURED', 'PUBLISH_CAPTURED'] as const,
+    `${path}.target_name_snapshot_source`,
+  );
+  for (const field of ['before_configured_rate', 'configured_rate'] as const) {
+    if (result[field] !== null) match(result[field], RATE, `${path}.${field}`);
+  }
 }
 
 function commissionVersion(value: unknown, path: string, versionId?: string): void {
@@ -585,7 +596,7 @@ function commissionVersion(value: unknown, path: string, versionId?: string): vo
   ulid(result.created_by_account_id, `${path}.created_by_account_id`);
   nullableDateTime(result.effective_at, `${path}.effective_at`);
   dateTime(result.created_at, `${path}.created_at`);
-  if (Object.hasOwn(result, 'changes')) list(result.changes, `${path}.changes`, commissionChange);
+  if (Object.hasOwn(result, 'changes')) list(result.changes, `${path}.changes`, commissionVersionChange);
 }
 
 function explanationLedger(value: unknown, path: string): void {

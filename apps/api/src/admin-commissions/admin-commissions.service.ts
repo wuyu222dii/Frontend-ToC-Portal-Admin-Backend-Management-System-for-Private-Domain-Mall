@@ -89,6 +89,12 @@ function impactView(impact: CommissionRuleImpact) {
         key: `sku:${sku.skuId}:effective_rate`,
         label: `${sku.productName} / ${sku.skuCode}`,
       })),
+      ...impact.affectedSkus.flatMap((sku) => sku.beforeSource === sku.source ? [] : [{
+        after: sku.source,
+        before: sku.beforeSource,
+        key: `sku:${sku.skuId}:source`,
+        label: `${sku.productName} / ${sku.skuCode} 命中来源`,
+      }]),
     ],
     warnings: impact.warnings,
   };
@@ -129,8 +135,11 @@ function versionView(version: CommissionRuleVersionSnapshot) {
   return {
     base_version_id: version.baseVersionId,
     changes: version.changes.map((change) => ({
+      before_configured_rate: change.beforeConfiguredRate,
       configured_rate: change.configuredRate,
       target_id: change.targetId,
+      target_name_snapshot: change.targetNameSnapshot,
+      target_name_snapshot_source: change.targetNameSnapshotSource,
       target_type: change.targetType,
     })),
     created_at: version.createdAt.toISOString(),

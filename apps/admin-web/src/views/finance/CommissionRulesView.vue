@@ -75,6 +75,10 @@ function sourceLabel(source: string): string {
   return ({ CATEGORY: '分类覆盖', PLATFORM: '平台默认', SKU: 'SKU 覆盖' } as Record<string, string>)[source] ?? source;
 }
 
+function snapshotSourceLabel(source: string): string {
+  return source === 'MIGRATION_CAPTURED' ? '历史迁移冻结' : '发布时冻结';
+}
+
 function categoryLabel(categoryIdValue: string): string {
   return current.value?.categories.find((item) => item.category_id === categoryIdValue)?.category_name ?? categoryIdValue;
 }
@@ -266,8 +270,10 @@ async function published(): Promise<void> {
 
 async function conflict(): Promise<void> {
   publishOpen.value = false;
-  await load();
-  ElMessage.warning('规则基线已变化，已刷新当前有效版本；请重新核对待发布变更');
+  const detailId = versionDetailOpen.value ? versionDetail.value?.version_id : undefined;
+  await refresh();
+  if (detailId) await openVersionDetail(detailId);
+  ElMessage.warning('规则基线已变化，已刷新当前规则和版本历史；待发布变更已保留');
 }
 
 async function authExpired(error: AdminApiError): Promise<void> { await handleExpired(error); }
@@ -420,9 +426,10 @@ onBeforeUnmount(() => {
       <el-alert v-else-if="versionDetailError" :title="versionDetailError" type="error" :closable="false" show-icon />
       <template v-else-if="versionDetail">
         <dl class="version-meta" data-testid="commission-version-detail"><div><dt>版本</dt><dd>V{{ versionDetail.version_no }}</dd></div><div><dt>状态</dt><dd>{{ versionDetail.status }}</dd></div><div><dt>发布账号</dt><dd>{{ versionDetail.created_by_account_id }}</dd></div><div><dt>生效时间</dt><dd>{{ versionDetail.effective_at ? formatChinaDateTime(versionDetail.effective_at) : '未生效' }}</dd></div><div class="wide"><dt>发布原因</dt><dd>{{ versionDetail.reason }}</dd></div></dl>
+        <RouterLink :to="{ path: '/audit-logs', query: { target_type: 'commission_rule', target_id: versionDetail.version_id } }">查看本版本审计记录</RouterLink>
         <h3 class="version-changes-title">本版本变更</h3>
         <el-empty v-if="!versionDetail.changes?.length" description="本版本没有可展示的变更" :image-size="50" />
-        <div v-else class="table-scroll"><el-table :data="versionDetail.changes"><el-table-column label="层级" width="120"><template #default="scope">{{ sourceLabel(scope.row.target_type) }}</template></el-table-column><el-table-column label="目标" min-width="240"><template #default="scope">{{ targetLabel(scope.row) }}</template></el-table-column><el-table-column label="配置比例" width="130"><template #default="scope">{{ scope.row.configured_rate === null ? '恢复继承' : `${scope.row.configured_rate}%` }}</template></el-table-column></el-table></div>
+        <div v-else class="table-scroll"><el-table :data="versionDetail.changes"><el-table-column label="层级" width="120"><template #default="scope">{{ sourceLabel(scope.row.target_type) }}</template></el-table-column><el-table-column label="冻结目标" min-width="220"><template #default="scope"><div class="cell-stack"><strong>{{ scope.row.target_name_snapshot }}</strong><span>{{ snapshotSourceLabel(scope.row.target_name_snapshot_source) }}</span></div></template></el-table-column><el-table-column label="配置比例" min-width="180"><template #default="scope">{{ scope.row.before_configured_rate === null ? '继承' : `${scope.row.before_configured_rate}%` }} → {{ scope.row.configured_rate === null ? '继承' : `${scope.row.configured_rate}%` }}</template></el-table-column></el-table></div>
       </template>
     </el-dialog>
   </AdminShell>
@@ -459,6 +466,7 @@ onBeforeUnmount(() => {
 .explanation-expand dt, .version-meta dt { color: var(--admin-muted); font-size: 11px; }
 .explanation-expand dd, .version-meta dd { margin: 0; overflow-wrap: anywhere; font-size: 13px; }
 .explanation-expand h3, .version-changes-title { margin: 0 0 10px; font-size: 14px; }
+.version-meta + a { display: inline-block; margin-bottom: 16px; }
 .explanation-expand .wide { grid-column: 1 / -1; }
 .version-meta .wide { grid-column: 1 / -1; }
 @media (max-width: 900px) { .rule-editor-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

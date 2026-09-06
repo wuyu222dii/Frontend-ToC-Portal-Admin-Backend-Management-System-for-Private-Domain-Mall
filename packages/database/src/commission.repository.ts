@@ -27,6 +27,12 @@ export interface CommissionRuleChange {
   targetType: CommissionRuleTargetType;
 }
 
+export interface CommissionRuleVersionChange extends CommissionRuleChange {
+  beforeConfiguredRate: string | null;
+  targetNameSnapshot: string;
+  targetNameSnapshotSource: 'MIGRATION_CAPTURED' | 'PUBLISH_CAPTURED';
+}
+
 export interface CommissionRuleActionInput {
   baseVersionId: string | null;
   changes: readonly CommissionRuleChange[];
@@ -47,6 +53,7 @@ export interface CommissionRuleSkuSnapshot {
 
 export interface CommissionRuleAffectedSkuSnapshot extends CommissionRuleSkuSnapshot {
   beforeEffectiveRate: string | null;
+  beforeSource: CommissionRuleTargetType | null;
 }
 
 export interface CommissionRuleTargetImpact extends CommissionRuleChange {
@@ -71,7 +78,7 @@ export interface CommissionRuleImpact {
 
 export interface CommissionRuleVersionSnapshot {
   baseVersionId: string | null;
-  changes: CommissionRuleChange[];
+  changes: CommissionRuleVersionChange[];
   createdAt: Date;
   createdById: string;
   effectiveAt: Date | null;
@@ -737,17 +744,37 @@ function diffRuleValues(
   });
 }
 
-function versionSnapshot(
-  record: RuleRecord,
-  baseValues: ReadonlyMap<string, RuleValue> | null,
-): CommissionRuleVersionSnapshot {
+function versionSnapshot(record: RuleRecord, baseRecord: RuleRecord | null): CommissionRuleVersionSnapshot {
   const values = validateRuleRecord(record);
-  if ((record.base_version_id === null) !== (baseValues === null)) {
+  const baseValues = baseRecord === null ? null : validateRuleRecord(baseRecord);
+  if ((baseRecord?.id ?? null) !== record.base_version_id) {
     throw internal('Stored commission rule base relationship is invalid');
   }
+  const entries = new Map([
+    ...(baseRecord?.entries ?? []),
+    ...record.entries,
+  ].map((entry) => [entry.target_key, entry]));
   return {
     baseVersionId: record.base_version_id,
-    changes: diffRuleValues(values, baseValues),
+    changes: diffRuleValues(values, baseValues).map((change) => {
+      const key = targetKey(change.targetType, change.targetId);
+      const entry = entries.get(key);
+      if (entry === undefined) throw internal('Stored commission rule difference snapshot is missing');
+      const snapshotSource = entry.target_name_snapshot_source;
+      if (snapshotSource !== 'MIGRATION_CAPTURED' && snapshotSource !== 'PUBLISH_CAPTURED') {
+        throw internal('Stored commission rule difference target name snapshot source is invalid');
+      }
+      return {
+        ...change,
+        beforeConfiguredRate: baseValues?.get(key)?.rate.toFixed(4) ?? null,
+        targetNameSnapshot: storedText(
+          entry.target_name_snapshot,
+          300,
+          'Stored commission rule difference target name snapshot',
+        ),
+        targetNameSnapshotSource: snapshotSource,
+      };
+    }),
     createdAt: storedDate(record.created_at, 'Stored commission rule creation time'),
     createdById: record.created_by_id,
     effectiveAt: record.effective_at === null
@@ -804,7 +831,7 @@ function detailSnapshot(record: RuleDetailRecord): CommissionRuleVersionSnapshot
   if (record.base_version === null || record.base_version.id !== record.base_version_id) {
     throw internal('Stored commission rule base version is missing');
   }
-  return versionSnapshot(record, validateRuleRecord(record.base_version));
+  return versionSnapshot(record, record.base_version);
 }
 
 function applyChanges(
@@ -876,11 +903,11 @@ function impact(
 ): CommissionRuleImpact {
   const affectedSkus = catalog.flatMap((sku): CommissionRuleAffectedSkuSnapshot[] => {
     const next = skuSnapshot(after, sku);
-    if (before === null) return [{ ...next, beforeEffectiveRate: null }];
+    if (before === null) return [{ ...next, beforeEffectiveRate: null, beforeSource: null }];
     const previous = resolveRule(before, sku);
     return previous.targetType === next.source && previous.rate.toFixed(4) === next.effectiveRate
       ? []
-      : [{ ...next, beforeEffectiveRate: previous.rate.toFixed(4) }];
+      : [{ ...next, beforeEffectiveRate: previous.rate.toFixed(4), beforeSource: previous.targetType }];
   });
   const changedTargets = diffRuleValues(after, before).map((change): CommissionRuleTargetImpact => ({
     ...change,
@@ -1542,7 +1569,7 @@ export class CommissionRepository {
       where: { id: versionId },
     });
     if (stored === null || stored.status !== 'PUBLISHED') throw internal('Published commission rule disappeared');
-    const version = versionSnapshot(stored, facts.currentValues);
+    const version = versionSnapshot(stored, facts.current);
     return {
       after: ruleAuditState(stored),
       before: facts.current === null ? null : ruleAuditState(facts.current),
@@ -1571,7 +1598,7 @@ export class CommissionRepository {
     if (record.base_version_id !== null && base === undefined) {
       throw internal('Stored commission rule base version is missing');
     }
-    return versionSnapshot(record, base === null || base === undefined ? null : validateRuleRecord(base));
+    return versionSnapshot(record, base ?? null);
   }
 
   async getCurrentRules(): Promise<CommissionCurrentRulesSnapshot> {

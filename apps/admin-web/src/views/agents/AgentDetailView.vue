@@ -55,6 +55,7 @@ const editOpen = ref(false);
 const authOpen = ref(false);
 const commandOpen = ref(false);
 const commandMode = ref<CommandMode>('DISABLE');
+const reactivating = ref(false);
 const saving = ref(false);
 const saveError = ref('');
 const inviteExpiry = ref('');
@@ -307,18 +308,22 @@ async function commandConflict(): Promise<void> {
 }
 
 async function reactivate(): Promise<void> {
-  if (!detail.value) return;
+  if (!detail.value || reactivating.value) return;
+  reactivating.value = true;
   try {
     await ElMessageBox.confirm('恢复登录与后续经营能力，历史事实保持不变。', '重新启用代理', { type: 'warning' });
-  } catch { return; }
-  try {
-    await reactivateAdminAgent(agentId.value, detail.value.agent.version, newIdempotencyKey());
+    const snapshot = detail.value;
+    if (!snapshot) return;
+    await reactivateAdminAgent(agentId.value, snapshot.agent.version, newIdempotencyKey());
     ElMessage.success('代理已重新启用');
     await load();
   } catch (error) {
+    if (error === 'cancel' || error === 'close') return;
     if (await handleExpired(error)) return;
     ElMessage.error(error instanceof AdminApiError && error.status === 409 ? '代理版本已变化，已刷新' : '重新启用未完成');
     await load();
+  } finally {
+    reactivating.value = false;
   }
 }
 
@@ -359,7 +364,7 @@ onBeforeUnmount(() => {
     <div class="agent-detail" data-testid="admin-agent-detail-page">
       <section class="detail-heading">
         <div><el-button text @click="router.push('/agents')"><el-icon><ArrowLeft /></el-icon>返回代理列表</el-button><p>代理经营 · ADM-19</p><h1>{{ detail?.agent.name || '代理详情' }}</h1><span v-if="detail">{{ detail.agent.agent_no }} · 版本 {{ detail.agent.version }}</span></div>
-        <div class="heading-actions"><el-button :loading="loading" :disabled="commandOpen" @click="load"><el-icon><Refresh /></el-icon>刷新</el-button><el-button v-if="detail?.agent.status === 'ACTIVE'" type="danger" plain @click="openCommand('DISABLE')"><el-icon><SwitchButton /></el-icon>停用</el-button><el-button v-else-if="detail" type="primary" @click="reactivate">重新启用</el-button></div>
+        <div class="heading-actions"><el-button :loading="loading" :disabled="commandOpen || reactivating" @click="load"><el-icon><Refresh /></el-icon>刷新</el-button><el-button v-if="detail?.agent.status === 'ACTIVE'" type="danger" plain @click="openCommand('DISABLE')"><el-icon><SwitchButton /></el-icon>停用</el-button><el-button v-else-if="detail" type="primary" :loading="reactivating" :disabled="commandOpen || loading" @click="reactivate">重新启用</el-button></div>
       </section>
       <div v-if="loading" class="detail-state"><el-skeleton :rows="11" animated /></div>
       <div v-else-if="errorMessage" class="detail-state centered"><strong>{{ errorMessage }}</strong><el-button type="primary" @click="load">重新加载</el-button></div>

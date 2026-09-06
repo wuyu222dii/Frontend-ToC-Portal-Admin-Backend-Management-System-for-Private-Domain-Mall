@@ -7,7 +7,7 @@ const DEFAULTS = {
 const timeoutMs = Number(process.env.STAGING_READINESS_TIMEOUT_MS || 5_000);
 
 if (process.env.NODE_ENV !== 'staging') {
-  throw new Error('readiness smoke requires NODE_ENV=staging');
+  throw new Error(`readiness smoke requires NODE_ENV=staging; current environment is ${process.env.NODE_ENV || 'unset'}`);
 }
 if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 30_000) {
   throw new Error('STAGING_READINESS_TIMEOUT_MS must be between 100 and 30000');

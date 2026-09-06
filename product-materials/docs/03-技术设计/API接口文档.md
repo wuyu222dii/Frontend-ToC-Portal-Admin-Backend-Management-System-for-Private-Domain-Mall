@@ -6,7 +6,7 @@
 |---|---|
 | 文档版本 | v2.4.13 |
 | 对应产品基线 | MVP/PRD v2.4.13、CH-001 至 CH-032；在线接口以 CH-032 为准 |
-| 接口阶段 | B14 development `GO` 的历史证据保持；B15.0 契约已完成并暂停复审。OpenAPI 保持 `173 paths / 198 operations` 与全部 operationId，仅闭合 READY 文件回收、佣金版本目标快照及提现付款凭证恢复语义；0007、Worker 与业务实现尚未准入。 |
+| 接口阶段 | B14 development `GO` 的历史证据保持；B15.1-B15.3 已完成，B15.4 本地最终复审为 `P0=0/P1=0`。OpenAPI 保持 `173 paths / 198 operations` 与全部 operationId；0007、既有 Worker 收敛和前后端实现已完成，待最终 SHA 两项远端门禁。 |
 | 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
 | 更新时间 | 2026-09-06 |
 

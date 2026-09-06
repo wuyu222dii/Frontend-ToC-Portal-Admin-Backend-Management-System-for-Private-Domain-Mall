@@ -1,6 +1,6 @@
 # B15 development 可靠性与 P2 收敛
 
-> 批次：B15；产品/API 基线：`v2.4.13 / CH-032`、OpenAPI `2.4.13-ch032`；交付门禁：CH-033；更新日期：2026-09-06；当前状态：B15.3 已完成并暂停复审，B15.4 尚未准入。
+> 批次：B15；产品/API 基线：`v2.4.13 / CH-032`、OpenAPI `2.4.13-ch032`；交付门禁：CH-033；更新日期：2026-09-06；当前状态：B15.4 本地最终复审完成，等待最终 SHA development migration attestation 与随后 rollback-only smoke。
 
 ## 1. 上游与治理
 
@@ -51,7 +51,7 @@ Admin Web 只在当前登录会话的 `sessionStorage` 保存：`schema_version`
 | B15.1 | `0007_b15_development_convergence_guards`、READY 回收和佣金历史数据底座 | 既有 Worker 完成两阶段回收；引用/清理竞态、Outbox 异常和迁移原子失败闭合；一个定向服务端测试及受影响构建通过 | **已完成并暂停复审** |
 | B15.2 | 佣金版本历史解释、发布冲突恢复、来源变化 preview、代理重新启用保护 | 严格响应、旧/新名称快照、审计跳转、409 刷新和重复点击闭合；复用 B15 服务端测试及受影响构建 | **已完成并暂停复审** |
 | B15.3 | 提现付款凭证 session journal | 丢包/重认证同键恢复、确定性清除和跨账号零请求闭合；一个定向前端测试及 Admin Web build 通过 | **已完成并暂停复审** |
-| B15.4 | 最终复审、文档同步与 development 远端门禁 | `P0=0/P1=0`；最终 SHA migration attestation 后 rollback-only smoke 成功；B15 development `GO`，CH-033 失效 | **未准入** |
+| B15.4 | 最终复审、文档同步与 development 远端门禁 | `P0=0/P1=0`；最终 SHA migration attestation 后 rollback-only smoke 成功；B15 development `GO`，CH-033 失效 | **本地复审完成，待最终 SHA 远端门禁** |
 
 每批完成后必须暂停复审。已通过且代码未变化、无法提供新信息的检查不重复运行。
 
@@ -77,8 +77,8 @@ B15 仅限 Mock Provider、虚构文件与脱敏 development。真实微信身�
 | CH-031 | **已失效，不得用于 B15** |
 | CH-032 | **已批准；当前基线 `v2.4.13 / 2.4.13-ch032`** |
 | CH-033 | **已批准；覆盖 B15.1-B15.4 单维护者脱敏 development** |
-| B15.3 | **已完成并暂停复审；B15.4 尚未准入** |
-| staging/真实数据 | **其余 P2 尚未以实现证据闭合，继续 `NO-GO`** |
+| B15.4 | **本地最终复审 `P0=0/P1=0`；待最终 SHA migration attestation 与随后 rollback-only smoke** |
+| staging/真实数据 | **六项 P2 已在本地闭合，但 development 远端门禁与首次 staging 外部独立复核尚未完成，继续 `NO-GO`** |
 
 ## 9. B15.0 退出证据
 
@@ -105,9 +105,16 @@ B15 仅限 Mock Provider、虚构文件与脱敏 development。真实微信身�
 - 发布 `409` 不进入成功分支，同时刷新当前规则、版本列表和已打开的版本详情，并保留待发布变更；代理重新启用在确认与请求全程共用单一 pending 锁，阻止重复点击。
 - `pnpm --filter @qingxu/database build`、`pnpm --filter @qingxu/api build`、`pnpm --filter @qingxu/admin-web build` 通过。按当前最小验证约束未新增或运行测试，未运行全仓、历史阶段测试或浏览器 E2E。
 
-## 12. B15.3 实现证据
+## 12. B15.3 退出证据
 
 - Admin Web 新增仅含六个允许字段的 `sessionStorage` journal，24 小时过期；损坏、过期或跨账号状态先清除且不发送绑定请求。
 - 丢包、401、429、5xx、`INVALID_RESPONSE`和 `SESSION_CHANGED` 保留原 `file_id + idempotency_key`；成功并确认已绑定，或非 `SESSION_CHANGED` 的确定性 400/403/404/409/422 才清除。
 - 详情页在重新认证后只恢复同账号 journal，且仅允许原请求重试；存储不可用时 fail closed，禁止新凭证与付款命令。
 - `pnpm --filter @qingxu/admin-web build`、`git diff --check` 及唯一定向前端测试 `pnpm test:b15:withdrawal-journal` 通过；结果为 `1 file / 3 tests passed`，未扩大到全仓、历史阶段测试或浏览器 E2E。
+
+## 13. B15.4 本地复审与远端待办
+
+- 对 B14 最终 SHA 至 B15.3 最终提交 `8c756b69fe7f934105a6737b0c35732af7b5089c` 的迁移、READY 回收、佣金历史/冲突/来源、代理重新启用及提现凭证 journal 变更完成只读复审，结论为 `P0=0/P1=0`。
+- 正式与文档冻结的 `0007_b15_development_convergence_guards` 逐字节一致；迁移部署、历史校验、冻结校验和 rollback-only smoke workflow 均已包含 B15 链路。普通 GitHub CI 保持取消，未新增 workflow。
+- B15.0-B15.3 已有检查未重复运行；本轮只执行只读差异审查与 `git diff --check`。文档同步完成后需要形成新的最终提交 SHA，并按该 SHA 先运行 development migration attestation，再运行 rollback-only smoke。
+- 两项远端门禁成功且 SHA 完全一致前，B15 development 不标记 `GO`，CH-033 不失效；不得把本地或 development 结论外推至 staging、production 或真实数据/资金。

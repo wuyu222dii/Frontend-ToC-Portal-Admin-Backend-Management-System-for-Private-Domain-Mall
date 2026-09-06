@@ -924,12 +924,16 @@ databaseDescribe('B13.4 commission PostgreSQL integration', () => {
           ]);
           await expect(repository.getRuleVersion(first.version.versionId)).resolves.toMatchObject({
             changes: expect.arrayContaining([
-              { configuredRate: '0.0000', targetId: ids.skuId, targetType: 'SKU' },
+              expect.objectContaining({
+                configuredRate: '0.0000',
+                targetId: ids.skuId,
+                targetType: 'SKU',
+              }),
             ]),
             status: 'ARCHIVED',
           });
           await expect(repository.getRuleVersion(second.version.versionId)).resolves.toMatchObject({
-            changes: [{ configuredRate: null, targetId: ids.skuId, targetType: 'SKU' }],
+            changes: [expect.objectContaining({ configuredRate: null, targetId: ids.skuId, targetType: 'SKU' })],
             status: 'PUBLISHED',
           });
           await expect(repository.getRuleVersionForReplayInTransaction(

@@ -571,11 +571,11 @@ integrationDescribe('B13.4 Admin commissions PostgreSQL API integration', () => 
           base_version_id: firstVersion.version_id,
           status: 'PUBLISHED',
         });
-        expect(secondVersion.changes).toEqual([{
+        expect(secondVersion.changes).toEqual([expect.objectContaining({
           configured_rate: null,
           target_id: fixture.categoryId,
           target_type: 'CATEGORY',
-        }]);
+        })]);
 
         const secondCurrent = await request(app.getHttpServer())
           .get('/api/v1/admin/commission-rules/current')

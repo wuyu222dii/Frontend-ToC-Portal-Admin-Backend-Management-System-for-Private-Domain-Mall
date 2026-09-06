@@ -13,13 +13,14 @@ async function bootstrap(): Promise<void> {
     app = await NestFactory.create(WorkerModule.register(config, { outbox: [], callbacks: [] }));
     app.enableShutdownHooks();
     await app.listen(config.port, '0.0.0.0');
-  } catch {
+  } catch (error) {
     await app?.close();
+    process.stderr.write(`${JSON.stringify({ event: 'service_startup_failed', service: 'worker', error_code: error instanceof Error ? error.message : 'UNKNOWN' })}\n`);
     throw new Error('WORKER_STARTUP_FAILED');
   }
 }
 
 void bootstrap().catch(() => {
-  process.stderr.write('Worker startup failed\n');
+  process.stderr.write(`${JSON.stringify({ event: 'service_exit', service: 'worker' })}\n`);
   process.exitCode = 1;
 });

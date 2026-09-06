@@ -1,6 +1,6 @@
 # 青序生活三端私域商城
 
-本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。B14 development `GO` 的最终同 SHA migration/smoke 证据保持有效，CH-031 已失效；B15.1-B15.3 已完成，B15.4 本地最终复审为 `P0=0/P1=0`，产品/API 基线为 `v2.4.13 / CH-032`、OpenAPI `2.4.13-ch032`。CH-033 仍仅覆盖 B15.1-B15.4 单维护者脱敏 development；B15 development `GO` 尚待最终 SHA 的 migration attestation 与随后 rollback-only smoke。
+本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。B15 development `GO` 的最终 SHA `8a743a9` 已完成 migration Run `23` 与 rollback-only smoke Run `45`；CH-033 已失效。当前进入 B16 staging-readiness，产品/API 基线保持 `v2.4.13 / CH-032`、OpenAPI `2.4.13-ch032`。
 
 > 2026-09-05 起取消 GitHub 普通 CI；远端测试仅保留手动 Supabase rollback-only smoke，development migration 继续作为同 SHA 前置部署与 attestation。历史 CI Run 记录保持不变。
 
@@ -68,4 +68,4 @@ B7.2 账户手机号 HMAC 轮换是受控维护操作，不是日常启动命令
 
 Supabase 项目创建、连接分权和受保护烟测见 [B0 工程与 Supabase](product-materials/docs/05-开发管理/B0-工程与Supabase.md)，公共内核边界见 [B1 平台公共内核](product-materials/docs/05-开发管理/B1-平台公共内核.md)，总部认证实现与安全操作见 [B2 总部安全入口](product-materials/docs/05-开发管理/B2-总部安全入口.md)，B3-B8 历史批次见对应开发记录；B9 的订单与库存预占见 [B9 订单报价与库存预占](product-materials/docs/05-开发管理/B9-订单报价与库存预占.md)，B10 的支付、对账和迟到支付退款见 [B10 支付对账与迟到支付退款](product-materials/docs/05-开发管理/B10-支付对账与迟到支付退款.md)，B11 的准入边界与实施批次见 [B11 订单履约与物流](product-materials/docs/05-开发管理/B11-订单履约与物流.md)，B12 的售后边界见 [B12 售后验货与普通退款](product-materials/docs/05-开发管理/B12-售后验货与普通退款.md)，B13 的代理资金闭环见 [B13 一级代理经营与资金闭环](product-materials/docs/05-开发管理/B13-一级代理经营与资金闭环.md)，B14 的经营分析闭环见 [B14 总部经营看板与销售分析闭环](product-materials/docs/05-开发管理/B14-总部经营看板与销售分析闭环.md)，B15 的可靠性收敛见 [B15 development 可靠性与 P2 收敛](product-materials/docs/05-开发管理/B15-development可靠性与P2收敛.md)。普通 PR 不再自动运行 GitHub CI；Supabase 凭据只提供给受保护的手动 migration 与 smoke workflow。
 
-B3-B14 的历史证据继续以各阶段记录为准。B14 最终实现 SHA `f4521d4188cb74c3bac34b992016d8730468ae2a` 的 development migration `33960486774` 与随后 rollback-only smoke `33960618178` 同 SHA、依次成功；未把未运行的全仓回归或纵向测试记为通过。B15.1-B15.3 已完成，B15.4 本地复审已完成，等待提交文档同步后的最终 SHA 依次执行两项远端门禁。
+B3-B14 的历史证据继续以各阶段记录为准。B15 最终 SHA `8a743a901ff878bd92654c9c3ff54dcd68ca5413` 的 development migration Run `23` 与 rollback-only smoke Run `45` 同 SHA、依次成功；未把未运行的全仓回归或纵向测试记为通过。B16 当前执行 staging-readiness 准备。

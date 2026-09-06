@@ -151,7 +151,7 @@ B10 的 CH-021/CH-022/CH-023、契约/迁移边界与批次见 `../05-开发管�
 
 B11 的已批准 CH-024、冻结履约状态机、零迁移边界及批次见 `../05-开发管理/B11-订单履约与物流.md`。B11.1 已实现独立 Fulfillment 查询、Admin/Store 投影、受控履约地址和共享 `display_status`；B11.2 已实现唯一包裹、人工物流与 Store 本人物流；B11.3 已实现共享订单完成事务、送达封存、规则/售后期限冻结和佣金精确一次结转；B11.4 已实现 MP-10/11/12 与 ADM-09/10/11 工程交互；B11.5 已完成数据库、API、前端、真实纵向、全仓门禁、零残留复验和最终远端同 SHA 双绿。普通 CI 的 60 分钟裕量 P2 已由成功运行关闭；B11.2/B11.3 的历史非阻断 P2 继续保留。普通退款生产路径未纳入；正佣金钱包缺失或不一致时 fail-closed，钱包预创建由上游保证。B11 development `GO`，CH-025 已自动失效。
 
-B12-B14 的历史批次与退出证据继续以各开发记录为准。B14 最终实现 SHA `f4521d4188cb74c3bac34b992016d8730468ae2a` 的 development migration `33960486774` 与随后 rollback-only smoke `33960618178` 同 SHA、依次成功，B14 development `GO`，CH-031 已失效。当前 `v2.4.13 / CH-032`、OpenAPI `2.4.13-ch032`；B15.1-B15.3 已完成，0007、既有 Worker 收敛与前后端实现已经闭合，B15.4 本地最终复审为 `P0=0/P1=0`，待最终 SHA 两项远端门禁。staging、production、真实数据和真实资金仍未放行。
+B12-B14 的历史批次与退出证据继续以各开发记录为准。B15 最终 SHA `8a743a901ff878bd92654c9c3ff54dcd68ca5413` 的 development migration `23` 与随后 rollback-only smoke `45` 同 SHA、依次成功，B15 development `GO`，CH-033 已失效。当前 `v2.4.13 / CH-032`、OpenAPI `2.4.13-ch032`；B16 进入 staging-readiness，staging、production、真实数据和真实资金仍未放行。
 
 ## 剩余上线门禁
 

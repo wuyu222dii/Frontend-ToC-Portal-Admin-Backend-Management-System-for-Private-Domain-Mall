@@ -4,6 +4,7 @@ import {
   CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadBucketCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -66,6 +67,7 @@ export interface CopyObjectResult {
 }
 
 export interface ObjectStoragePort {
+  ping(): Promise<void>;
   presignPut(input: PresignPutInput): Promise<SignedObjectRequest>;
   inspectAndHash(input: { key: string; maxBytes: number }): Promise<InspectedObject>;
   copyIfAbsent(input: CopyObjectInput): Promise<CopyObjectResult>;
@@ -93,6 +95,7 @@ export type StorageCommand =
   | CopyObjectCommand
   | DeleteObjectCommand
   | GetObjectCommand
+  | HeadBucketCommand
   | HeadObjectCommand
   | PutObjectCommand;
 
@@ -303,6 +306,14 @@ export class S3ObjectStorage implements ObjectStoragePort {
         unhoistableHeaders: new Set(['x-amz-meta-sha256']),
       }));
     this.currentTime();
+  }
+
+  async ping(): Promise<void> {
+    try {
+      await this.sendCommand(new HeadBucketCommand({ Bucket: this.config.bucket }));
+    } catch {
+      throw new ObjectStorageError('OBJECT_STORAGE_FAILURE');
+    }
   }
 
   async presignPut(input: PresignPutInput): Promise<SignedObjectRequest> {

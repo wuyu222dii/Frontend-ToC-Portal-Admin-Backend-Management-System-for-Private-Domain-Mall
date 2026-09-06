@@ -10,7 +10,7 @@
 | 目标用户 | 终端消费者、一级代理、总部商城经营人员 |
 | 人员角色 | `SUPER_ADMIN`、`AGENT_ADMIN`、`CUSTOMER` |
 | 更新日期 | 2026-09-06 |
-| 文档状态 | B0-B14 development `GO` 的历史证据保持；B15.1-B15.3 已完成，B15.4 本地最终复审为 `P0=0/P1=0`。当前基线为 `v2.4.13 / CH-032 / OpenAPI 2.4.13-ch032`；B15 development `GO` 尚待最终 SHA 的两项远端门禁，staging、production、真实数据和真实资金继续 `NO-GO`。 |
+| 文档状态 | B0-B15 development `GO` 的历史证据保持；B16 staging-readiness 正在执行。当前基线为 `v2.4.13 / CH-032 / OpenAPI 2.4.13-ch032`；staging、production、真实数据和真实资金继续 `NO-GO`。 |
 
 ## 1. MVP 概述
 

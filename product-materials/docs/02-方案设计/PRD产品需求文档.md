@@ -9,7 +9,7 @@
 | 文档版本 | v2.4.13 |
 | 对应阶段 | 三端标准 MVP |
 | 更新日期 | 2026-09-06 |
-| 当前状态 | B0-B14 development `GO` 的历史证据保持；B15.1-B15.3 已完成，B15.4 本地最终复审为 `P0=0/P1=0`。当前产品/API 基线为 `v2.4.13 / CH-032 / OpenAPI 2.4.13-ch032`；B15 development `GO` 尚待最终 SHA 两项远端门禁，staging、production、真实数据和真实资金继续 `NO-GO`。 |
+| 当前状态 | B0-B15 development `GO` 的历史证据保持；B16 staging-readiness 正在执行。当前产品/API 基线为 `v2.4.13 / CH-032 / OpenAPI 2.4.13-ch032`；staging、production、真实数据和真实资金继续 `NO-GO`。 |
 | 产品终端 | 消费者微信小程序、一级代理工作台、总部管理后台 |
 | 人员角色 | `CUSTOMER`、`AGENT_ADMIN`、`SUPER_ADMIN` |
 

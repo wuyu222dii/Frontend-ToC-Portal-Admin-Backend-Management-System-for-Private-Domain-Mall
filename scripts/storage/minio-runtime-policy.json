@@ -4,11 +4,13 @@
     {
       "Effect": "Allow",
       "Action": [
+        "s3:ListBucket",
         "s3:GetObject",
         "s3:PutObject",
         "s3:DeleteObject"
       ],
       "Resource": [
+        "arn:aws:s3:::__S3_BUCKET__",
         "arn:aws:s3:::__S3_BUCKET__/staging/*",
         "arn:aws:s3:::__S3_BUCKET__/public/*",
         "arn:aws:s3:::__S3_BUCKET__/private/*"

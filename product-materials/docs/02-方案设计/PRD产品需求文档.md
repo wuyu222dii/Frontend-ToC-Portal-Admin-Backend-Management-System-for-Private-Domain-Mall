@@ -9,7 +9,7 @@
 | 文档版本 | v2.4.13 |
 | 对应阶段 | 三端标准 MVP |
 | 更新日期 | 2026-09-06 |
-| 当前状态 | B0-B15 development `GO` 的历史证据保持；B16 staging-readiness 正在执行。当前产品/API 基线为 `v2.4.13 / CH-032 / OpenAPI 2.4.13-ch032`；staging、production、真实数据和真实资金继续 `NO-GO`。 |
+| 当前状态 | B0-B15 development `GO` 的历史证据保持；B16 准备项已记录，B17.0 首次脱敏 Mock staging 受控准入正在执行。当前产品/API 基线为 `v2.4.13 / CH-032 / OpenAPI 2.4.13-ch032`；staging、production、真实数据和真实资金继续 `NO-GO`。 |
 | 产品终端 | 消费者微信小程序、一级代理工作台、总部管理后台 |
 | 人员角色 | `CUSTOMER`、`AGENT_ADMIN`、`SUPER_ADMIN` |
 
@@ -35,7 +35,7 @@
 | v2.4.10 | 2026-09-01 | 落实 CH-026：收紧 Store/Admin 售后、退货验货、普通退款/重试和纯金额补偿契约，准入 `0005_b12_aftersale_refund_guards` | 已归档；B12 development `GO`，CH-027 已自动失效 |
 | v2.4.11 | 2026-09-02 | 落实 CH-028：一级代理经营、归属、佣金、钱包和提现闭环治理，准入 B13.0 | 已归档；B13 development `GO`，CH-029 已失效 |
 | v2.4.12 | 2026-09-05 | 落实 CH-030：修正 ADM-02 经营概览、日/月报、商品与客户排行契约 | 已归档；B14 development `GO`，CH-031 已自动失效 |
-| v2.4.13 | 2026-09-06 | 落实 CH-032：收敛 READY 文件 orphan、佣金版本历史解释与提现凭证未知结果恢复 | 当前产品版本；B15 本地实现与最终复审完成，待最终 SHA 远端门禁 |
+| v2.4.13 | 2026-09-06 | 落实 CH-032：收敛 READY 文件 orphan、佣金版本历史解释与提现凭证未知结果恢复 | 当前产品版本；B15 development `GO`，staging 证据仍待完成 |
 
 ### 文档使用约定
 
@@ -1577,8 +1577,8 @@ MVP 支付超时固定为 30 分钟，不属于 ADM-16 可写业务规则；法�
 | 验收场景 AC | 116 | 0 |
 | 用户故事 US | 24 | 0 |
 
-当前准入结论：B0 至 B14 development 已通过并维持 `GO`。B15.1-B15.3 已完成，B15.4 本地最终复审为 `P0=0/P1=0`，等待最终 SHA 的 development migration attestation 与随后 rollback-only smoke。当前产品/API 基线为 `v2.4.13 / CH-032 / OpenAPI 2.4.13-ch032`。真实客户数据、真实支付/退款、真实物流、staging 和 production 均未放行。
+当前准入结论：B0 至 B15 development 已通过并维持 `GO`。B16 准备项已记录，B17.0 正在核验 B12 orphan 现场回收、候选 SHA 和外部复核前置；当前产品/API 基线为 `v2.4.13 / CH-032 / OpenAPI 2.4.13-ch032`。真实客户数据、真实支付/退款、真实物流、staging 和 production 均未放行。
 
 ---
 
-PRD 状态：`v2.4.13 / CH-032 / OpenAPI 2.4.13-ch032` 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24。B0 至 B14 development `GO`；B15 本地实现、定向验证及最终复审已完成，待最终 SHA 两项远端门禁。真实客户数据、真实支付/退款、真实物流、staging/production 尚未放行。
+PRD 状态：`v2.4.13 / CH-032 / OpenAPI 2.4.13-ch032` 为当前产品/API 基线，页面仍为 21/9/22，唯一 FR 142、AC 116、US 24。B0 至 B15 development `GO`；B16/B17 只补充 staging 环境隔离、恢复演练和外部复核，不新增业务页面或接口。真实客户数据、真实支付/退款、真实物流、staging/production 尚未放行。

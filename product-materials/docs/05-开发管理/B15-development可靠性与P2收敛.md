@@ -1,6 +1,6 @@
 # B15 development 可靠性与 P2 收敛
 
-> 批次：B15；产品/API 基线：`v2.4.13 / CH-032`、OpenAPI `2.4.13-ch032`；交付门禁：CH-033；更新日期：2026-09-06；当前状态：development `GO`，已进入 B16 staging-readiness。
+> 批次：B15；产品/API 基线：`v2.4.13 / CH-032`、OpenAPI `2.4.13-ch032`；交付门禁：CH-033；更新日期：2026-09-06；当前状态：development `GO`，B16 准备项已完成并进入 B17 staging 准入核验。
 
 ## 1. 上游与治理
 
@@ -78,7 +78,7 @@ B15 仅限 Mock Provider、虚构文件与脱敏 development。真实微信身�
 | CH-032 | **已批准；当前基线 `v2.4.13 / 2.4.13-ch032`** |
 | CH-033 | **已失效；B15 已完成** |
 | B15.4 | **最终 SHA `8a743a9`；migration Run `23` 与 smoke Run `45` 同 SHA、依次成功** |
-| staging/真实数据 | **六项 P2 已在本地闭合，但 development 远端门禁与首次 staging 外部独立复核尚未完成，继续 `NO-GO`** |
+| staging/真实数据 | **B15 development 已 `GO`；B12 orphan 现场回收、B16 恢复演练和首次 staging 外部独立复核转由 B17 核验，继续 `NO-GO`** |
 
 ## 9. B15.0 退出证据
 

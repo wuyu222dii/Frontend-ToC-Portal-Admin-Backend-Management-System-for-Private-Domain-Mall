@@ -2,7 +2,7 @@ openapi: "3.1.0"
 info:
   title: "洗化产品私域商城 API"
   version: "2.4.13-ch032"
-  description: "CH-032 单一线协议，继承 CH-006、CH-008、CH-010、CH-012、CH-014、CH-016、CH-018、CH-020、CH-022、CH-024、CH-026、CH-028 与 CH-030；B14 总部经营分析已取得 development GO，CH-031 已失效，现仅准入 B15 development 可靠性与既有 P2 收敛。B15.0 保持 173 paths、198 operations 及全部 operationId，只闭合 READY 文件回收、佣金版本目标快照和提现付款凭证恢复语义；不新增业务路由、迁移、Worker 或依赖。真实资金、真实客户数据、staging 和 production 继续不开放；所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
+  description: "CH-032 单一线协议，继承 CH-006、CH-008、CH-010、CH-012、CH-014、CH-016、CH-018、CH-020、CH-022、CH-024、CH-026、CH-028 与 CH-030；B0-B15 development 交付保持，B17 仅增加脱敏 Mock staging 的环境门禁、readiness 与证据边界，不改变业务 paths、operationId、数据库表或迁移链。真实资金、真实客户数据、真实 Provider、staging 和 production 在 B17 证据闭合前继续不开放；所有路径相对 /api/v1；文本目录与本文件 operation 集合必须完全一致。"
   license:
     name: "Proprietary"
     identifier: "LicenseRef-Proprietary"
@@ -58,7 +58,7 @@ paths:
       tags:
         - "Store"
       summary: "使用微信 code 登录；设计阶段可由 Mock Provider 替代"
-      description: "服务端按环境配置选择微信或 Mock 身份 Provider，客户端不得选择 Provider；Mock 仅允许 test/development。B7 固定一个消费者微信 AppID，以 (AppID, openid) 语义识别主体；现 account.wechat_open_id 仅在单 AppID 基线内唯一。wechat_union_id 仅为可空元数据，不得作为登录键或触发账号自动合并；多 AppID 必须另立变更并执行数据库迁移。code、candidate_token 和会话令牌不得进入日志、审计或幂等响应缓存。此 operation 使用 HASH_ONLY 幂等策略：仅保存请求哈希与完成事实，不回放 access_token、refresh_token 或候选 token。登录按来源 IP HMAC 使用独立 Redis 固定窗口，每 15 分钟最多 10 次，Redis 不可用时 fail closed；超限返回准确 Retry-After。登录固定签发 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的会话，Provider 不是 token claim，绝不接受或签发 B2 SUPER_ADMIN/MFA 权限。consents 必须与 /store/legal-documents 当前版本逐项匹配，否则返回 409 CONSENT_VERSION_MISMATCH；有效 candidate_token 仅可迁移一次并原子清除 token hash。"
+      description: "服务端按环境配置选择微信或 Mock 身份 Provider，客户端不得选择 Provider；Mock 仅允许 test/development，或在明确脱敏确认下用于 staging。B7 固定一个消费者微信 AppID，以 (AppID, openid) 语义识别主体；现 account.wechat_open_id 仅在单 AppID 基线内唯一。wechat_union_id 仅为可空元数据，不得作为登录键或触发账号自动合并；多 AppID 必须另立变更并执行数据库迁移。code、candidate_token 和会话令牌不得进入日志、审计或幂等响应缓存。此 operation 使用 HASH_ONLY 幂等策略：仅保存请求哈希与完成事实，不回放 access_token、refresh_token 或候选 token。登录按来源 IP HMAC 使用独立 Redis 固定窗口，每 15 分钟最多 10 次，Redis 不可用时 fail closed；超限返回准确 Retry-After。登录固定签发当前环境配置的 Store audience（development/test 为 qingxu-store）、role=CUSTOMER、assurance=WECHAT 的会话，Provider 不是 token claim，绝不接受或签发 B2 SUPER_ADMIN/MFA 权限。consents 必须与 /store/legal-documents 当前版本逐项匹配，否则返回 409 CONSENT_VERSION_MISMATCH；有效 candidate_token 仅可迁移一次并原子清除 token hash。"
       operationId: "postStoreAuthWechatLogin"
       security: []
       parameters:
@@ -103,7 +103,7 @@ paths:
       tags:
         - "Store"
       summary: "刷新会话并轮换 refresh token"
-      description: "仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的 refresh token；按 session_family 串行轮换，旧 token 重放撤销整个 family。使用 HASH_ONLY 幂等策略，不缓存或重放 access_token、refresh_token。"
+      description: "仅接受当前环境配置的 Store audience（development/test 为 qingxu-store）、role=CUSTOMER、assurance=WECHAT 的 refresh token；按 session_family 串行轮换，旧 token 重放撤销整个 family。使用 HASH_ONLY 幂等策略，不缓存或重放 access_token、refresh_token。"
       operationId: "postStoreAuthRefresh"
       x-ch016-lost-response-retry: "同一 Idempotency-Key 在成功响应丢失后重试固定返回 409 且不回放 token；服务端先识别该已完成幂等事实，不将其误判为恶意旧 refresh token 重放而撤销 family。使用新幂等键重放已轮换 token 仍按安全规则撤销 family。"
       security: []
@@ -149,7 +149,7 @@ paths:
       tags:
         - "Store"
       summary: "注销当前会话"
-      description: "仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的会话；使用 HASH_ONLY 幂等策略撤销当前 session，不缓存响应或回放 bearer/session 凭据，绝不接受 B2 SUPER_ADMIN/MFA 会话。"
+      description: "仅接受当前环境配置的 Store audience（development/test 为 qingxu-store）、role=CUSTOMER、assurance=WECHAT 的会话；使用 HASH_ONLY 幂等策略撤销当前 session，不缓存响应或回放 bearer/session 凭据，绝不接受 B2 SUPER_ADMIN/MFA 会话。"
       operationId: "postStoreAuthLogout"
       security:
         -
@@ -190,7 +190,7 @@ paths:
       tags:
         - "Store"
       summary: "当前消费者资料，账户手机号默认掩码"
-      description: "仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的会话；响应只投影当前 CUSTOMER 的最小资料和账户手机号掩码，不读取收货地址手机号。"
+      description: "仅接受当前环境配置的 Store audience（development/test 为 qingxu-store）、role=CUSTOMER、assurance=WECHAT 的会话；响应只投影当前 CUSTOMER 的最小资料和账户手机号掩码，不读取收货地址手机号。"
       operationId: "getStoreProfile"
       security:
         -
@@ -277,7 +277,7 @@ paths:
       tags:
         - "Store"
       summary: "使用微信手机号凭证完成自愿授权；要求 Idempotency-Key 与 If-Match"
-      description: "客户端只提交一次性 provider_credential 与已接受的 PHONE_AUTHORIZATION 协议版本，不能选择 Provider；服务端按环境选择微信 Provider，Mock 仅允许 test/development。协议版本必须匹配服务端当前手机号授权文档，否则返回 409 CONSENT_VERSION_MISMATCH。If-Match 必须对应 profile.version，版本冲突返回 409 且不自动覆盖。使用 HASH_ONLY 幂等策略，不缓存手机号凭证或资料响应；不得读取或写入收货地址手机号。"
+      description: "客户端只提交一次性 provider_credential 与已接受的 PHONE_AUTHORIZATION 协议版本，不能选择 Provider；服务端按环境选择微信 Provider，Mock 仅允许 test/development，或在明确脱敏确认下用于 staging。协议版本必须匹配服务端当前手机号授权文档，否则返回 409 CONSENT_VERSION_MISMATCH。If-Match 必须对应 profile.version，版本冲突返回 409 且不自动覆盖。使用 HASH_ONLY 幂等策略，不缓存手机号凭证或资料响应；不得读取或写入收货地址手机号。"
       operationId: "postStoreProfilePhoneAuthorizations"
       security:
         -
@@ -475,7 +475,7 @@ paths:
           candidateToken: []
         - {}
       x-ch016-anonymous-replacement: "匿名新请求只能通过可选 X-Candidate-Token 定位并使旧候选失效；未提交旧 token 时无法关联另一匿名候选，旧候选仅按 TTL 自然过期。"
-      x-ch016-credential-precedence: "同时携带 Authorization 与 X-Candidate-Token 返回 400 INVALID_ARGUMENT。只要携带 Authorization，就只校验 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的 bearer，失败返回 401 且不得尝试 candidate token 或匿名分支；否则只要携带 X-Candidate-Token，就必须校验候选凭据，失效或过期返回 401 且不得降级匿名；仅两种凭据均未携带时使用匿名分支。"
+      x-ch016-credential-precedence: "同时携带 Authorization 与 X-Candidate-Token 返回 400 INVALID_ARGUMENT。只要携带 Authorization，就只校验当前环境配置的 Store audience、role=CUSTOMER、assurance=WECHAT 的 bearer，失败返回 401 且不得尝试 candidate token 或匿名分支；否则只要携带 X-Candidate-Token，就必须校验候选凭据，失效或过期返回 401 且不得降级匿名；仅两种凭据均未携带时使用匿名分支。"
       x-ch016-candidate-token-result: "成功返回有效 candidate 分支时，无凭据匿名请求和 candidateToken 请求必须签发新的非空 32..512 字符 candidate_token；bearer 请求必须返回 candidate_token=null。已有绑定与 public fallback 分支始终返回 null。"
       parameters:
         -
@@ -524,14 +524,14 @@ paths:
       tags:
         - "Store"
       summary: "查询当前有效候选和剩余秒数"
-      description: "游客使用创建响应签发的 X-Candidate-Token，CUSTOMER 使用 aud=qingxu-store 会话；只返回当前仍有效候选及剩余秒数，不回传或消费 candidate_token。双凭据或无效凭据按固定优先级 fail closed，不得降级到另一主体。"
+      description: "游客使用创建响应签发的 X-Candidate-Token，CUSTOMER 使用当前环境配置的 Store audience 会话；只返回当前仍有效候选及剩余秒数，不回传或消费 candidate_token。双凭据或无效凭据按固定优先级 fail closed，不得降级到另一主体。"
       operationId: "getStoreAttributionCandidate"
       security:
         -
           bearerAuth: []
         -
           candidateToken: []
-      x-ch016-credential-precedence: "同时携带 Authorization 与 X-Candidate-Token 返回 400 INVALID_ARGUMENT。只要携带 Authorization，就只校验 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的 bearer，失败返回 401 且不得尝试 candidate token；否则必须校验 X-Candidate-Token，失效、过期或未携带均返回 401。"
+      x-ch016-credential-precedence: "同时携带 Authorization 与 X-Candidate-Token 返回 400 INVALID_ARGUMENT。只要携带 Authorization，就只校验当前环境配置的 Store audience、role=CUSTOMER、assurance=WECHAT 的 bearer，失败返回 401 且不得尝试 candidate token；否则必须校验 X-Candidate-Token，失效、过期或未携带均返回 401。"
       parameters: []
       responses:
         200:
@@ -648,7 +648,7 @@ paths:
       tags:
         - "Store"
       summary: "只读查看当前服务代理"
-      description: "仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的会话。只要长期绑定仍为 BOUND 且未结束，即使代理已停用也继续返回 agent_id、display_name、bound_at，不暴露代理内部状态；代理停用只阻止新候选、新绑定和未来订单归因，不得隐式结束既有绑定。仅没有 BOUND 绑定或绑定已结束时 data=null。不得返回 binding_id、customer_id、customer_version、佣金、完整手机号或其他代理管理字段。"
+      description: "仅接受当前环境配置的 Store audience、role=CUSTOMER、assurance=WECHAT 的会话。只要长期绑定仍为 BOUND 且未结束，即使代理已停用也继续返回 agent_id、display_name、bound_at，不暴露代理内部状态；代理停用只阻止新候选、新绑定和未来订单归因，不得隐式结束既有绑定。仅没有 BOUND 绑定或绑定已结束时 data=null。不得返回 binding_id、customer_id、customer_version、佣金、完整手机号或其他代理管理字段。"
       operationId: "getStoreServiceAgent"
       security:
         -
@@ -2145,7 +2145,7 @@ paths:
       tags:
         - "Store"
       summary: "服务端试算并确认创建仅退款或退货退款"
-      description: "仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 会话。action=PREVIEW 使用 Repeatable Read 服务端试算金额、可退数量/金额与阻断，可提交时签发 5 分钟无状态用途隔离 HMAC preview_token 和 confirmation_hash；action=CONFIRM 必须重放精确规范业务字段，再以 Serializable 事务重验后占用额度并创建售后。PREVIEW 和 CONFIRM 必须使用不同 Idempotency-Key，两阶段都使用 HASH_ONLY，不缓存 preview token、证据能力或响应正文；预览响应丢失时必须使用新键重新试算。与其他登录后 Store 操作共享 CUSTOMER+规范化来源 IP 用途隔离 HMAC 的 Redis 固定窗口，每 60 秒 120 次，Redis 不可用时 fail closed。"
+      description: "仅接受当前环境配置的 Store audience、role=CUSTOMER、assurance=WECHAT 会话。action=PREVIEW 使用 Repeatable Read 服务端试算金额、可退数量/金额与阻断，可提交时签发 5 分钟无状态用途隔离 HMAC preview_token 和 confirmation_hash；action=CONFIRM 必须重放精确规范业务字段，再以 Serializable 事务重验后占用额度并创建售后。PREVIEW 和 CONFIRM 必须使用不同 Idempotency-Key，两阶段都使用 HASH_ONLY，不缓存 preview token、证据能力或响应正文；预览响应丢失时必须使用新键重新试算。与其他登录后 Store 操作共享 CUSTOMER+规范化来源 IP 用途隔离 HMAC 的 Redis 固定窗口，每 60 秒 120 次，Redis 不可用时 fail closed。"
       operationId: "postStoreAftersales"
       x-idempotency-storage: "HASH_ONLY"
       security:
@@ -10930,12 +10930,12 @@ components:
       type: "http"
       scheme: "bearer"
       bearerFormat: "JWT"
-      description: "不得跨端复用 token；通用受保护路径按 realm 严格拒绝跨端 token：/store 仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT；/admin 仅接受 aud=qingxu-admin-web、role=SUPER_ADMIN、assurance=MFA。B7 不修改 /agent 现有 operation；CH-028 起 /agent 改用独立 agentBearerAuth。"
+      description: "不得跨端复用 token；通用受保护路径按 realm 严格拒绝跨端 token：/store 仅接受当前环境配置的 Store audience、role=CUSTOMER、assurance=WECHAT；/admin 仅接受当前环境配置的 Admin audience、role=SUPER_ADMIN、assurance=MFA。B7 不修改 /agent 现有 operation；CH-028 起 /agent 改用独立 agentBearerAuth。"
     agentBearerAuth:
       type: "http"
       scheme: "bearer"
       bearerFormat: "AgentJWT"
-      description: "仅 /agent 路径及 GET /files/{file_id}/download-url 的本人 PROMOTION_QR 受控分支使用的独立 Bearer realm：固定 aud=qingxu-agent-web、role=AGENT_ADMIN、assurance=PASSWORD，不得接受 Admin 或 Store token。正常会话固定 restriction=NONE；临时会话固定 restriction=CHANGE_PASSWORD_ONLY、无 refresh token，且只允许改密和注销。"
+      description: "仅 /agent 路径及 GET /files/{file_id}/download-url 的本人 PROMOTION_QR 受控分支使用的独立 Bearer realm：使用当前环境配置的 Agent audience（development/test 为 qingxu-agent-web）、role=AGENT_ADMIN、assurance=PASSWORD，不得接受 Admin 或 Store token。正常会话固定 restriction=NONE；临时会话固定 restriction=CHANGE_PASSWORD_ONLY、无 refresh token，且只允许改密和注销。"
     preAuth:
       type: "http"
       scheme: "bearer"
@@ -12079,7 +12079,7 @@ components:
         access_token:
           type: "string"
           minLength: 20
-          description: "JWT aud 固定为 qingxu-agent-web；仅 AGENT_ADMIN 可接受。"
+          description: "JWT aud 为当前环境配置的 Agent audience（development/test 为 qingxu-agent-web）；仅 AGENT_ADMIN 可接受。"
         refresh_token:
           type: "string"
           minLength: 20
@@ -12135,7 +12135,7 @@ components:
         access_token:
           type: "string"
           minLength: 20
-          description: "JWT aud 固定为 qingxu-agent-web；不含 refresh token，且只允许改密和注销。"
+          description: "JWT aud 为当前环境配置的 Agent audience（development/test 为 qingxu-agent-web）；不含 refresh token，且只允许改密和注销。"
         account_id:
           type: "string"
         session_id:
@@ -12213,7 +12213,7 @@ components:
         access_token:
           type: "string"
           minLength: 20
-          description: "JWT aud 固定为 qingxu-store。"
+          description: "JWT aud 为当前环境配置的 Store audience（development/test 为 qingxu-store）。"
         refresh_token:
           type: "string"
           minLength: 20
@@ -12311,7 +12311,7 @@ components:
                     access_token:
                       type: "string"
                       minLength: 20
-                      description: "JWT aud 固定为 qingxu-store。"
+                      description: "JWT aud 为当前环境配置的 Store audience（development/test 为 qingxu-store）。"
                     refresh_token:
                       type: "string"
                       minLength: 20

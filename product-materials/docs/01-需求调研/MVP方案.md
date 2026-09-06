@@ -10,7 +10,7 @@
 | 目标用户 | 终端消费者、一级代理、总部商城经营人员 |
 | 人员角色 | `SUPER_ADMIN`、`AGENT_ADMIN`、`CUSTOMER` |
 | 更新日期 | 2026-09-06 |
-| 文档状态 | B0-B15 development `GO` 的历史证据保持；B16 staging-readiness 正在执行。当前基线为 `v2.4.13 / CH-032 / OpenAPI 2.4.13-ch032`；staging、production、真实数据和真实资金继续 `NO-GO`。 |
+| 文档状态 | B0-B15 development `GO` 的历史证据保持；B16 准备项已记录，B17.0 首次脱敏 Mock staging 受控准入正在执行。当前基线为 `v2.4.13 / CH-032 / OpenAPI 2.4.13-ch032`；staging、production、真实数据和真实资金继续 `NO-GO`。 |
 
 ## 1. MVP 概述
 
@@ -418,14 +418,14 @@ Supabase 在当前 MVP 中仅作为 PostgreSQL 托管服务。消费者小程序
 
 ## 9. 里程碑建议
 
-B0-B14 development 已完成并维持 `GO`，历史证据保留。B15.1-B15.3 已完成，B15.4 已完成本地最终复审并等待最终 SHA 远端门禁。任何 development 结果都不等同于 staging 或生产许可。
+B0-B15 development 已完成并维持 `GO`，历史证据保留。B16 的运行时、恢复和准入文档已完成，但实际 clone 恢复、staging dry-run 与外部复核尚未取得证据；B17.0 正在冻结唯一候选 SHA。任何 development 结果都不等同于 staging 或生产许可。
 
 | 阶段 | 主要交付物 | 当前状态 |
 |---|---|---|
-| 需求确认 | MVP、三端角色确认、变更记录 | 当前基线为 v2.4.13/CH-032；CH-033 仍仅覆盖 B15 脱敏 development |
+| 需求确认 | MVP、三端角色确认、变更记录 | 当前基线为 v2.4.13/CH-032；CH-033 已失效，仅保留 B15 脱敏 development 历史记录；CH-035 仅覆盖 B17 脱敏 Mock staging |
 | 产品设计 | PRD、三端信息架构、可点击原型、Figma 重建规范 | B12 售后、验货、普通退款与金额补偿边界已同步；继续复用 21/9/22 页面，B12.5 已落地 MP-13/14 与 ADM-12/13/16 |
 | 技术设计 | 系统架构、数据库 ERD、接口文档、OpenAPI、Prisma 草案与部署拓扑 | OpenAPI `2.4.13-ch032` 保持既有 173 paths / 198 operations / 198 unique operationId；B15 新增前向 `0007`，不新增表、枚举、Worker 或依赖 |
-| 开发与测试 | 三端工程、API、数据库、自动化测试 | B0-B14 development `GO`；B15.1-B15.3 已完成，B15.4 本地复审 `P0=0/P1=0`，待最终 SHA 远端门禁 |
+| 开发与测试 | 三端工程、API、数据库、自动化测试 | B0-B15 development `GO`；B16/B17 只做 staging 准入与恢复复核，不新增业务功能 |
 | 上线准备 | 微信资质、真实支付退款、隐私合规、部署与验收 | 未开始 |
 
 ## 10. 风险与应对
@@ -509,7 +509,7 @@ B0-B14 development 已完成并维持 `GO`，历史证据保留。B15.1-B15.3 �
 
 - 尚无真实用户访谈、历史订单、代理规模、佣金预算、商品规模和并发数据；指标阈值需试运行后校准。
 - 尚无微信正式参数、物流合同、隐私文本、线下打款财务制度和法律审核结论。
-- 当前交付物仍不是完整可用商城业务系统。B0-B14 development 已完成；B15 六项既有 P2 已在本地实现和定向验证闭合，但最终同 SHA 远端门禁尚未取得。当前基线为 `v2.4.13 / CH-032 / OpenAPI 2.4.13-ch032`；真实微信支付/退款、第三方物流、staging 和 production 继续排除。
+- 当前交付物仍不是生产可用商城业务系统。B0-B15 development 已完成并有历史证据；B16/B17 的恢复演练、B12 orphan 现场回收和外部 staging 复核尚未闭合。当前基线为 `v2.4.13 / CH-032 / OpenAPI 2.4.13-ch032`；真实微信支付/退款、第三方物流、staging 和 production 继续排除。
 
 ## 13. 后续建议
 
@@ -523,4 +523,4 @@ B0-B14 development 已完成并维持 `GO`，历史证据保留。B15.1-B15.3 �
 
 ---
 
-项目状态：三端 MVP 产品/API 基线为 `v2.4.13 / CH-032 / OpenAPI 2.4.13-ch032`。B0 至 B14 development 已完成并保留远端证据；B15.1-B15.3 已完成，B15.4 本地最终复审为 `P0=0/P1=0`，等待最终 SHA 两项远端门禁。真实客户数据、真实支付/退款、真实物流、staging/production 仍为 `NO-GO`，进入 staging 前须外部独立复核。
+项目状态：三端 MVP 产品/API 基线为 `v2.4.13 / CH-032 / OpenAPI 2.4.13-ch032`。B0 至 B15 development 已完成并保留远端证据；B16 准备项已记录，B17.0 正在核验 B12 orphan 现场回收、恢复演练和唯一候选 SHA。真实客户数据、真实支付/退款、真实物流、staging/production 仍为 `NO-GO`，进入 staging 前须外部独立复核。

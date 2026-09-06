@@ -22,7 +22,7 @@ export class WorkerController {
 
   @Get()
   async check(): Promise<WorkerHealthResponse> {
-    if (this.redis && !this.redis.isReady) throw new ServiceUnavailableException('Service is not ready');
+    if (!this.redis || !this.redis.isReady) throw new ServiceUnavailableException('Service is not ready');
     try {
       await this.database.ping();
       await this.storage.ping();

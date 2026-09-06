@@ -561,7 +561,13 @@ describe('RedisMockPaymentProvider', () => {
     const redis = new FakeRedis();
     expect(() => new RedisMockPaymentProvider({
       environment: 'production' as never, signingKey: SIGNING_KEY, timeoutMs: 500,
-    }, redis)).toThrow('restricted to development and test');
+    }, redis)).toThrow('restricted to development and test, or approved staging');
+    expect(() => new RedisMockPaymentProvider({
+      environment: 'staging', signingKey: SIGNING_KEY, timeoutMs: 500,
+    }, redis)).toThrow('restricted to development and test, or approved staging');
+    expect(() => new RedisMockPaymentProvider({
+      environment: 'staging', stagingApproved: true, signingKey: SIGNING_KEY, timeoutMs: 500,
+    }, redis)).not.toThrow();
     expect(() => new RedisMockPaymentProvider({
       environment: 'test', signingKey: Buffer.alloc(16), timeoutMs: 500,
     }, redis)).toThrow('exactly 32 bytes');

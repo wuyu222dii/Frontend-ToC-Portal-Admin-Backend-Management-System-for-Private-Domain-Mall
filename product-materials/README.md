@@ -2,7 +2,7 @@
 
 本目录集中管理三端商城的需求、方案、技术、风控、开发文档和可点击原型。
 
-当前交付状态：B0 至 B15 development 均已通过；B15 最终 SHA `8a743a9` 的 migration Run `23` 与 rollback-only smoke Run `45` 同 SHA、依次成功，CH-033 已失效。当前进入 B16 staging-readiness；staging、production、真实客户数据与真实资金仍未放行。
+当前交付状态：B0 至 B15 development 均已通过；B15 最终 SHA `8a743a9` 的 migration Run `23` 与 rollback-only smoke Run `45` 同 SHA、依次成功，CH-033 已失效。B16 准备项已记录，当前进入 B17 首次脱敏 Mock staging 受控准入；B17.0 正在进行，staging、production、真实客户数据与真实资金仍未放行。
 
 > 2026-09-05 起取消 GitHub 普通 CI；远端测试仅保留手动 Supabase rollback-only smoke，历史 CI Run 记录继续保留。
 
@@ -35,4 +35,6 @@
 - [B13 一级代理经营与资金闭环](docs/05-开发管理/B13-一级代理经营与资金闭环.md)
 - [B14 总部经营看板与销售分析闭环](docs/05-开发管理/B14-总部经营看板与销售分析闭环.md)
 - [B15 development 可靠性与 P2 收敛](docs/05-开发管理/B15-development可靠性与P2收敛.md)
+- [B17 首次 staging 受控发布与外部复核](docs/05-开发管理/B17-首次staging受控发布与外部复核.md)
+- [B17 staging 证据模板](docs/05-开发管理/B17-staging证据模板.md)
 - [三端可点击原型](prototype/README.md)

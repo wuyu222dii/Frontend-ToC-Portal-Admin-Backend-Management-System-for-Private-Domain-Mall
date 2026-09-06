@@ -1,6 +1,6 @@
 # 青序生活三端私域商城
 
-本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。B15 development `GO` 的最终 SHA `8a743a9` 已完成 migration Run `23` 与 rollback-only smoke Run `45`；CH-033 已失效。当前进入 B16 staging-readiness，产品/API 基线保持 `v2.4.13 / CH-032`、OpenAPI `2.4.13-ch032`。
+本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。B15 development `GO` 的最终 SHA `8a743a9` 已完成 migration Run `23` 与 rollback-only smoke Run `45`；CH-033 已失效。B16 准备项已记录，当前进入 B17 首次脱敏 Mock staging 受控准入；产品/API 基线保持 `v2.4.13 / CH-032`、OpenAPI `2.4.13-ch032`，staging 仍为 `NO-GO`。
 
 > 2026-09-05 起取消 GitHub 普通 CI；远端测试仅保留手动 Supabase rollback-only smoke，development migration 继续作为同 SHA 前置部署与 attestation。历史 CI Run 记录保持不变。
 
@@ -60,6 +60,7 @@ pnpm db:test-b10-payments # 支付、结算、佣金与迟到退款门禁
 pnpm db:test-b12-aftersales # 售后、验货与退款门禁
 pnpm db:test-b13-agent # Agent 认证、经营、佣金与提现门禁
 pnpm db:diff
+pnpm staging:readiness # 仅在 NODE_ENV=staging 时只读探测 API/Worker readiness
 ```
 
 B7.2 账户手机号 HMAC 轮换是受控维护操作，不是日常启动命令。先排空所有仍持有旧 current key 的 API 写实例，并以 `mall_migrator` 连接一次性注入 `STORE_PHONE_HASH_DRAIN_OLD_WRITERS_APPROVAL=DRAIN_OLD_STORE_PHONE_HASH_WRITERS_APPROVED`，运行 `pnpm store:phone-hash:rehash`。重算成功后从配置移除 previous key，再以相同一次性审批运行 `pnpm store:phone-hash:verify`；current-only 验证成功前不得销毁旧密钥。审批变量不得写入 `.env` 或长期 Secret。
@@ -68,4 +69,4 @@ B7.2 账户手机号 HMAC 轮换是受控维护操作，不是日常启动命令
 
 Supabase 项目创建、连接分权和受保护烟测见 [B0 工程与 Supabase](product-materials/docs/05-开发管理/B0-工程与Supabase.md)，公共内核边界见 [B1 平台公共内核](product-materials/docs/05-开发管理/B1-平台公共内核.md)，总部认证实现与安全操作见 [B2 总部安全入口](product-materials/docs/05-开发管理/B2-总部安全入口.md)，B3-B8 历史批次见对应开发记录；B9 的订单与库存预占见 [B9 订单报价与库存预占](product-materials/docs/05-开发管理/B9-订单报价与库存预占.md)，B10 的支付、对账和迟到支付退款见 [B10 支付对账与迟到支付退款](product-materials/docs/05-开发管理/B10-支付对账与迟到支付退款.md)，B11 的准入边界与实施批次见 [B11 订单履约与物流](product-materials/docs/05-开发管理/B11-订单履约与物流.md)，B12 的售后边界见 [B12 售后验货与普通退款](product-materials/docs/05-开发管理/B12-售后验货与普通退款.md)，B13 的代理资金闭环见 [B13 一级代理经营与资金闭环](product-materials/docs/05-开发管理/B13-一级代理经营与资金闭环.md)，B14 的经营分析闭环见 [B14 总部经营看板与销售分析闭环](product-materials/docs/05-开发管理/B14-总部经营看板与销售分析闭环.md)，B15 的可靠性收敛见 [B15 development 可靠性与 P2 收敛](product-materials/docs/05-开发管理/B15-development可靠性与P2收敛.md)。普通 PR 不再自动运行 GitHub CI；Supabase 凭据只提供给受保护的手动 migration 与 smoke workflow。
 
-B3-B14 的历史证据继续以各阶段记录为准。B15 最终 SHA `8a743a901ff878bd92654c9c3ff54dcd68ca5413` 的 development migration Run `23` 与 rollback-only smoke Run `45` 同 SHA、依次成功；未把未运行的全仓回归或纵向测试记为通过。B16 当前执行 staging-readiness 准备。
+B3-B16 的历史证据继续以各阶段记录为准。B15 最终 SHA `8a743a901ff878bd92654c9c3ff54dcd68ca5413` 的 development migration Run `23` 与 rollback-only smoke Run `45` 同 SHA、依次成功；未把未运行的全仓回归或纵向测试记为通过。B17 当前仅完成配置门禁和文档准备；B12 orphan 现场回收、恢复演练、依赖故障注入和外部独立复核未完成，staging/production/真实数据继续 `NO-GO`。详见 [B17 首次 staging 受控发布与外部复核](product-materials/docs/05-开发管理/B17-首次staging受控发布与外部复核.md)。

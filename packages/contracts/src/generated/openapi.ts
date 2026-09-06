@@ -35,7 +35,7 @@ export interface paths {
         put?: never;
         /**
          * 使用微信 code 登录；设计阶段可由 Mock Provider 替代
-         * @description 服务端按环境配置选择微信或 Mock 身份 Provider，客户端不得选择 Provider；Mock 仅允许 test/development。B7 固定一个消费者微信 AppID，以 (AppID, openid) 语义识别主体；现 account.wechat_open_id 仅在单 AppID 基线内唯一。wechat_union_id 仅为可空元数据，不得作为登录键或触发账号自动合并；多 AppID 必须另立变更并执行数据库迁移。code、candidate_token 和会话令牌不得进入日志、审计或幂等响应缓存。此 operation 使用 HASH_ONLY 幂等策略：仅保存请求哈希与完成事实，不回放 access_token、refresh_token 或候选 token。登录按来源 IP HMAC 使用独立 Redis 固定窗口，每 15 分钟最多 10 次，Redis 不可用时 fail closed；超限返回准确 Retry-After。登录固定签发 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的会话，Provider 不是 token claim，绝不接受或签发 B2 SUPER_ADMIN/MFA 权限。consents 必须与 /store/legal-documents 当前版本逐项匹配，否则返回 409 CONSENT_VERSION_MISMATCH；有效 candidate_token 仅可迁移一次并原子清除 token hash。
+         * @description 服务端按环境配置选择微信或 Mock 身份 Provider，客户端不得选择 Provider；Mock 仅允许 test/development，或在明确脱敏确认下用于 staging。B7 固定一个消费者微信 AppID，以 (AppID, openid) 语义识别主体；现 account.wechat_open_id 仅在单 AppID 基线内唯一。wechat_union_id 仅为可空元数据，不得作为登录键或触发账号自动合并；多 AppID 必须另立变更并执行数据库迁移。code、candidate_token 和会话令牌不得进入日志、审计或幂等响应缓存。此 operation 使用 HASH_ONLY 幂等策略：仅保存请求哈希与完成事实，不回放 access_token、refresh_token 或候选 token。登录按来源 IP HMAC 使用独立 Redis 固定窗口，每 15 分钟最多 10 次，Redis 不可用时 fail closed；超限返回准确 Retry-After。登录固定签发当前环境配置的 Store audience（development/test 为 qingxu-store）、role=CUSTOMER、assurance=WECHAT 的会话，Provider 不是 token claim，绝不接受或签发 B2 SUPER_ADMIN/MFA 权限。consents 必须与 /store/legal-documents 当前版本逐项匹配，否则返回 409 CONSENT_VERSION_MISMATCH；有效 candidate_token 仅可迁移一次并原子清除 token hash。
          */
         post: operations["postStoreAuthWechatLogin"];
         delete?: never;
@@ -55,7 +55,7 @@ export interface paths {
         put?: never;
         /**
          * 刷新会话并轮换 refresh token
-         * @description 仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的 refresh token；按 session_family 串行轮换，旧 token 重放撤销整个 family。使用 HASH_ONLY 幂等策略，不缓存或重放 access_token、refresh_token。
+         * @description 仅接受当前环境配置的 Store audience（development/test 为 qingxu-store）、role=CUSTOMER、assurance=WECHAT 的 refresh token；按 session_family 串行轮换，旧 token 重放撤销整个 family。使用 HASH_ONLY 幂等策略，不缓存或重放 access_token、refresh_token。
          */
         post: operations["postStoreAuthRefresh"];
         delete?: never;
@@ -75,7 +75,7 @@ export interface paths {
         put?: never;
         /**
          * 注销当前会话
-         * @description 仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的会话；使用 HASH_ONLY 幂等策略撤销当前 session，不缓存响应或回放 bearer/session 凭据，绝不接受 B2 SUPER_ADMIN/MFA 会话。
+         * @description 仅接受当前环境配置的 Store audience（development/test 为 qingxu-store）、role=CUSTOMER、assurance=WECHAT 的会话；使用 HASH_ONLY 幂等策略撤销当前 session，不缓存响应或回放 bearer/session 凭据，绝不接受 B2 SUPER_ADMIN/MFA 会话。
          */
         post: operations["postStoreAuthLogout"];
         delete?: never;
@@ -93,7 +93,7 @@ export interface paths {
         };
         /**
          * 当前消费者资料，账户手机号默认掩码
-         * @description 仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的会话；响应只投影当前 CUSTOMER 的最小资料和账户手机号掩码，不读取收货地址手机号。
+         * @description 仅接受当前环境配置的 Store audience（development/test 为 qingxu-store）、role=CUSTOMER、assurance=WECHAT 的会话；响应只投影当前 CUSTOMER 的最小资料和账户手机号掩码，不读取收货地址手机号。
          */
         get: operations["getStoreProfile"];
         put?: never;
@@ -119,7 +119,7 @@ export interface paths {
         put?: never;
         /**
          * 使用微信手机号凭证完成自愿授权；要求 Idempotency-Key 与 If-Match
-         * @description 客户端只提交一次性 provider_credential 与已接受的 PHONE_AUTHORIZATION 协议版本，不能选择 Provider；服务端按环境选择微信 Provider，Mock 仅允许 test/development。协议版本必须匹配服务端当前手机号授权文档，否则返回 409 CONSENT_VERSION_MISMATCH。If-Match 必须对应 profile.version，版本冲突返回 409 且不自动覆盖。使用 HASH_ONLY 幂等策略，不缓存手机号凭证或资料响应；不得读取或写入收货地址手机号。
+         * @description 客户端只提交一次性 provider_credential 与已接受的 PHONE_AUTHORIZATION 协议版本，不能选择 Provider；服务端按环境选择微信 Provider，Mock 仅允许 test/development，或在明确脱敏确认下用于 staging。协议版本必须匹配服务端当前手机号授权文档，否则返回 409 CONSENT_VERSION_MISMATCH。If-Match 必须对应 profile.version，版本冲突返回 409 且不自动覆盖。使用 HASH_ONLY 幂等策略，不缓存手机号凭证或资料响应；不得读取或写入收货地址手机号。
          */
         post: operations["postStoreProfilePhoneAuthorizations"];
         delete?: never;
@@ -217,7 +217,7 @@ export interface paths {
         };
         /**
          * 查询当前有效候选和剩余秒数
-         * @description 游客使用创建响应签发的 X-Candidate-Token，CUSTOMER 使用 aud=qingxu-store 会话；只返回当前仍有效候选及剩余秒数，不回传或消费 candidate_token。双凭据或无效凭据按固定优先级 fail closed，不得降级到另一主体。
+         * @description 游客使用创建响应签发的 X-Candidate-Token，CUSTOMER 使用当前环境配置的 Store audience 会话；只返回当前仍有效候选及剩余秒数，不回传或消费 candidate_token。双凭据或无效凭据按固定优先级 fail closed，不得降级到另一主体。
          */
         get: operations["getStoreAttributionCandidate"];
         put?: never;
@@ -277,7 +277,7 @@ export interface paths {
         };
         /**
          * 只读查看当前服务代理
-         * @description 仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 的会话。只要长期绑定仍为 BOUND 且未结束，即使代理已停用也继续返回 agent_id、display_name、bound_at，不暴露代理内部状态；代理停用只阻止新候选、新绑定和未来订单归因，不得隐式结束既有绑定。仅没有 BOUND 绑定或绑定已结束时 data=null。不得返回 binding_id、customer_id、customer_version、佣金、完整手机号或其他代理管理字段。
+         * @description 仅接受当前环境配置的 Store audience、role=CUSTOMER、assurance=WECHAT 的会话。只要长期绑定仍为 BOUND 且未结束，即使代理已停用也继续返回 agent_id、display_name、bound_at，不暴露代理内部状态；代理停用只阻止新候选、新绑定和未来订单归因，不得隐式结束既有绑定。仅没有 BOUND 绑定或绑定已结束时 data=null。不得返回 binding_id、customer_id、customer_version、佣金、完整手机号或其他代理管理字段。
          */
         get: operations["getStoreServiceAgent"];
         put?: never;
@@ -771,7 +771,7 @@ export interface paths {
         put?: never;
         /**
          * 服务端试算并确认创建仅退款或退货退款
-         * @description 仅接受 aud=qingxu-store、role=CUSTOMER、assurance=WECHAT 会话。action=PREVIEW 使用 Repeatable Read 服务端试算金额、可退数量/金额与阻断，可提交时签发 5 分钟无状态用途隔离 HMAC preview_token 和 confirmation_hash；action=CONFIRM 必须重放精确规范业务字段，再以 Serializable 事务重验后占用额度并创建售后。PREVIEW 和 CONFIRM 必须使用不同 Idempotency-Key，两阶段都使用 HASH_ONLY，不缓存 preview token、证据能力或响应正文；预览响应丢失时必须使用新键重新试算。与其他登录后 Store 操作共享 CUSTOMER+规范化来源 IP 用途隔离 HMAC 的 Redis 固定窗口，每 60 秒 120 次，Redis 不可用时 fail closed。
+         * @description 仅接受当前环境配置的 Store audience、role=CUSTOMER、assurance=WECHAT 会话。action=PREVIEW 使用 Repeatable Read 服务端试算金额、可退数量/金额与阻断，可提交时签发 5 分钟无状态用途隔离 HMAC preview_token 和 confirmation_hash；action=CONFIRM 必须重放精确规范业务字段，再以 Serializable 事务重验后占用额度并创建售后。PREVIEW 和 CONFIRM 必须使用不同 Idempotency-Key，两阶段都使用 HASH_ONLY，不缓存 preview token、证据能力或响应正文；预览响应丢失时必须使用新键重新试算。与其他登录后 Store 操作共享 CUSTOMER+规范化来源 IP 用途隔离 HMAC 的 Redis 固定窗口，每 60 秒 120 次，Redis 不可用时 fail closed。
          */
         post: operations["postStoreAftersales"];
         delete?: never;
@@ -3461,7 +3461,7 @@ export interface components {
             expires_at: string;
         };
         AgentSessionData: {
-            /** @description JWT aud 固定为 qingxu-agent-web；仅 AGENT_ADMIN 可接受。 */
+            /** @description JWT aud 为当前环境配置的 Agent audience（development/test 为 qingxu-agent-web）；仅 AGENT_ADMIN 可接受。 */
             access_token: string;
             /** @description 仅代理安全会话存储使用；服务端只保存哈希并在 refresh 时轮换。 */
             refresh_token: string;
@@ -3487,7 +3487,7 @@ export interface components {
             request_id: string;
         };
         RestrictedAgentSessionData: {
-            /** @description JWT aud 固定为 qingxu-agent-web；不含 refresh token，且只允许改密和注销。 */
+            /** @description JWT aud 为当前环境配置的 Agent audience（development/test 为 qingxu-agent-web）；不含 refresh token，且只允许改密和注销。 */
             access_token: string;
             account_id: string;
             session_id: string;
@@ -3524,7 +3524,7 @@ export interface components {
             request_id: string;
         };
         StoreSessionView: {
-            /** @description JWT aud 固定为 qingxu-store。 */
+            /** @description JWT aud 为当前环境配置的 Store audience（development/test 为 qingxu-store）。 */
             access_token: string;
             /** @description 仅客户端安全会话存储使用；服务端只保存哈希并在 refresh 时轮换。 */
             refresh_token: string;
@@ -3568,7 +3568,7 @@ export interface components {
                 candidate: components["schemas"]["AttributionCandidateSummary"];
             } | {
                 session: {
-                    /** @description JWT aud 固定为 qingxu-store。 */
+                    /** @description JWT aud 为当前环境配置的 Store audience（development/test 为 qingxu-store）。 */
                     access_token: string;
                     /** @description 仅客户端安全会话存储使用；服务端只保存哈希并在 refresh 时轮换。 */
                     refresh_token: string;

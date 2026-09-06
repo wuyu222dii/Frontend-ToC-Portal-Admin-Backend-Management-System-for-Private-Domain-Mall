@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import type { PlatformRuntimeConfig } from '@qingxu/config';
+import { isMockRuntimeEnvironment, type PlatformRuntimeConfig } from '@qingxu/config';
 import {
   AuditRepository,
   CallbackInboxRepository,
@@ -565,7 +565,7 @@ export class AdminPaymentsService {
     const config = this.runtimeConfig();
     const signingKey = config.payment.mockSigningKey;
     if (action.provider !== 'MOCK' || config.payment.provider !== 'MOCK' || signingKey === undefined ||
-      (config.environment !== 'development' && config.environment !== 'test')) {
+      !isMockRuntimeEnvironment(config.environment)) {
       throw providerUnavailable();
     }
     const callback = createSignedMockPaymentSuccessCallback(signingKey, action.amount, result);

@@ -1,5 +1,5 @@
 import { type DynamicModule, Module } from '@nestjs/common';
-import type { PlatformRuntimeConfig } from '@qingxu/config';
+import { isMockRuntimeEnvironment, type PlatformRuntimeConfig } from '@qingxu/config';
 import {
   AdminRefundRepository,
   AuditRepository,
@@ -113,10 +113,11 @@ export function createWorkerPaymentProvider(
   config: PlatformRuntimeConfig,
   redis: WorkerRedisClient,
 ): PaymentProviderPort & PaymentRefundQueryPort {
-  if ((config.environment === 'development' || config.environment === 'test') &&
+  if (isMockRuntimeEnvironment(config.environment) &&
     config.payment.provider === 'MOCK' && config.payment.mockSigningKey !== undefined) {
     return new RedisMockPaymentProvider({
       environment: config.environment,
+      stagingApproved: config.environment === 'staging',
       signingKey: config.payment.mockSigningKey,
       timeoutMs: config.payment.providerTimeoutMs,
     }, redis);
@@ -131,7 +132,7 @@ export function mergeRefundProcessingHandlers(
   registry: WorkerHandlerRegistry,
   refunds: RefundProcessingService,
 ): WorkerHandlerRegistry {
-  const enabled = (config.environment === 'development' || config.environment === 'test') &&
+  const enabled = isMockRuntimeEnvironment(config.environment) &&
     config.payment.provider === 'MOCK' && config.payment.mockSigningKey !== undefined;
   if (!enabled) return registry;
   const registrations = refunds.registrations();
@@ -146,7 +147,7 @@ export function mergePaymentCallbackHandlers(
   registry: WorkerHandlerRegistry,
   paymentCallbacks: PaymentCallbackService,
 ): WorkerHandlerRegistry {
-  const enabled = (config.environment === 'development' || config.environment === 'test') &&
+  const enabled = isMockRuntimeEnvironment(config.environment) &&
     config.payment.provider === 'MOCK' && config.payment.mockSigningKey !== undefined;
   return {
     callbacks: [

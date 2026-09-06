@@ -175,7 +175,8 @@ export interface PaymentRedisEvalPort {
 }
 
 export interface MockPaymentProviderConfig {
-  environment: 'development' | 'test';
+  environment: 'development' | 'test' | 'staging' | 'production';
+  stagingApproved?: boolean;
   signingKey: Uint8Array;
   timeoutMs: number;
 }

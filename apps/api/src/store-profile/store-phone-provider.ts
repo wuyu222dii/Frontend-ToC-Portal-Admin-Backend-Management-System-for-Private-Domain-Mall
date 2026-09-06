@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import type { PlatformRuntimeConfig } from '@qingxu/config';
+import { isMockRuntimeEnvironment, type PlatformRuntimeConfig } from '@qingxu/config';
 import { ApplicationError } from '@qingxu/platform-core';
 
 import { API_RUNTIME_CONFIG } from '../platform/config/api-runtime-config';
@@ -20,7 +20,7 @@ export class StorePhoneProvider {
     if (this.config.store.phoneProvider !== 'MOCK') {
       throw new ApplicationError('INTERNAL_ERROR', 'The WeChat phone adapter is not enabled in this build');
     }
-    if (this.config.environment !== 'development' && this.config.environment !== 'test') {
+    if (!isMockRuntimeEnvironment(this.config.environment)) {
       throw new ApplicationError('INTERNAL_ERROR', 'Mock Store phone authorization is forbidden in this environment');
     }
     const match = MOCK_PHONE_CREDENTIAL.exec(providerCredential);

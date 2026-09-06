@@ -5,6 +5,20 @@ import { URL } from 'node:url';
 
 import { readConnection } from "../db/lib/connection.mjs";
 
+const runtimeEnvironment = process.env.NODE_ENV;
+if (!["development", "test", "staging", "production"].includes(runtimeEnvironment)) {
+  throw new Error("NODE_ENV must be development, test, staging, or production");
+}
+const isStaging = runtimeEnvironment === "staging";
+const DEFAULT_AUTH_ISSUER = "qingxu-api";
+const DEFAULT_AUTH_AUDIENCES = new Set(["qingxu-admin-web", "qingxu-store", "qingxu-agent-web"]);
+if (isStaging && process.env.STAGING_DEIDENTIFIED_MOCK_ACK !== "true") {
+  throw new Error("STAGING_DEIDENTIFIED_MOCK_ACK=true is required for deidentified Mock staging");
+}
+if (isStaging && process.env.SUPABASE_DATA_API_DISABLED_ACK !== "true") {
+  throw new Error("SUPABASE_DATA_API_DISABLED_ACK=true is required for staging");
+}
+
 const required = [
   "DATABASE_URL",
   "DIRECT_URL",
@@ -184,7 +198,11 @@ try {
   if (!runtimePassword || !migratorPassword || runtimePassword === migratorPassword) {
     throw new Error("database roles require independent non-empty passwords");
   }
-  const ephemeralCi = process.env.CI === "true" && process.env.ALLOW_CI_EPHEMERAL_POSTGRES === "1";
+  const ephemeralCi = runtimeEnvironment === "test" &&
+    process.env.CI === "true" && process.env.ALLOW_CI_EPHEMERAL_POSTGRES === "1";
+  if (runtimeEnvironment !== "test" && process.env.ALLOW_CI_EPHEMERAL_POSTGRES === "1") {
+    throw new Error("ALLOW_CI_EPHEMERAL_POSTGRES is only permitted with NODE_ENV=test");
+  }
   if (ephemeralCi) {
     const localHosts = new Set(["127.0.0.1", "localhost", "::1"]);
     if (!localHosts.has(runtime.hostname) || runtime.hostname !== migrator.hostname) {
@@ -212,7 +230,7 @@ try {
     throw new Error("REDIS_URL must not contain query parameters or a fragment");
   }
   const localRedisHosts = new Set(["127.0.0.1", "localhost", "[::1]"]);
-  if ((process.env.NODE_ENV === "production" || !localRedisHosts.has(redis.hostname)) && redis.protocol !== "rediss:") {
+  if ((process.env.NODE_ENV === "production" || isStaging || !localRedisHosts.has(redis.hostname)) && redis.protocol !== "rediss:") {
     throw new Error("remote and production REDIS_URL values must use rediss");
   }
   if (!storage.hostname || storage.username || storage.password || storage.pathname !== "/" ||
@@ -228,7 +246,7 @@ try {
   }
   const localStorageHosts = new Set(["127.0.0.1", "localhost", "[::1]"]);
   for (const [name, url] of [["S3_ENDPOINT", storage], ["S3_PUBLIC_BASE_URL", publicStorage]]) {
-    if ((process.env.NODE_ENV === "production" || !localStorageHosts.has(url.hostname)) &&
+    if ((process.env.NODE_ENV === "production" || isStaging || !localStorageHosts.has(url.hostname)) &&
         url.protocol !== "https:") {
       throw new Error(`remote and production ${name} values must use https`);
     }
@@ -239,7 +257,7 @@ try {
     throw new Error("STORE_PROMOTION_PUBLIC_BASE_URL must be a credential-free URL without query or fragment");
   }
   const localPromotionHosts = new Set(["127.0.0.1", "localhost", "[::1]"]);
-  if ((process.env.NODE_ENV === "production" || !localPromotionHosts.has(promotionBase.hostname)) &&
+  if ((process.env.NODE_ENV === "production" || isStaging || !localPromotionHosts.has(promotionBase.hostname)) &&
       promotionBase.protocol !== "https:") {
     throw new Error("remote and production STORE_PROMOTION_PUBLIC_BASE_URL values must use https");
   }
@@ -258,6 +276,10 @@ try {
       process.env.S3_SECRET_KEY.length < 16 || process.env.S3_SECRET_KEY.length > 256 ||
       storageSecretContainsControl) {
     throw new Error("S3 bucket and credentials do not meet the development minimum");
+  }
+  if ((process.env.MINIO_ROOT_USER && process.env.MINIO_ROOT_USER === process.env.S3_ACCESS_KEY) ||
+      (process.env.MINIO_ROOT_PASSWORD && process.env.MINIO_ROOT_PASSWORD === process.env.S3_SECRET_KEY)) {
+    throw new Error("S3 runtime credentials must differ from MinIO root credentials");
   }
   if (process.env.S3_FORCE_PATH_STYLE !== "true" && process.env.S3_FORCE_PATH_STYLE !== "false") {
     throw new Error("S3_FORCE_PATH_STYLE must be true or false");
@@ -320,16 +342,22 @@ try {
   ]) {
     if (!/^[A-Za-z0-9._:/-]{3,120}$/.test(value)) throw new Error(`${name} has an invalid format`);
   }
-  if (process.env.STORE_AUTH_TOKEN_AUDIENCE !== "qingxu-store" ||
+  if ((!isStaging && process.env.STORE_AUTH_TOKEN_AUDIENCE !== "qingxu-store") ||
       process.env.STORE_AUTH_TOKEN_AUDIENCE === process.env.AUTH_TOKEN_AUDIENCE) {
-    throw new Error("STORE_AUTH_TOKEN_AUDIENCE must be qingxu-store and differ from AUTH_TOKEN_AUDIENCE");
+    throw new Error("STORE_AUTH_TOKEN_AUDIENCE must use the approved realm and differ from AUTH_TOKEN_AUDIENCE");
   }
-  if (process.env.AGENT_AUTH_TOKEN_AUDIENCE !== "qingxu-agent-web" ||
+  if ((!isStaging && process.env.AGENT_AUTH_TOKEN_AUDIENCE !== "qingxu-agent-web") ||
       process.env.AGENT_AUTH_TOKEN_AUDIENCE === process.env.AUTH_TOKEN_AUDIENCE ||
       process.env.AGENT_AUTH_TOKEN_AUDIENCE === process.env.STORE_AUTH_TOKEN_AUDIENCE) {
     throw new Error(
-      "AGENT_AUTH_TOKEN_AUDIENCE must be qingxu-agent-web and differ from Admin/Store audiences",
+      "AGENT_AUTH_TOKEN_AUDIENCE must use the approved realm and differ from Admin/Store audiences",
     );
+  }
+  if (isStaging &&
+      (process.env.AUTH_TOKEN_ISSUER === DEFAULT_AUTH_ISSUER ||
+        [process.env.AUTH_TOKEN_AUDIENCE, process.env.STORE_AUTH_TOKEN_AUDIENCE,
+          process.env.AGENT_AUTH_TOKEN_AUDIENCE].some((audience) => DEFAULT_AUTH_AUDIENCES.has(audience)))) {
+    throw new Error("staging requires an isolated JWT issuer and audience set");
   }
   for (const name of ["STORE_IDENTITY_PROVIDER", "STORE_PHONE_PROVIDER"]) {
     const value = process.env[name];
@@ -338,12 +366,20 @@ try {
       throw new Error(`${name}=MOCK is forbidden in production`);
     }
   }
+  if (isStaging &&
+      (process.env.STORE_IDENTITY_PROVIDER !== "MOCK" ||
+        process.env.STORE_PHONE_PROVIDER !== "MOCK")) {
+    throw new Error("staging requires MOCK Store identity and phone providers");
+  }
   const paymentProvider = process.env.STORE_PAYMENT_PROVIDER;
   if (paymentProvider !== "MOCK" && paymentProvider !== "WECHAT") {
     throw new Error("STORE_PAYMENT_PROVIDER must be MOCK or WECHAT");
   }
   if (process.env.NODE_ENV === "production" && paymentProvider === "MOCK") {
     throw new Error("STORE_PAYMENT_PROVIDER=MOCK is forbidden in production");
+  }
+  if (isStaging && paymentProvider !== "MOCK") {
+    throw new Error("staging requires STORE_PAYMENT_PROVIDER=MOCK");
   }
   if (paymentProvider === "MOCK" && !process.env.PAYMENT_MOCK_SIGNING_KEY_BASE64) {
     throw new Error("PAYMENT_MOCK_SIGNING_KEY_BASE64 is required for the Mock payment provider");

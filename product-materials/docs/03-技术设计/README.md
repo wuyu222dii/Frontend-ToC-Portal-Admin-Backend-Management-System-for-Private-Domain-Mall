@@ -1,11 +1,11 @@
 # 技术设计交付索引
 
-> 当前产品/API 基线为 MVP/PRD `v2.4.13`、CH-032，OpenAPI 为 `2.4.13-ch032`；数据库修复 CH-023 继续有效。B14 development `GO` 的最终同 SHA migration/smoke 证据保持，CH-031 已失效；B15.1 的 `0007`、READY 文件回收与佣金名称快照底座已完成并暂停复审。其余 P2 在后续实现闭合前继续阻断 staging、production、真实数据和真实资金。
+> 当前产品/API 基线为 MVP/PRD `v2.4.13`、CH-032，OpenAPI 为 `2.4.13-ch032`；数据库修复 CH-023 继续有效。B15 development `GO`，B16 准备项已记录；B17.0 正在核验 B12 orphan 现场证据并冻结 staging 候选 SHA。B17 不改变业务契约或迁移链；恢复演练、权限/RLS、依赖故障和外部复核未闭合前，staging、production、真实数据和真实资金继续 `NO-GO`。
 
 | 文件 | 用途 |
 |---|---|
 | `技术架构说明.md` | 技术栈、三端边界、认证/RBAC、事务锁序、Provider、部署与扩展策略 |
-| `API接口文档.md` | 当前 CH-032 契约保持 173 paths、198 operations 及全部 operationId；只闭合 B15 三类可靠性语义 |
+| `API接口文档.md` | 当前 CH-032 契约保持 173 paths、198 operations 及全部 operationId；B17 只增加 staging 环境门禁与 readiness 说明 |
 | `openapi.yaml` | OpenAPI 3.1 单一可解析契约；文本目录必须完全覆盖且 operationId 唯一 |
 | `数据库设计.md` | PostgreSQL/Supabase 表域、ERD、状态机、事务、索引、加密、RLS 与验收门禁 |
 | `schema.prisma` | Prisma 7.9.1 逻辑模型：76 models、59 enums、270 个 model-typed relation fields，全部位于 `public` |
@@ -19,6 +19,7 @@
 | `migrations/0007_b15_development_convergence_guards/migration.sql` | CH-032 前向 development 收敛：预检 READY 完成事件与佣金目标，增加完成事件唯一索引、佣金目标名快照列/约束及文件关联竞态守卫；不增加表或枚举，不修改 0001-0006 |
 | `../05-开发管理/B14-总部经营看板与销售分析闭环.md` | CH-030/031、B14.0-B14.3 串行范围、退出条件与边界 |
 | `../05-开发管理/B15-development可靠性与P2收敛.md` | CH-032/033、B15.0-B15.4 串行范围、六项 P2 与退出条件 |
+| `../05-开发管理/B17-首次staging受控发布与外部复核.md` | CH-035、B17.0-B17.4 staging 候选冻结、恢复演练与外部复核 |
 | `../05-开发管理/B4-商品与SKU.md` | B4.0 至 B4.4 串行批次、准入门禁、验收与回退边界 |
 | `../05-开发管理/B5-Banner与库存.md` | B5.0 CH-012 契约、CH-011 门禁及后续串行批次 |
 | `../05-开发管理/B6-消费者匿名商城目录.md` | B6.0 CH-014 契约、B6.1-B6.4 实施/最终证据及 CH-013 失效边界 |
@@ -151,7 +152,7 @@ B10 的 CH-021/CH-022/CH-023、契约/迁移边界与批次见 `../05-开发管�
 
 B11 的已批准 CH-024、冻结履约状态机、零迁移边界及批次见 `../05-开发管理/B11-订单履约与物流.md`。B11.1 已实现独立 Fulfillment 查询、Admin/Store 投影、受控履约地址和共享 `display_status`；B11.2 已实现唯一包裹、人工物流与 Store 本人物流；B11.3 已实现共享订单完成事务、送达封存、规则/售后期限冻结和佣金精确一次结转；B11.4 已实现 MP-10/11/12 与 ADM-09/10/11 工程交互；B11.5 已完成数据库、API、前端、真实纵向、全仓门禁、零残留复验和最终远端同 SHA 双绿。普通 CI 的 60 分钟裕量 P2 已由成功运行关闭；B11.2/B11.3 的历史非阻断 P2 继续保留。普通退款生产路径未纳入；正佣金钱包缺失或不一致时 fail-closed，钱包预创建由上游保证。B11 development `GO`，CH-025 已自动失效。
 
-B12-B14 的历史批次与退出证据继续以各开发记录为准。B15 最终 SHA `8a743a901ff878bd92654c9c3ff54dcd68ca5413` 的 development migration `23` 与随后 rollback-only smoke `45` 同 SHA、依次成功，B15 development `GO`，CH-033 已失效。当前 `v2.4.13 / CH-032`、OpenAPI `2.4.13-ch032`；B16 进入 staging-readiness，staging、production、真实数据和真实资金仍未放行。
+B12-B14 的历史批次与退出证据继续以各开发记录为准。B15 最终 SHA `8a743a901ff878bd92654c9c3ff54dcd68ca5413` 的 development migration `23` 与随后 rollback-only smoke `45` 同 SHA、依次成功，B15 development `GO`，CH-033 已失效。当前 `v2.4.13 / CH-032`、OpenAPI `2.4.13-ch032`；B16 准备项已记录，B17.0 正在核验首次脱敏 Mock staging，staging、production、真实数据和真实资金仍未放行。
 
 ## 剩余上线门禁
 

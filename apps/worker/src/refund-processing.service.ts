@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { Inject, Injectable } from '@nestjs/common';
-import type { PlatformRuntimeConfig } from '@qingxu/config';
+import { isMockRuntimeEnvironment, type PlatformRuntimeConfig } from '@qingxu/config';
 import {
   type AdminRefundFinalizeResult,
   type AdminRefundProviderOperation,
@@ -342,7 +342,7 @@ export class RefundProcessingService {
   }
 
   private mockSigningKey(): Uint8Array {
-    if ((this.config.environment !== 'development' && this.config.environment !== 'test') ||
+    if (!isMockRuntimeEnvironment(this.config.environment) ||
       this.config.payment.provider !== 'MOCK' || this.config.payment.mockSigningKey === undefined) {
       throw new Error('Mock refund processing is not enabled');
     }

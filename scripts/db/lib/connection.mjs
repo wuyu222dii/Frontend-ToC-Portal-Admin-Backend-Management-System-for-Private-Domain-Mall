@@ -63,7 +63,7 @@ export function readConnection(envName, mode) {
     }
   } else {
     if (!projectRef || !/^[a-z]{20}$/.test(projectRef)) {
-      fail("SUPABASE_PROJECT_REF must be the 20-letter development project ref");
+      fail("SUPABASE_PROJECT_REF must be the 20-letter approved project ref");
     }
     if (!directMatch && !isPooler) {
       fail(`${envName} must target a Supabase direct connection or session pooler`);

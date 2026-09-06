@@ -1,12 +1,12 @@
 # B16 上线准备与 staging-readiness
 
-> 批次：B16；目标：staging-ready；范围：脱敏 development 与一次性演练；当前状态：B16.4 发布演练清单完成，实际 staging 演练与外部复核待执行。
+> 批次：B16；目标：staging-ready；范围：脱敏 development 与一次性演练；当前状态：准备项已完成并移交 B17，实际 clone 恢复、staging 演练与外部复核待执行。
 
 ## 1. 上游与边界
 
 B15 最终 SHA `8a743a901ff878bd92654c9c3ff54dcd68ca5413` 的 development migration Run `23` 与 rollback-only smoke Run `45` 同 SHA、依次成功。B15 development `GO`，CH-033 已失效。
 
-B16 不新增业务功能、数据库迁移、Worker、队列、第三方依赖或 GitHub CI。真实微信、真实支付、真实客户/银行卡数据和 production 继续 `NO-GO`。
+B16 不新增业务功能、数据库迁移、Worker、队列、第三方依赖或 GitHub CI。B16 的实际恢复与 staging 证据由 B17 继续核验；真实微信、真实支付、真实客户/银行卡数据和 production 继续 `NO-GO`。
 
 ## 2. 已实施能力
 

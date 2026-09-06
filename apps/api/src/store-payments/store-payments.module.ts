@@ -1,5 +1,5 @@
 import { type DynamicModule, Module } from '@nestjs/common';
-import type { PlatformRuntimeConfig } from '@qingxu/config';
+import { isMockRuntimeEnvironment, type PlatformRuntimeConfig } from '@qingxu/config';
 import {
   RedisMockPaymentProvider,
   type PaymentProviderPort,
@@ -16,7 +16,7 @@ import { PAYMENT_PROVIDER, StorePaymentsService } from './store-payments.service
 
 function createPaymentProvider(config: PlatformRuntimeConfig, redis: ApiRedisClient): PaymentProviderPort {
   if (config.payment.provider !== 'MOCK' || config.payment.mockSigningKey === undefined ||
-    (config.environment !== 'development' && config.environment !== 'test')) {
+    !isMockRuntimeEnvironment(config.environment)) {
     return {
       close: async () => ({ outcome: 'UNKNOWN', providerIntentId: null, providerTransactionId: null,
         providerEventId: null, occurredAt: null, failureCode: 'PROVIDER_UNAVAILABLE', capability: null }),
@@ -30,6 +30,7 @@ function createPaymentProvider(config: PlatformRuntimeConfig, redis: ApiRedisCli
   }
   return new RedisMockPaymentProvider({
     environment: config.environment,
+    stagingApproved: config.environment === 'staging',
     signingKey: config.payment.mockSigningKey,
     timeoutMs: config.payment.providerTimeoutMs,
   }, redis);
@@ -38,7 +39,7 @@ function createPaymentProvider(config: PlatformRuntimeConfig, redis: ApiRedisCli
 @Module({})
 export class StorePaymentsModule {
   static register(config: PlatformRuntimeConfig): DynamicModule {
-    const exposeMockResult = (config.environment === 'development' || config.environment === 'test') &&
+    const exposeMockResult = isMockRuntimeEnvironment(config.environment) &&
       config.payment.provider === 'MOCK';
     return {
       global: true,

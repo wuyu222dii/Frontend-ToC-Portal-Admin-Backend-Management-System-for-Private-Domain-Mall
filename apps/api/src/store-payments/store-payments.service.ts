@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import type { PlatformRuntimeConfig } from '@qingxu/config';
+import { isMockRuntimeEnvironment, type PlatformRuntimeConfig } from '@qingxu/config';
 import {
   AuditRepository,
   CallbackInboxRepository,
@@ -849,7 +849,7 @@ export class StorePaymentsService {
 
   private assertMockResultEnabled(): void {
     const config = this.runtimeConfig();
-    if ((config.environment !== 'development' && config.environment !== 'test') ||
+    if (!isMockRuntimeEnvironment(config.environment) ||
       config.payment.provider !== 'MOCK') {
       throw new ApplicationError('RESOURCE_NOT_FOUND', 'Resource not found');
     }

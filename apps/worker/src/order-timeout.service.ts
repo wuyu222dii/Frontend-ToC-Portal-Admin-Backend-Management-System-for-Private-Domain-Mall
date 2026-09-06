@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { Inject, Injectable, Logger, Optional, type OnApplicationShutdown, type OnModuleInit } from '@nestjs/common';
-import type { PlatformRuntimeConfig } from '@qingxu/config';
+import { isMockRuntimeEnvironment, type PlatformRuntimeConfig } from '@qingxu/config';
 import {
   type AuditRepository,
   type CallbackInboxRepository,
@@ -295,7 +295,7 @@ export class OrderTimeoutService implements OnModuleInit, OnApplicationShutdown 
   ): Promise<void> {
     const signingKey = this.config.payment.mockSigningKey;
     if (!this.callbacks || intent.provider !== 'MOCK' || this.config.payment.provider !== 'MOCK' ||
-      (this.config.environment !== 'development' && this.config.environment !== 'test') || signingKey === undefined) {
+      !isMockRuntimeEnvironment(this.config.environment) || signingKey === undefined) {
       throw new Error('Recovered payment success cannot be verified');
     }
     const callback = createSignedMockPaymentSuccessCallback(signingKey, intent.amount, {

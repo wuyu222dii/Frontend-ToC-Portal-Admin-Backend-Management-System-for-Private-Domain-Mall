@@ -10,7 +10,7 @@
 
 三个原型均为纯静态文件，可直接用浏览器打开，不需要安装依赖或启动服务。所有数据均为原型演示数据。
 
-当前产品/API 基线仍为 `v2.4.12/CH-030`、OpenAPI `2.4.12-ch030`。B0-B14 development `GO`；B14.0-B14.3 已完成，最终实现 SHA `f4521d4188cb74c3bac34b992016d8730468ae2a` 的 development migration Run `33960486774` 与随后 rollback-only smoke Run `33960618178` 同 SHA、依次执行且均为 `completed/success`，CH-031 已自动失效。本目录只保留既有静态画板说明，不构成 B14 工程页面、真实客户数据、真实物流/资金链路或 staging/production 的验收证据；B12 orphan `P2=1` 与 B13 已登记 P2 继续阻断 staging、production、真实客户数据与真实资金。
+当前产品/API 基线为 `v2.4.13/CH-032`、OpenAPI `2.4.13-ch032`。B0-B15 development `GO`；B16 准备项已记录，B17.0 首次脱敏 Mock staging 受控准入正在核验，staging、production、真实客户数据与真实资金仍为 `NO-GO`。本目录只保留既有静态画板说明，不构成 B17 工程页面、恢复演练、真实客户数据、真实物流/资金链路或 staging/production 的验收证据；B12 orphan 现场证据、恢复演练和外部独立复核仍待闭合。
 
 ## 验收脚本
 

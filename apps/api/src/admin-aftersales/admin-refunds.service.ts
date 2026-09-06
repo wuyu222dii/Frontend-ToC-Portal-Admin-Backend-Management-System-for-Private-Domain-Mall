@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import type { PlatformRuntimeConfig } from '@qingxu/config';
+import { isMockRuntimeEnvironment, type PlatformRuntimeConfig } from '@qingxu/config';
 import {
   AdminRefundRepository,
   type AdminAftersaleRefundPreviewSnapshot,
@@ -359,7 +359,7 @@ export class AdminRefundsService {
 
   private assertMockRuntime(): void {
     const { config } = this.runtime();
-    if ((config.environment !== 'development' && config.environment !== 'test') ||
+    if (!isMockRuntimeEnvironment(config.environment) ||
       config.payment.provider !== 'MOCK' || config.payment.mockSigningKey === undefined) {
       throw internal('Ordinary refunds are unavailable outside the approved Mock runtime');
     }

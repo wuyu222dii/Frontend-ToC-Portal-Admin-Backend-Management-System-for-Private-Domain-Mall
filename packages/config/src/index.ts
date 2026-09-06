@@ -20,9 +20,20 @@ export const FILE_STORAGE_LIMITS = {
 } as const;
 
 export type ServiceName = keyof typeof SERVICE_DEFAULT_PORTS;
-export type RuntimeEnvironment = 'development' | 'test' | 'production';
+export type RuntimeEnvironment = 'development' | 'test' | 'staging' | 'production';
 export type StoreProvider = 'MOCK' | 'WECHAT';
 export type PaymentProviderName = 'MOCK' | 'WECHAT';
+
+const DEFAULT_AUTH_ISSUER = 'qingxu-api';
+const DEFAULT_AUTH_AUDIENCES = new Set(['qingxu-admin-web', 'qingxu-store', 'qingxu-agent-web']);
+
+export function isMockRuntimeEnvironment(environment: RuntimeEnvironment): boolean {
+  return environment === 'development' || environment === 'test' || environment === 'staging';
+}
+
+function isRemoteRuntimeEnvironment(environment: RuntimeEnvironment): boolean {
+  return environment === 'staging' || environment === 'production';
+}
 
 export interface StoreLegalDocumentConfig {
   version: string;
@@ -147,8 +158,8 @@ export interface LoadPlatformConfigOptions {
 }
 
 function readEnvironment(value: string | undefined): RuntimeEnvironment {
-  if (value === 'development' || value === 'test' || value === 'production') return value;
-  throw new Error('NODE_ENV must be development, test, or production');
+  if (value === 'development' || value === 'test' || value === 'staging' || value === 'production') return value;
+  throw new Error('NODE_ENV must be development, test, staging, or production');
 }
 
 function readInteger(
@@ -227,7 +238,7 @@ function readRuntimeRedisUrl(
     throw new Error('REDIS_URL must not contain query parameters or a fragment');
   }
   const localHosts = new Set(['127.0.0.1', 'localhost', '[::1]']);
-  if ((environment === 'production' || !localHosts.has(url.hostname)) && url.protocol !== 'rediss:') {
+  if ((isRemoteRuntimeEnvironment(environment) || !localHosts.has(url.hostname)) && url.protocol !== 'rediss:') {
     throw new Error('Remote and production REDIS_URL values must use rediss');
   }
   return raw;
@@ -257,7 +268,7 @@ function readStorageUrl(
     throw new Error(`${name} must not contain credentials, query parameters, or a fragment`);
   }
   const localHosts = new Set(['127.0.0.1', 'localhost', '[::1]']);
-  if ((environment === 'production' || !localHosts.has(url.hostname)) && url.protocol !== 'https:') {
+  if ((isRemoteRuntimeEnvironment(environment) || !localHosts.has(url.hostname)) && url.protocol !== 'https:') {
     throw new Error(`Remote and production ${name} values must use HTTPS`);
   }
   if (name === 'S3_ENDPOINT' && url.pathname !== '/') {
@@ -383,7 +394,7 @@ function readPromotionPublicBaseUrl(
     );
   }
   const localHosts = new Set(['127.0.0.1', 'localhost', '[::1]']);
-  if ((environment === 'production' || !localHosts.has(url.hostname)) && url.protocol !== 'https:') {
+  if ((isRemoteRuntimeEnvironment(environment) || !localHosts.has(url.hostname)) && url.protocol !== 'https:') {
     throw new Error('Remote and production STORE_PROMOTION_PUBLIC_BASE_URL values must use HTTPS');
   }
   return raw.replace(/\/$/, '');
@@ -571,7 +582,7 @@ function readRuntimeDatabaseConnection(
 
   const projectRef = source.SUPABASE_PROJECT_REF;
   if (!projectRef || !/^[a-z]{20}$/.test(projectRef)) {
-    throw new Error('SUPABASE_PROJECT_REF must identify the approved development project');
+    throw new Error('SUPABASE_PROJECT_REF must identify the approved Supabase project');
   }
   const directMatch = url.hostname.match(/^db\.([a-z]{20})\.supabase\.co$/);
   const isPooler = /\.pooler\.supabase\.com$/.test(url.hostname);
@@ -827,7 +838,7 @@ function readStoreConfig(
   const identityProvider = readStoreProvider(source, 'STORE_IDENTITY_PROVIDER', required, environment);
   const phoneProvider = readStoreProvider(source, 'STORE_PHONE_PROVIDER', required, environment);
   const authTokenAudience = readIdentifier(source, 'STORE_AUTH_TOKEN_AUDIENCE', 'qingxu-store', required);
-  if (required && authTokenAudience !== 'qingxu-store') {
+  if (required && environment !== 'staging' && authTokenAudience !== 'qingxu-store') {
     throw new Error('STORE_AUTH_TOKEN_AUDIENCE must be qingxu-store');
   }
   if (authTokenAudience === adminAudience) {
@@ -909,9 +920,10 @@ function readAgentConfig(
   required: boolean,
   adminAudience: string,
   storeAudience: string,
+  environment: RuntimeEnvironment,
 ): PlatformRuntimeConfig['agent'] {
   const authTokenAudience = readIdentifier(source, 'AGENT_AUTH_TOKEN_AUDIENCE', 'qingxu-agent-web', required);
-  if (required && authTokenAudience !== 'qingxu-agent-web') {
+  if (required && environment !== 'staging' && authTokenAudience !== 'qingxu-agent-web') {
     throw new Error('AGENT_AUTH_TOKEN_AUDIENCE must be qingxu-agent-web');
   }
   if (authTokenAudience === adminAudience || authTokenAudience === storeAudience) {
@@ -954,6 +966,16 @@ export function loadPlatformConfig(
   options: LoadPlatformConfigOptions,
 ): PlatformRuntimeConfig {
   const environment = readEnvironment(source.NODE_ENV);
+  if (environment === 'staging') {
+    if (source.STAGING_DEIDENTIFIED_MOCK_ACK !== 'true') {
+      throw new Error(
+        'STAGING_DEIDENTIFIED_MOCK_ACK=true is required for deidentified Mock staging',
+      );
+    }
+    if (source.SUPABASE_DATA_API_DISABLED_ACK !== 'true') {
+      throw new Error('SUPABASE_DATA_API_DISABLED_ACK=true is required for staging');
+    }
+  }
   const requireDatabase = options.requireDatabase ?? true;
   const requireEncryption = options.requireEncryption ?? true;
   const requireStorage = options.requireStorage ?? requireDatabase;
@@ -995,6 +1017,11 @@ export function loadPlatformConfig(
   const databaseConnection = readRuntimeDatabaseConnection(source, requireDatabase, environment);
   const redisUrl = readRuntimeRedisUrl(source, requireDatabase, environment);
   const storage = readStorageConfig(source, requireStorage, environment);
+  if (requireStorage &&
+    ((source.MINIO_ROOT_USER && source.MINIO_ROOT_USER === storage.accessKey) ||
+      (source.MINIO_ROOT_PASSWORD && source.MINIO_ROOT_PASSWORD === storage.secretKey))) {
+    throw new Error('S3 runtime credentials must differ from MinIO root credentials');
+  }
   const payment = readPaymentConfig(source, requireDatabase, environment);
   const infrastructureKeys = [
     ...[fieldKeys.current, ...fieldKeys.previous].map(({ key }) => key),
@@ -1035,6 +1062,7 @@ export function loadPlatformConfig(
     }
   }
 
+  const authIssuer = readIdentifier(source, 'AUTH_TOKEN_ISSUER', DEFAULT_AUTH_ISSUER, requireAuthentication);
   const adminAudience = readIdentifier(
     source,
     'AUTH_TOKEN_AUDIENCE',
@@ -1042,8 +1070,18 @@ export function loadPlatformConfig(
     requireAuthentication,
   );
   const store = readStoreConfig(source, requireAuthentication, environment, adminAudience, phoneHashKeys);
-  const agent = readAgentConfig(source, requireAuthentication, adminAudience, store.authTokenAudience);
+  const agent = readAgentConfig(source, requireAuthentication, adminAudience, store.authTokenAudience, environment);
   const promotion = readPromotionPublicBaseUrl(source, requireAuthentication, environment);
+  if (environment === 'staging' && requireAuthentication &&
+    (authIssuer === DEFAULT_AUTH_ISSUER ||
+      [adminAudience, store.authTokenAudience, agent.authTokenAudience].some((audience) =>
+        DEFAULT_AUTH_AUDIENCES.has(audience)))) {
+    throw new Error('staging requires an isolated JWT issuer and audience set');
+  }
+  if (environment === 'staging' &&
+    (store.identityProvider !== 'MOCK' || store.phoneProvider !== 'MOCK' || payment.provider !== 'MOCK')) {
+    throw new Error('staging requires MOCK Store identity, phone, and payment providers');
+  }
 
   return {
     environment,
@@ -1081,7 +1119,7 @@ export function loadPlatformConfig(
     authentication: {
       accessTokenTtlSeconds: readInteger(source, 'AUTH_ACCESS_TOKEN_TTL_SECONDS', 900, 300, 3_600),
       audience: adminAudience,
-      issuer: readIdentifier(source, 'AUTH_TOKEN_ISSUER', 'qingxu-api', requireAuthentication),
+      issuer: authIssuer,
       preAuthTokenTtlSeconds: readInteger(source, 'AUTH_PREAUTH_TOKEN_TTL_SECONDS', 300, 60, 300),
       secretHashKeys,
       sessionTtlSeconds: readInteger(source, 'AUTH_SESSION_TTL_SECONDS', 604_800, 3_600, 2_592_000),

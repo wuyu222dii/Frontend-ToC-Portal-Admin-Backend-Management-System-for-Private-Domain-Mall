@@ -609,8 +609,9 @@ export class RedisMockPaymentProvider implements PaymentProviderPort, PaymentRef
   private readonly timeoutMs: number;
 
   constructor(config: MockPaymentProviderConfig, private readonly redis: PaymentRedisEvalPort) {
-    if (config.environment !== 'development' && config.environment !== 'test') {
-      throw new TypeError('Mock payment provider is restricted to development and test');
+    if (config.environment !== 'development' && config.environment !== 'test' &&
+      (config.environment !== 'staging' || config.stagingApproved !== true)) {
+      throw new TypeError('Mock payment provider is restricted to development and test, or approved staging');
     }
     this.signingKey = keyBuffer(config.signingKey);
     if (!Number.isSafeInteger(config.timeoutMs) || config.timeoutMs < 100 || config.timeoutMs > 30_000) {

@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import type { PlatformRuntimeConfig } from '@qingxu/config';
+import { isMockRuntimeEnvironment, type PlatformRuntimeConfig } from '@qingxu/config';
 import { ApplicationError, sha256Hex } from '@qingxu/platform-core';
 
 import { API_RUNTIME_CONFIG } from '../platform/config/api-runtime-config';
@@ -20,7 +20,7 @@ export class StoreIdentityProvider {
     if (this.config.store.identityProvider !== 'MOCK') {
       throw new ApplicationError('INTERNAL_ERROR', 'The WeChat identity adapter is not enabled in this build');
     }
-    if (this.config.environment === 'production') {
+    if (!isMockRuntimeEnvironment(this.config.environment)) {
       throw new ApplicationError('INTERNAL_ERROR', 'Mock Store identity is forbidden in production');
     }
     if (!MOCK_CODE.test(code)) throw new ApplicationError('AUTH_REQUIRED', 'Store identity code is invalid');

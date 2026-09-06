@@ -383,6 +383,14 @@ describe('loadPlatformConfig', () => {
     );
   });
 
+  it('rejects object-storage root credentials at runtime', () => {
+    const environment = validEnvironment();
+    environment.MINIO_ROOT_USER = environment.S3_ACCESS_KEY;
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'S3 runtime credentials must differ from MinIO root credentials',
+    );
+  });
+
   it('requires an explicit stable public object base URL', () => {
     const environment = validEnvironment();
     delete environment.S3_PUBLIC_BASE_URL;
@@ -706,6 +714,57 @@ describe('loadPlatformConfig', () => {
     expect(() => loadPlatformConfig(productionMock, {
       service: 'api', requireDatabase: false, requireStorage: false,
     })).toThrow('STORE_IDENTITY_PROVIDER=MOCK is forbidden in production');
+  });
+
+  it('requires explicit acknowledgements for deidentified Mock staging', () => {
+    const staging = validEnvironment();
+    staging.NODE_ENV = 'staging';
+    staging.STAGING_DEIDENTIFIED_MOCK_ACK = 'true';
+    staging.SUPABASE_DATA_API_DISABLED_ACK = 'true';
+    delete staging.DATABASE_URL;
+    delete staging.REDIS_URL;
+    delete staging.S3_ENDPOINT;
+    delete staging.S3_PUBLIC_BASE_URL;
+    staging.STORE_PROMOTION_PUBLIC_BASE_URL = 'https://staging.example.invalid';
+    expect(loadPlatformConfig(staging, {
+      service: 'api', requireDatabase: false, requireEncryption: false, requireStorage: false,
+    }).environment).toBe('staging');
+
+    staging.STORE_PAYMENT_PROVIDER = 'WECHAT';
+    expect(() => loadPlatformConfig(staging, {
+      service: 'api', requireDatabase: false, requireEncryption: false, requireStorage: false,
+    })).toThrow('staging requires MOCK Store identity, phone, and payment providers');
+    delete staging.STORE_PAYMENT_PROVIDER;
+
+    delete staging.STAGING_DEIDENTIFIED_MOCK_ACK;
+    expect(() => loadPlatformConfig(staging, {
+      service: 'api', requireDatabase: false, requireEncryption: false, requireStorage: false,
+    })).toThrow('STAGING_DEIDENTIFIED_MOCK_ACK=true');
+  });
+
+  it('requires isolated JWT realms for authenticated staging', () => {
+    const staging = validEnvironment();
+    staging.NODE_ENV = 'staging';
+    staging.CI = 'false';
+    staging.STAGING_DEIDENTIFIED_MOCK_ACK = 'true';
+    staging.SUPABASE_DATA_API_DISABLED_ACK = 'true';
+    delete staging.DATABASE_URL;
+    delete staging.REDIS_URL;
+    delete staging.S3_ENDPOINT;
+    delete staging.S3_PUBLIC_BASE_URL;
+    staging.STORE_PROMOTION_PUBLIC_BASE_URL = 'https://staging.example.invalid';
+    staging.AUTH_TOKEN_ISSUER = 'qingxu-api-staging';
+    staging.AUTH_TOKEN_AUDIENCE = 'qingxu-admin-web-staging';
+    staging.STORE_AUTH_TOKEN_AUDIENCE = 'qingxu-store-staging';
+    staging.AGENT_AUTH_TOKEN_AUDIENCE = 'qingxu-agent-web-staging';
+    expect(loadPlatformConfig(staging, {
+      service: 'api', requireDatabase: false, requireStorage: false,
+    }).authentication.audience).toBe('qingxu-admin-web-staging');
+
+    staging.AUTH_TOKEN_AUDIENCE = 'qingxu-admin-web';
+    expect(() => loadPlatformConfig(staging, {
+      service: 'api', requireDatabase: false, requireStorage: false,
+    })).toThrow('staging requires an isolated JWT issuer and audience set');
   });
 
   it('requires bounded payment configuration for API and Worker runtimes', () => {

@@ -38,6 +38,7 @@
     "scan:sensitive": "node scripts/ci/scan-sensitive.mjs",
     "pretest": "pnpm build:packages",
     "test": "pnpm -r --workspace-concurrency=1 --if-present test",
+    "test:b15:withdrawal-journal": "vitest run apps/admin-web/src/services/admin-withdrawal-proof-journal.spec.ts",
     "typecheck": "pnpm -r --workspace-concurrency=1 --if-present typecheck"
   },
   "devDependencies": {

@@ -9,7 +9,15 @@ import AdminShell from '../../layouts/AdminShell.vue';
 import { AdminApiError, newIdempotencyKey } from '../../services/admin-api';
 import { uploadAdminImage } from '../../services/admin-files';
 import {
-  attachAdminWithdrawalProofs,
+  AdminWithdrawalProofJournalError,
+  clearAdminWithdrawalProofJournal,
+  executeAdminWithdrawalProofJournal,
+  isCertainAdminWithdrawalProofFailure,
+  prepareAdminWithdrawalProofJournal,
+  recoverAdminWithdrawalProofJournal,
+  type AdminWithdrawalProofJournal,
+} from '../../services/admin-withdrawal-proof-journal';
+import {
   confirmAdminWithdrawalApproval,
   confirmAdminWithdrawalPaid,
   confirmAdminWithdrawalRejection,
@@ -25,7 +33,6 @@ import type { AdminWithdrawal, HighRiskPreview, PayoutAccountReveal } from '../.
 import { formatChinaDateTime } from '../../utils/time';
 
 type CommandMode = 'APPROVE' | 'PAID' | 'REJECT';
-type ProofAttachAttempt = { fileId: string; idempotencyKey: string };
 const route = useRoute();
 const router = useRouter();
 const detail = ref<AdminWithdrawal | null>(null);
@@ -39,7 +46,8 @@ const reauthPending = ref(false);
 const reauthError = ref('');
 const totpCode = ref('');
 const payout = ref<PayoutAccountReveal | null>(null);
-const proofAttachAttempt = ref<ProofAttachAttempt | null>(null);
+const proofAttachAttempt = ref<AdminWithdrawalProofJournal | null>(null);
+const proofRecoveryBlocked = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
 let sequence = 0;
 let controller: AbortController | null = null;
@@ -98,8 +106,14 @@ async function load(): Promise<void> {
     const result = await getAdminWithdrawal(withdrawalId.value, current.signal);
     if (currentSequence !== sequence) return;
     detail.value = result;
-    if (proofAttachAttempt.value && result.proof_file_ids.includes(proofAttachAttempt.value.fileId)) {
-      proofAttachAttempt.value = null;
+    const attempt = proofAttachAttempt.value;
+    if (attempt && result.proof_file_ids.includes(attempt.file_id)) {
+      try {
+        clearAdminWithdrawalProofJournal(attempt);
+        proofAttachAttempt.value = null;
+      } catch {
+        proofRecoveryBlocked.value = true;
+      }
     }
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') return;
@@ -154,19 +168,14 @@ async function commandConflict(): Promise<void> {
 }
 
 function chooseProof(): void {
-  if (!uploading.value && proofAttachAttempt.value === null) fileInput.value?.click();
+  if (!uploading.value && proofAttachAttempt.value === null && !proofRecoveryBlocked.value) fileInput.value?.click();
 }
 
 async function attachPendingProof(signal: AbortSignal): Promise<void> {
   const attempt = proofAttachAttempt.value;
   if (!attempt) return;
-  const targetWithdrawalId = withdrawalId.value;
-  const result = await attachAdminWithdrawalProofs(
-    targetWithdrawalId,
-    { file_ids: [attempt.fileId] },
-    attempt.idempotencyKey,
-    signal,
-  );
+  const targetWithdrawalId = attempt.withdrawal_id;
+  const result = await executeAdminWithdrawalProofJournal(attempt, signal);
   if (withdrawalId.value !== targetWithdrawalId || proofAttachAttempt.value !== attempt) return;
   detail.value = result;
   proofAttachAttempt.value = null;
@@ -175,21 +184,31 @@ async function attachPendingProof(signal: AbortSignal): Promise<void> {
 
 async function reportProofFailure(error: unknown): Promise<void> {
   if (error instanceof DOMException && error.name === 'AbortError') return;
+  if (error instanceof AdminWithdrawalProofJournalError) {
+    proofRecoveryBlocked.value = true;
+    ElMessage.error('无法安全保存或恢复凭证绑定，已禁止发起新请求');
+    return;
+  }
+  const hadAttachAttempt = proofAttachAttempt.value !== null;
+  const certainAttachFailure = hadAttachAttempt && isCertainAdminWithdrawalProofFailure(error);
+  if (certainAttachFailure) proofAttachAttempt.value = null;
   if (await handleExpired(error)) return;
   if (proofAttachAttempt.value) {
     ElMessage.error('凭证已上传，但绑定结果尚未确认；请使用原请求重试');
     return;
   }
-  ElMessage.error(error instanceof AdminApiError && error.status === 422
+  ElMessage.error(error instanceof AdminApiError && error.status === 422 && !hadAttachAttempt
     ? '凭证必须为 JPEG/PNG 且不超过 5 MiB'
-    : '付款凭证上传未完成');
+    : certainAttachFailure
+      ? '凭证绑定已被服务端确定拒绝，请刷新后重新操作'
+      : '付款凭证上传未完成');
 }
 
 async function uploadProof(event: Event): Promise<void> {
   const target = event.target as HTMLInputElement;
   const file = target.files?.[0];
   target.value = '';
-  if (!file || uploading.value) return;
+  if (!file || uploading.value || proofRecoveryBlocked.value) return;
   uploading.value = true;
   const current = new AbortController();
   commandController = current;
@@ -197,7 +216,7 @@ async function uploadProof(event: Event): Promise<void> {
     const targetWithdrawalId = withdrawalId.value;
     const uploaded = await uploadAdminImage('WITHDRAWAL_PROOF', file, current.signal);
     if (withdrawalId.value !== targetWithdrawalId) return;
-    proofAttachAttempt.value = { fileId: uploaded.file_id, idempotencyKey: newIdempotencyKey() };
+    proofAttachAttempt.value = await prepareAdminWithdrawalProofJournal(targetWithdrawalId, uploaded.file_id);
     await attachPendingProof(current.signal);
   } catch (error) {
     await reportProofFailure(error);
@@ -208,7 +227,7 @@ async function uploadProof(event: Event): Promise<void> {
 }
 
 async function retryProofAttach(): Promise<void> {
-  if (uploading.value || proofAttachAttempt.value === null) return;
+  if (uploading.value || proofAttachAttempt.value === null || proofRecoveryBlocked.value) return;
   uploading.value = true;
   const current = new AbortController();
   commandController = current;
@@ -277,16 +296,35 @@ async function copyAndClear(): Promise<void> {
 
 async function authExpired(error: AdminApiError): Promise<void> { await handleExpired(error); }
 
+async function initialize(): Promise<void> {
+  const targetWithdrawalId = withdrawalId.value;
+  proofRecoveryBlocked.value = false;
+  try {
+    const recovered = await recoverAdminWithdrawalProofJournal();
+    if (withdrawalId.value !== targetWithdrawalId) return;
+    if (recovered && recovered.withdrawal_id !== targetWithdrawalId) {
+      await router.replace(`/withdrawals/${recovered.withdrawal_id}`);
+      return;
+    }
+    proofAttachAttempt.value = recovered;
+  } catch {
+    if (withdrawalId.value !== targetWithdrawalId) return;
+    proofAttachAttempt.value = null;
+    proofRecoveryBlocked.value = true;
+  }
+  if (withdrawalId.value === targetWithdrawalId) await load();
+}
+
 watch(withdrawalId, () => {
   commandController?.abort();
   commandController = null;
   commandOpen.value = false;
   closeReauth();
   proofAttachAttempt.value = null;
+  proofRecoveryBlocked.value = false;
   detail.value = null;
-  void load();
+  void initialize();
 }, { immediate: true });
-sessionStorage.removeItem('qingxu.admin.withdrawal-paid.v1');
 onBeforeUnmount(() => {
   ++sequence;
   controller?.abort();
@@ -308,11 +346,11 @@ onBeforeUnmount(() => {
       <template v-else-if="detail">
         <section class="withdrawal-summary"><div><small>申请金额</small><strong>¥{{ detail.amount }}</strong><span>{{ formatChinaDateTime(detail.created_at) }}</span></div><div><small>当前状态</small><strong>{{ detail.status }}</strong><span>{{ detail.review_reason ?? '无审核备注' }}</span></div><div><small>冻结前 / 后</small><strong>¥{{ detail.request_balance_snapshot.frozen_before }} → ¥{{ detail.request_balance_snapshot.frozen_after }}</strong><span>申请时不可变余额快照</span></div></section>
 
-        <section class="withdrawal-actions"><div><el-button v-if="detail.status === 'PENDING'" type="primary" data-testid="withdrawal-approve-open" @click="openCommand('APPROVE')">批准申请</el-button><el-button v-if="detail.status === 'PENDING'" type="danger" plain @click="openCommand('REJECT')">拒绝并解冻</el-button><el-button v-if="detail.status === 'APPROVED'" @click="reauthOpen = true">TOTP 查看完整收款账号</el-button><el-button v-if="detail.status === 'APPROVED'" :icon="Upload" :loading="uploading" :disabled="proofAttachAttempt !== null" @click="chooseProof">上传付款凭证</el-button><el-button v-if="detail.status === 'APPROVED' && proofAttachAttempt" :loading="uploading" data-testid="withdrawal-proof-retry" @click="retryProofAttach">使用原请求重试绑定</el-button><el-button v-if="detail.status === 'APPROVED'" type="primary" :disabled="detail.proof_file_ids.length === 0 || proofAttachAttempt !== null" data-testid="withdrawal-paid-open" @click="openCommand('PAID')">标记已付款</el-button></div><small>所有资金命令都以服务端状态、版本和预览事实为准。</small></section>
+        <section class="withdrawal-actions"><div><el-button v-if="detail.status === 'PENDING'" type="primary" data-testid="withdrawal-approve-open" @click="openCommand('APPROVE')">批准申请</el-button><el-button v-if="detail.status === 'PENDING'" type="danger" plain @click="openCommand('REJECT')">拒绝并解冻</el-button><el-button v-if="detail.status === 'APPROVED'" @click="reauthOpen = true">TOTP 查看完整收款账号</el-button><el-button v-if="detail.status === 'APPROVED'" :icon="Upload" :loading="uploading" :disabled="proofAttachAttempt !== null || proofRecoveryBlocked" @click="chooseProof">上传付款凭证</el-button><el-button v-if="proofAttachAttempt" :loading="uploading" :disabled="proofRecoveryBlocked" data-testid="withdrawal-proof-retry" @click="retryProofAttach">使用原请求重试绑定</el-button><el-button v-if="detail.status === 'APPROVED'" type="primary" :disabled="detail.proof_file_ids.length === 0 || proofAttachAttempt !== null || proofRecoveryBlocked" data-testid="withdrawal-paid-open" @click="openCommand('PAID')">标记已付款</el-button></div><small>所有资金命令都以服务端状态、版本和预览事实为准。</small></section>
 
         <section class="withdrawal-grid"><article><header><div><p>申请时冻结事实</p><h2>余额快照</h2></div></header><dl><dt>可用余额</dt><dd>¥{{ detail.request_balance_snapshot.available_before }} → ¥{{ detail.request_balance_snapshot.available_after }}</dd><dt>冻结余额</dt><dd>¥{{ detail.request_balance_snapshot.frozen_before }} → ¥{{ detail.request_balance_snapshot.frozen_after }}</dd><dt>快照时间</dt><dd>{{ formatChinaDateTime(detail.request_balance_snapshot.captured_at) }}</dd></dl></article><article><header><div><p>不可变银行卡快照</p><h2>收款账户</h2></div></header><dl><dt>开户名</dt><dd>{{ detail.payout_account_snapshot.account_holder_masked }}</dd><dt>银行</dt><dd>{{ detail.payout_account_snapshot.bank_name }}</dd><dt>账号</dt><dd>{{ detail.payout_account_snapshot.account_number_masked }}</dd><dt>快照时间</dt><dd>{{ formatChinaDateTime(detail.payout_account_snapshot.snapshot_at) }}</dd></dl></article></section>
 
-        <section class="proof-panel"><header><div><p>付款事实</p><h2>付款凭证</h2></div><el-tag effect="plain">{{ detail.proof_file_ids.length }} 个</el-tag></header><el-alert v-if="proofAttachAttempt" data-testid="withdrawal-proof-uncertain" title="凭证已上传，绑定结果尚未确认；仅可使用原请求重试。" type="warning" :closable="false" show-icon /><el-empty v-if="detail.proof_file_ids.length === 0" description="批准后上传付款凭证，方可标记已付款" :image-size="56" /><ul v-else><li v-for="fileId in detail.proof_file_ids" :key="fileId"><code>{{ fileId }}</code><span>私有凭证</span></li></ul><input ref="fileInput" class="hidden-file" type="file" accept="image/jpeg,image/png" aria-label="选择付款凭证" :disabled="proofAttachAttempt !== null" @change="uploadProof" /></section>
+        <section class="proof-panel"><header><div><p>付款事实</p><h2>付款凭证</h2></div><el-tag effect="plain">{{ detail.proof_file_ids.length }} 个</el-tag></header><el-alert v-if="proofRecoveryBlocked" title="无法安全读写待确认凭证，当前页面已禁止新的凭证和付款操作。" type="error" :closable="false" show-icon /><el-alert v-else-if="proofAttachAttempt" data-testid="withdrawal-proof-uncertain" title="凭证已上传，绑定结果尚未确认；仅可使用原请求重试。" type="warning" :closable="false" show-icon /><el-empty v-if="detail.proof_file_ids.length === 0" description="批准后上传付款凭证，方可标记已付款" :image-size="56" /><ul v-else><li v-for="fileId in detail.proof_file_ids" :key="fileId"><code>{{ fileId }}</code><span>私有凭证</span></li></ul><input ref="fileInput" class="hidden-file" type="file" accept="image/jpeg,image/png" aria-label="选择付款凭证" :disabled="proofAttachAttempt !== null || proofRecoveryBlocked" @change="uploadProof" /></section>
       </template>
     </div>
 

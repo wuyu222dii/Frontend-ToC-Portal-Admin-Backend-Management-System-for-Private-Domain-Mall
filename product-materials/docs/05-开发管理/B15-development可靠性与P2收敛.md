@@ -1,6 +1,6 @@
 # B15 development 可靠性与 P2 收敛
 
-> 批次：B15；产品/API 基线：`v2.4.13 / CH-032`、OpenAPI `2.4.13-ch032`；交付门禁：CH-033；更新日期：2026-09-06；当前状态：B15.2 已完成并暂停复审，B15.3 尚未准入。
+> 批次：B15；产品/API 基线：`v2.4.13 / CH-032`、OpenAPI `2.4.13-ch032`；交付门禁：CH-033；更新日期：2026-09-06；当前状态：B15.3 已完成并暂停复审，B15.4 尚未准入。
 
 ## 1. 上游与治理
 
@@ -50,7 +50,7 @@ Admin Web 只在当前登录会话的 `sessionStorage` 保存：`schema_version`
 | B15.0 | B14 收口登记；B15 主记录；CH-032/033；OpenAPI 与 generated contracts | Redocly、连续两次生成无漂移、contracts build、`git diff --check` 通过；不含迁移/Worker/业务实现 | **已完成并暂停** |
 | B15.1 | `0007_b15_development_convergence_guards`、READY 回收和佣金历史数据底座 | 既有 Worker 完成两阶段回收；引用/清理竞态、Outbox 异常和迁移原子失败闭合；一个定向服务端测试及受影响构建通过 | **已完成并暂停复审** |
 | B15.2 | 佣金版本历史解释、发布冲突恢复、来源变化 preview、代理重新启用保护 | 严格响应、旧/新名称快照、审计跳转、409 刷新和重复点击闭合；复用 B15 服务端测试及受影响构建 | **已完成并暂停复审** |
-| B15.3 | 提现付款凭证 session journal | 丢包/重认证同键恢复、确定性清除和跨账号零请求闭合；一个定向前端测试及 Admin Web build 通过 | **未准入** |
+| B15.3 | 提现付款凭证 session journal | 丢包/重认证同键恢复、确定性清除和跨账号零请求闭合；一个定向前端测试及 Admin Web build 通过 | **已完成并暂停复审** |
 | B15.4 | 最终复审、文档同步与 development 远端门禁 | `P0=0/P1=0`；最终 SHA migration attestation 后 rollback-only smoke 成功；B15 development `GO`，CH-033 失效 | **未准入** |
 
 每批完成后必须暂停复审。已通过且代码未变化、无法提供新信息的检查不重复运行。
@@ -77,7 +77,7 @@ B15 仅限 Mock Provider、虚构文件与脱敏 development。真实微信身�
 | CH-031 | **已失效，不得用于 B15** |
 | CH-032 | **已批准；当前基线 `v2.4.13 / 2.4.13-ch032`** |
 | CH-033 | **已批准；覆盖 B15.1-B15.4 单维护者脱敏 development** |
-| B15.2 | **已完成并暂停复审；B15.3 尚未准入** |
+| B15.3 | **已完成并暂停复审；B15.4 尚未准入** |
 | staging/真实数据 | **其余 P2 尚未以实现证据闭合，继续 `NO-GO`** |
 
 ## 9. B15.0 退出证据
@@ -104,3 +104,10 @@ B15 仅限 Mock Provider、虚构文件与脱敏 development。真实微信身�
 - 发布 preview 对有效比例相同但命中层级变化的 SKU 额外返回来源前后值；Admin Web 版本详情展示冻结名、前后比例并可跳转锁定的通用审计列表。
 - 发布 `409` 不进入成功分支，同时刷新当前规则、版本列表和已打开的版本详情，并保留待发布变更；代理重新启用在确认与请求全程共用单一 pending 锁，阻止重复点击。
 - `pnpm --filter @qingxu/database build`、`pnpm --filter @qingxu/api build`、`pnpm --filter @qingxu/admin-web build` 通过。按当前最小验证约束未新增或运行测试，未运行全仓、历史阶段测试或浏览器 E2E。
+
+## 12. B15.3 实现证据
+
+- Admin Web 新增仅含六个允许字段的 `sessionStorage` journal，24 小时过期；损坏、过期或跨账号状态先清除且不发送绑定请求。
+- 丢包、401、429、5xx、`INVALID_RESPONSE`和 `SESSION_CHANGED` 保留原 `file_id + idempotency_key`；成功并确认已绑定，或非 `SESSION_CHANGED` 的确定性 400/403/404/409/422 才清除。
+- 详情页在重新认证后只恢复同账号 journal，且仅允许原请求重试；存储不可用时 fail closed，禁止新凭证与付款命令。
+- `pnpm --filter @qingxu/admin-web build`、`git diff --check` 及唯一定向前端测试 `pnpm test:b15:withdrawal-journal` 通过；结果为 `1 file / 3 tests passed`，未扩大到全仓、历史阶段测试或浏览器 E2E。

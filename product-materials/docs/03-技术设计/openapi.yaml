@@ -13750,6 +13750,17 @@ components:
     SecurityResetPreviewAction:
       type: "object"
       additionalProperties: false
+      oneOf:
+        - required: ["reset_password"]
+          properties:
+            reset_password:
+              const: true
+        - required: ["reset_password", "reset_totp"]
+          properties:
+            reset_password:
+              const: false
+            reset_totp:
+              const: true
       required:
         - "reason"
         - "reset_password"
@@ -13765,6 +13776,26 @@ components:
           type: "boolean"
     SecurityResetConfirmAction:
       type: "object"
+      oneOf:
+        - required:
+            - "reset_password"
+            - "new_password"
+          properties:
+            reset_password:
+              const: true
+            new_password:
+              type: "string"
+              minLength: 12
+              maxLength: 128
+              writeOnly: true
+              description: "仅 reset_password=true 时必填；不得出现在预览、审计、幂等响应或日志。"
+        - required: ["reset_password", "reset_totp"]
+          properties:
+            reset_password:
+              const: false
+            reset_totp:
+              const: true
+            new_password: false
       required:
         - "reason"
         - "reset_password"
@@ -13788,13 +13819,8 @@ components:
         credential:
           type: "string"
           minLength: 6
+          maxLength: 2048
           writeOnly: true
-        new_password:
-          type: "string"
-          minLength: 12
-          maxLength: 128
-          writeOnly: true
-          description: "仅 reset_password=true 时必填；不得出现在预览、审计、幂等响应或日志。"
     PayoutRevealRequest:
       type: "object"
       additionalProperties: false

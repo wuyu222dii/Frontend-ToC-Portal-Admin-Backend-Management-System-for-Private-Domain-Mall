@@ -32,6 +32,10 @@ const securityResetDialog = ref(false);
 const securityResetPending = ref(false);
 const securityResetError = ref('');
 const securityResetPreview = ref<Awaited<ReturnType<typeof previewSecurityReset>> | null>(null);
+const securityResetReviewed = ref(false);
+let securityResetGeneration = 0;
+let securityResetController: AbortController | null = null;
+let securityResetOrigin: { accountId: string; sessionId: string } | null = null;
 const securityResetForm = reactive({ reason: '', resetPassword: true, resetTotp: true, credentialType: 'TOTP' as 'TOTP' | 'RECOVERY_CODE', credential: '', newPassword: '', confirmPassword: '' });
 const passwordError = ref('');
 const rotateError = ref('');
@@ -52,38 +56,87 @@ function clearTotp(): void {
 }
 
 function clearSecurityReset(): void {
+  securityResetGeneration += 1;
+  securityResetController?.abort();
+  securityResetController = null;
+  securityResetOrigin = null;
+  securityResetReviewed.value = false;
+  securityResetPending.value = false;
   securityResetError.value = '';
   securityResetPreview.value = null;
   securityResetForm.reason = '';
   securityResetForm.credential = '';
   securityResetForm.newPassword = '';
   securityResetForm.confirmPassword = '';
+  securityResetForm.credentialType = 'TOTP';
 }
 
 async function submitSecurityReset(): Promise<void> {
+  if (securityResetPending.value) return;
   securityResetError.value = '';
   if (!securityResetForm.resetPassword && !securityResetForm.resetTotp) { securityResetError.value = '至少选择一项重置内容'; return; }
   if (securityResetForm.reason.trim().length < 2) { securityResetError.value = '请填写重置原因'; return; }
+  const preview = securityResetPreview.value;
+  if (preview && Date.parse(preview.expires_at) <= Date.now()) {
+    clearSecurityReset();
+    securityResetError.value = '预览已过期，请重新生成';
+    return;
+  }
+  if (preview && !securityResetReviewed.value) { securityResetReviewed.value = true; return; }
+  if (preview) {
+    if (securityResetForm.credentialType === 'TOTP' ? !/^\d{6}$/.test(securityResetForm.credential)
+      : securityResetForm.credential.length < 6 || securityResetForm.credential.length > 2048) {
+      securityResetError.value = '请输入有效的动态验证码或恢复码'; return;
+    }
+    if (securityResetForm.resetPassword && (Array.from(securityResetForm.newPassword).length < 12 ||
+      Array.from(securityResetForm.newPassword).length > 128 || securityResetForm.newPassword !== securityResetForm.confirmPassword)) {
+      securityResetError.value = '新密码须为 12–128 位且两次输入一致'; return;
+    }
+  }
+  const session = authSession.state.session;
+  if (!session) { clearSecurityReset(); await router.replace('/login'); return; }
+  const origin = securityResetOrigin ?? { accountId: session.account_id, sessionId: session.session_id };
+  securityResetOrigin = origin;
+  const generation = ++securityResetGeneration;
+  const controller = new AbortController();
+  securityResetController = controller;
   securityResetPending.value = true;
   try {
-    if (!securityResetPreview.value) {
-      securityResetPreview.value = await previewSecurityReset({ reason: securityResetForm.reason, resetPassword: securityResetForm.resetPassword, resetTotp: securityResetForm.resetTotp });
+    if (!preview) {
+      const issued = await previewSecurityReset({ reason: securityResetForm.reason, resetPassword: securityResetForm.resetPassword,
+        resetTotp: securityResetForm.resetTotp }, controller.signal);
+      if (generation === securityResetGeneration) securityResetPreview.value = issued;
       return;
     }
-    if (securityResetForm.credential.length < 6) { securityResetError.value = '请输入动态验证码或恢复码'; return; }
-    if (securityResetForm.resetPassword && (securityResetForm.newPassword.length < 12 || securityResetForm.newPassword !== securityResetForm.confirmPassword)) { securityResetError.value = '新密码至少 12 位且两次输入必须一致'; return; }
-    const version = current.value?.version;
-    if (!version) throw new AdminApiError('账户版本不可用', { status: 409, code: 'STATE_CONFLICT' });
-    await resetSecurity({ reason: securityResetForm.reason, resetPassword: securityResetForm.resetPassword, resetTotp: securityResetForm.resetTotp, credentialType: securityResetForm.credentialType, credential: securityResetForm.credential, newPassword: securityResetForm.resetPassword ? securityResetForm.newPassword : null, previewToken: securityResetPreview.value.preview_token, confirmationHash: securityResetPreview.value.confirmation_hash, version });
+    await resetSecurity({ ...origin, reason: securityResetForm.reason, resetPassword: securityResetForm.resetPassword,
+      resetTotp: securityResetForm.resetTotp, credentialType: securityResetForm.credentialType, credential: securityResetForm.credential,
+      newPassword: securityResetForm.resetPassword ? securityResetForm.newPassword : null,
+      previewToken: preview.preview_token, confirmationHash: preview.confirmation_hash, resourceEtag: preview.resource_etag }, controller.signal);
+    if (generation !== securityResetGeneration || authSession.state.session) return;
     securityResetDialog.value = false;
     clearSecurityReset();
+    ElMessage.success('安全重置已完成，请重新登录');
     await router.replace('/login');
   } catch (error) {
-    securityResetError.value = error instanceof AdminApiError ? error.message : '安全重置未完成';
+    if (generation !== securityResetGeneration) return;
+    const sameSession = authSession.state.session?.session_id === origin.sessionId && authSession.state.session.account_id === origin.accountId;
+    const needsLogin = Boolean(preview) || error instanceof AdminApiError && error.status === 401;
     clearSecurityReset();
-    authSession.clearSession();
-    await router.replace('/login');
-  } finally { securityResetPending.value = false; }
+    if (needsLogin) {
+      if (sameSession) authSession.clearSession();
+      if (!authSession.state.session) {
+        ElMessage.warning(preview ? '安全重置结果需重新登录核对，请勿重复提交' : '登录已失效，请重新登录');
+        await router.replace('/login');
+      }
+    } else {
+      securityResetError.value = error instanceof AdminApiError ? error.message : '预览未生成，请重新操作';
+    }
+  } finally {
+    if (generation === securityResetGeneration) {
+      securityResetPending.value = false;
+      securityResetController = null;
+    }
+  }
 }
 
 async function redirectIfSessionExpired(error: unknown): Promise<boolean> {
@@ -190,6 +243,7 @@ async function settingsAuthExpired(error: AdminApiError): Promise<void> {
 
 onMounted(loadCurrent);
 onBeforeUnmount(() => {
+  clearSecurityReset();
   clearPasswordForm();
   clearTotp();
   authSession.clearOneTimeValues();
@@ -282,19 +336,25 @@ onBeforeUnmount(() => {
       <template #footer><el-button @click="rotateDialog = false">取消</el-button><el-button type="primary" :icon="RefreshRight" :loading="rotatePending" @click="submitRotate">确认轮换</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="securityResetDialog" title="本人安全重置" width="min(520px, calc(100vw - 32px))" @closed="clearSecurityReset">
+    <el-dialog v-model="securityResetDialog" title="本人安全重置" width="min(520px, calc(100vw - 32px))" :close-on-click-modal="!securityResetPending" :close-on-press-escape="!securityResetPending" :show-close="!securityResetPending" @close="clearSecurityReset">
       <el-form label-position="top">
-        <el-form-item label="重置原因"><el-input v-model="securityResetForm.reason" maxlength="500" :disabled="Boolean(securityResetPreview)" /></el-form-item>
-        <el-checkbox v-model="securityResetForm.resetPassword" :disabled="Boolean(securityResetPreview)">重置登录密码</el-checkbox>
-        <el-checkbox v-model="securityResetForm.resetTotp" :disabled="Boolean(securityResetPreview)">重置动态验证</el-checkbox>
-        <el-form-item v-if="securityResetForm.resetPassword" label="新密码"><el-input v-model="securityResetForm.newPassword" type="password" show-password autocomplete="new-password" /></el-form-item>
-        <el-form-item v-if="securityResetForm.resetPassword" label="确认新密码"><el-input v-model="securityResetForm.confirmPassword" type="password" show-password autocomplete="new-password" /></el-form-item>
-        <el-radio-group v-model="securityResetForm.credentialType"><el-radio value="TOTP">动态验证码</el-radio><el-radio value="RECOVERY_CODE">恢复码</el-radio></el-radio-group>
-        <el-form-item label="当前凭据"><el-input v-model="securityResetForm.credential" autocomplete="one-time-code" /></el-form-item>
+        <el-form-item label="重置原因"><el-input v-model="securityResetForm.reason" maxlength="500" :disabled="Boolean(securityResetPreview) || securityResetPending" /></el-form-item>
+        <el-checkbox v-model="securityResetForm.resetPassword" :disabled="Boolean(securityResetPreview) || securityResetPending">重置登录密码</el-checkbox>
+        <el-checkbox v-model="securityResetForm.resetTotp" :disabled="Boolean(securityResetPreview) || securityResetPending">重置动态验证</el-checkbox>
+        <template v-if="securityResetPreview">
+          <p>影响 {{ securityResetPreview.impact.affected_count }} 项，预览有效至 {{ formatChinaDateTime(securityResetPreview.expires_at) }}</p>
+          <p v-for="warning in securityResetPreview.impact.warnings" :key="warning">{{ warning }}</p>
+        </template>
+        <template v-if="securityResetReviewed">
+          <el-form-item v-if="securityResetForm.resetPassword" label="新密码"><el-input v-model="securityResetForm.newPassword" type="password" show-password autocomplete="new-password" :disabled="securityResetPending" /></el-form-item>
+          <el-form-item v-if="securityResetForm.resetPassword" label="确认新密码"><el-input v-model="securityResetForm.confirmPassword" type="password" show-password autocomplete="new-password" :disabled="securityResetPending" /></el-form-item>
+          <el-radio-group v-model="securityResetForm.credentialType" :disabled="securityResetPending"><el-radio value="TOTP">动态验证码</el-radio><el-radio value="RECOVERY_CODE">恢复码</el-radio></el-radio-group>
+          <el-form-item label="当前凭据"><el-input v-model="securityResetForm.credential" type="password" autocomplete="one-time-code" :disabled="securityResetPending" /></el-form-item>
+        </template>
         <el-alert v-if="securityResetPreview" type="warning" :closable="false" title="预览已生成，确认后当前全部会话将立即失效。" />
         <p v-if="securityResetError" class="inline-error" role="alert">{{ securityResetError }}</p>
       </el-form>
-      <template #footer><el-button @click="securityResetDialog = false">取消</el-button><el-button type="primary" :loading="securityResetPending" @click="submitSecurityReset">{{ securityResetPreview ? '确认重置' : '生成预览' }}</el-button></template>
+      <template #footer><el-button :disabled="securityResetPending" @click="securityResetDialog = false">取消</el-button><el-button type="primary" :loading="securityResetPending" @click="submitSecurityReset">{{ securityResetReviewed ? '确认重置' : securityResetPreview ? '继续确认' : '生成预览' }}</el-button></template>
     </el-dialog>
 
     <OneTimeCodesDialog :codes="authSession.state.recoveryCodes" @acknowledged="acknowledgeCodes" />

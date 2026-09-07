@@ -4055,7 +4055,15 @@ export interface components {
             reason: string;
             reset_password: boolean;
             reset_totp: boolean;
-        };
+        } & ({
+            /** @constant */
+            reset_password: true;
+        } | {
+            /** @constant */
+            reset_password: false;
+            /** @constant */
+            reset_totp: true;
+        });
         SecurityResetConfirmAction: {
             reason: string;
             reset_password: boolean;
@@ -4063,9 +4071,18 @@ export interface components {
             /** @enum {string} */
             credential_type: "TOTP" | "RECOVERY_CODE";
             credential: string;
+        } & ({
+            /** @constant */
+            reset_password: true;
             /** @description 仅 reset_password=true 时必填；不得出现在预览、审计、幂等响应或日志。 */
-            new_password?: string;
-        };
+            new_password: string;
+        } | {
+            /** @constant */
+            reset_password: false;
+            /** @constant */
+            reset_totp: true;
+            new_password?: never;
+        });
         PayoutRevealRequest: {
             reauth_grant: string;
         };

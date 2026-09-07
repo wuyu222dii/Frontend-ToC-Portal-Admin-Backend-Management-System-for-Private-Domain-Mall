@@ -505,24 +505,19 @@ export class AdminAuthService {
       }),
       preview_token: input.previewToken, confirmation_hash: input.confirmationHash, expected_version: expectedVersion };
     const claim = this.claim(session.accountId, key, ROUTES.securityReset, claimBody, { account_id: session.accountId });
-    const newPasswordHash = input.newPassword === null ? undefined : await hashPassword(input.newPassword);
-    const verification = input.credentialType === 'TOTP'
-      ? await verifyTotpCode(this.decryptFactorSecret(session.factorId, session.factorSecretCiphertext, session.factorEncryptionKeyId), input.credential)
-      : null;
     const result = await runSerializableTransaction(this.database.prisma, async (transaction) => {
       const claimed = await this.idempotency.claim(transaction, claim);
       if (claimed.kind === 'replay') {
+        if (claimed.record.response_status === 403 || claimed.record.response_status === 429) {
+          return { kind: 'invalid' as const, status: claimed.record.response_status };
+        }
         if (claimed.record.response_body === null) throw noReplay();
         return { kind: 'replay' as const, response: this.idempotency.securityResetReplay(claimed.record) };
       }
-      if (input.credentialType === 'TOTP' && !verification?.valid) {
-        const failure = await this.auth.recordAuthenticationFailureInTransaction(transaction, {
-          accountId: session.accountId, currentSessionId: session.sessionId, expectedAccountVersion: session.accountVersion,
-          factorId: session.factorId, purpose: 'RECOVERY',
-        });
-        await this.idempotency.complete(transaction, claim, { responseForHash: { result: failure.kind }, responseStatus: failure.kind === 'locked' ? 429 : 403, storage: 'HASH_ONLY' });
-        return { kind: 'invalid' as const };
-      }
+      const newPasswordHash = input.newPassword === null ? undefined : await hashPassword(input.newPassword);
+      const verification = input.credentialType === 'TOTP'
+        ? await verifyTotpCode(this.decryptFactorSecret(session.factorId, session.factorSecretCiphertext, session.factorEncryptionKeyId), input.credential)
+        : null;
       await this.previews.consumeInTransaction(transaction, {
         action: 'ACCOUNT.SECURITY_RESET', actorId: session.accountId, previewToken: input.previewToken,
         request: { reason: input.reason, reset_password: input.resetPassword, reset_totp: input.resetTotp },
@@ -533,22 +528,31 @@ export class AdminAuthService {
         accountId: session.accountId, currentSessionId: session.sessionId, factorId: session.factorId,
         expectedVersion, credentialType: input.credentialType,
         ...(input.credentialType === 'RECOVERY_CODE' ? { credentialHashCandidates: this.secretHashes(input.credential, 'recovery-code') } : {}),
-        ...(verification?.timestep === undefined ? {} : { acceptedTimestep: verification.timestep }),
+        ...(verification?.valid ? { acceptedTimestep: verification.timestep } : {}),
         resetPassword: input.resetPassword, resetTotp: input.resetTotp,
         ...(newPasswordHash === undefined ? {} : { newPasswordHash }),
       });
-      if (changed.kind !== 'reset') return { kind: 'invalid' as const };
+      if (changed.kind !== 'reset') {
+        const status = changed.kind === 'locked' ? 429 : 403;
+        const code = status === 429 ? 'RATE_LIMITED' : 'PERMISSION_DENIED';
+        await this.auditFailure(transaction, session.accountId, 'RESET', requestId, key, code, ipAddress);
+        await this.idempotency.complete(transaction, claim, {
+          responseForHash: { result: code }, responseStatus: status, storage: 'HASH_ONLY',
+        });
+        return { kind: 'invalid' as const, status };
+      }
       const response: CacheableSecurityResetResponse = {
         code: 'OK', message: 'success', request_id: requestId,
         data: { account_id: session.accountId, password_reset: input.resetPassword, totp_reset: input.resetTotp,
-          sessions_revoked_at: changed.sessionsRevokedAt!.toISOString(), version: changed.version! },
+          sessions_revoked_at: changed.sessionsRevokedAt.toISOString(), version: changed.version },
       };
-      await this.auditSuccess(transaction, session.accountId, 'UPDATE', requestId, key, 'account', session.accountId, ipAddress);
+      await this.auditSuccess(transaction, session.accountId, 'RESET', requestId, key, 'account', session.accountId, ipAddress);
       await this.idempotency.complete(transaction, claim, { policy: 'SECURITY_RESET_RESPONSE', responseBody: response, responseStatus: 200, storage: 'CACHEABLE' });
       return { kind: 'reset' as const, response };
     });
     if (result.kind === 'replay') return preEnvelopedResponse(result.response);
-    if (result.kind === 'invalid') throw new ApplicationError('AUTH_REQUIRED', 'Security reset credential is invalid');
+    if (result.kind === 'invalid') throw new ApplicationError(result.status === 429 ? 'RATE_LIMITED' : 'PERMISSION_DENIED',
+      result.status === 429 ? 'MFA is locked' : 'Security reset credential is invalid');
     return preEnvelopedResponse(result.response);
   }
 
@@ -1022,7 +1026,7 @@ export class AdminAuthService {
   }
 
   private auditSuccess(transaction: DatabaseTransaction, actorId: string,
-    action: 'CREATE' | 'ENROLL' | 'LOGIN' | 'LOGOUT' | 'RECOVER' | 'REFRESH' | 'ROTATE' | 'UPDATE' | 'VERIFY',
+    action: 'CREATE' | 'ENROLL' | 'LOGIN' | 'LOGOUT' | 'RECOVER' | 'REFRESH' | 'RESET' | 'ROTATE' | 'UPDATE' | 'VERIFY',
     requestId: string, idempotencyKey: string, objectType: 'account' | 'session' | 'withdrawal', objectId: string,
     ipAddress?: string) {
     return this.audit.append(transaction, {
@@ -1033,8 +1037,8 @@ export class AdminAuthService {
   }
 
   private auditFailure(transaction: DatabaseTransaction, actorId: string,
-    action: 'LOGIN' | 'RECOVER' | 'REFRESH' | 'UPDATE' | 'VERIFY', requestId: string, idempotencyKey: string,
-    resultCode: 'AUTH_REQUIRED' | 'RATE_LIMITED' | 'REAUTH_LOCKED' | 'REAUTH_REQUIRED', ipAddress?: string) {
+    action: 'LOGIN' | 'RECOVER' | 'REFRESH' | 'RESET' | 'UPDATE' | 'VERIFY', requestId: string, idempotencyKey: string,
+    resultCode: 'AUTH_REQUIRED' | 'RATE_LIMITED' | 'REAUTH_LOCKED' | 'REAUTH_REQUIRED' | 'PERMISSION_DENIED', ipAddress?: string) {
     return this.audit.append(transaction, {
       action, actorAccountId: actorId, actorRole: 'SUPER_ADMIN', idempotencyKey, module: 'admin_auth',
       objectId: actorId, objectType: 'account', requestId, result: 'FAILURE', resultCode, summaryPolicy: 'NONE',

@@ -1,3 +1,5 @@
+import type { components } from '@qingxu/contracts';
+
 import type {
   AdminAgent,
   AdminAgentCommissionResult,
@@ -232,6 +234,17 @@ export function decodeAdminHighRiskPreviewResponse(value: unknown, allowZeroEtag
   });
   list(impact.warnings, 'response.data.impact.warnings', text);
   return data as HighRiskPreview;
+}
+
+export function decodeSecurityResetResponse(value: unknown, accountId: string): components['schemas']['SecurityResetResponse']['data'] {
+  const data = object(envelope(value), ['account_id', 'password_reset', 'totp_reset', 'sessions_revoked_at', 'version'], 'response.data');
+  expectedId(data.account_id, accountId, 'response.data.account_id');
+  boolean(data.password_reset, 'response.data.password_reset');
+  boolean(data.totp_reset, 'response.data.totp_reset');
+  if (!data.password_reset && !data.totp_reset) invalid('response.data');
+  dateTime(data.sessions_revoked_at, 'response.data.sessions_revoked_at');
+  integer(data.version, 'response.data.version', 1);
+  return data as components['schemas']['SecurityResetResponse']['data'];
 }
 
 export function decodeAdminCustomerListResponse(value: unknown): AdminCustomerListResult {

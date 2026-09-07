@@ -2,10 +2,11 @@ import { timingSafeEqual } from 'node:crypto';
 
 import { ApplicationError, generateUlid, isValidUlid } from '@qingxu/platform-core';
 
-import type { AuthSession, PrismaClient } from '../.generated/prisma/client';
+import type { AdminOfflineRecovery, AuthSession, PrismaClient } from '../.generated/prisma/client';
 import type { MfaChallengePurpose } from '../.generated/prisma/enums';
 import type { DatabaseTransaction } from './idempotency.repository';
-import { acquireTransactionLock } from './advisory-lock';
+import { acquireTransactionLock, acquireTransactionLocks } from './advisory-lock';
+import type { AuditRepository } from './audit.repository';
 
 const CHALLENGE_TTL_MS = 5 * 60 * 1_000;
 const REAUTH_GRANT_TTL_MS = 60 * 1_000;
@@ -93,6 +94,38 @@ export interface OfflineRecoveryRecord {
   targetAccountVersion: number;
   status: 'PENDING_APPROVAL' | 'APPROVED' | 'EXECUTED' | 'REJECTED' | 'EXPIRED';
   expiresAt: Date;
+  version: number;
+}
+
+export interface OfflineOperatorProof {
+  accountId: string;
+  expectedVersion: number;
+  expectedPasswordHash: string;
+  passwordVerified: boolean;
+  factorId: string | null;
+  credentialType: 'TOTP' | 'RECOVERY_CODE';
+  acceptedTimestep?: bigint;
+  credentialHashCandidates?: SecretHashCandidates;
+}
+
+export type OfflineRecoveryCommand = { operator: OfflineOperatorProof } & (
+  | { command: 'request'; targetAccountId: string; reason: string }
+  | { command: 'approve'; recoveryId: string; reason: string }
+  | { command: 'reject'; recoveryId: string; reason: string }
+  | { command: 'execute'; recoveryId: string; expectedRecoveryVersion: number;
+      newPasswordHash: string; credentialFingerprint: string }
+);
+
+export interface OfflineRecoveryOutcome {
+  kind: 'success' | 'conflict' | 'expired' | 'terminal' | 'invalid' | 'locked';
+  resultCode: string;
+  record: OfflineRecoveryRecord | null;
+}
+
+function offlineRecord(record: AdminOfflineRecovery): OfflineRecoveryRecord {
+  return { id: record.id, targetAccountId: record.target_account_id, requestedById: record.requested_by_id,
+    targetAccountVersion: record.target_account_version, status: record.status, expiresAt: record.expires_at,
+    version: record.version };
 }
 
 function currentDate(clock: () => Date): Date {
@@ -1405,15 +1438,18 @@ export class AdminAuthRepository {
       resetTotp: boolean;
       newPasswordHash?: string;
     },
-  ): Promise<{ kind: 'reset' | 'invalid'; version?: number; sessionsRevokedAt?: Date }> {
+  ): Promise<{ kind: 'reset'; version: number; sessionsRevokedAt: Date } | AuthenticationFailureResult> {
     const now = currentDate(this.now);
     if (!input.resetPassword && !input.resetTotp) throw new TypeError('At least one security reset action is required');
     if (input.resetPassword && !input.newPasswordHash) throw new TypeError('New password hash is required');
+    if (!input.resetPassword && input.newPasswordHash) throw new TypeError('Unexpected new password hash');
     if (input.newPasswordHash) validatePasswordHash(input.newPasswordHash);
     if (input.credentialType === 'RECOVERY_CODE') {
       requireHashCandidates(input.credentialHashCandidates ?? [], 'Security reset credential hashes');
     }
-    await this.requireAdminVersion(transaction, input.accountId, input.expectedVersion);
+    await acquireTransactionLock(transaction, 'admin-auth-account', [input.accountId]);
+    const account = await this.requireActiveAdmin(transaction, input.accountId);
+    if (account.version !== input.expectedVersion) throw new ApplicationError('RESOURCE_VERSION_CONFLICT', 'Account changed');
     await this.requireCurrentMfaSession(transaction, {
       accountId: input.accountId,
       factorId: input.factorId,
@@ -1422,9 +1458,13 @@ export class AdminAuthRepository {
     await this.requireAvailableRateLimit(transaction, input.accountId, 'RECOVERY', now);
 
     if (input.credentialType === 'TOTP') {
-      if (input.acceptedTimestep === undefined || input.acceptedTimestep < 0n) {
-        throw new TypeError('Accepted TOTP timestep is required');
+      if (input.acceptedTimestep === undefined) {
+        return this.recordAuthenticationFailureInTransaction(transaction, {
+          accountId: input.accountId, currentSessionId: input.currentSessionId,
+          expectedAccountVersion: input.expectedVersion, factorId: input.factorId, purpose: 'RECOVERY',
+        });
       }
+      if (input.acceptedTimestep < 0n) throw new TypeError('Accepted TOTP timestep must be nonnegative');
       await acquireTransactionLock(transaction, 'admin-auth-factor', [input.factorId]);
       const accepted = await transaction.totpFactor.updateMany({
         where: {
@@ -1439,14 +1479,13 @@ export class AdminAuthRepository {
         data: { last_used_timestep: input.acceptedTimestep, updated_at: now },
       });
       if (accepted.count !== 1) {
-        await this.recordAuthenticationFailureInTransaction(transaction, {
+        return this.recordAuthenticationFailureInTransaction(transaction, {
           accountId: input.accountId,
           currentSessionId: input.currentSessionId,
           expectedAccountVersion: input.expectedVersion,
           factorId: input.factorId,
           purpose: 'RECOVERY',
         });
-        return { kind: 'invalid' };
       }
     } else {
       const matches = await transaction.totpRecoveryCode.findMany({
@@ -1455,28 +1494,26 @@ export class AdminAuthRepository {
       });
       const matched = matches.length === 1 ? matches[0] : undefined;
       if (!matched) {
-        await this.recordAuthenticationFailureInTransaction(transaction, {
+        return this.recordAuthenticationFailureInTransaction(transaction, {
           accountId: input.accountId,
           currentSessionId: input.currentSessionId,
           expectedAccountVersion: input.expectedVersion,
           factorId: input.factorId,
           purpose: 'RECOVERY',
         });
-        return { kind: 'invalid' };
       }
       await acquireTransactionLock(transaction, 'admin-auth-recovery-code', [matched.id]);
       const code = await transaction.totpRecoveryCode.findUnique({ where: { id: matched.id } });
       const factor = code ? await transaction.totpFactor.findUnique({ where: { id: code.factor_id } }) : null;
       if (!code || code.consumed_at !== null || !factor || factor.id !== input.factorId ||
         factor.account_id !== input.accountId || factor.status !== 'ACTIVE') {
-        await this.recordAuthenticationFailureInTransaction(transaction, {
+        return this.recordAuthenticationFailureInTransaction(transaction, {
           accountId: input.accountId,
           currentSessionId: input.currentSessionId,
           expectedAccountVersion: input.expectedVersion,
           factorId: input.factorId,
           purpose: 'RECOVERY',
         });
-        return { kind: 'invalid' };
       }
       const consumed = await transaction.totpRecoveryCode.updateMany({
         where: { id: code.id, consumed_at: null },
@@ -1504,7 +1541,7 @@ export class AdminAuthRepository {
     });
     await transaction.adminReauthGrant.updateMany({
       where: { account_id: input.accountId, status: 'ACTIVE', consumed_at: null },
-      data: { status: 'REVOKED', consumed_at: now },
+      data: { status: 'REVOKED', consumed_at: null },
     });
     if (input.resetTotp) {
       await transaction.totpRecoveryCode.updateMany({
@@ -1520,124 +1557,163 @@ export class AdminAuthRepository {
     return { kind: 'reset', version: input.expectedVersion + 1, sessionsRevokedAt: now };
   }
 
-  async createOfflineRecoveryInTransaction(transaction: DatabaseTransaction, input: {
-    recoveryId: string; targetAccountId: string; requestedById: string; reason: string; expiresAt: Date;
-  }): Promise<OfflineRecoveryRecord> {
-    const now = currentDate(this.now);
-    requireUlid(input.recoveryId, 'Recovery ID');
-    requireUlid(input.targetAccountId, 'Target account ID');
-    requireUlid(input.requestedById, 'Requester ID');
-    if (input.reason.trim().length < 2 || input.reason.length > 500 || input.expiresAt.getTime() <= now.getTime()) {
-      throw new TypeError('Offline recovery request is invalid');
+  // Business failures return normally so MFA consumption, lockouts and terminal states commit.
+  async runOfflineRecoveryInTransaction(transaction: DatabaseTransaction, input: OfflineRecoveryCommand,
+    audit: Pick<AuditRepository, 'append'>, requestId: string): Promise<OfflineRecoveryOutcome> {
+    const proof = input.operator;
+    requireUlid(proof.accountId, 'Operator ID');
+    if (input.command === 'request') requireUlid(input.targetAccountId, 'Target ID');
+    else requireUlid(input.recoveryId, 'Recovery ID');
+    if ('reason' in input && (input.reason.trim().length < 2 || input.reason.length > 500)) {
+      throw new TypeError('Recovery reason is invalid');
     }
-    await acquireTransactionLock(transaction, 'admin-auth-account', [input.targetAccountId]);
-    const target = await this.requireActiveAdmin(transaction, input.targetAccountId);
-    if (target.id === input.requestedById) throw new ApplicationError('INVALID_ARGUMENT', 'Requester cannot be the target account');
-    const requester = await this.requireActiveAdmin(transaction, input.requestedById);
-    if (requester.id === target.id) throw new ApplicationError('INVALID_ARGUMENT', 'Requester cannot be the target account');
-    const created = await transaction.adminOfflineRecovery.create({
-      data: {
-        id: input.recoveryId,
-        target_account_id: target.id,
-        requested_by_id: requester.id,
-        target_account_version: target.version,
-        reason: input.reason.trim(),
-        expires_at: input.expiresAt,
-        status: 'PENDING_APPROVAL',
-        version: 1,
-        created_at: now,
-        updated_at: now,
-      },
-    });
-    return {
-      id: created.id, targetAccountId: created.target_account_id, requestedById: created.requested_by_id,
-      targetAccountVersion: created.target_account_version, status: created.status, expiresAt: created.expires_at,
+    if (input.command === 'execute') {
+      validatePasswordHash(input.newPasswordHash);
+      requireHash(input.credentialFingerprint, 'Credential fingerprint');
+      if (!Number.isSafeInteger(input.expectedRecoveryVersion) || input.expectedRecoveryVersion < 1) {
+        throw new TypeError('Recovery version is invalid');
+      }
+    }
+    const observed = input.command === 'request'
+      ? await transaction.adminOfflineRecovery.findFirst({ where: {
+          target_account_id: input.targetAccountId, status: { in: ['PENDING_APPROVAL', 'APPROVED'] },
+        } })
+      : await transaction.adminOfflineRecovery.findUnique({ where: { id: input.recoveryId } });
+    const targetId = input.command === 'request' ? input.targetAccountId : observed?.target_account_id;
+    const observedApprovals = observed ? await transaction.adminOfflineRecoveryApproval.findMany({
+      where: { recovery_id: observed.id },
+    }) : [];
+    const accountIds = [...new Set([proof.accountId, ...(targetId ? [targetId] : []),
+      ...(observed ? [observed.requested_by_id] : []), ...observedApprovals.map((entry) => entry.approver_id)])].sort();
+    await acquireTransactionLocks(transaction, accountIds.map((id) => ({ namespace: 'admin-auth-account', parts: [id] })));
+    // Row locks also serialize account status changes made outside the auth advisory-lock protocol.
+    await transaction.$queryRawUnsafe('SELECT id FROM account WHERE id::text = ANY($1::text[]) ORDER BY id FOR UPDATE', accountIds);
+    if (observed) {
+      await acquireTransactionLock(transaction, 'admin-auth-offline-recovery', [observed.id]);
+      await transaction.$queryRawUnsafe('SELECT id FROM admin_offline_recovery WHERE id = $1 FOR UPDATE', observed.id);
+    }
+    const now = (await transaction.$queryRawUnsafe<Array<{ now: Date }>>('SELECT clock_timestamp() AS now'))[0]?.now;
+    if (!now) throw new Error('Database clock is unavailable');
+    let recovery = observed ? await transaction.adminOfflineRecovery.findUnique({ where: { id: observed.id } }) : null;
+    const approvals = recovery ? await transaction.adminOfflineRecoveryApproval.findMany({ where: { recovery_id: recovery.id } }) : [];
+    if (approvals.some((entry) => !accountIds.includes(entry.approver_id)) || recovery?.version !== observed?.version) {
+      throw Object.assign(new Error('Recovery participants changed'), { code: 'P2034' });
+    }
+    const operator = await this.requireActiveAdmin(transaction, proof.accountId);
+    const finish = async (kind: OfflineRecoveryOutcome['kind'], resultCode: string,
+      record: AdminOfflineRecovery | null = recovery): Promise<OfflineRecoveryOutcome> => {
+      await audit.append(transaction, { action: input.command === 'request' ? 'CREATE'
+        : input.command === 'approve' ? 'APPROVE' : input.command === 'reject' ? 'REJECT' : 'RESET',
+        actorAccountId: operator.id, actorRole: 'SUPER_ADMIN', module: 'admin_auth', objectType: 'account',
+        objectId: targetId ?? operator.id, requestId, result: kind === 'success' ? 'SUCCESS' : 'FAILURE',
+        resultCode, summaryPolicy: 'NONE' });
+      return { kind, resultCode, record: record ? offlineRecord(record) : null };
     };
-  }
-
-  async consumeOfflineOperatorTotpInTransaction(transaction: DatabaseTransaction, input: {
-    accountId: string; factorId: string; expectedVersion: number; acceptedTimestep: bigint;
-  }): Promise<void> {
-    const now = currentDate(this.now);
-    if (input.acceptedTimestep < 0n) throw new TypeError('Accepted TOTP timestep must be nonnegative');
-    await this.requireAdminVersion(transaction, input.accountId, input.expectedVersion);
-    await acquireTransactionLock(transaction, 'admin-auth-factor', [input.factorId]);
-    const updated = await transaction.totpFactor.updateMany({
-      where: {
-        id: input.factorId, account_id: input.accountId, status: 'ACTIVE',
-        OR: [{ last_used_timestep: null }, { last_used_timestep: { lt: input.acceptedTimestep } }],
-      },
-      data: { last_used_timestep: input.acceptedTimestep, updated_at: now },
-    });
-    if (updated.count !== 1) throw new ApplicationError('AUTH_REQUIRED', 'Operator TOTP is invalid or already used');
-  }
-
-  async decideOfflineRecoveryInTransaction(transaction: DatabaseTransaction, input: {
-    recoveryId: string; approverId: string; reason: string; decision: 'APPROVED' | 'REJECTED';
-  }): Promise<OfflineRecoveryRecord> {
-    const now = currentDate(this.now);
-    requireUlid(input.recoveryId, 'Recovery ID');
-    requireUlid(input.approverId, 'Approver ID');
-    if (input.reason.trim().length < 2 || input.reason.length > 500) throw new TypeError('Approval reason is invalid');
-    const recovery = await transaction.adminOfflineRecovery.findUnique({ where: { id: input.recoveryId } });
-    if (!recovery || recovery.expires_at.getTime() <= now.getTime()) {
-      if (recovery && recovery.status === 'PENDING_APPROVAL') await transaction.adminOfflineRecovery.update({ where: { id: recovery.id }, data: { status: 'EXPIRED', updated_at: now } });
-      throw new ApplicationError('STATE_CONFLICT', 'Offline recovery is expired or unavailable');
+    const rateLimit = await this.lockRateLimit(transaction, operator.id, 'RECOVERY', now);
+    if (rateLimit.locked_until && rateLimit.locked_until > now) return finish('locked', 'OFFLINE_RECOVERY_LOCKED', null);
+    let authenticated = proof.passwordVerified && operator.version === proof.expectedVersion &&
+      operator.password_hash === proof.expectedPasswordHash && proof.factorId !== null;
+    if (authenticated && proof.factorId !== null) {
+      await acquireTransactionLock(transaction, 'admin-auth-factor', [proof.factorId]);
+      if (proof.credentialType === 'TOTP') {
+        const currentStep = BigInt(Math.floor(now.getTime() / 30_000));
+        authenticated = proof.acceptedTimestep !== undefined && proof.acceptedTimestep >= 0n &&
+          proof.acceptedTimestep >= currentStep - 1n && proof.acceptedTimestep <= currentStep + 1n &&
+          (await transaction.totpFactor.updateMany({ where: { id: proof.factorId, account_id: operator.id,
+            status: 'ACTIVE', OR: [{ last_used_timestep: null }, { last_used_timestep: { lt: proof.acceptedTimestep } }] },
+            data: { last_used_timestep: proof.acceptedTimestep, updated_at: now } })).count === 1;
+      } else {
+        requireHashCandidates(proof.credentialHashCandidates ?? [], 'Recovery code hashes');
+        const codes = await transaction.totpRecoveryCode.findMany({ where: {
+          code_hash: { in: [...(proof.credentialHashCandidates ?? [])] }, factor_id: proof.factorId,
+          factor: { account_id: operator.id, status: 'ACTIVE' }, consumed_at: null,
+        }, take: 2 });
+        const code = codes.length === 1 ? codes[0] : undefined;
+        authenticated = false;
+        if (code) {
+          await acquireTransactionLock(transaction, 'admin-auth-recovery-code', [code.id]);
+          authenticated = (await transaction.totpRecoveryCode.updateMany({ where: { id: code.id, consumed_at: null },
+            data: { consumed_at: now } })).count === 1;
+        }
+      }
     }
-    await acquireTransactionLock(transaction, 'admin-auth-offline-recovery', [input.recoveryId]);
-    const current = await transaction.adminOfflineRecovery.findUnique({ where: { id: input.recoveryId } });
-    if (!current || current.status !== 'PENDING_APPROVAL') throw new ApplicationError('STATE_CONFLICT', 'Offline recovery is not open for approval');
-    const approver = await this.requireActiveAdmin(transaction, input.approverId);
-    if (approver.id === current.target_account_id || approver.id === current.requested_by_id) {
-      throw new ApplicationError('PERMISSION_DENIED', 'Target and requester cannot approve recovery');
+    if (!authenticated) {
+      const failedAttempts = rateLimit.failed_attempts + 1;
+      const lockedUntil = failedAttempts >= MAX_FAILED_ATTEMPTS ? new Date(now.getTime() + MFA_LOCK_MS) : null;
+      await transaction.mfaRateLimit.update({ where: { id: rateLimit.id }, data: { failed_attempts: failedAttempts,
+        locked_until: lockedUntil, updated_at: now, version: { increment: 1 } } });
+      return finish(lockedUntil ? 'locked' : 'invalid', lockedUntil ? 'OFFLINE_RECOVERY_LOCKED' : 'OFFLINE_RECOVERY_AUTH_FAILED', null);
     }
-    const previous = await transaction.adminOfflineRecoveryApproval.findUnique({
-      where: { recovery_id_approver_id: { recovery_id: current.id, approver_id: approver.id } },
-    });
-    if (previous) throw new ApplicationError('STATE_CONFLICT', 'Approver has already decided this recovery');
-    await transaction.adminOfflineRecoveryApproval.create({
-      data: { id: generateUlid(now.getTime()), recovery_id: current.id, approver_id: approver.id, decision: input.decision, reason: input.reason.trim(), created_at: now },
-    });
-    const approvals = await transaction.adminOfflineRecoveryApproval.findMany({ where: { recovery_id: current.id } });
-    const hasRejected = approvals.some((approval) => approval.decision === 'REJECTED');
-    const approvedCount = approvals.filter((approval) => approval.decision === 'APPROVED').length;
-    const status = hasRejected ? 'REJECTED' : approvedCount >= 2 ? 'APPROVED' : 'PENDING_APPROVAL';
-    const updated = await transaction.adminOfflineRecovery.update({
-      where: { id: current.id },
-      data: { status, approved_at: status === 'APPROVED' ? now : null, updated_at: now },
-    });
-    return { id: updated.id, targetAccountId: updated.target_account_id, requestedById: updated.requested_by_id,
-      targetAccountVersion: updated.target_account_version, status: updated.status, expiresAt: updated.expires_at };
-  }
-
-  async executeOfflineRecoveryInTransaction(transaction: DatabaseTransaction, input: {
-    recoveryId: string; executorId: string; expectedVersion: number; newPasswordHash: string; credentialFingerprint: string;
-  }): Promise<{ version: number; sessionsRevokedAt: Date }> {
-    const now = currentDate(this.now);
-    requireUlid(input.recoveryId, 'Recovery ID'); requireUlid(input.executorId, 'Executor ID');
-    validatePasswordHash(input.newPasswordHash); requireHash(input.credentialFingerprint, 'Credential fingerprint');
-    await acquireTransactionLock(transaction, 'admin-auth-account', [input.executorId]);
-    const executor = await this.requireActiveAdmin(transaction, input.executorId);
-    await acquireTransactionLock(transaction, 'admin-auth-offline-recovery', [input.recoveryId]);
-    const recovery = await transaction.adminOfflineRecovery.findUnique({ where: { id: input.recoveryId } });
-    if (!recovery || recovery.status !== 'APPROVED' || recovery.expires_at.getTime() <= now.getTime()) {
-      throw new ApplicationError('STATE_CONFLICT', 'Offline recovery is not approved or has expired');
+    await this.resetRateLimit(transaction, operator.id, 'RECOVERY', now);
+    if (!targetId || operator.id === targetId ||
+      ((input.command === 'approve' || input.command === 'reject') && operator.id === recovery?.requested_by_id)) {
+      return finish('conflict', 'OFFLINE_RECOVERY_ACTOR_FORBIDDEN', null);
     }
-    if (recovery.target_account_version !== input.expectedVersion) throw new ApplicationError('RESOURCE_VERSION_CONFLICT', 'Target account version changed');
-    if (executor.id === recovery.target_account_id) throw new ApplicationError('PERMISSION_DENIED', 'Target account cannot execute its recovery');
-    const approvals = await transaction.adminOfflineRecoveryApproval.findMany({ where: { recovery_id: recovery.id, decision: 'APPROVED' } });
-    if (new Set(approvals.map((approval) => approval.approver_id)).size < 2) throw new ApplicationError('STATE_CONFLICT', 'Two distinct approvals are required');
-    const updated = await transaction.account.updateMany({
-      where: { id: recovery.target_account_id, role: 'SUPER_ADMIN', status: 'ACTIVE', version: input.expectedVersion },
-      data: { password_hash: input.newPasswordHash, version: { increment: 1 }, updated_at: now },
-    });
-    if (updated.count !== 1) throw new ApplicationError('RESOURCE_VERSION_CONFLICT', 'Target account version changed');
-    await transaction.authSession.updateMany({ where: { account_id: recovery.target_account_id, revoked_at: null }, data: { revoked_at: now, last_seen_at: now } });
-    await transaction.mfaChallenge.updateMany({ where: { account_id: recovery.target_account_id, status: { in: ['PENDING', 'LOCKED', 'VERIFIED'] } }, data: { status: 'EXPIRED', consumed_at: now } });
-    await transaction.adminReauthGrant.updateMany({ where: { account_id: recovery.target_account_id, status: 'ACTIVE', consumed_at: null }, data: { status: 'REVOKED', consumed_at: now } });
-    await transaction.totpRecoveryCode.updateMany({ where: { factor: { account_id: recovery.target_account_id }, consumed_at: null }, data: { consumed_at: now } });
-    await transaction.totpFactor.updateMany({ where: { account_id: recovery.target_account_id, status: { in: ['ACTIVE', 'PENDING'] } }, data: { status: 'REVOKED', revoked_at: now, updated_at: now } });
-    await transaction.adminOfflineRecovery.update({ where: { id: recovery.id }, data: { status: 'EXECUTED', executed_by_id: executor.id, new_credential_fingerprint: input.credentialFingerprint, executed_at: now, sessions_revoked_at: now, version: { increment: 1 }, updated_at: now } });
-    return { version: input.expectedVersion + 1, sessionsRevokedAt: now };
+    const target = await transaction.account.findUnique({ where: { id: targetId } });
+    const targetActive = target?.role === 'SUPER_ADMIN' && target.status === 'ACTIVE' && target.deleted_at === null;
+    if (recovery && !['PENDING_APPROVAL', 'APPROVED'].includes(recovery.status)) {
+      return finish('terminal', 'OFFLINE_RECOVERY_TERMINAL');
+    }
+    const approvedIds = approvals.filter((entry) => entry.decision === 'APPROVED').map((entry) => entry.approver_id);
+    const currentApprovers = approvedIds.length ? await transaction.account.findMany({ where: { id: { in: approvedIds },
+      role: 'SUPER_ADMIN', status: 'ACTIVE', deleted_at: null } }) : [];
+    const invalidApprover = currentApprovers.length !== approvedIds.length || new Set(approvedIds).size !== approvedIds.length ||
+      approvedIds.some((id) => id === targetId || id === recovery?.requested_by_id);
+    if (recovery) {
+      const expiryCode = recovery.expires_at <= now ? 'OFFLINE_RECOVERY_EXPIRED'
+        : !targetActive || target?.version !== recovery.target_account_version ? 'OFFLINE_RECOVERY_TARGET_CHANGED'
+        : invalidApprover ? 'OFFLINE_RECOVERY_APPROVER_INVALIDATED' : null;
+      if (expiryCode) {
+        recovery = await transaction.adminOfflineRecovery.update({ where: { id: recovery.id },
+          data: { status: 'EXPIRED', updated_at: now, version: { increment: 1 } } });
+        const expired = await finish('expired', expiryCode);
+        if (input.command !== 'request') return expired;
+        recovery = null;
+      }
+    }
+    if (!targetActive || !target) return finish('conflict', 'OFFLINE_RECOVERY_TARGET_UNAVAILABLE', null);
+    if (input.command === 'request') {
+      if (recovery) return finish('conflict', 'OFFLINE_RECOVERY_ALREADY_ACTIVE');
+      try {
+        recovery = await transaction.adminOfflineRecovery.create({ data: { id: generateUlid(now.getTime()),
+          target_account_id: target.id, requested_by_id: operator.id, target_account_version: target.version,
+          reason: input.reason.trim(), expires_at: new Date(now.getTime() + 30 * 60 * 1_000),
+          status: 'PENDING_APPROVAL', version: 1, created_at: now, updated_at: now } });
+      } catch (error) {
+        if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002') {
+          throw Object.assign(new Error('Concurrent recovery request'), { code: 'P2034' });
+        }
+        throw error;
+      }
+      return finish('success', 'OFFLINE_RECOVERY_REQUESTED');
+    }
+    if (!recovery) return finish('conflict', 'OFFLINE_RECOVERY_UNAVAILABLE', null);
+    if (input.command === 'approve' || input.command === 'reject') {
+      if (approvals.some((entry) => entry.approver_id === operator.id)) return finish('conflict', 'OFFLINE_RECOVERY_ALREADY_DECIDED');
+      if (input.command === 'approve' && recovery.status !== 'PENDING_APPROVAL') return finish('conflict', 'OFFLINE_RECOVERY_NOT_PENDING');
+      await transaction.adminOfflineRecoveryApproval.create({ data: { id: generateUlid(now.getTime()), recovery_id: recovery.id,
+        approver_id: operator.id, decision: input.command === 'approve' ? 'APPROVED' : 'REJECTED', reason: input.reason.trim(), created_at: now } });
+      const status = input.command === 'reject' ? 'REJECTED' : approvedIds.length + 1 >= 2 ? 'APPROVED' : 'PENDING_APPROVAL';
+      recovery = await transaction.adminOfflineRecovery.update({ where: { id: recovery.id }, data: {
+        status, approved_at: status === 'APPROVED' ? now : recovery.approved_at, updated_at: now, version: { increment: 1 },
+      } });
+      return finish('success', input.command === 'reject' ? 'OFFLINE_RECOVERY_REJECTED' : 'OFFLINE_RECOVERY_APPROVED');
+    }
+    if (recovery.version !== input.expectedRecoveryVersion) return finish('conflict', 'OFFLINE_RECOVERY_VERSION_CONFLICT');
+    if (recovery.status !== 'APPROVED' || approvedIds.length < 2 || approvals.some((entry) => entry.decision === 'REJECTED')) {
+      return finish('conflict', 'OFFLINE_RECOVERY_NOT_APPROVED');
+    }
+    const updated = await transaction.account.updateMany({ where: { id: target.id, role: 'SUPER_ADMIN', status: 'ACTIVE',
+      version: recovery.target_account_version }, data: { password_hash: input.newPasswordHash, version: { increment: 1 }, updated_at: now } });
+    if (updated.count !== 1) throw Object.assign(new Error('Target changed during recovery'), { code: 'P2034' });
+    await transaction.authSession.updateMany({ where: { account_id: target.id, revoked_at: null }, data: { revoked_at: now, last_seen_at: now } });
+    await transaction.mfaChallenge.updateMany({ where: { account_id: target.id, status: { in: ['PENDING', 'LOCKED', 'VERIFIED'] } }, data: { status: 'EXPIRED', consumed_at: now } });
+    await transaction.adminReauthGrant.updateMany({ where: { account_id: target.id, status: 'ACTIVE', consumed_at: null }, data: { status: 'REVOKED', consumed_at: null } });
+    await transaction.totpRecoveryCode.updateMany({ where: { factor: { account_id: target.id }, consumed_at: null }, data: { consumed_at: now } });
+    await transaction.totpFactor.updateMany({ where: { account_id: target.id, status: { in: ['ACTIVE', 'PENDING'] } }, data: { status: 'REVOKED', revoked_at: now, updated_at: now } });
+    recovery = await transaction.adminOfflineRecovery.update({ where: { id: recovery.id }, data: { status: 'EXECUTED',
+      executed_by_id: operator.id, new_credential_fingerprint: input.credentialFingerprint, executed_at: now,
+      sessions_revoked_at: now, version: { increment: 1 }, updated_at: now } });
+    return finish('success', 'OFFLINE_RECOVERY_EXECUTED');
   }
 }

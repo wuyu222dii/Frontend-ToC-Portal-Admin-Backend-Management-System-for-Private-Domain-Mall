@@ -17,6 +17,7 @@ import type {
   TotpEnrollData,
 } from '../types/auth';
 import { authSession } from '../stores/auth-session';
+import { decodeAdminHighRiskPreviewResponse, decodeSecurityResetResponse } from './admin-b13-decoders';
 
 type CommandResponse = components['schemas']['CommandResponse'];
 export { AdminApiError } from './admin-api';
@@ -104,33 +105,38 @@ export function changePassword(input: ChangePasswordInput): Promise<CommandRespo
     }));
 }
 
-export interface SecurityResetPreview {
-  confirmation_hash: string;
-  expires_at: string;
-  impact: { affected_count: number; metrics: Array<{ key: string; label: string; before: string | null; after: string | null }>; warnings: string[] };
-  preview_token: string;
-  resource_etag: string;
-}
+export type SecurityResetPreview = components['schemas']['HighRiskPreviewResponse']['data'];
 
-export async function previewSecurityReset(input: { reason: string; resetPassword: boolean; resetTotp: boolean }): Promise<SecurityResetPreview> {
+export async function previewSecurityReset(input: { reason: string; resetPassword: boolean; resetTotp: boolean },
+  signal?: AbortSignal): Promise<SecurityResetPreview> {
   const account = authSession.state.current;
-  if (!account) throw new AdminApiError('登录状态已失效，请重新登录', { status: 401, code: 'AUTH_REQUIRED' });
-  const response = await request<{ data: SecurityResetPreview }>(`/admin/admin-accounts/${encodeURIComponent(account.account_id)}/security-reset-preview`, {
+  const session = authSession.state.session;
+  if (!account || !session) throw new AdminApiError('登录状态已失效，请重新登录', { status: 401, code: 'AUTH_REQUIRED' });
+  const response = await request<unknown>(`/admin/admin-accounts/${encodeURIComponent(account.account_id)}/security-reset-preview`, {
     auth: 'access',
     body: { reason: input.reason, reset_password: input.resetPassword, reset_totp: input.resetTotp },
-    idempotencyKey: idempotencyKey(), method: 'POST',
+    idempotencyKey: idempotencyKey(), method: 'POST', signal,
   });
-  return response.data;
+  if (authSession.state.session?.session_id !== session.session_id || authSession.state.session.account_id !== session.account_id) {
+    throw new AdminApiError('登录状态已经变化', { status: 409, code: 'SESSION_CHANGED' });
+  }
+  return decodeAdminHighRiskPreviewResponse(response);
 }
 
 export async function resetSecurity(input: {
   reason: string; resetPassword: boolean; resetTotp: boolean; credentialType: 'TOTP' | 'RECOVERY_CODE';
-  credential: string; newPassword: string | null; previewToken: string; confirmationHash: string; version: number;
-}): Promise<components['schemas']['SecurityResetResponse']['data']> {
+  credential: string; newPassword: string | null; previewToken: string; confirmationHash: string; resourceEtag: string;
+  accountId: string; sessionId: string;
+}, signal?: AbortSignal): Promise<components['schemas']['SecurityResetResponse']['data']> {
   const account = authSession.state.current;
-  if (!account) throw new AdminApiError('登录状态已失效，请重新登录', { status: 401, code: 'AUTH_REQUIRED' });
+  const session = authSession.state.session;
+  if (!account || !session) throw new AdminApiError('登录状态已失效，请重新登录', { status: 401, code: 'AUTH_REQUIRED' });
+  if (session.account_id !== input.accountId || session.session_id !== input.sessionId || account.account_id !== input.accountId) {
+    throw new AdminApiError('登录状态已经变化', { status: 409, code: 'SESSION_CHANGED' });
+  }
+  if (!/^"[1-9][0-9]*"$/.test(input.resourceEtag)) throw new AdminApiError('预览版本无效', { status: 409, code: 'STATE_CONFLICT' });
   try {
-    const response = await request<components['schemas']['SecurityResetResponse']>(`/admin/admin-accounts/${encodeURIComponent(account.account_id)}/security-resets`, {
+    const response = await request<unknown>(`/admin/admin-accounts/${encodeURIComponent(account.account_id)}/security-resets`, {
       auth: 'access',
       body: {
         reason: input.reason, reset_password: input.resetPassword, reset_totp: input.resetTotp,
@@ -138,12 +144,19 @@ export async function resetSecurity(input: {
         ...(input.newPassword === null ? {} : { new_password: input.newPassword }),
         preview_token: input.previewToken, confirmation_hash: input.confirmationHash,
       },
-      headers: { 'If-Match': `"${input.version}"` },
-      idempotencyKey: idempotencyKey(), method: 'POST',
+      ifMatch: input.resourceEtag,
+      idempotencyKey: idempotencyKey(), method: 'POST', signal,
     });
-    return response.data;
+    const data = decodeSecurityResetResponse(response, account.account_id);
+    if (data.password_reset !== input.resetPassword || data.totp_reset !== input.resetTotp ||
+      data.version !== Number(input.resourceEtag.slice(1, -1)) + 1) {
+      throw new AdminApiError('服务响应不匹配，请重新登录核对结果', { status: 502, code: 'INVALID_RESPONSE' });
+    }
+    return data;
   } finally {
-    authSession.clearSession();
+    if (authSession.state.session?.session_id === session.session_id && authSession.state.session.account_id === session.account_id) {
+      authSession.clearSession();
+    }
   }
 }
 

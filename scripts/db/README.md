@@ -77,6 +77,18 @@ Supabase project:
 node scripts/db/replay-ci.mjs
 ```
 
+For a local disposable database, copy `.env.local-ci.example` to `.env.local-ci`
+and keep the existing `.env` on Supabase. Start only the profiled service:
+
+```sh
+docker compose --env-file .env --env-file .env.local-ci --profile local-ci up -d --wait postgres-ci
+set -a && source .env && source .env.local-ci && set +a
+pnpm db:migrate:baseline
+```
+
+Do not run `db:supabase:bootstrap` against this database. Recreate `postgres-ci`
+before a second replay so `public` stays empty; do not `docker compose down -v`.
+
 ## Controlled Supabase development migrations
 
 Post-bootstrap migrations are not applied by the rollback-only smoke workflow.

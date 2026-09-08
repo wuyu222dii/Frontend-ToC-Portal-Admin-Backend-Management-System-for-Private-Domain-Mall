@@ -20,6 +20,7 @@ test-results/
 .env
 .env.*
 !.env.example
+!.env.local-ci.example
 *.pem
 *.key
 *.p12

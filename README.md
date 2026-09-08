@@ -30,7 +30,7 @@ product-materials/
 
 ## 本地启动
 
-前置条件：Node.js `22.23.1`、pnpm `10.34.5`、Docker Desktop。PostgreSQL 不在本地 Compose 中运行，开发连接须指向新加坡区域的 Supabase 开发项目。
+前置条件：Node.js `22.23.1`、pnpm `10.34.5`、Docker Desktop。日常开发 PostgreSQL 仍指向新加坡区域的 Supabase 开发项目。本地 Compose 默认只启动 Redis 与 MinIO；一次性空库回放可通过 `local-ci` profile 启用 PostgreSQL 18.3，不得替代 `.env` 中的 Supabase 连接。
 
 ```bash
 pnpm install --frozen-lockfile
@@ -40,6 +40,8 @@ pnpm check
 ```
 
 启动 Compose 前以 `.env.example` 为字段清单创建 `.env`，真实数据库密码仍应从 Secret Store 注入，不能提交。Redis 与 MinIO 仅监听本机回环地址；MinIO 控制台默认为 `http://127.0.0.1:9001`。端口被占用时，只在本地 `.env` 设置 `REDIS_PORT`、`MINIO_API_PORT` 或 `MINIO_CONSOLE_PORT`，不修改共享默认值。`API_TRUSTED_PROXY_CIDRS` 默认留空，此时 API 不信任任何代理头；只有直接反向代理的明确数字 IP/CIDR 才能加入该配置，IPv4-mapped IPv6 会归一化为等价 IPv4 网段。
+
+本地一次性 PostgreSQL 不要写入 `.env`。复制 `.env.local-ci.example` 为 `.env.local-ci`，替换其中的本地库密码后执行 `docker compose --env-file .env --env-file .env.local-ci --profile local-ci up -d --wait postgres-ci`，再在专用终端 `set -a && source .env && source .env.local-ci && set +a`，最后运行 `pnpm db:migrate:baseline`。该 profile 默认监听 `127.0.0.1:5433`。回放前 public schema 必须为空；重置时只删除 `postgres-ci` 容器，不要对整个 Compose 执行 `down -v`。
 
 常用命令：
 

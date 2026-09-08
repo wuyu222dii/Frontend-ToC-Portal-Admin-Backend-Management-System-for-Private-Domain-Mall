@@ -5,6 +5,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import { AdminApiError, newIdempotencyKey } from '../../services/admin-api';
 import { createAdminSku, updateAdminSku } from '../../services/admin-products';
 import type { Sku, SkuCreateRequest, SkuUpdateRequest } from '../../types/products';
+import { readableError as describeAdminError } from '../../utils/presentation';
 
 interface AttributeRow {
   key: number;
@@ -129,16 +130,25 @@ function isUnknownOutcome(error: unknown): boolean {
 }
 
 function readableError(error: unknown): string {
-  if (!(error instanceof AdminApiError)) return 'SKU 保存失败，请稍后重试';
-  if (error.status === 0) return '网络连接失败，请检查网络后重试';
-  if (error.status === 403) return '当前账号无权保存 SKU';
-  if (error.status === 404) return 'SKU 或所属商品不存在，请刷新商品详情';
-  if (error.code === 'SOFT_DELETED_KEY_RESERVED') return '该 SKU 编码由归档记录保留，请恢复原记录';
-  if (error.status === 409) return 'SKU 编码已存在，或所属商品状态已变化；请检查编码和商品资料';
-  if (error.status === 422) return 'SKU 内容不符合要求，请检查名称、价格和规格';
-  if (error.status === 429) return '操作过于频繁，请稍后重试';
-  if (error.status >= 500) return 'SKU 保存结果尚未确认，可保持内容不变后重试';
-  return 'SKU 当前状态不允许保存，请刷新商品详情';
+  if (error instanceof AdminApiError && error.status >= 500) {
+    return 'SKU 保存结果尚未确认，可保持内容不变后重试';
+  }
+  return describeAdminError(
+    error,
+    error instanceof AdminApiError ? 'SKU 当前状态不允许保存，请刷新商品详情' : 'SKU 保存失败，请稍后重试',
+    {
+      codeMessages: {
+        SOFT_DELETED_KEY_RESERVED: '该 SKU 编码由归档记录保留，请恢复原记录',
+      },
+      statusMessages: {
+        403: '当前账号无权保存 SKU',
+        404: 'SKU 或所属商品不存在，请刷新商品详情',
+        409: 'SKU 编码已存在，或所属商品状态已变化；请检查编码和商品资料',
+        422: 'SKU 内容不符合要求，请检查名称、价格和规格',
+        429: '操作过于频繁，请稍后重试',
+      },
+    },
+  );
 }
 
 async function submit(): Promise<void> {

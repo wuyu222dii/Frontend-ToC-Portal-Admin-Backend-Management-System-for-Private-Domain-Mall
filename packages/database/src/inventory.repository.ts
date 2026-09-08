@@ -1,4 +1,4 @@
-import { ApplicationError, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, isValidUlid, requirePage, requireUlid } from '@qingxu/platform-core';
 
 import { Prisma, type PrismaClient } from '../.generated/prisma/client';
 import type { InventoryLedgerType, SkuStatus } from '../.generated/prisma/enums';
@@ -154,18 +154,6 @@ function requireExactFields(value: unknown, fields: ReadonlySet<string>, label: 
   if (!hasOnlyFields(value, fields) || Object.keys(value).length !== fields.size) {
     throw new TypeError(`${label} contains unsupported or missing fields`);
   }
-}
-
-function requireUlid(value: string, label: string): void {
-  if (!isValidUlid(value)) throw new TypeError(`${label} must be a ULID`);
-}
-
-function requirePage(page: number, pageSize: number): void {
-  if (!Number.isSafeInteger(page) || page < 1) throw new TypeError('Page must be a positive integer');
-  if (!Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 100) {
-    throw new TypeError('Page size must be between 1 and 100');
-  }
-  if (!Number.isSafeInteger((page - 1) * pageSize)) throw new TypeError('Page offset is outside the supported range');
 }
 
 function requirePhysicalDelta(value: number): void {

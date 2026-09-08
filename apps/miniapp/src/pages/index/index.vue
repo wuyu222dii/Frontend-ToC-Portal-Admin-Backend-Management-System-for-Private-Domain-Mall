@@ -6,6 +6,7 @@ import { getStoreHome } from '../../api';
 import { StoreApiError, type StoreCancelableRequest } from '../../api/store-client';
 import QxBottomNav from '../../components/storefront/QxBottomNav.vue';
 import QxCatalogState from '../../components/storefront/QxCatalogState.vue';
+import QxIcon from '../../components/storefront/QxIcon.vue';
 import QxProductCard from '../../components/storefront/QxProductCard.vue';
 import QxProductImage from '../../components/storefront/QxProductImage.vue';
 import QxSearchTrigger from '../../components/storefront/QxSearchTrigger.vue';
@@ -167,7 +168,7 @@ onUnload(() => {
             v-else
             class="home-banners"
             circular
-            indicator-active-color="#315f50"
+            indicator-active-color="#496859"
             indicator-color="rgba(255,255,255,0.74)"
             indicator-dots
             :autoplay="home.banners.length > 1"
@@ -190,12 +191,11 @@ onUnload(() => {
                 />
                 <view class="home-banner__caption">
                   <text>{{ banner.title }}</text>
-                  <text
+                  <QxIcon
                     v-if="banner.target_type !== 'NONE'"
-                    aria-hidden="true"
-                  >
-                    ›
-                  </text>
+                    name="chevron"
+                    :size="28"
+                  />
                 </view>
               </button>
             </swiper-item>
@@ -351,39 +351,39 @@ onUnload(() => {
 <style scoped>
 .home-page { min-height: 100vh; padding-bottom: 36rpx; }
 .home-header {
-  padding: calc(26rpx + env(safe-area-inset-top)) 28rpx 24rpx;
-  border-bottom: 1px solid var(--qx-store-line);
+  padding: calc(22rpx + env(safe-area-inset-top)) 28rpx 20rpx;
   background: var(--qx-store-surface);
 }
-.home-brand { display: flex; align-items: center; gap: 18rpx; margin-bottom: 24rpx; }
+.home-brand { display: flex; align-items: center; gap: 16rpx; margin-bottom: 20rpx; }
 .home-brand__mark {
-  display: flex; width: 70rpx; height: 70rpx; flex: 0 0 auto; align-items: center;
-  justify-content: center; border-radius: 12rpx; color: #ffffff;
-  background: var(--qx-store-brand-strong); font-size: 34rpx; font-weight: 700;
+  display: flex; width: 64rpx; height: 64rpx; flex: 0 0 auto; align-items: center;
+  justify-content: center; border-radius: var(--qx-store-radius, 16rpx); color: #ffffff;
+  background: var(--qx-store-brand-strong); font-size: 30rpx; font-weight: 600;
 }
 .home-brand__copy, .home-brand__name, .home-brand__tagline { display: block; min-width: 0; }
-.home-brand__name { font-size: 34rpx; font-weight: 750; line-height: 1.25; }
+.home-brand__name { font-size: 32rpx; font-weight: 600; line-height: 1.25; }
 .home-brand__tagline {
   margin-top: 4rpx; color: var(--qx-store-muted); font-size: 20rpx; line-height: 1.35;
 }
 .home-page__state { min-height: 620rpx; }
-.home-section { padding: 34rpx 28rpx 0; }
-.home-section--banner { padding-top: 24rpx; }
-.home-section :deep(.qx-catalog-state--compact) { margin-top: 22rpx; }
+.home-section { padding: 32rpx 28rpx 0; }
+.home-section--banner { padding-top: 20rpx; }
+.home-section :deep(.qx-catalog-state--compact) { margin-top: 20rpx; }
 .home-banners {
-  width: 100%; height: 326rpx; overflow: hidden; border-radius: 16rpx;
+  width: 100%; height: 340rpx; overflow: hidden; border-radius: var(--qx-store-radius, 16rpx);
   background: var(--qx-store-surface-soft);
 }
 .home-banner {
   position: relative; width: 100%; height: 100%; overflow: hidden;
-  border-radius: 16rpx; background: transparent;
+  border-radius: var(--qx-store-radius, 16rpx); background: transparent;
 }
 .home-banner[disabled] { opacity: 1; }
 .home-banner__caption {
-  position: absolute; z-index: 4; right: 18rpx; bottom: 18rpx; left: 18rpx;
-  display: flex; min-width: 0; align-items: center; justify-content: space-between;
-  gap: 14rpx; padding: 14rpx 18rpx; border-radius: 10rpx; color: #ffffff;
-  background: rgba(23, 35, 31, 0.78); font-size: 24rpx; font-weight: 650;
+  position: absolute; z-index: 4; right: 0; bottom: 0; left: 0;
+  display: flex; min-width: 0; align-items: flex-end; justify-content: space-between;
+  gap: 14rpx; padding: 56rpx 24rpx 20rpx; color: #ffffff;
+  background: linear-gradient(180deg, rgba(23, 59, 49, 0) 0%, rgba(23, 35, 31, 0.52) 100%);
+  font-size: 24rpx; font-weight: 600;
 }
 .home-banner__caption text:first-child {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -397,9 +397,9 @@ onUnload(() => {
   align-items: center; gap: 12rpx; color: var(--qx-store-text); background: transparent;
 }
 .home-category__icon {
-  display: flex; width: 76rpx; height: 76rpx; align-items: center; justify-content: center;
-  overflow: hidden; border: 1px solid var(--qx-store-line); border-radius: 14rpx;
-  color: var(--qx-store-brand); background: var(--qx-store-surface); font-size: 28rpx; font-weight: 700;
+  display: flex; width: 88rpx; height: 88rpx; align-items: center; justify-content: center;
+  overflow: hidden; border-radius: var(--qx-store-radius, 16rpx);
+  color: var(--qx-store-brand); background: var(--qx-store-brand-soft); font-size: 28rpx; font-weight: 600;
 }
 .home-category__icon image { width: 100%; height: 100%; }
 .home-category__name {
@@ -408,6 +408,6 @@ onUnload(() => {
 }
 .home-products {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18rpx; margin-top: 24rpx;
+  gap: 16rpx; margin-top: 24rpx;
 }
 </style>

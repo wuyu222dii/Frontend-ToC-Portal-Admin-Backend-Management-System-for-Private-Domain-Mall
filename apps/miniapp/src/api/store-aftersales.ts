@@ -17,6 +17,7 @@ import {
   decodeStoreAftersaleList,
   decodeStoreAftersalePreview,
 } from './store-aftersale-decoders';
+import { hasControlCharacter } from '../utils/ids';
 
 type RecordValue = Record<string, unknown>;
 
@@ -65,13 +66,6 @@ function versionHeader(version: number): string {
 function enumValue(value: unknown, values: ReadonlySet<string>, field: string): string {
   if (typeof value !== 'string' || !values.has(value)) throw new Error(`${field} is invalid`);
   return value;
-}
-
-function hasControlCharacter(value: string): boolean {
-  return Array.from(value).some((character) => {
-    const codePoint = character.codePointAt(0);
-    return codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f);
-  });
 }
 
 function normalizedText(value: unknown, field: string, minimum: number, maximum: number): string {

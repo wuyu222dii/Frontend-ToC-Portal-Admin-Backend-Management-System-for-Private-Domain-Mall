@@ -1,9 +1,4 @@
-import {
-  ApplicationError,
-  generateUlid,
-  isValidUlid,
-  type OrderDisplayStatusAxes,
-} from '@qingxu/platform-core';
+import { ApplicationError, generateUlid, isValidUlid, type OrderDisplayStatusAxes, requireUlid } from '@qingxu/platform-core';
 
 import { Prisma, type PrismaClient } from '../.generated/prisma/client';
 import { acquireTransactionLock } from './advisory-lock';
@@ -475,10 +470,6 @@ function requireExactKeys(
     required.some((key) => !Object.prototype.hasOwnProperty.call(value, key))) {
     throw new TypeError(`${label} contains invalid fields`);
   }
-}
-
-function requireUlid(value: unknown, label: string): asserts value is string {
-  if (!isValidUlid(value)) throw new TypeError(`${label} must be a ULID`);
 }
 
 function requireVersion(value: unknown, label: string): asserts value is number {

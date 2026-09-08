@@ -19,8 +19,8 @@ import AdminShell from '../../layouts/AdminShell.vue';
 import { AdminApiError } from '../../services/admin-api';
 import { listAdminBanners } from '../../services/admin-banners';
 import { safePublicAssetUrl } from '../../services/admin-files';
-import { authSession } from '../../stores/auth-session';
 import type { BannerItem, BannerStatus } from '../../types/banners';
+import { readableError as describeAdminError, handleSessionError as redirectExpiredSession } from '../../utils/presentation';
 import { formatChinaDateTime } from '../../utils/time';
 
 type StatusFilter = '' | BannerStatus;
@@ -61,22 +61,21 @@ function statusLabel(value: BannerStatus): string {
 }
 
 function readableError(error: unknown): string {
-  if (!(error instanceof AdminApiError)) return 'Banner 列表加载失败，请稍后重试';
-  if (error.status === 0) return '网络连接失败，请检查网络后重试';
-  if (error.status === 403) return '当前账号无权访问 Banner 管理';
-  if (error.status === 429) return '操作过于频繁，请稍后重试';
-  return 'Banner 列表加载失败，请稍后重试';
+  return describeAdminError(error, 'Banner 列表加载失败，请稍后重试', {
+    statusMessages: {
+      403: '当前账号无权访问 Banner 管理',
+      429: '操作过于频繁，请稍后重试',
+    },
+  });
 }
 
 async function handleSessionError(error: unknown): Promise<boolean> {
-  if (authSession.state.session && (!(error instanceof AdminApiError) || error.status !== 401)) return false;
-  items.value = [];
-  total.value = 0;
-  closeEditor();
-  closeCommand();
-  authSession.clearSession();
-  await router.replace('/login');
-  return true;
+  return redirectExpiredSession(error, router, () => {
+    items.value = [];
+    total.value = 0;
+    closeEditor();
+    closeCommand();
+  });
 }
 
 async function loadBanners(): Promise<void> {

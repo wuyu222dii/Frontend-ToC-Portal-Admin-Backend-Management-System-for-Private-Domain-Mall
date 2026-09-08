@@ -10,6 +10,7 @@ import {
   type StoreCancelableRequest,
 } from '../../api';
 import QxCatalogState from '../../components/storefront/QxCatalogState.vue';
+import QxIcon from '../../components/storefront/QxIcon.vue';
 import QxProductCard from '../../components/storefront/QxProductCard.vue';
 import QxStoreShell from '../../components/storefront/QxStoreShell.vue';
 import type {
@@ -332,17 +333,16 @@ onBeforeUnmount(() => {
           aria-label="返回"
           @click="goBack"
         >
-          <text aria-hidden="true">
-            ‹
-          </text>
+          <QxIcon
+            name="back"
+            :size="40"
+          />
         </button>
         <view class="search-field">
-          <text
-            class="search-field__icon"
-            aria-hidden="true"
-          >
-            ⌕
-          </text>
+          <QxIcon
+            name="search"
+            :size="32"
+          />
           <input
             v-model="keywordInput"
             class="search-field__input"
@@ -358,9 +358,10 @@ onBeforeUnmount(() => {
             aria-label="清空搜索词"
             @click="clearInput"
           >
-            <text aria-hidden="true">
-              ×
-            </text>
+            <QxIcon
+              name="close"
+              :size="28"
+            />
           </button>
         </view>
         <button
@@ -632,7 +633,6 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 12rpx;
   padding: calc(18rpx + env(safe-area-inset-top)) 24rpx 18rpx;
-  border-bottom: 1px solid var(--qx-store-line, #e4e8e5);
   background: rgba(255, 255, 255, 0.98);
 }
 
@@ -649,8 +649,6 @@ onBeforeUnmount(() => {
 .search-header__back {
   width: 64rpx;
   height: 64rpx;
-  font-size: 54rpx;
-  line-height: 1;
 }
 
 .search-field {
@@ -660,14 +658,9 @@ onBeforeUnmount(() => {
   grid-template-columns: 44rpx minmax(0, 1fr) 52rpx;
   align-items: center;
   padding: 0 10rpx 0 18rpx;
-  border: 1px solid var(--qx-store-line, #e4e8e5);
-  border-radius: 12rpx;
-  background: var(--qx-store-background, #f6f8f6);
-}
-
-.search-field__icon {
+  border-radius: 38rpx;
   color: var(--qx-store-muted, #8d9690);
-  font-size: 28rpx;
+  background: var(--qx-store-background, #f6f8f6);
 }
 
 .search-field__input {
@@ -691,7 +684,7 @@ onBeforeUnmount(() => {
   color: var(--qx-store-brand, #496859);
   background: transparent;
   font-size: 24rpx;
-  font-weight: 800;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -737,7 +730,7 @@ onBeforeUnmount(() => {
 .result-heading__eyebrow {
   color: var(--qx-store-brand, #496859);
   font-size: 18rpx;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .history-heading__title,
@@ -745,7 +738,7 @@ onBeforeUnmount(() => {
   margin-top: 8rpx;
   color: var(--qx-store-text, #202522);
   font-size: 32rpx;
-  font-weight: 800;
+  font-weight: 600;
   line-height: 1.3;
 }
 
@@ -770,8 +763,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   margin: 0;
   padding: 0 22rpx;
-  border: 1px solid var(--qx-store-line, #e4e8e5);
-  border-radius: 10rpx;
+  border-radius: 32rpx;
   color: var(--qx-store-text-soft, #5f6762);
   background: var(--qx-store-background, #f6f8f6);
   font-size: 22rpx;
@@ -840,24 +832,22 @@ onBeforeUnmount(() => {
 }
 
 .filter-chip {
-  min-height: 58rpx;
+  min-height: 56rpx;
   flex: 0 0 auto;
   margin: 0;
   padding: 0 18rpx;
-  border: 1px solid var(--qx-store-line, #e4e8e5);
-  border-radius: 10rpx;
+  border-radius: 28rpx;
   color: var(--qx-store-text-soft, #5f6762);
   background: var(--qx-store-surface, #ffffff);
   font-size: 20rpx;
-  line-height: 58rpx;
+  line-height: 56rpx;
   white-space: nowrap;
 }
 
 .filter-chip--active {
-  border-color: var(--qx-store-brand, #496859);
-  color: #ffffff;
-  background: var(--qx-store-brand, #496859);
-  font-weight: 700;
+  color: var(--qx-store-brand-strong, #173b31);
+  background: var(--qx-store-brand-soft, #e7efe9);
+  font-weight: 600;
 }
 
 .filter-loading {
@@ -874,7 +864,7 @@ onBeforeUnmount(() => {
   min-height: 76rpx;
   margin-top: 28rpx;
   border: 1px solid var(--qx-store-line-strong, #cfd6d1);
-  border-radius: 10rpx;
+  border-radius: var(--qx-store-radius, 16rpx);
   color: var(--qx-store-brand, #496859);
   background: var(--qx-store-surface, #ffffff);
   font-size: 22rpx;

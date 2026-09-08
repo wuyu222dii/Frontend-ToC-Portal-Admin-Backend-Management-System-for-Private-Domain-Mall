@@ -1,4 +1,4 @@
-import { ApplicationError, generateUlid, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, generateUlid, internalError as internal, isValidUlid } from '@qingxu/platform-core';
 
 import { Prisma, type PrismaClient } from '../.generated/prisma/client';
 import type { WithdrawalStatus } from '../.generated/prisma/enums';
@@ -219,10 +219,6 @@ const MAX_MONEY = new Prisma.Decimal('9999999999999999.99');
 const MONEY = /^(?:0|[1-9][0-9]{0,15})\.[0-9]{2}$/;
 const KEY_ID = /^[A-Za-z0-9._:-]{3,80}$/;
 const WITHDRAWAL_STATUS = new Set<WithdrawalStatus>(['APPROVED', 'PAID', 'PENDING', 'REJECTED']);
-
-function internal(message: string): ApplicationError {
-  return new ApplicationError('INTERNAL_ERROR', message);
-}
 
 function notFound(message = 'Withdrawal was not found'): ApplicationError {
   return new ApplicationError('RESOURCE_NOT_FOUND', message);

@@ -1,8 +1,7 @@
-import { ApplicationError, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, internalError as internal, isValidUlid, requireUlid } from '@qingxu/platform-core';
 
 import { Prisma, type PrismaClient } from '../.generated/prisma/client';
 import {
-  validateAgentCommissionLedgerClosureInTransaction,
   validateCommissionSnapshotLedgerClosure,
   validateCommissionSnapshotRule,
 } from './commission.repository';
@@ -669,16 +668,8 @@ const AGENT_COMMISSION_POSITION_STATES = new Set<AgentCommissionPositionState>([
   'NONE',
 ]);
 
-function internal(message: string): ApplicationError {
-  return new ApplicationError('INTERNAL_ERROR', message);
-}
-
 function notFound(message: string): ApplicationError {
   return new ApplicationError('RESOURCE_NOT_FOUND', message);
-}
-
-function requireUlid(value: string, label: string): void {
-  if (!isValidUlid(value)) throw new TypeError(`${label} must be a ULID`);
 }
 
 function validDate(value: Date | undefined, label: string): void {
@@ -1546,7 +1537,6 @@ export class AgentOperationsRepository {
     transaction: DatabaseTransaction,
     agentId: string,
   ): Promise<AgentWalletSnapshot> {
-    await validateAgentCommissionLedgerClosureInTransaction(transaction, agentId);
     const [wallet, ledger, positions] = await Promise.all([
       transaction.agentWallet.findUnique({ select: AGENT_WALLET_SELECT, where: { agent_id: agentId } }),
       transaction.commissionLedger.aggregate({
@@ -1794,45 +1784,130 @@ export class AgentOperationsRepository {
       const monthStart = new Date(Date.parse(`${businessDate.slice(0, 7)}-01T00:00:00.000Z`) - SHANGHAI_OFFSET_MS);
       const trendStart = new Date(todayStart.getTime() - (input.days - 1) * DAY_MS);
       const dataStart = monthStart.getTime() < trendStart.getTime() ? monthStart : trendStart;
-      const ownedSnapshot = commissionSnapshotWhere(input.agentId);
       const [
         wallet,
-        paidOrders,
-        refunds,
-        trendLedgers,
+        orderFacts,
+        refundFacts,
+        orderTrend,
+        refundTrend,
+        commissionTrend,
         attributedCustomerCount,
         pendingWithdrawalCount,
         activeBankAccountCount,
         commissionExceptionCount,
       ] = await Promise.all([
         this.reconciledWallet(transaction, input.agentId),
-        transaction.salesOrder.findMany({
-          orderBy: [{ paid_at: 'asc' }, { id: 'asc' }],
-          select: { id: true, paid_amount: true, paid_at: true, refunded_amount: true },
-          where: {
-            ...commissionOrderWhere(input.agentId),
-            paid_at: { gte: dataStart, lte: asOf },
-          },
-        }),
-        transaction.refund.findMany({
-          orderBy: [{ succeeded_at: 'asc' }, { id: 'asc' }],
-          select: { amount: true, id: true, succeeded_at: true },
-          where: {
-            order: commissionOrderWhere(input.agentId),
-            status: 'SUCCEEDED',
-            succeeded_at: { gte: dataStart, lte: asOf },
-          },
-        }),
-        transaction.commissionLedger.findMany({
-          orderBy: [{ occurred_at: 'asc' }, { id: 'asc' }],
-          select: COMMISSION_LEDGER_FACT_SELECT,
-          where: {
-            agent_id: input.agentId,
-            occurred_at: { gte: trendStart, lte: asOf },
-            snapshot: { is: ownedSnapshot },
-            withdrawal_id: null,
-          },
-        }),
+        transaction.$queryRaw<Array<{
+          month_sales: Prisma.Decimal;
+          today_paid_order_count: bigint;
+          today_sales: Prisma.Decimal;
+        }>>(Prisma.sql`
+          SELECT
+            COALESCE(SUM(sales_order.paid_amount) FILTER (
+              WHERE sales_order.paid_at >= ${monthStart}), 0) AS month_sales,
+            COALESCE(SUM(sales_order.paid_amount) FILTER (
+              WHERE sales_order.paid_at >= ${todayStart}), 0) AS today_sales,
+            COUNT(*) FILTER (
+              WHERE sales_order.paid_at >= ${todayStart}
+                AND sales_order.paid_amount > sales_order.refunded_amount)::bigint AS today_paid_order_count
+          FROM public.sales_order AS sales_order
+          INNER JOIN public.order_attribution_snapshot AS attribution
+            ON attribution.order_id = sales_order.id
+          WHERE sales_order.final_agent_id = ${input.agentId}
+            AND sales_order.final_channel = 'AGENT'::public."AttributionChannel"
+            AND sales_order.payment_status = 'PAID'::public."PaymentStatus"
+            AND sales_order.paid_at IS NOT NULL
+            AND attribution.agent_id_snapshot = ${input.agentId}
+            AND sales_order.paid_at >= ${dataStart}
+            AND sales_order.paid_at <= ${asOf}
+        `),
+        transaction.$queryRaw<Array<{
+          month_refunds: Prisma.Decimal;
+          today_refunds: Prisma.Decimal;
+        }>>(Prisma.sql`
+          SELECT
+            COALESCE(SUM(refund.amount) FILTER (
+              WHERE refund.succeeded_at >= ${monthStart}), 0) AS month_refunds,
+            COALESCE(SUM(refund.amount) FILTER (
+              WHERE refund.succeeded_at >= ${todayStart}), 0) AS today_refunds
+          FROM public.refund AS refund
+          INNER JOIN public.sales_order AS sales_order ON sales_order.id = refund.order_id
+          INNER JOIN public.order_attribution_snapshot AS attribution
+            ON attribution.order_id = sales_order.id
+          WHERE refund.status = 'SUCCEEDED'::public."RefundStatus"
+            AND sales_order.final_agent_id = ${input.agentId}
+            AND sales_order.final_channel = 'AGENT'::public."AttributionChannel"
+            AND sales_order.payment_status = 'PAID'::public."PaymentStatus"
+            AND attribution.agent_id_snapshot = ${input.agentId}
+            AND refund.succeeded_at >= ${dataStart}
+            AND refund.succeeded_at <= ${asOf}
+        `),
+        transaction.$queryRaw<Array<{
+          business_date: string;
+          orders: bigint;
+          sales: Prisma.Decimal;
+        }>>(Prisma.sql`
+          SELECT
+            to_char((sales_order.paid_at AT TIME ZONE 'UTC') + INTERVAL '8 hours', 'YYYY-MM-DD') AS business_date,
+            COALESCE(SUM(sales_order.paid_amount), 0) AS sales,
+            COUNT(*) FILTER (WHERE sales_order.paid_amount > sales_order.refunded_amount)::bigint AS orders
+          FROM public.sales_order AS sales_order
+          INNER JOIN public.order_attribution_snapshot AS attribution
+            ON attribution.order_id = sales_order.id
+          WHERE sales_order.final_agent_id = ${input.agentId}
+            AND sales_order.final_channel = 'AGENT'::public."AttributionChannel"
+            AND sales_order.payment_status = 'PAID'::public."PaymentStatus"
+            AND sales_order.paid_at IS NOT NULL
+            AND attribution.agent_id_snapshot = ${input.agentId}
+            AND sales_order.paid_at >= ${trendStart}
+            AND sales_order.paid_at <= ${asOf}
+          GROUP BY 1
+        `),
+        transaction.$queryRaw<Array<{
+          business_date: string;
+          refunds: Prisma.Decimal;
+        }>>(Prisma.sql`
+          SELECT
+            to_char((refund.succeeded_at AT TIME ZONE 'UTC') + INTERVAL '8 hours', 'YYYY-MM-DD') AS business_date,
+            COALESCE(SUM(refund.amount), 0) AS refunds
+          FROM public.refund AS refund
+          INNER JOIN public.sales_order AS sales_order ON sales_order.id = refund.order_id
+          INNER JOIN public.order_attribution_snapshot AS attribution
+            ON attribution.order_id = sales_order.id
+          WHERE refund.status = 'SUCCEEDED'::public."RefundStatus"
+            AND sales_order.final_agent_id = ${input.agentId}
+            AND sales_order.final_channel = 'AGENT'::public."AttributionChannel"
+            AND sales_order.payment_status = 'PAID'::public."PaymentStatus"
+            AND attribution.agent_id_snapshot = ${input.agentId}
+            AND refund.succeeded_at >= ${trendStart}
+            AND refund.succeeded_at <= ${asOf}
+          GROUP BY 1
+        `),
+        transaction.$queryRaw<Array<{
+          business_date: string;
+          commission: Prisma.Decimal;
+        }>>(Prisma.sql`
+          SELECT
+            to_char((ledger.occurred_at AT TIME ZONE 'UTC') + INTERVAL '8 hours', 'YYYY-MM-DD') AS business_date,
+            COALESCE(SUM(ledger.expected_change + ledger.available_change), 0) AS commission
+          FROM public.commission_ledger AS ledger
+          INNER JOIN public.order_item_commission_snapshot AS snapshot
+            ON snapshot.id = ledger.snapshot_id
+          INNER JOIN public.order_item AS item ON item.id = snapshot.order_item_id
+          INNER JOIN public.sales_order AS sales_order ON sales_order.id = item.order_id
+          INNER JOIN public.order_attribution_snapshot AS attribution
+            ON attribution.order_id = sales_order.id
+          WHERE ledger.agent_id = ${input.agentId}
+            AND ledger.withdrawal_id IS NULL
+            AND snapshot.agent_id = ${input.agentId}
+            AND sales_order.final_agent_id = ${input.agentId}
+            AND sales_order.final_channel = 'AGENT'::public."AttributionChannel"
+            AND sales_order.payment_status = 'PAID'::public."PaymentStatus"
+            AND attribution.agent_id_snapshot = ${input.agentId}
+            AND ledger.occurred_at >= ${trendStart}
+            AND ledger.occurred_at <= ${asOf}
+          GROUP BY 1
+        `),
         transaction.customerAgentBinding.count({ where: currentCustomerWhere({ agentId: input.agentId }) }),
         transaction.withdrawal.count({
           where: { agent_id: input.agentId, status: { in: ['APPROVED', 'PENDING'] } },
@@ -1859,6 +1934,23 @@ export class AgentOperationsRepository {
         'Stored Agent pending withdrawal count',
       );
 
+      const orderFact = orderFacts[0] ?? {
+        month_sales: new Prisma.Decimal(0),
+        today_paid_order_count: 0n,
+        today_sales: new Prisma.Decimal(0),
+      };
+      const refundFact = refundFacts[0] ?? {
+        month_refunds: new Prisma.Decimal(0),
+        today_refunds: new Prisma.Decimal(0),
+      };
+      const monthSales = aggregateDecimal(orderFact.month_sales, 'Stored Agent monthly sales amount');
+      const todaySales = aggregateDecimal(orderFact.today_sales, 'Stored Agent daily sales amount');
+      const todayPaidOrderCount = safeCount(
+        Number(orderFact.today_paid_order_count),
+        'Stored Agent daily paid order count',
+      );
+      const monthRefunds = aggregateDecimal(refundFact.month_refunds, 'Stored Agent monthly refund amount');
+      const todayRefunds = aggregateDecimal(refundFact.today_refunds, 'Stored Agent daily refund amount');
       type TrendAccumulator = {
         commission: Prisma.Decimal;
         orders: number;
@@ -1876,52 +1968,21 @@ export class AgentOperationsRepository {
           sales: new Prisma.Decimal(0),
         });
       }
-      let todaySales = new Prisma.Decimal(0);
-      let monthSales = new Prisma.Decimal(0);
-      let todayRefunds = new Prisma.Decimal(0);
-      let monthRefunds = new Prisma.Decimal(0);
-      let todayPaidOrderCount = 0;
-      for (const order of paidOrders) {
-        requireUlid(order.id, 'Stored Agent dashboard order ID');
-        const paidAt = safeDate(order.paid_at, 'Stored Agent dashboard order payment time');
-        safeMoney(order.paid_amount, 'Stored Agent dashboard paid amount');
-        safeMoney(order.refunded_amount, 'Stored Agent dashboard refunded amount');
-        if (order.refunded_amount.greaterThan(order.paid_amount)) {
-          throw internal('Stored Agent dashboard refunded amount exceeds paid amount');
-        }
-        const isEffective = order.paid_amount.greaterThan(order.refunded_amount);
-        if (paidAt.getTime() >= monthStart.getTime()) monthSales = monthSales.add(order.paid_amount);
-        if (paidAt.getTime() >= todayStart.getTime()) {
-          todaySales = todaySales.add(order.paid_amount);
-          if (isEffective) todayPaidOrderCount += 1;
-        }
-        const key = new Date(paidAt.getTime() + SHANGHAI_OFFSET_MS).toISOString().slice(0, 10);
-        const point = trend.get(key);
-        if (point !== undefined) {
-          point.sales = point.sales.add(order.paid_amount);
-          if (isEffective) point.orders += 1;
-        }
+      for (const row of orderTrend) {
+        const point = trend.get(row.business_date);
+        if (point === undefined) continue;
+        point.sales = aggregateDecimal(row.sales, 'Stored Agent daily sales amount');
+        point.orders = safeCount(Number(row.orders), 'Stored Agent daily paid order count');
       }
-      for (const refund of refunds) {
-        requireUlid(refund.id, 'Stored Agent dashboard refund ID');
-        const succeededAt = safeDate(refund.succeeded_at, 'Stored Agent dashboard refund success time');
-        safeMoney(refund.amount, 'Stored Agent dashboard refund amount');
-        if (succeededAt.getTime() >= monthStart.getTime()) monthRefunds = monthRefunds.add(refund.amount);
-        if (succeededAt.getTime() >= todayStart.getTime()) todayRefunds = todayRefunds.add(refund.amount);
-        const key = new Date(succeededAt.getTime() + SHANGHAI_OFFSET_MS).toISOString().slice(0, 10);
-        const point = trend.get(key);
-        if (point !== undefined) point.refunds = point.refunds.add(refund.amount);
+      for (const row of refundTrend) {
+        const point = trend.get(row.business_date);
+        if (point === undefined) continue;
+        point.refunds = aggregateDecimal(row.refunds, 'Stored Agent daily refund amount');
       }
-      for (const ledgerRecord of trendLedgers) {
-        if (ledgerRecord.snapshot_id === null) throw internal('Stored dashboard commission snapshot is missing');
-        const ledger = commissionLedger(ledgerRecord, input.agentId, ledgerRecord.snapshot_id);
-        const key = new Date(ledger.occurredAt.getTime() + SHANGHAI_OFFSET_MS).toISOString().slice(0, 10);
-        const point = trend.get(key);
-        if (point !== undefined) {
-          point.commission = point.commission
-            .add(new Prisma.Decimal(ledger.expectedChange))
-            .add(new Prisma.Decimal(ledger.availableChange));
-        }
+      for (const row of commissionTrend) {
+        const point = trend.get(row.business_date);
+        if (point === undefined) continue;
+        point.commission = aggregateDecimal(row.commission, 'Stored Agent daily commission change');
       }
       return {
         agentId: input.agentId,

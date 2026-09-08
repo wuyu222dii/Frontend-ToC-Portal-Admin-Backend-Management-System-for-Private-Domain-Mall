@@ -5,9 +5,8 @@ import { useRoute, useRouter } from 'vue-router';
 
 import AdminShell from '../../layouts/AdminShell.vue';
 import { listAdminCustomers } from '../../services/admin-customers';
-import { AdminApiError } from '../../services/admin-api';
-import { authSession } from '../../stores/auth-session';
 import type { AdminCustomer, AdminCustomerListQuery } from '../../types/admin-b13';
+import { readableError as describeAdminError, handleUnauthorized } from '../../utils/presentation';
 import { formatChinaDateTime } from '../../utils/time';
 
 const route = useRoute();
@@ -47,21 +46,20 @@ function query(): AdminCustomerListQuery {
 }
 
 function readableError(error: unknown): string {
-  if (!(error instanceof AdminApiError)) return '客户列表加载失败，请稍后重试';
-  if (error.status === 0) return '网络连接失败，请检查网络后重试';
-  if (error.status === 403) return '当前账号无权访问客户管理';
-  if (error.status === 429) return '查询过于频繁，请稍后重试';
-  if (error.status === 400) return '筛选条件无效，请检查后重试';
-  return '客户列表加载失败，请稍后重试';
+  return describeAdminError(error, '客户列表加载失败，请稍后重试', {
+    statusMessages: {
+      400: '筛选条件无效，请检查后重试',
+      403: '当前账号无权访问客户管理',
+      429: '查询过于频繁，请稍后重试',
+    },
+  });
 }
 
 async function handleExpired(error: unknown): Promise<boolean> {
-  if (!(error instanceof AdminApiError) || error.status !== 401) return false;
-  ++sequence;
-  controller?.abort();
-  authSession.clearSession();
-  await router.replace('/login');
-  return true;
+  return handleUnauthorized(error, router, () => {
+    ++sequence;
+    controller?.abort();
+  });
 }
 
 async function load(): Promise<void> {

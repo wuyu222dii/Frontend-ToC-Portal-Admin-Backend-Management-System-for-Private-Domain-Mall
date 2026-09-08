@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import QxIcon from './QxIcon.vue';
+
 withDefaults(
   defineProps<{
     label?: string;
@@ -23,12 +25,10 @@ const emit = defineEmits<{
     hover-class="qx-search-trigger--pressed"
     @click="emit('activate')"
   >
-    <text
-      class="qx-search-trigger__icon"
-      aria-hidden="true"
-    >
-      ⌕
-    </text>
+    <QxIcon
+      name="search"
+      :size="32"
+    />
     <text class="qx-search-trigger__label">
       {{ label }}
     </text>
@@ -39,31 +39,22 @@ const emit = defineEmits<{
 .qx-search-trigger {
   display: flex;
   width: 100%;
-  min-height: 84rpx;
+  min-height: 80rpx;
   align-items: center;
-  gap: 18rpx;
+  gap: 16rpx;
   padding: 0 24rpx;
-  border: 1px solid var(--qx-store-line, #e4e8e5);
-  border-radius: 12rpx;
+  border-radius: 40rpx;
   color: var(--qx-store-muted, #8d9690);
-  background: var(--qx-store-surface, #ffffff);
+  background: var(--qx-store-surface-soft, #eef3ef);
   text-align: left;
 }
 
 .qx-search-trigger--pressed {
-  border-color: var(--qx-store-line-strong, #cfd6d1);
-  background: var(--qx-store-surface-soft, #edf3ef);
+  background: var(--qx-store-brand-soft, #e7efe9);
 }
 
 .qx-search-trigger[disabled] {
   opacity: 0.55;
-}
-
-.qx-search-trigger__icon {
-  flex: 0 0 auto;
-  color: var(--qx-store-text-soft, #5f6762);
-  font-size: 34rpx;
-  line-height: 1;
 }
 
 .qx-search-trigger__label {

@@ -41,6 +41,29 @@ export function newIdempotencyKey(): string {
   return crypto.randomUUID();
 }
 
+export function versionEtag(version: number): string {
+  if (!Number.isSafeInteger(version) || version < 1) {
+    throw new TypeError('Resource version must be a positive integer');
+  }
+  return `"${version}"`;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseAdminSuccessEnvelope<T>(payload: unknown): T {
+  if (!isPlainRecord(payload) ||
+    payload.code !== 'OK' ||
+    typeof payload.message !== 'string' ||
+    typeof payload.request_id !== 'string' ||
+    payload.request_id.length === 0 ||
+    !Object.prototype.hasOwnProperty.call(payload, 'data')) {
+    throw new AdminApiError('服务响应格式不正确', { status: 502, code: 'INVALID_RESPONSE' });
+  }
+  return payload as T;
+}
+
 function bearer(kind: 'access' | 'preauth'): string | undefined {
   return kind === 'access'
     ? authSession.state.session?.access_token
@@ -118,7 +141,7 @@ export async function adminApiRequest<T>(
     throw new AdminApiError('服务响应状态不正确', { status: 502, code: 'INVALID_RESPONSE' });
   }
   if (payload === null) throw new AdminApiError('服务响应格式不正确', { status: 502, code: 'INVALID_RESPONSE' });
-  return payload as T;
+  return parseAdminSuccessEnvelope<T>(payload);
 }
 
 function refreshAdminSessionFor(session: AdminAuthSession): Promise<AdminAuthSession> {

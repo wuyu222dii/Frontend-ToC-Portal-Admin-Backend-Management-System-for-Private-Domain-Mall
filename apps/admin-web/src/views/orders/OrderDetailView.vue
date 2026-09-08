@@ -22,8 +22,8 @@ import AdminShell from '../../layouts/AdminShell.vue';
 import { AdminApiError } from '../../services/admin-api';
 import { getAdminOrder } from '../../services/admin-orders';
 import { recoverAdminRefundCommandJournal } from '../../services/admin-refund-command-journal';
-import { authSession } from '../../stores/auth-session';
 import type { AdminOrderDetail } from '../../types/orders';
+import { readableError as describeAdminError, handleSessionError as redirectExpiredSession } from '../../utils/presentation';
 import { formatChinaDateTime } from '../../utils/time';
 
 type CommandMode = 'COMPLETE' | 'LOGISTICS' | 'SHIP';
@@ -51,29 +51,23 @@ function hasAction(action: AdminOrderDetail['available_actions'][number]): boole
 }
 
 function readableError(error: unknown): string {
-  if (!(error instanceof AdminApiError)) return '订单详情加载失败，请稍后重试';
-  if (error.status === 0) return '网络连接失败，请检查网络后重试';
-  if (error.status === 400) return '订单标识无效';
-  if (error.status === 403) return '当前账号无权查看该订单';
-  if (error.status === 404) return '订单不存在或已不可访问';
-  if (error.status === 429) {
-    return error.retryAfterSeconds
-      ? `查询过于频繁，请在 ${error.retryAfterSeconds} 秒后重试`
-      : '查询过于频繁，请稍后重试';
-  }
-  return '订单详情加载失败，请稍后重试';
+  return describeAdminError(error, '订单详情加载失败，请稍后重试', {
+    statusMessages: {
+      400: '订单标识无效',
+      403: '当前账号无权查看该订单',
+      404: '订单不存在或已不可访问',
+    },
+  });
 }
 
 async function handleSessionError(error: unknown): Promise<boolean> {
-  if (authSession.state.session && (!(error instanceof AdminApiError) || error.status !== 401)) return false;
-  ++sequence;
-  controller?.abort();
-  addressOpen.value = false;
-  commandOpen.value = false;
-  refundCommandOpen.value = false;
-  authSession.clearSession();
-  await router.replace('/login');
-  return true;
+  return redirectExpiredSession(error, router, () => {
+    ++sequence;
+    controller?.abort();
+    addressOpen.value = false;
+    commandOpen.value = false;
+    refundCommandOpen.value = false;
+  });
 }
 
 async function loadDetail(): Promise<void> {

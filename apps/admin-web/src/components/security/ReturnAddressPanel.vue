@@ -14,6 +14,7 @@ import type {
   ReturnAddress,
   ReturnAddressInput,
 } from '../../services/admin-settings';
+import { hasControlCharacter } from '../../utils/text';
 import { formatChinaDateTime } from '../../utils/time';
 
 const emit = defineEmits<{
@@ -57,13 +58,6 @@ const previewExpired = computed(() => {
   const value = preview.value;
   return value !== null && Date.parse(value.expires_at) <= Date.now();
 });
-
-function hasControlCharacter(value: string): boolean {
-  return Array.from(value).some((character) => {
-    const codePoint = character.codePointAt(0);
-    return codePoint !== undefined && (codePoint <= 31 || codePoint === 127);
-  });
-}
 
 const formValid = computed(() => {
   const values = [

@@ -15,6 +15,7 @@ import QxStoreShell from '../../components/storefront/QxStoreShell.vue';
 import type { StoreAftersaleDetail } from '../../types/store-aftersales';
 import { clearCustomerSession } from '../../utils/customer-session';
 import { sumMoney } from '../../utils/money';
+import { isUlid } from '../../utils/ids';
 import { replaceWithLoginForAction } from '../../utils/protected-action';
 import { openOrder } from '../../utils/store-navigation';
 
@@ -51,10 +52,6 @@ const dialogValid = computed(() => {
   }
   return false;
 });
-
-function isUlid(value: string): boolean {
-  return /^[0-9A-HJKMNP-TV-Z]{26}$/.test(value);
-}
 
 function clearSlowTimer(): void {
   if (slowTimer !== undefined) clearTimeout(slowTimer);
@@ -479,24 +476,24 @@ onUnload(() => {
 <style scoped>
 .aftersale-detail-page { min-height: 100vh; padding-bottom: calc(112rpx + env(safe-area-inset-bottom)); background: var(--qx-store-background); }
 .aftersale-detail-body { display: grid; gap: 18rpx; padding: 22rpx 22rpx 42rpx; }
-.aftersale-notice { display: block; padding: 18rpx 20rpx; border-radius: 9rpx; color: var(--qx-store-warning); background: #fff5df; font-size: 20rpx; line-height: 1.55; overflow-wrap: anywhere; }
+.aftersale-notice { display: block; padding: 18rpx 20rpx; border-radius: 16rpx; color: var(--qx-store-warning); background: #fff5df; font-size: 20rpx; line-height: 1.55; overflow-wrap: anywhere; }
 .status-panel { display: grid; gap: 8rpx; padding: 28rpx; border-radius: 12rpx; color: #fff; background: var(--qx-store-brand-strong); }
 .status-panel.danger { background: #9d4848; }
-.status-panel text:first-child { font-size: 32rpx; font-weight: 800; }
+.status-panel text:first-child { font-size: 32rpx; font-weight: 600; }
 .status-panel text:last-child { color: rgba(255,255,255,.78); font-size: 18rpx; overflow-wrap: anywhere; }
-.detail-panel { min-width: 0; padding: 24rpx; border: 1px solid var(--qx-store-line); border-radius: 12rpx; background: #fff; }
+.detail-panel { min-width: 0; padding: 24rpx; border-radius: var(--qx-store-radius, 16rpx); background: #fff; }
 .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; margin-bottom: 16rpx; }
-.panel-heading text:first-child, .panel-title { font-size: 24rpx; font-weight: 800; }
+.panel-heading text:first-child, .panel-title { font-size: 24rpx; font-weight: 600; }
 .panel-heading text:last-child { color: var(--qx-store-muted); font-size: 18rpx; text-align: right; }
 .item-row { display: flex; min-width: 0; justify-content: space-between; gap: 16rpx; padding: 16rpx 0; border-top: 1px solid var(--qx-store-line); }
 .item-row view { display: grid; min-width: 0; gap: 5rpx; }
 .item-row view:last-child { flex: 0 0 auto; text-align: right; }
 .item-row text { font-size: 19rpx; overflow-wrap: anywhere; }
-.item-row view text:first-child { font-weight: 750; }
+.item-row view text:first-child { font-weight: 600; }
 .item-row view text:last-child, .reason-copy { color: var(--qx-store-muted); font-size: 18rpx; }
 .reason-copy { display: block; padding-top: 14rpx; border-top: 1px solid var(--qx-store-line); line-height: 1.55; overflow-wrap: anywhere; }
 .address-person, .address-copy { display: block; overflow-wrap: anywhere; }
-.address-person { font-size: 21rpx; font-weight: 750; }
+.address-person { font-size: 21rpx; font-weight: 600; }
 .address-copy { margin-top: 9rpx; color: var(--qx-store-text-soft); font-size: 19rpx; line-height: 1.55; }
 .shipment-panel, .inspection-panel, .refund-panel, .timeline-panel { display: grid; gap: 14rpx; }
 .shipment-panel > view:not(.panel-heading), .inspection-line { display: flex; justify-content: space-between; gap: 14rpx; font-size: 19rpx; }
@@ -514,15 +511,15 @@ onUnload(() => {
 .timeline-row { display: grid; min-width: 0; grid-template-columns: 18rpx minmax(0, 1fr); gap: 12rpx; }
 .timeline-dot { width: 14rpx; height: 14rpx; margin-top: 5rpx; border-radius: 50%; background: var(--qx-store-brand); }
 .timeline-row > view:last-child { display: grid; gap: 5rpx; }
-.timeline-row text:first-child { font-size: 20rpx; font-weight: 750; }
+.timeline-row text:first-child { font-size: 20rpx; font-weight: 600; }
 .timeline-row text:last-child { color: var(--qx-store-muted); font-size: 17rpx; overflow-wrap: anywhere; }
 .detail-actions { position: fixed; z-index: 30; right: 0; bottom: 0; left: 0; display: flex; width: 100%; max-width: 414px; gap: 10rpx; margin: 0 auto; padding: 14rpx 20rpx calc(14rpx + env(safe-area-inset-bottom)); border-top: 1px solid var(--qx-store-line); background: rgba(255,255,255,.98); }
-.detail-actions button { min-width: 0; min-height: 72rpx; flex: 1; padding: 0 14rpx; border: 1px solid var(--qx-store-brand-strong) !important; border-radius: 8rpx; color: #fff; background: var(--qx-store-brand-strong); font-size: 20rpx; font-weight: 750; }
+.detail-actions button { min-width: 0; min-height: 72rpx; flex: 1; padding: 0 14rpx; border: 1px solid var(--qx-store-brand-strong) !important; border-radius: 8rpx; color: #fff; background: var(--qx-store-brand-strong); font-size: 20rpx; font-weight: 600; }
 .detail-actions .secondary { color: var(--qx-store-brand); background: #fff; }
 .detail-actions .danger { border-color: var(--qx-store-danger) !important; color: var(--qx-store-danger); background: #fff; }
 .command-sheet { position: fixed; z-index: 60; inset: 0; display: flex; width: 100%; max-width: 414px; align-items: flex-end; margin: 0 auto; padding: 20rpx 20rpx calc(20rpx + env(safe-area-inset-bottom)); background: rgba(20,29,25,.48); }
 .command-sheet__panel { display: grid; width: 100%; gap: 18rpx; padding: 28rpx; border-radius: 12rpx; background: #fff; }
-.command-sheet__title { font-size: 27rpx; font-weight: 800; }
+.command-sheet__title { font-size: 27rpx; font-weight: 600; }
 .command-sheet__copy { color: var(--qx-store-text-soft); font-size: 19rpx; line-height: 1.55; }
 .command-sheet textarea, .command-sheet input { box-sizing: border-box; width: 100%; min-height: 70rpx; padding: 16rpx; border: 1px solid var(--qx-store-line); border-radius: 8rpx; font-size: 20rpx; }
 .command-sheet textarea { min-height: 130rpx; }

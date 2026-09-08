@@ -21,7 +21,6 @@ import {
   listActiveCatalogOptions,
   updateAdminProduct,
 } from '../../services/admin-products';
-import { authSession } from '../../stores/auth-session';
 import type {
   BrandReference,
   CategoryReference,
@@ -33,6 +32,7 @@ import type {
   Sku,
   SkuStatus,
 } from '../../types/products';
+import { readableError as describeAdminError, handleSessionError as redirectExpiredSession } from '../../utils/presentation';
 
 interface CommandAttempt {
   key: string;
@@ -117,16 +117,19 @@ function statusLabel(value: ProductStatus | SkuStatus): string {
 }
 
 function readableError(error: unknown, fallback: string): string {
-  if (!(error instanceof AdminApiError)) return fallback;
-  if (error.status === 0) return '网络连接失败，请检查网络后重试';
-  if (error.status === 403) return '当前账号无权访问或修改商品';
-  if (error.status === 404) return '商品不存在或已不可用';
-  if (error.status === 429) return '操作过于频繁，请稍后重试';
-  if (error.code === 'SOFT_DELETED_KEY_RESERVED') return '该编码由归档记录保留，请恢复原记录';
-  if (error.status === 409) return 'SPU 编码已存在，或关联资料状态已变化；请检查编码、品牌和分类';
-  if (error.status === 400 || error.status === 422) return '商品资料不符合要求，请检查必填项和图片';
-  if (error.status >= 500) return fallback;
-  return fallback;
+  return describeAdminError(error, fallback, {
+    codeMessages: {
+      SOFT_DELETED_KEY_RESERVED: '该编码由归档记录保留，请恢复原记录',
+    },
+    statusMessages: {
+      400: '商品资料不符合要求，请检查必填项和图片',
+      403: '当前账号无权访问或修改商品',
+      404: '商品不存在或已不可用',
+      409: 'SPU 编码已存在，或关联资料状态已变化；请检查编码、品牌和分类',
+      422: '商品资料不符合要求，请检查必填项和图片',
+      429: '操作过于频繁，请稍后重试',
+    },
+  });
 }
 
 function showSuccess(message: string): void {
@@ -135,11 +138,9 @@ function showSuccess(message: string): void {
 }
 
 async function handleSessionError(error: unknown): Promise<boolean> {
-  if (authSession.state.session && (!(error instanceof AdminApiError) || error.status !== 401)) return false;
-  clearSensitiveState();
-  authSession.clearSession();
-  await router.replace('/login');
-  return true;
+  return redirectExpiredSession(error, router, () => {
+    clearSensitiveState();
+  });
 }
 
 function clearForm(): void {

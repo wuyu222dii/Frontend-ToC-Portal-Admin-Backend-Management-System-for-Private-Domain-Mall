@@ -1,4 +1,4 @@
-import { ApplicationError, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, internalError as internal, isValidUlid } from '@qingxu/platform-core';
 
 import type { Prisma, PrismaClient } from '../.generated/prisma/client';
 
@@ -59,10 +59,6 @@ const SAFE_SUMMARY_FIELDS = new Set([
 ]);
 const CONTROL = /\p{Cc}/u;
 const POSITIVE_MONEY = /^(?:0\.(?:0[1-9]|[1-9][0-9])|[1-9][0-9]{0,15}\.[0-9]{2})$/;
-
-function internal(message: string): ApplicationError {
-  return new ApplicationError('INTERNAL_ERROR', message);
-}
 
 function validateText(value: unknown, maximum: number, label: string): string {
   if (typeof value !== 'string' || value.length < 1 || value.length > maximum || CONTROL.test(value)) {

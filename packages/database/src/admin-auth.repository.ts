@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 
-import { ApplicationError, generateUlid, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, generateUlid, isValidUlid, requireUlid } from '@qingxu/platform-core';
 
 import type { AdminOfflineRecovery, AuthSession, PrismaClient } from '../.generated/prisma/client';
 import type { MfaChallengePurpose } from '../.generated/prisma/enums';
@@ -134,10 +134,6 @@ function currentDate(clock: () => Date): Date {
     throw new TypeError('Admin auth clock must return a valid Date');
   }
   return value;
-}
-
-function requireUlid(value: string, label: string): void {
-  if (!isValidUlid(value)) throw new TypeError(`${label} must be a ULID`);
 }
 
 function requireHash(value: string, label: string): void {

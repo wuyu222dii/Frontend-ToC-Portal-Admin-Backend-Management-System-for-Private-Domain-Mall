@@ -36,11 +36,11 @@ withDefaults(
   min-width: 320px;
   min-height: 100vh;
   overflow-x: hidden;
-  background: #eef1ef;
+  background: var(--qx-store-background, #f6f8f6);
 }
 
 .qx-store-shell--white {
-  background: #eef1ef;
+  background: var(--qx-store-background, #f6f8f6);
 }
 
 .qx-store-shell__viewport {

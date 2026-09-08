@@ -150,9 +150,24 @@ function order(overrides: Record<string, unknown> = {}) {
 }
 
 function rawResults(values: unknown[]) {
-  const mock = vi.fn();
-  for (const value of values) mock.mockResolvedValueOnce(value);
-  return mock;
+  let index = 0;
+  return vi.fn(async (query: unknown) => {
+    if (queryText(query).includes('UPDATE public.inventory_balance')) {
+      return [{ id: balanceId }];
+    }
+    if (index >= values.length) {
+      throw new Error(`Unexpected $queryRaw: ${queryText(query)}`);
+    }
+    const value = values[index];
+    index += 1;
+    return value;
+  });
+}
+
+function inventoryBalanceUpdates(transaction: { $queryRaw: { mock: { calls: unknown[][] } } }) {
+  return transaction.$queryRaw.mock.calls
+    .map((call) => call[0])
+    .filter((query) => queryText(query).includes('UPDATE public.inventory_balance'));
 }
 
 function queryText(query: unknown): string {
@@ -290,7 +305,10 @@ function agentSettlementHarness(
         }]),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
-    inventoryLedger: { create: vi.fn().mockResolvedValue({ id: 'inventory-ledger' }) },
+    inventoryLedger: {
+      create: vi.fn().mockResolvedValue({ id: 'inventory-ledger' }),
+      createMany: vi.fn(async ({ data }: { data: unknown[] }) => ({ count: data.length })),
+    },
     inventoryReservation: {
       findUnique: vi.fn().mockResolvedValue(reservation),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -606,7 +624,10 @@ describe('StorePaymentRepository callback settlement', () => {
           .mockResolvedValueOnce([balance]),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
-      inventoryLedger: { create: vi.fn().mockResolvedValue({ id: 'ledger' }) },
+      inventoryLedger: {
+        create: vi.fn().mockResolvedValue({ id: 'ledger' }),
+        createMany: vi.fn(async ({ data }: { data: unknown[] }) => ({ count: data.length })),
+      },
       inventoryReservation: {
         findUnique: vi.fn().mockResolvedValue(reservation),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -656,28 +677,24 @@ describe('StorePaymentRepository callback settlement', () => {
       kind: 'SETTLED',
       reservationId,
     });
-    expect(transaction.inventoryBalance.updateMany).toHaveBeenCalledWith({
-      data: {
-        locked_qty: 0,
-        physical_qty: 6,
-        updated_at: NOW,
-        version: { increment: 1 },
-      },
-      where: {
-        id: balanceId,
-        locked_qty: 1,
-        physical_qty: 7,
-        sku_id: skuId,
-        version: 5,
-      },
-    });
-    expect(transaction.inventoryLedger.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
+    expect(inventoryBalanceUpdates(transaction)).toHaveLength(1);
+    expect((inventoryBalanceUpdates(transaction)[0] as { values?: unknown[] }).values).toEqual([
+      NOW,
+      balanceId,
+      skuId,
+      5,
+      1,
+      7,
+      0,
+      6,
+    ]);
+    expect(transaction.inventoryLedger.createMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({
         business_id: reservationId,
         ledger_type: 'ORDER_PAID_DEDUCT',
         locked_change: -1,
         physical_change: -1,
-      }),
+      })],
     });
     expect(transaction.inventoryReservation.updateMany).toHaveBeenCalledWith({
       data: { consumed_at: NOW, status: 'CONSUMED' },
@@ -1018,7 +1035,8 @@ describe('StorePaymentRepository callback settlement', () => {
       where: { id: productId, sales_count: 2_147_483_647 },
     });
     expect(transaction.paymentAttempt.create).toHaveBeenCalledTimes(1);
-    expect(transaction.inventoryBalance.updateMany).toHaveBeenCalledTimes(1);
+    expect(inventoryBalanceUpdates(transaction)).toHaveLength(1);
+    expect(transaction.inventoryLedger.createMany).toHaveBeenCalledTimes(1);
   });
 
   it('retries the callback transaction when the locked sales counter row is unexpectedly lost', async () => {
@@ -1228,7 +1246,7 @@ describe('StorePaymentRepository callback settlement', () => {
       data: { sales_count: 2_147_483_647, updated_at: NOW },
       where: { id: productId, sales_count: 2_147_483_647 },
     });
-    expect(transaction.inventoryLedger.create).toHaveBeenCalledTimes(1);
+    expect(transaction.inventoryLedger.createMany).toHaveBeenCalledTimes(1);
     expect(transaction.commissionLedger.create).toHaveBeenCalledTimes(1);
     expect(transaction.inventoryReservation.updateMany).toHaveBeenCalledWith({
       data: { consumed_at: NOW, status: 'CONSUMED' },

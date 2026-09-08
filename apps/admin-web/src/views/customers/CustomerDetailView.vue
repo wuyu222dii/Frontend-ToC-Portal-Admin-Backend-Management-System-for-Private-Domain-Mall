@@ -13,8 +13,8 @@ import {
   getAdminCustomer,
   previewAdminCustomerTransfer,
 } from '../../services/admin-customers';
-import { authSession } from '../../stores/auth-session';
 import type { AdminAgentListItem, AdminCustomerDetail, CustomerTransferInput, HighRiskPreview } from '../../types/admin-b13';
+import { readableError as describeAdminError, handleUnauthorized } from '../../utils/presentation';
 import { formatChinaDateTime } from '../../utils/time';
 
 const route = useRoute();
@@ -43,22 +43,21 @@ async function listAllActiveAgents(signal: AbortSignal): Promise<AdminAgentListI
 }
 
 function readableError(error: unknown): string {
-  if (!(error instanceof AdminApiError)) return '客户详情加载失败，请稍后重试';
-  if (error.status === 0) return '网络连接失败，请检查网络后重试';
-  if (error.status === 400) return '客户标识无效';
-  if (error.status === 403) return '当前账号无权查看该客户';
-  if (error.status === 404) return '客户不存在或已不可访问';
-  return '客户详情加载失败，请稍后重试';
+  return describeAdminError(error, '客户详情加载失败，请稍后重试', {
+    statusMessages: {
+      400: '客户标识无效',
+      403: '当前账号无权查看该客户',
+      404: '客户不存在或已不可访问',
+    },
+  });
 }
 
 async function handleExpired(error: unknown): Promise<boolean> {
-  if (!(error instanceof AdminApiError) || error.status !== 401) return false;
-  ++sequence;
-  controller?.abort();
-  transferOpen.value = false;
-  authSession.clearSession();
-  await router.replace('/login');
-  return true;
+  return handleUnauthorized(error, router, () => {
+    ++sequence;
+    controller?.abort();
+    transferOpen.value = false;
+  });
 }
 
 async function load(): Promise<void> {

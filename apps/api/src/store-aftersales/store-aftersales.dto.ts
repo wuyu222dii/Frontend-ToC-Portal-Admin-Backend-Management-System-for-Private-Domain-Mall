@@ -1,4 +1,4 @@
-import { ApplicationError, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, hasControlCharacter, isValidUlid } from '@qingxu/platform-core';
 
 const CONFIRMATION_HASH = /^[a-f0-9]{64}$/;
 const CALENDAR_DATE = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
@@ -102,13 +102,6 @@ function exactFields(
     required.some((field) => !Object.prototype.hasOwnProperty.call(record, field))) {
     return invalid(`${label} fields are invalid`);
   }
-}
-
-function hasControlCharacter(value: string): boolean {
-  return Array.from(value).some((character) => {
-    const codePoint = character.codePointAt(0);
-    return codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f);
-  });
 }
 
 function normalizedText(value: unknown, field: string, maximum: number): string {

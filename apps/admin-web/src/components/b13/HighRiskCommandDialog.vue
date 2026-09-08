@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
 import { AdminApiError, newIdempotencyKey } from '../../services/admin-api';
 import type { HighRiskPreview } from '../../types/admin-b13';
+import { readableError as describeAdminError } from '../../utils/presentation';
 
 const props = withDefaults(defineProps<{
   confirmLabel?: string;
@@ -74,17 +75,23 @@ function clearState(): void {
 }
 
 function readableError(error: unknown): string {
-  if (!(error instanceof AdminApiError)) return '服务响应无法安全确认，请稍后重试';
-  if (error.status === 0) return '网络连接中断，操作结果尚未确认';
-  if (error.status === 403) return '当前账号无权执行此操作';
-  if (error.status === 404) return '目标资源不存在或已不可访问';
-  if (error.status === 409) return '资源状态已经变化，请刷新后重新操作';
-  if (error.status === 422) return '当前业务状态不允许此操作';
-  if (error.status === 429) return error.retryAfterSeconds
-    ? `操作过于频繁，请在 ${error.retryAfterSeconds} 秒后重试`
-    : '操作过于频繁，请稍后重试';
-  if (error.status >= 500) return '服务暂时不可用，操作结果尚未确认';
-  return error.message || '操作未完成，请稍后重试';
+  if (error instanceof AdminApiError && error.status === 0) return '网络连接中断，操作结果尚未确认';
+  if (error instanceof AdminApiError && error.status >= 500) return '服务暂时不可用，操作结果尚未确认';
+  return describeAdminError(
+    error,
+    error instanceof AdminApiError ? (error.message || '操作未完成，请稍后重试') : '服务响应无法安全确认，请稍后重试',
+    {
+      statusMessages: {
+        403: '当前账号无权执行此操作',
+        404: '目标资源不存在或已不可访问',
+        409: '资源状态已经变化，请刷新后重新操作',
+        422: '当前业务状态不允许此操作',
+        429: error instanceof AdminApiError && error.retryAfterSeconds
+          ? `操作过于频繁，请在 ${error.retryAfterSeconds} 秒后重试`
+          : '操作过于频繁，请稍后重试',
+      },
+    },
+  );
 }
 
 function isUncertain(error: unknown): boolean {

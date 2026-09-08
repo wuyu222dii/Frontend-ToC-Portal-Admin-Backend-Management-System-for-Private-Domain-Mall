@@ -16,6 +16,7 @@ import {
 import { getAdminFileDownloadUrl } from '../../services/admin-files';
 import { recoverAdminRefundCommandJournal } from '../../services/admin-refund-command-journal';
 import { authSession } from '../../stores/auth-session';
+import { readableError as describeAdminError, handleUnauthorized } from '../../utils/presentation';
 import { formatChinaDateTime } from '../../utils/time';
 
 const route = useRoute();
@@ -76,26 +77,22 @@ function actionLabel(action: AdminAftersaleDetail['available_actions'][number]):
 }
 
 function readableError(error: unknown): string {
-  if (!(error instanceof AdminApiError)) return '售后详情加载失败，请稍后重试';
-  if (error.status === 0) return '网络连接失败，请检查网络后重试';
-  if (error.status === 400) return '售后标识无效';
-  if (error.status === 403) return '当前账号无权查看该售后记录';
-  if (error.status === 404) return '售后记录不存在或已不可访问';
-  if (error.status === 429) return error.retryAfterSeconds
-    ? `查询过于频繁，请在 ${error.retryAfterSeconds} 秒后重试`
-    : '查询过于频繁，请稍后重试';
-  return '售后详情加载失败，请稍后重试';
+  return describeAdminError(error, '售后详情加载失败，请稍后重试', {
+    statusMessages: {
+      400: '售后标识无效',
+      403: '当前账号无权查看该售后记录',
+      404: '售后记录不存在或已不可访问',
+    },
+  });
 }
 
 async function handleSessionError(error: unknown): Promise<boolean> {
-  if (!(error instanceof AdminApiError) || error.status !== 401) return false;
-  ++sequence;
-  controller?.abort();
-  abortEvidenceDownloads();
-  commandOpen.value = false;
-  authSession.clearSession();
-  await router.replace('/login');
-  return true;
+  return handleUnauthorized(error, router, () => {
+    ++sequence;
+    controller?.abort();
+    abortEvidenceDownloads();
+    commandOpen.value = false;
+  });
 }
 
 async function loadDetail(): Promise<void> {

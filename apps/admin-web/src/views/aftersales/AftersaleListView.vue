@@ -4,13 +4,12 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import AdminShell from '../../layouts/AdminShell.vue';
-import { AdminApiError } from '../../services/admin-api';
 import {
   listAdminAftersales,
   type AdminAftersaleListItem,
   type AdminAftersaleListQuery,
 } from '../../services/admin-aftersales';
-import { authSession } from '../../stores/auth-session';
+import { readableError as describeAdminError, handleUnauthorized } from '../../utils/presentation';
 import { formatChinaDateTime } from '../../utils/time';
 
 const route = useRoute();
@@ -75,23 +74,19 @@ function query(): AdminAftersaleListQuery {
 }
 
 function readableError(error: unknown): string {
-  if (!(error instanceof AdminApiError)) return '售后列表加载失败，请稍后重试';
-  if (error.status === 0) return '网络连接失败，请检查网络后重试';
-  if (error.status === 403) return '当前账号无权访问售后管理';
-  if (error.status === 429) return error.retryAfterSeconds
-    ? `查询过于频繁，请在 ${error.retryAfterSeconds} 秒后重试`
-    : '查询过于频繁，请稍后重试';
-  if (error.status === 400) return '筛选条件无效，请检查后重试';
-  return '售后列表加载失败，请稍后重试';
+  return describeAdminError(error, '售后列表加载失败，请稍后重试', {
+    statusMessages: {
+      400: '筛选条件无效，请检查后重试',
+      403: '当前账号无权访问售后管理',
+    },
+  });
 }
 
 async function redirectIfExpired(error: unknown): Promise<boolean> {
-  if (!(error instanceof AdminApiError) || error.status !== 401) return false;
-  ++sequence;
-  controller?.abort();
-  authSession.clearSession();
-  await router.replace('/login');
-  return true;
+  return handleUnauthorized(error, router, () => {
+    ++sequence;
+    controller?.abort();
+  });
 }
 
 async function load(): Promise<void> {

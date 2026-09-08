@@ -8,7 +8,7 @@ import type {
   BannerStatusAction,
   UploadedBannerAsset,
 } from '../types/banners';
-import { adminSessionRequest, newIdempotencyKey } from './admin-api';
+import { adminSessionRequest, newIdempotencyKey, versionEtag } from './admin-api';
 import { uploadAdminImage } from './admin-files';
 
 type BannerCreateRequest = components['schemas']['BannerCreateRequest'];
@@ -19,13 +19,6 @@ type ClosedReasonRequest = components['schemas']['ClosedReasonRequest'];
 
 function bannerPath(bannerId: string): string {
   return `/admin/banners/${encodeURIComponent(bannerId)}`;
-}
-
-function versionEtag(version: number): string {
-  if (!Number.isSafeInteger(version) || version < 1) {
-    throw new TypeError('Resource version must be a positive integer');
-  }
-  return `"${version}"`;
 }
 
 function targetRequest(input: BannerEditorInput):

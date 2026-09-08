@@ -5,6 +5,7 @@ import type {
   StoreAftersaleListItem,
   StoreAftersalePreview,
 } from '../types/store-aftersales';
+import { hasControlCharacter } from '../utils/ids';
 import { StoreEnvelopeFormatError } from './store-client';
 
 type RecordValue = Record<string, unknown>;
@@ -51,13 +52,6 @@ function record(
 function text(value: unknown, minimum = 1, maximum = 2_048): string {
   if (typeof value !== 'string' || value.length < minimum || value.length > maximum) invalid();
   return value;
-}
-
-function hasControlCharacter(value: string): boolean {
-  return Array.from(value).some((character) => {
-    const codePoint = character.codePointAt(0);
-    return codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f);
-  });
 }
 
 function ulid(value: unknown): string {

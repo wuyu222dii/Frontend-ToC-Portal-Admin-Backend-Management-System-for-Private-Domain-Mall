@@ -23,7 +23,6 @@ import {
   restoreMasterData,
   updateMasterData,
 } from '../../services/admin-catalog';
-import { authSession } from '../../stores/auth-session';
 import type {
   CatalogKind,
   HighRiskPreview,
@@ -32,6 +31,7 @@ import type {
   MasterDataStatus,
   UploadedCatalogAsset,
 } from '../../types/catalog';
+import { readableError as describeAdminError, handleSessionError as redirectExpiredSession } from '../../utils/presentation';
 
 const props = defineProps<{ kind: CatalogKind }>();
 const router = useRouter();
@@ -145,28 +145,28 @@ function statusLabel(value: MasterDataStatus): string {
 }
 
 async function handleSessionError(error: unknown): Promise<boolean> {
-  if (authSession.state.session && (!(error instanceof AdminApiError) || error.status !== 401)) return false;
-  clearSensitiveState();
-  items.value = [];
-  total.value = 0;
-  authSession.clearSession();
-  await router.replace('/login');
-  return true;
+  return redirectExpiredSession(error, router, () => {
+    clearSensitiveState();
+    items.value = [];
+    total.value = 0;
+  });
 }
 
 function readableError(error: unknown, fallback: string): string {
-  if (!(error instanceof AdminApiError)) return fallback;
-  if (error.status === 0) return '网络连接失败，请检查网络后重试';
-  if (error.status === 403) return '当前账号无权访问此功能';
-  if (error.status === 404) return '记录不存在或已不可用，请刷新列表';
-  if (error.status === 429) return '操作过于频繁，请稍后重试';
-  if (error.code === 'SOFT_DELETED_KEY_RESERVED') return '该名称由已归档记录保留，请先恢复原记录';
-  if (error.code === 'FILE_CONTENT_MISMATCH') return '图片内容校验不一致，请重新选择后再试';
-  if (error.status === 400 || error.status === 409 || error.status === 422) {
-    return '请求内容或当前状态不符合要求，请检查后重试';
-  }
-  if (error.status >= 500) return fallback;
-  return fallback;
+  return describeAdminError(error, fallback, {
+    codeMessages: {
+      FILE_CONTENT_MISMATCH: '图片内容校验不一致，请重新选择后再试',
+      SOFT_DELETED_KEY_RESERVED: '该名称由已归档记录保留，请先恢复原记录',
+    },
+    statusMessages: {
+      400: '请求内容或当前状态不符合要求，请检查后重试',
+      403: '当前账号无权访问此功能',
+      404: '记录不存在或已不可用，请刷新列表',
+      409: '请求内容或当前状态不符合要求，请检查后重试',
+      422: '请求内容或当前状态不符合要求，请检查后重试',
+      429: '操作过于频繁，请稍后重试',
+    },
+  });
 }
 
 function isUnknownOutcome(error: unknown): boolean {

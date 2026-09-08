@@ -90,6 +90,18 @@ export function openProfile(): void {
   openLoginForAction({ type: 'PROFILE' });
 }
 
+export function openAddressList(): void {
+  void uni.navigateTo({ url: '/pages/address/index' });
+}
+
+export function openAddressEdit(addressId?: string): void {
+  void uni.navigateTo({ url: pageUrl('/pages/address/edit', { address_id: addressId }) });
+}
+
+export function openFavorites(): void {
+  void uni.navigateTo({ url: '/pages/favorites/index' });
+}
+
 export function goBackOrHome(): void {
   if (getCurrentPages().length <= 1) {
     openHome();
@@ -103,7 +115,13 @@ export function goBackOrHome(): void {
 export function showLoginPrompt(action: ProtectedAction = { type: 'PROFILE' }): void {
   if (hasRefreshableCustomerSession()) {
     if (action.type === 'PROFILE') return openProfile();
-    if (action.type === 'CART_ADD') return;
+    if (action.type === 'CART') return openCart();
+    if (action.type === 'CART_ADD' || action.type === 'FAVORITE') {
+      return openProduct(action.product_id);
+    }
+    if (action.type === 'ADDRESS_LIST') return openAddressList();
+    if (action.type === 'ADDRESS_EDIT') return openAddressEdit(action.address_id);
+    if (action.type === 'FAVORITES') return openFavorites();
     if (action.type === 'CHECKOUT') return openCheckout({ source: 'CART' });
     if (action.type === 'BUY_NOW') return openCheckout({
       source: 'BUY_NOW',
@@ -119,13 +137,6 @@ export function showLoginPrompt(action: ProtectedAction = { type: 'PROFILE' }): 
       void uni.navigateTo({ url: '/pages/profile/agent' });
       return;
     }
-    const title = '操作暂不可用';
-    void uni.showModal({
-      confirmText: '知道了',
-      content: '此功能将在后续阶段开放。',
-      showCancel: false,
-      title,
-    });
     return;
   }
   void uni.showModal({

@@ -338,7 +338,7 @@ onShow(() => {
 .address-card__recipient {
   min-width: 0;
   font-size: 28rpx;
-  font-weight: 800;
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 

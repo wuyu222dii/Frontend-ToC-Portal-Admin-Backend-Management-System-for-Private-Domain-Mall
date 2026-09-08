@@ -1,4 +1,11 @@
-import { ApplicationError, generateUlid, isValidUlid } from '@qingxu/platform-core';
+import {
+  ApplicationError,
+  generateUlid,
+  internalError as internal,
+  isValidUlid,
+  requireUlid,
+  hasControlCharacter as hasControlCharacters,
+} from '@qingxu/platform-core';
 
 import { Prisma, type PrismaClient } from '../.generated/prisma/client';
 import { acquireTransactionLock } from './advisory-lock';
@@ -64,10 +71,6 @@ export interface ReturnAddressPublishResult {
   audit: { after: ReturnAddressAuditState; before: ReturnAddressAuditState | null };
 }
 
-function internal(message: string): ApplicationError {
-  return new ApplicationError('INTERNAL_ERROR', message);
-}
-
 function notFound(): ApplicationError {
   return new ApplicationError('RESOURCE_NOT_FOUND', 'Published return address was not found');
 }
@@ -98,10 +101,6 @@ function exactObject(
   }
 }
 
-function requireUlid(value: unknown, label: string): asserts value is string {
-  if (!isValidUlid(value)) throw new TypeError(`${label} must be a ULID`);
-}
-
 function safeUlid(value: unknown, label: string): string {
   if (!isValidUlid(value)) throw internal(`${label} is invalid`);
   return value;
@@ -125,13 +124,6 @@ function safeVersion(value: unknown, label: string, allowZero = false): number {
 function safeDate(value: unknown, label: string): Date {
   if (!(value instanceof Date) || !Number.isFinite(value.getTime())) throw internal(`${label} is invalid`);
   return new Date(value);
-}
-
-function hasControlCharacters(value: string): boolean {
-  return Array.from(value).some((character) => {
-    const point = character.codePointAt(0);
-    return point !== undefined && (point <= 0x1f || point === 0x7f);
-  });
 }
 
 function normalizeText(value: unknown, maximum: number, label: string, minimum = 1): string {

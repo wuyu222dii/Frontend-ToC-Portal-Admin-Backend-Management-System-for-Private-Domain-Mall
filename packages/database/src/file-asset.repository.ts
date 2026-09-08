@@ -1,4 +1,4 @@
-import { ApplicationError, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, isValidUlid, hasControlCharacter } from '@qingxu/platform-core';
 
 import { Prisma, type PrismaClient } from '../.generated/prisma/client';
 import type { FilePurpose, FileStatus, FileVisibility } from '../.generated/prisma/enums';
@@ -181,13 +181,6 @@ function requireMimeType(value: string): asserts value is FileAssetMimeType {
 
 function requirePurpose(value: string): asserts value is SupportedFilePurpose {
   if (!FILE_PURPOSE.has(value as SupportedFilePurpose)) throw new TypeError('File purpose is not supported');
-}
-
-function hasControlCharacter(value: string): boolean {
-  return Array.from(value).some((character) => {
-    const codePoint = character.codePointAt(0);
-    return codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f);
-  });
 }
 
 function validateCreateInput(input: CreatePendingFileAssetInput): void {

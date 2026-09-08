@@ -24,6 +24,7 @@ import {
   replaceWithLoginForCandidateDecision,
   resumeProtectedAction,
 } from '../../utils/protected-action';
+import { isUlid } from '../../utils/ids';
 import { isSafeHttpsUrl, openHome } from '../../utils/store-navigation';
 
 type PageState = 'loading' | 'ready' | 'error' | 'rate-limited';
@@ -88,10 +89,6 @@ async function returnAfterCandidateDecision(publicTargetUrl: string | null) {
   void uni.navigateBack({
     fail: () => replaceWithPublicTargetOrHome(publicTargetUrl),
   });
-}
-
-function isUlid(value: string): boolean {
-  return /^[0-9A-HJKMNP-TV-Z]{26}$/i.test(value);
 }
 
 function stopCandidateTimer() {
@@ -421,7 +418,7 @@ onUnload(() => {
 .agent-hero__name,
 .agent-candidate__name {
   font-size: 34rpx;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .agent-candidate,

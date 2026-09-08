@@ -1,4 +1,4 @@
-import { ApplicationError, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, isValidUlid, requireUlid } from '@qingxu/platform-core';
 
 import type { PrismaClient } from '../.generated/prisma/client';
 import type { EntityStatus } from '../.generated/prisma/enums';
@@ -213,10 +213,6 @@ function requireExactFields(value: unknown, fields: ReadonlySet<string>, label: 
   if (!isPlainObject(value) || !hasOnlyFields(value, fields) || Object.keys(value).length !== fields.size) {
     throw new TypeError(`${label} contains unsupported or missing fields`);
   }
-}
-
-function requireUlid(value: string, label: string): void {
-  if (!isValidUlid(value)) throw new TypeError(`${label} must be a ULID`);
 }
 
 function requireVersion(value: number): void {

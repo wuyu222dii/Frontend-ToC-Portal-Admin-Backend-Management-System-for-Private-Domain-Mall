@@ -6,8 +6,8 @@ import { useRoute, useRouter } from 'vue-router';
 import AdminShell from '../../layouts/AdminShell.vue';
 import { listAdminAuditLogs } from '../../services/admin-audit';
 import { AdminApiError } from '../../services/admin-api';
-import { authSession } from '../../stores/auth-session';
 import type { AuditLog, AuditLogListQuery } from '../../types/admin-b13';
+import { readableError as describeAdminError, handleUnauthorized } from '../../utils/presentation';
 import { formatChinaDateTime } from '../../utils/time';
 
 const route = useRoute();
@@ -59,26 +59,20 @@ function query(): AuditLogListQuery {
 }
 
 function readableError(error: unknown): string {
-  if (!(error instanceof AdminApiError)) return '审计日志加载失败，请稍后重试';
-  if (error.status === 0) return '网络连接失败，请检查网络后重试';
-  if (error.status === 400) return '筛选条件无效，请检查目标类型、目标 ID 或日期范围';
-  if (error.status === 403) return '当前账号无权访问审计日志';
-  if (error.status === 429) {
-    return error.retryAfterSeconds
-      ? `查询过于频繁，请在 ${error.retryAfterSeconds} 秒后重试`
-      : '查询过于频繁，请稍后重试';
-  }
-  if (error.status >= 500) return '审计服务暂时不可用，请稍后重试';
-  return '审计日志加载失败，请稍后重试';
+  if (error instanceof AdminApiError && error.status >= 500) return '审计服务暂时不可用，请稍后重试';
+  return describeAdminError(error, '审计日志加载失败，请稍后重试', {
+    statusMessages: {
+      400: '筛选条件无效，请检查目标类型、目标 ID 或日期范围',
+      403: '当前账号无权访问审计日志',
+    },
+  });
 }
 
 async function redirectIfExpired(error: unknown): Promise<boolean> {
-  if (!(error instanceof AdminApiError) || error.status !== 401) return false;
-  ++sequence;
-  controller?.abort();
-  authSession.clearSession();
-  await router.replace('/login');
-  return true;
+  return handleUnauthorized(error, router, () => {
+    ++sequence;
+    controller?.abort();
+  });
 }
 
 async function load(): Promise<void> {

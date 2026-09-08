@@ -5,6 +5,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { AdminApiError } from '../../services/admin-api';
 import { getAdminFulfillmentAddress } from '../../services/admin-orders';
 import type { AdminFulfillmentAddress } from '../../types/orders';
+import { readableError as describeAdminError } from '../../utils/presentation';
 
 const props = defineProps<{
   open: boolean;
@@ -44,16 +45,18 @@ function clearAll(): void {
 }
 
 function readableError(error: unknown): string {
-  if (!(error instanceof AdminApiError)) return '履约地址读取失败，请稍后重试';
-  if (error.status === 0) return '网络连接失败，未展示任何地址明文';
-  if (error.status === 403) return '当前账号或本次用途无权读取履约地址';
-  if (error.status === 404) return '订单或履约地址不存在';
-  if (error.status === 429) {
-    return error.retryAfterSeconds
-      ? `读取过于频繁，请在 ${error.retryAfterSeconds} 秒后重试`
-      : '读取过于频繁，请稍后重试';
+  if (error instanceof AdminApiError && error.status === 0) {
+    return '网络连接失败，未展示任何地址明文';
   }
-  return '履约地址读取失败，请稍后重试';
+  return describeAdminError(error, '履约地址读取失败，请稍后重试', {
+    statusMessages: {
+      403: '当前账号或本次用途无权读取履约地址',
+      404: '订单或履约地址不存在',
+      429: error instanceof AdminApiError && error.retryAfterSeconds
+        ? `读取过于频繁，请在 ${error.retryAfterSeconds} 秒后重试`
+        : '读取过于频繁，请稍后重试',
+    },
+  });
 }
 
 async function readAddress(): Promise<void> {

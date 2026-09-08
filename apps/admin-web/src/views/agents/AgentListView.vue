@@ -7,8 +7,8 @@ import { useRouter } from 'vue-router';
 import AdminShell from '../../layouts/AdminShell.vue';
 import { createAdminAgent, listAdminAgents } from '../../services/admin-agents';
 import { AdminApiError, newIdempotencyKey } from '../../services/admin-api';
-import { authSession } from '../../stores/auth-session';
 import type { AgentCreateInput, AgentCreateResult, AdminAgentListItem, AdminAgentListQuery } from '../../types/admin-b13';
+import { readableError as describeAdminError, handleUnauthorized } from '../../utils/presentation';
 import { formatChinaDateTime } from '../../utils/time';
 
 const router = useRouter();
@@ -54,22 +54,21 @@ function query(): AdminAgentListQuery {
 }
 
 function readableError(error: unknown): string {
-  if (!(error instanceof AdminApiError)) return '代理列表加载失败，请稍后重试';
-  if (error.status === 0) return '网络连接失败，请检查网络后重试';
-  if (error.status === 403) return '当前账号无权访问代理管理';
-  if (error.status === 429) return '查询过于频繁，请稍后重试';
-  return '代理列表加载失败，请稍后重试';
+  return describeAdminError(error, '代理列表加载失败，请稍后重试', {
+    statusMessages: {
+      403: '当前账号无权访问代理管理',
+      429: '查询过于频繁，请稍后重试',
+    },
+  });
 }
 
 async function handleExpired(error: unknown): Promise<boolean> {
-  if (!(error instanceof AdminApiError) || error.status !== 401) return false;
-  ++sequence;
-  controller?.abort();
-  createController?.abort();
-  clearDisclosure();
-  authSession.clearSession();
-  await router.replace('/login');
-  return true;
+  return handleUnauthorized(error, router, () => {
+    ++sequence;
+    controller?.abort();
+    createController?.abort();
+    clearDisclosure();
+  });
 }
 
 async function load(): Promise<void> {

@@ -21,6 +21,7 @@ import {
   shouldPollPaymentOutcome,
   type PaymentOutcome,
 } from '../../utils/payment-result';
+import { isUlid } from '../../utils/ids';
 import { replaceWithLoginForAction } from '../../utils/protected-action';
 import { openOrders } from '../../utils/store-navigation';
 
@@ -40,10 +41,6 @@ let requestInFlight = false;
 let pollTimer: ReturnType<typeof setTimeout> | undefined;
 let slowTimer: ReturnType<typeof setTimeout> | undefined;
 const mockIdempotencyKeys = new Map<MockPaymentResultInput['result'], string>();
-
-function isUlid(value: string): boolean {
-  return /^[0-9A-HJKMNP-TV-Z]{26}$/.test(value);
-}
 
 const outcome = computed<PaymentOutcome>(() => {
   const current = order.value;
@@ -334,23 +331,23 @@ onUnload(() => {
 .payment-result-page { min-height: 100vh; background: var(--qx-store-background); }
 .payment-result-page__body { display: grid; gap: 20rpx; padding: 28rpx 22rpx calc(48rpx + env(safe-area-inset-bottom)); }
 .payment-result-status { display: flex; min-width: 0; flex-direction: column; align-items: center; padding: 46rpx 26rpx 38rpx; border-bottom: 1px solid var(--qx-store-line); text-align: center; }
-.payment-result-status__icon { display: flex; width: 86rpx; height: 86rpx; align-items: center; justify-content: center; border: 2px solid var(--qx-store-brand); border-radius: 50%; color: var(--qx-store-brand-strong); font-size: 42rpx; font-weight: 800; }
+.payment-result-status__icon { display: flex; width: 86rpx; height: 86rpx; align-items: center; justify-content: center; border: 2px solid var(--qx-store-brand); border-radius: 50%; color: var(--qx-store-brand-strong); font-size: 42rpx; font-weight: 600; }
 .payment-result-status[data-outcome="failed"] .payment-result-status__icon,
 .payment-result-status[data-outcome="cancelled"] .payment-result-status__icon,
 .payment-result-status[data-outcome="timeout"] .payment-result-status__icon,
 .payment-result-status[data-outcome="manual"] .payment-result-status__icon { color: var(--qx-store-danger); border-color: var(--qx-store-danger); }
-.payment-result-status__title { margin-top: 22rpx; font-size: 34rpx; font-weight: 800; }
+.payment-result-status__title { margin-top: 22rpx; font-size: 34rpx; font-weight: 600; }
 .payment-result-status__description { max-width: 620rpx; margin-top: 12rpx; color: var(--qx-store-text-soft); font-size: 21rpx; line-height: 1.6; overflow-wrap: anywhere; }
 .payment-result-status__order { margin-top: 20rpx; color: var(--qx-store-muted); font-size: 18rpx; overflow-wrap: anywhere; }
 .payment-result-notice, .payment-result-errors { display: block; padding: 18rpx 20rpx; border-radius: 8rpx; color: var(--qx-store-warning); background: #fff5df; font-size: 20rpx; line-height: 1.55; overflow-wrap: anywhere; }
 .payment-result-errors { display: grid; gap: 8rpx; color: var(--qx-store-danger); background: #fff2f1; }
 .payment-result-errors text { display: block; }
 .payment-result-mock { padding: 20rpx; border: 1px dashed var(--qx-store-line); border-radius: 8rpx; background: var(--qx-store-surface); }
-.payment-result-mock__title { display: block; color: var(--qx-store-muted); font-size: 18rpx; font-weight: 750; }
+.payment-result-mock__title { display: block; color: var(--qx-store-muted); font-size: 18rpx; font-weight: 600; }
 .payment-result-mock__actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10rpx; margin-top: 14rpx; }
 .payment-result-mock button { min-width: 0; min-height: 64rpx; padding: 0 8rpx; border: 1px solid var(--qx-store-line) !important; border-radius: 8rpx; background: #ffffff; font-size: 19rpx; }
 .payment-result-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .72fr); gap: 12rpx; }
-.payment-result-actions button { min-width: 0; min-height: 76rpx; border: 1px solid var(--qx-store-line) !important; border-radius: 9rpx; color: var(--qx-store-text); background: #ffffff; font-size: 21rpx; font-weight: 750; }
+.payment-result-actions button { min-width: 0; min-height: 76rpx; border: 1px solid var(--qx-store-line) !important; border-radius: 16rpx; color: var(--qx-store-text); background: #ffffff; font-size: 21rpx; font-weight: 600; }
 .payment-result-actions__primary { color: #ffffff !important; border-color: var(--qx-store-brand-strong) !important; background: var(--qx-store-brand-strong) !important; }
 @media (max-width: 359px) { .payment-result-page__body { padding-inline: 16rpx; } .payment-result-actions { grid-template-columns: 1fr; } }
 </style>

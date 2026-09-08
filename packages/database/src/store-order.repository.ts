@@ -1,8 +1,12 @@
-import { ApplicationError, generateUlid, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, generateUlid, internalError, isValidUlid, requireUlid } from '@qingxu/platform-core';
 
 import { Prisma, type PrismaClient } from '../.generated/prisma/client';
 import { acquireTransactionLock, acquireTransactionLocks } from './advisory-lock';
 import type { DatabaseTransaction } from './idempotency.repository';
+import {
+  applyInventoryBalanceUpdatesInTransaction,
+  type InventoryBalanceOptimisticUpdate,
+} from './inventory-balance-updates';
 import {
   StoreCheckoutRepository,
   type StoreCheckoutAddressFact,
@@ -573,10 +577,6 @@ function requireExactKeys(
   }
 }
 
-function requireUlid(value: unknown, label: string): asserts value is string {
-  if (typeof value !== 'string' || !isValidUlid(value)) throw new TypeError(`${label} must be a ULID`);
-}
-
 function requireQuantity(value: unknown, label: string): asserts value is number {
   if (!Number.isSafeInteger(value) || Number(value) < 1 || Number(value) > ORDER_QUANTITY_LIMIT) {
     throw new TypeError(`${label} must be an integer between 1 and ${ORDER_QUANTITY_LIMIT}`);
@@ -855,10 +855,6 @@ function validateHooks(hooks: StoreOrderCreateHooks): void {
   if (typeof hooks.protectAddress !== 'function' || typeof hooks.verifyQuote !== 'function') {
     throw new TypeError('Store order hooks must be functions');
   }
-}
-
-function internalError(message: string): ApplicationError {
-  return new ApplicationError('INTERNAL_ERROR', message);
 }
 
 function authenticationRequired(): ApplicationError {
@@ -1750,6 +1746,7 @@ export class StoreOrderRepository {
 
     const inventory: StoreOrderCreationResult['inventory'] = [];
     const ledgerWrites: Prisma.InventoryLedgerCreateManyInput[] = [];
+    const balanceUpdates: InventoryBalanceOptimisticUpdate[] = [];
     for (const item of [...snapshot.items].sort(compareSku)) {
       const balanceId = item.inventoryBalanceId;
       const version = item.inventoryVersion;
@@ -1760,17 +1757,6 @@ export class StoreOrderRepository {
       }
       const lockedAfter = lockedQty + item.quantity;
       if (lockedAfter > physicalQty || lockedAfter > MAX_POSTGRES_INTEGER) throw requoteRequired();
-      const updated = await transaction.inventoryBalance.updateMany({
-        data: { locked_qty: lockedAfter, updated_at: occurredAt, version: { increment: 1 } },
-        where: {
-          id: balanceId,
-          locked_qty: lockedQty,
-          physical_qty: physicalQty,
-          sku_id: item.skuId,
-          version,
-        },
-      });
-      if (updated.count !== 1) throw requoteRequired();
       inventory.push({
         balanceId,
         lockedAfter,
@@ -1778,6 +1764,15 @@ export class StoreOrderRepository {
         physicalQty,
         skuId: item.skuId,
         version: version + 1,
+      });
+      balanceUpdates.push({
+        id: balanceId,
+        lockedAfter,
+        lockedQty,
+        physicalAfter: physicalQty,
+        physicalQty,
+        skuId: item.skuId,
+        version,
       });
       ledgerWrites.push({
         actor_account_id: input.accountId,
@@ -1793,6 +1788,14 @@ export class StoreOrderRepository {
         sku_id: item.skuId,
       });
     }
+    await applyInventoryBalanceUpdatesInTransaction(
+      transaction,
+      balanceUpdates,
+      occurredAt,
+      () => {
+        throw requoteRequired();
+      },
+    );
     const createdLedgers = await transaction.inventoryLedger.createMany({ data: ledgerWrites });
     if (createdLedgers.count !== ledgerWrites.length) {
       throw internalError('Store order inventory ledger insert count is invalid');
@@ -2261,23 +2264,12 @@ export class StoreOrderRepository {
 
     const quantityBySkuId = new Map(release.items.map((item) => [item.skuId, item.quantity]));
     const ledgerWrites: Prisma.InventoryLedgerCreateManyInput[] = [];
-    for (const balance of [...release.balances].sort(compareSku)) {
+    const balanceUpdates = [...release.balances].sort(compareSku).map((balance) => {
       const quantity = quantityBySkuId.get(balance.skuId);
       if (quantity === undefined || balance.lockedQty < quantity) {
         throw internalError('Store order release exceeds locked inventory');
       }
       const lockedAfter = balance.lockedQty - quantity;
-      const updated = await transaction.inventoryBalance.updateMany({
-        data: { locked_qty: lockedAfter, updated_at: occurredAt, version: { increment: 1 } },
-        where: {
-          id: balance.id,
-          locked_qty: balance.lockedQty,
-          physical_qty: balance.physicalQty,
-          sku_id: balance.skuId,
-          version: balance.version,
-        },
-      });
-      if (updated.count !== 1) throw internalError('Store order release balance update lost its locked row');
       ledgerWrites.push({
         ...(input.accountId === undefined ? {} : { actor_account_id: input.accountId }),
         business_id: release.reservationId,
@@ -2291,7 +2283,24 @@ export class StoreOrderRepository {
         reason: input.mode,
         sku_id: balance.skuId,
       });
-    }
+      return {
+        id: balance.id,
+        lockedAfter,
+        lockedQty: balance.lockedQty,
+        physicalAfter: balance.physicalQty,
+        physicalQty: balance.physicalQty,
+        skuId: balance.skuId,
+        version: balance.version,
+      };
+    });
+    await applyInventoryBalanceUpdatesInTransaction(
+      transaction,
+      balanceUpdates,
+      occurredAt,
+      () => {
+        throw internalError('Store order release balance update lost its locked row');
+      },
+    );
     const createdLedgers = await transaction.inventoryLedger.createMany({ data: ledgerWrites });
     if (createdLedgers.count !== ledgerWrites.length) {
       throw internalError('Store order release ledger insert count is invalid');
@@ -2718,24 +2727,21 @@ export class StoreOrderRepository {
         },
         where: { id: intent.id, order_id: input.orderId, version: intent.version },
       });
+      const nextIntentVersion = intent.version + 1;
       if (updated.count !== 1) throw internalError('Store order close Provider update lost its locked row');
-      const updatedIntent = await transaction.paymentIntent.findUnique({ where: { id: intent.id } });
-      if (!updatedIntent) throw internalError('Updated Store order close payment intent is unavailable');
-      const updatedOrder = await transaction.salesOrder.findUnique({ include: ORDER_READ_INCLUDE, where: { id: input.orderId } });
-      if (!updatedOrder) throw internalError('Updated Store order close order is unavailable');
       return {
         kind: 'PENDING',
-        order: orderSnapshot(updatedOrder, occurredAt),
+        order: orderSnapshot(record, occurredAt),
         paymentIntent: this.closePaymentIntentSnapshot({
           ...intent,
           close_requested_at: intent.close_requested_at,
-          closed_at: updatedIntent.closed_at,
-          provider_intent_id: updatedIntent.provider_intent_id,
-          provider_state: updatedIntent.provider_state,
+          closed_at: intent.closed_at,
+          provider_intent_id: providerIntentId,
+          provider_state: input.providerState ?? input.outcome,
           status: 'CLOSE_PENDING',
-          version: updatedIntent.version,
+          version: nextIntentVersion,
         }),
-        reservationId: updatedOrder.inventory_reservation?.id ?? null,
+        reservationId: record.inventory_reservation?.id ?? null,
         closeResult: null,
       };
     }
@@ -2758,22 +2764,18 @@ export class StoreOrderRepository {
         where: { id: intent.id, order_id: input.orderId, version: intent.version },
       });
       if (updated.count !== 1) throw internalError('Store order close success update lost its locked row');
-      const updatedIntent = await transaction.paymentIntent.findUnique({ where: { id: intent.id } });
-      if (!updatedIntent) throw internalError('Updated Store order close payment intent is unavailable');
-      const updatedOrder = await transaction.salesOrder.findUnique({ include: ORDER_READ_INCLUDE, where: { id: input.orderId } });
-      if (!updatedOrder) throw internalError('Updated Store order close order is unavailable');
       return {
         kind: 'PAYMENT_CONFIRMED',
-        order: orderSnapshot(updatedOrder, occurredAt),
+        order: orderSnapshot(record, occurredAt),
         paymentIntent: this.closePaymentIntentSnapshot({
           ...intent,
-          closed_at: updatedIntent.closed_at,
-          provider_intent_id: updatedIntent.provider_intent_id,
-          provider_state: updatedIntent.provider_state,
+          closed_at: intent.closed_at,
+          provider_intent_id: providerIntentId,
+          provider_state: input.providerState ?? 'SUCCEEDED',
           status: 'CLOSE_PENDING',
-          version: updatedIntent.version,
+          version: intent.version + 1,
         }),
-        reservationId: updatedOrder.inventory_reservation?.id ?? null,
+        reservationId: record.inventory_reservation?.id ?? null,
         closeResult: null,
       };
     }
@@ -2814,18 +2816,16 @@ export class StoreOrderRepository {
       requestedAt: intent.close_requested_at ?? occurredAt,
     });
     if (closed === null) throw internalError('Store order close terminal result was not eligible');
-    const updatedIntent = await transaction.paymentIntent.findUnique({ where: { id: intent.id } });
-    if (!updatedIntent) throw internalError('Updated Store order close payment intent is unavailable');
     return {
       kind: 'CLOSED',
       order: closed.order,
       paymentIntent: this.closePaymentIntentSnapshot({
         ...intent,
-        closed_at: updatedIntent.closed_at,
-        provider_intent_id: updatedIntent.provider_intent_id,
-        provider_state: updatedIntent.provider_state,
+        closed_at: occurredAt,
+        provider_intent_id: providerIntentId,
+        provider_state: input.providerState ?? input.outcome,
         status: targetStatus,
-        version: updatedIntent.version,
+        version: intent.version + 1,
       }),
       reservationId: closed.reservationId,
       closeResult: closed,

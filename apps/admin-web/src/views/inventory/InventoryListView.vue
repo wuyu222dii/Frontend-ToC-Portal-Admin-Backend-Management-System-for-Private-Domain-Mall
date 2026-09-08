@@ -10,9 +10,9 @@ import AdminShell from '../../layouts/AdminShell.vue';
 import { AdminApiError } from '../../services/admin-api';
 import { listAdminInventory } from '../../services/admin-inventory';
 import { listActiveCatalogOptions } from '../../services/admin-products';
-import { authSession } from '../../stores/auth-session';
 import type { InventoryItem, InventoryListQuery } from '../../types/inventory';
 import type { CategoryReference } from '../../types/products';
+import { readableError as describeAdminError, handleSessionError as redirectExpiredSession } from '../../utils/presentation';
 
 const router = useRouter();
 const items = ref<InventoryItem[]>([]);
@@ -43,11 +43,12 @@ function statusLabel(status: InventoryItem['sku_status']): string {
 }
 
 function readableError(error: unknown, fallback: string): string {
-  if (!(error instanceof AdminApiError)) return fallback;
-  if (error.status === 0) return '网络连接失败，请检查网络后重试';
-  if (error.status === 403) return '当前账号无权访问库存中心';
-  if (error.status === 429) return '查询过于频繁，请稍后重试';
-  return fallback;
+  return describeAdminError(error, fallback, {
+    statusMessages: {
+      403: '当前账号无权访问库存中心',
+      429: '查询过于频繁，请稍后重试',
+    },
+  });
 }
 
 function closeDialogs(): void {
@@ -58,16 +59,14 @@ function closeDialogs(): void {
 }
 
 async function handleSessionError(error: unknown): Promise<boolean> {
-  if (authSession.state.session && (!(error instanceof AdminApiError) || error.status !== 401)) return false;
-  ++listSequence;
-  listController?.abort();
-  optionsController?.abort();
-  items.value = [];
-  total.value = 0;
-  closeDialogs();
-  authSession.clearSession();
-  await router.replace('/login');
-  return true;
+  return redirectExpiredSession(error, router, () => {
+    ++listSequence;
+    listController?.abort();
+    optionsController?.abort();
+    items.value = [];
+    total.value = 0;
+    closeDialogs();
+  });
 }
 
 async function loadCategories(): Promise<void> {

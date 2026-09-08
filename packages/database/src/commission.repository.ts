@@ -1,4 +1,11 @@
-import { ApplicationError, generateUlid, isValidUlid } from '@qingxu/platform-core';
+import {
+  ApplicationError,
+  generateUlid,
+  internalError as internal,
+  isValidUlid,
+  requireUlid,
+  hasControlCharacter as hasControlCharacters,
+} from '@qingxu/platform-core';
 
 import { Prisma, type PrismaClient } from '../.generated/prisma/client';
 import { acquireTransactionLock } from './advisory-lock';
@@ -427,10 +434,6 @@ interface WalletWindowRow {
   withdrawal_id: string | null;
 }
 
-function internal(message: string): ApplicationError {
-  return new ApplicationError('INTERNAL_ERROR', message);
-}
-
 function notFound(message: string): ApplicationError {
   return new ApplicationError('RESOURCE_NOT_FOUND', message);
 }
@@ -465,10 +468,6 @@ function exactObject(
   }
 }
 
-function requireUlid(value: unknown, label: string): asserts value is string {
-  if (!isValidUlid(value)) throw new TypeError(`${label} must be a ULID`);
-}
-
 function storedUlid(value: unknown, label: string): string {
   if (!isValidUlid(value)) throw internal(`${label} is invalid`);
   return value;
@@ -495,13 +494,6 @@ function requireDate(value: unknown, label: string): asserts value is Date {
 function storedDate(value: unknown, label: string): Date {
   if (!(value instanceof Date) || !Number.isFinite(value.getTime())) throw internal(`${label} is invalid`);
   return new Date(value);
-}
-
-function hasControlCharacters(value: string): boolean {
-  return Array.from(value).some((character) => {
-    const point = character.codePointAt(0);
-    return point !== undefined && (point <= 0x1f || point === 0x7f);
-  });
 }
 
 function normalizeText(value: unknown, maximum: number, label: string, minimum = 1): string {
@@ -1755,7 +1747,6 @@ export class CommissionRepository {
       if (agent.id !== input.agentId || agent.wallet === null || agent.wallet.agent_id !== input.agentId) {
         throw internal('Stored Agent wallet is missing or inconsistent');
       }
-      await validateAgentCommissionLedgerClosureInTransaction(transaction, input.agentId);
       storedUlid(agent.wallet.id, 'Stored Agent wallet ID');
       storedVersion(agent.wallet.version, 'Stored Agent wallet version');
       const [ledgerTotals, positionTotals, totalValue] = await Promise.all([

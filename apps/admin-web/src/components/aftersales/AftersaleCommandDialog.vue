@@ -18,6 +18,7 @@ import {
   type ReturnInspectionInput,
 } from '../../services/admin-aftersales';
 import { uploadAdminImage } from '../../services/admin-files';
+import { readableError as describeAdminError } from '../../utils/presentation';
 
 export type AftersaleCommandMode =
   | 'APPROVE'
@@ -230,17 +231,26 @@ function isUncertain(error: unknown): boolean {
 }
 
 function readableError(error: unknown): string {
-  if (!(error instanceof AdminApiError)) return '服务响应无法安全确认，请保持内容不变后重试';
-  if (error.status === 0) return '网络连接中断，结果尚未确认；请保持内容不变后重试';
-  if (error.status === 403) return '当前账号无权执行该售后操作';
-  if (error.status === 404) return '售后或退款记录已不存在';
-  if (error.status === 422) return error.code === 'AFTERSALE_QUOTA_EXCEEDED'
-    ? '可退款数量或金额已变化，请刷新详情'
-    : '当前业务条件不满足该操作';
-  if (error.status === 429) return error.retryAfterSeconds
-    ? `操作过于频繁，请在 ${error.retryAfterSeconds} 秒后重试`
-    : '操作过于频繁，请稍后重试';
-  return '操作未完成，请刷新详情后重试';
+  if (error instanceof AdminApiError && error.status === 0) {
+    return '网络连接中断，结果尚未确认；请保持内容不变后重试';
+  }
+  return describeAdminError(
+    error,
+    error instanceof AdminApiError ? '操作未完成，请刷新详情后重试' : '服务响应无法安全确认，请保持内容不变后重试',
+    {
+      codeMessages: {
+        AFTERSALE_QUOTA_EXCEEDED: '可退款数量或金额已变化，请刷新详情',
+      },
+      statusMessages: {
+        403: '当前账号无权执行该售后操作',
+        404: '售后或退款记录已不存在',
+        422: '当前业务条件不满足该操作',
+        429: error instanceof AdminApiError && error.retryAfterSeconds
+          ? `操作过于频繁，请在 ${error.retryAfterSeconds} 秒后重试`
+          : '操作过于频繁，请稍后重试',
+      },
+    },
+  );
 }
 
 async function requestPreview(): Promise<void> {

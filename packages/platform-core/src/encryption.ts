@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto';
 import { isIP } from 'node:net';
 
+import { hasControlCharacter } from './guards';
 import { isValidUlid } from './identifiers';
 
 const ALGORITHM = 'aes-256-gcm';
@@ -43,11 +44,7 @@ export function createEncryptionContext(
 }
 
 function validateKeyId(keyId: string): void {
-  const hasControlCharacter = Array.from(keyId).some((character) => {
-    const codePoint = character.codePointAt(0);
-    return codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f);
-  });
-  if (keyId.length === 0 || keyId.length > 80 || keyId.trim() !== keyId || hasControlCharacter) {
+  if (keyId.length === 0 || keyId.length > 80 || keyId.trim() !== keyId || hasControlCharacter(keyId)) {
     throw new TypeError('Encryption key ID must be 1 to 80 printable characters');
   }
 }

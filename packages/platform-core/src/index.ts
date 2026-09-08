@@ -3,6 +3,7 @@ export * from './authentication-secrets';
 export * from './auth-tokens';
 export * from './encryption';
 export * from './errors';
+export * from './guards';
 export * from './identifiers';
 export * from './idempotency-key';
 export * from './if-match';

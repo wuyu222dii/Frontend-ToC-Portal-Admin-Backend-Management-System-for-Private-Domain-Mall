@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import QxIcon from './QxIcon.vue';
+
 withDefaults(
   defineProps<{
     title: string;
@@ -37,9 +39,10 @@ const emit = defineEmits<{
         @click="emit('action')"
       >
         <text>{{ actionLabel }}</text>
-        <text aria-hidden="true">
-          ›
-        </text>
+        <QxIcon
+          name="chevron"
+          :size="24"
+        />
       </button>
     </slot>
   </view>
@@ -66,7 +69,7 @@ const emit = defineEmits<{
 .qx-section-heading__title {
   color: var(--qx-store-text, #202522);
   font-size: 32rpx;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.3;
 }
 
@@ -74,6 +77,7 @@ const emit = defineEmits<{
   margin-top: 6rpx;
   color: var(--qx-store-muted, #8d9690);
   font-size: 20rpx;
+  font-weight: 400;
   line-height: 1.45;
 }
 
@@ -82,11 +86,12 @@ const emit = defineEmits<{
   min-height: 56rpx;
   flex: 0 0 auto;
   align-items: center;
-  gap: 6rpx;
+  gap: 2rpx;
   padding: 0 4rpx;
-  color: var(--qx-store-brand, #496859);
+  color: var(--qx-store-muted, #8d9690);
   background: transparent;
   font-size: 22rpx;
+  font-weight: 400;
   line-height: 1.4;
 }
 

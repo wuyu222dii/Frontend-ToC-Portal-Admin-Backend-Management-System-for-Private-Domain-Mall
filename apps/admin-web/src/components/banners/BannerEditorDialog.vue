@@ -21,6 +21,7 @@ import type {
   CategoryReference,
   ProductSummary,
 } from '../../types/products';
+import { readableError as describeAdminError } from '../../utils/presentation';
 
 interface CommandAttempt {
   key: string;
@@ -112,16 +113,25 @@ function isUnknownOutcome(error: unknown): boolean {
 }
 
 function readableError(error: unknown): string {
-  if (!(error instanceof AdminApiError)) return 'Banner 资料保存失败，请稍后重试';
-  if (error.status === 0) return '网络连接失败，保存结果尚未确认；可保持内容不变后重试';
-  if (error.status === 403) return '当前账号无权保存 Banner';
-  if (error.status === 404) return 'Banner 或关联目标不存在，请刷新列表';
-  if (error.status === 429) return '操作过于频繁，请稍后重试';
-  if (error.code === 'FILE_CONTENT_MISMATCH') return '图片内容校验不一致，请重新选择后再试';
-  if (error.code === 'STATE_CONFLICT') return 'Banner 图片、跳转目标或当前状态已不可用，请修正资料后重试';
-  if (error.status === 400 || error.status === 422) return 'Banner 资料不符合要求，请检查图片、目标和投放时间';
-  if (error.status >= 500) return '服务暂时不可用，保存结果尚未确认；可保持内容不变后重试';
-  return 'Banner 资料保存失败，请稍后重试';
+  if (error instanceof AdminApiError && error.status === 0) {
+    return '网络连接失败，保存结果尚未确认；可保持内容不变后重试';
+  }
+  if (error instanceof AdminApiError && error.status >= 500) {
+    return '服务暂时不可用，保存结果尚未确认；可保持内容不变后重试';
+  }
+  return describeAdminError(error, 'Banner 资料保存失败，请稍后重试', {
+    codeMessages: {
+      FILE_CONTENT_MISMATCH: '图片内容校验不一致，请重新选择后再试',
+      STATE_CONFLICT: 'Banner 图片、跳转目标或当前状态已不可用，请修正资料后重试',
+    },
+    statusMessages: {
+      400: 'Banner 资料不符合要求，请检查图片、目标和投放时间',
+      403: '当前账号无权保存 Banner',
+      404: 'Banner 或关联目标不存在，请刷新列表',
+      422: 'Banner 资料不符合要求，请检查图片、目标和投放时间',
+      429: '操作过于频繁，请稍后重试',
+    },
+  });
 }
 
 function shanghaiInput(value: string | null): string {

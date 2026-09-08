@@ -1,4 +1,4 @@
-import { ApplicationError, generateUlid, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, generateUlid, internalError as internal, isValidUlid, requireUlid } from '@qingxu/platform-core';
 import { createHmac } from 'node:crypto';
 
 import { Prisma, type PrismaClient } from '../.generated/prisma/client';
@@ -742,10 +742,6 @@ interface LockedWalletRow {
   version: number;
 }
 
-function internal(message: string): ApplicationError {
-  return new ApplicationError('INTERNAL_ERROR', message);
-}
-
 function notFound(): ApplicationError {
   return new ApplicationError('RESOURCE_NOT_FOUND', 'Order not found');
 }
@@ -806,10 +802,6 @@ function requireExactKeys(
     required.some((key) => !Object.prototype.hasOwnProperty.call(value, key))) {
     throw new TypeError(`${label} contains invalid fields`);
   }
-}
-
-function requireUlid(value: unknown, label: string): asserts value is string {
-  if (typeof value !== 'string' || !isValidUlid(value)) throw new TypeError(`${label} must be a ULID`);
 }
 
 function requirePositiveVersion(value: unknown, label: string): asserts value is number {

@@ -257,9 +257,6 @@ onBeforeUnmount(() => {
       <view class="category-header">
         <view class="category-header__title-row">
           <view>
-            <text class="category-header__eyebrow">
-              CATALOG
-            </text>
             <text class="category-header__title">
               商品分类
             </text>
@@ -470,8 +467,7 @@ onBeforeUnmount(() => {
   position: sticky;
   z-index: 12;
   top: 0;
-  padding: calc(24rpx + env(safe-area-inset-top)) 28rpx 24rpx;
-  border-bottom: 1px solid var(--qx-store-line, #e4e8e5);
+  padding: calc(20rpx + env(safe-area-inset-top)) 28rpx 20rpx;
   background: rgba(246, 248, 246, 0.97);
 }
 
@@ -503,10 +499,10 @@ onBeforeUnmount(() => {
 }
 
 .category-header__title {
-  margin-top: 6rpx;
+  margin-top: 0;
   color: var(--qx-store-brand-strong, #173b31);
-  font-size: 38rpx;
-  font-weight: 800;
+  font-size: 36rpx;
+  font-weight: 600;
   line-height: 1.25;
 }
 
@@ -530,11 +526,10 @@ onBeforeUnmount(() => {
 
 .category-rail {
   position: sticky;
-  top: 220rpx;
+  top: 180rpx;
   width: 176rpx;
-  height: calc(100vh - 220rpx - 108rpx - env(safe-area-inset-bottom));
-  border-right: 1px solid var(--qx-store-line, #e4e8e5);
-  background: var(--qx-store-surface-soft, #edf3ef);
+  height: calc(100vh - 180rpx - 108rpx - env(safe-area-inset-bottom));
+  background: var(--qx-store-surface-soft, #eef3ef);
 }
 
 .category-rail__item {
@@ -557,17 +552,17 @@ onBeforeUnmount(() => {
 .category-rail__item--active {
   color: var(--qx-store-brand-strong, #173b31);
   background: var(--qx-store-surface, #ffffff);
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .category-rail__item--active::before {
   position: absolute;
-  top: 22rpx;
-  bottom: 22rpx;
+  top: 28rpx;
+  bottom: 28rpx;
   left: 0;
   width: 6rpx;
   border-radius: 0 6rpx 6rpx 0;
-  background: var(--qx-store-accent, #e27766);
+  background: var(--qx-store-brand, #496859);
   content: '';
 }
 
@@ -597,7 +592,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   color: var(--qx-store-text, #202522);
   font-size: 30rpx;
-  font-weight: 800;
+  font-weight: 600;
   line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -630,24 +625,22 @@ onBeforeUnmount(() => {
 }
 
 .filter-chip {
-  min-height: 58rpx;
+  min-height: 56rpx;
   flex: 0 0 auto;
   margin: 0;
   padding: 0 18rpx;
-  border: 1px solid var(--qx-store-line, #e4e8e5);
-  border-radius: 10rpx;
+  border-radius: 28rpx;
   color: var(--qx-store-text-soft, #5f6762);
   background: var(--qx-store-surface, #ffffff);
   font-size: 20rpx;
-  line-height: 58rpx;
+  line-height: 56rpx;
   white-space: nowrap;
 }
 
 .filter-chip--active {
-  border-color: var(--qx-store-brand, #496859);
-  color: #ffffff;
-  background: var(--qx-store-brand, #496859);
-  font-weight: 700;
+  color: var(--qx-store-brand-strong, #173b31);
+  background: var(--qx-store-brand-soft, #e7efe9);
+  font-weight: 600;
 }
 
 .product-grid {
@@ -662,7 +655,7 @@ onBeforeUnmount(() => {
   min-height: 76rpx;
   margin-top: 24rpx;
   border: 1px solid var(--qx-store-line-strong, #cfd6d1);
-  border-radius: 10rpx;
+  border-radius: var(--qx-store-radius, 16rpx);
   color: var(--qx-store-brand, #496859);
   background: var(--qx-store-surface, #ffffff);
   font-size: 22rpx;

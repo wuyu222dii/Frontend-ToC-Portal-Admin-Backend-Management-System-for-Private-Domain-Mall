@@ -1,4 +1,4 @@
-import { ApplicationError, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, internalError as internal, isValidUlid } from '@qingxu/platform-core';
 
 import { Prisma, type PrismaClient } from '../.generated/prisma/client';
 import { adminCustomerAlias } from './admin-customer.repository';
@@ -182,10 +182,6 @@ interface ResolvedMonthRange {
 
 function invalid(message: string): ApplicationError {
   return new ApplicationError('INVALID_ARGUMENT', message);
-}
-
-function internal(message: string): ApplicationError {
-  return new ApplicationError('INTERNAL_ERROR', message);
 }
 
 function normalizeScope(input: {

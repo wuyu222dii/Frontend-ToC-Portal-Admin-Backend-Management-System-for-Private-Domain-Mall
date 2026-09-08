@@ -22,15 +22,10 @@ import type {
   SkuResponse,
   SkuUpdateRequest,
 } from '../types/products';
-import { adminSessionRequest, newIdempotencyKey } from './admin-api';
+import { adminSessionRequest, newIdempotencyKey, versionEtag } from './admin-api';
 
 type BrandListResponse = components['schemas']['BrandListResponse'];
 type CategoryListResponse = components['schemas']['CategoryListResponse'];
-
-function versionEtag(version: number): string {
-  if (!Number.isSafeInteger(version) || version < 1) throw new TypeError('Resource version must be a positive integer');
-  return `"${version}"`;
-}
 
 function productPath(productId: string): string {
   return `/admin/products/${encodeURIComponent(productId)}`;

@@ -1,4 +1,4 @@
-import { ApplicationError, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, internalError, isValidUlid, requireUlid } from '@qingxu/platform-core';
 
 import { Prisma, type PrismaClient } from '../.generated/prisma/client';
 import type { DatabaseTransaction } from './idempotency.repository';
@@ -155,10 +155,6 @@ function requireExactKeys(
   }
 }
 
-function requireUlid(value: unknown, label: string): asserts value is string {
-  if (!isValidUlid(value)) throw new TypeError(`${label} must be a ULID`);
-}
-
 function requireQuantity(value: unknown): asserts value is number {
   if (!Number.isSafeInteger(value) || Number(value) < 1 || Number(value) > CHECKOUT_QUANTITY_LIMIT) {
     throw new TypeError(`Store checkout quantity must be an integer between 1 and ${CHECKOUT_QUANTITY_LIMIT}`);
@@ -208,10 +204,6 @@ function authenticationRequired(): ApplicationError {
 
 function resourceNotFound(): ApplicationError {
   return new ApplicationError('RESOURCE_NOT_FOUND', 'Checkout resource not found');
-}
-
-function internalError(message: string): ApplicationError {
-  return new ApplicationError('INTERNAL_ERROR', message);
 }
 
 function safeVersion(value: number | null, label: string): number | null {

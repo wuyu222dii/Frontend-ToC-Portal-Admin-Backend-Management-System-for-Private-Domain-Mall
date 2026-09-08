@@ -1,11 +1,17 @@
-import { createIdempotencyKey, putFavorite } from '../api';
+import { createIdempotencyKey, mergeStoreCart, putFavorite } from '../api';
 import { StoreApiError } from '../api/store-client';
+import { isUlid } from './ids';
 
 export type ProtectedAction =
   | { readonly type: 'ADDRESS_EDIT'; readonly address_id?: string }
   | { readonly type: 'ADDRESS_LIST' }
   | { readonly type: 'CART' }
-  | { readonly type: 'CART_ADD'; readonly product_id: string }
+  | {
+      readonly type: 'CART_ADD';
+      readonly product_id: string;
+      readonly sku_id: string;
+      readonly quantity: number;
+    }
   | { readonly type: 'CHECKOUT' }
   | { readonly type: 'FAVORITE'; readonly product_id: string }
   | { readonly type: 'FAVORITES' }
@@ -24,10 +30,6 @@ export type ProtectedAction =
 
 let pendingAction: ProtectedAction | null = null;
 
-function isUlid(value: string): boolean {
-  return /^[0-9A-HJKMNP-TV-Z]{26}$/i.test(value);
-}
-
 export function setProtectedAction(action: ProtectedAction): void {
   if ((action.type === 'CART_ADD' || action.type === 'FAVORITE' || action.type === 'BUY_NOW') &&
     !isUlid(action.product_id)) {
@@ -37,9 +39,11 @@ export function setProtectedAction(action: ProtectedAction): void {
     !isUlid(action.address_id)) {
     throw new Error('Protected action address ID is invalid');
   }
-  if (action.type === 'BUY_NOW' && (!isUlid(action.sku_id) ||
+  if ((action.type === 'BUY_NOW' || action.type === 'CART_ADD') && (!isUlid(action.sku_id) ||
     !Number.isInteger(action.quantity) || action.quantity < 1 || action.quantity > 99)) {
-    throw new Error('Protected buy-now action is invalid');
+    throw new Error(action.type === 'CART_ADD'
+      ? 'Protected cart-add action is invalid'
+      : 'Protected buy-now action is invalid');
   }
   if ((action.type === 'ORDER_DETAIL' || action.type === 'ORDER_LOGISTICS' ||
     action.type === 'PAYMENT_RESULT') &&
@@ -81,29 +85,10 @@ export function openCandidateDecisionPage(handlers: {
   });
 }
 
-function unavailableAfterNavigation(title: string): void {
-  setTimeout(() => {
-    void uni.showModal({
-      confirmText: '知道了',
-      content: '此功能将在后续阶段开放。',
-      showCancel: false,
-      title,
-    });
-  }, 0);
-}
-
-function returnToOrigin(fallbackUrl: string, unavailableTitle?: string): void {
+function returnToOrigin(fallbackUrl: string): void {
   void uni.navigateBack({
-    success: () => {
-      if (unavailableTitle) unavailableAfterNavigation(unavailableTitle);
-    },
     fail: () => {
-      void uni.redirectTo({
-        url: fallbackUrl,
-        success: () => {
-          if (unavailableTitle) unavailableAfterNavigation(unavailableTitle);
-        },
-      });
+      void uni.redirectTo({ url: fallbackUrl });
     },
   });
 }
@@ -134,6 +119,27 @@ async function resumeFavorite(productId: string): Promise<void> {
     showResumeResult(error instanceof StoreApiError && error.status === 409
       ? '收藏状态已变化，请再次操作'
       : '收藏失败，请稍后重试');
+  }
+}
+
+async function resumeCartAdd(
+  productId: string,
+  skuId: string,
+  quantity: number,
+): Promise<void> {
+  const productUrl = `/pages/product/detail?product_id=${encodeURIComponent(productId)}`;
+  try {
+    await mergeStoreCart(
+      { items: [{ sku_id: skuId, quantity, selected: true }] },
+      createIdempotencyKey(),
+    );
+    returnToOrigin(productUrl);
+    showResumeResult('已加入购物车');
+  } catch (error) {
+    returnToOrigin(productUrl);
+    showResumeResult(error instanceof StoreApiError && error.code === 'CART_ITEM_LIMIT_EXCEEDED'
+      ? '购物车商品种类已达上限'
+      : '加购失败，请稍后重试');
   }
 }
 
@@ -185,8 +191,7 @@ export async function resumeProtectedAction(): Promise<void> {
     return;
   }
   if (action.type === 'CART_ADD') {
-    returnToOrigin(`/pages/product/detail?product_id=${encodeURIComponent(action.product_id)}`);
-    showResumeResult('请重新确认加入购物车');
+    await resumeCartAdd(action.product_id, action.sku_id, action.quantity);
     return;
   }
   replaceCurrentPage(`/pages/checkout/index?source=BUY_NOW&product_id=${encodeURIComponent(action.product_id)}&sku_id=${encodeURIComponent(action.sku_id)}&quantity=${action.quantity}`);

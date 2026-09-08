@@ -8,6 +8,7 @@ import {
   customerSessionGeneration,
   loadCustomerRefreshCredential,
 } from '../utils/customer-session';
+import { hasControlCharacter } from '../utils/ids';
 import { StoreApiError, StoreEnvelopeFormatError } from './store-client';
 import { authenticatedRequest, createIdempotencyKey } from './store-identity';
 
@@ -46,13 +47,6 @@ function exactRecord(value: unknown, required: readonly string[]): RecordValue {
 function text(value: unknown, minimum = 1, maximum = 2_048): string {
   if (typeof value !== 'string' || value.length < minimum || value.length > maximum) invalidEnvelope();
   return value;
-}
-
-function hasControlCharacter(value: string): boolean {
-  return Array.from(value).some((character) => {
-    const codePoint = character.codePointAt(0);
-    return codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f);
-  });
 }
 
 function ulid(value: unknown): string {

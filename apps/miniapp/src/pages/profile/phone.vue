@@ -278,7 +278,7 @@ onLoad(() => {
 
 .phone-status__value {
   font-size: 32rpx;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .phone-revoke {

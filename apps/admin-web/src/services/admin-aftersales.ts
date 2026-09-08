@@ -1,4 +1,4 @@
-import { adminSessionRequest, newIdempotencyKey } from './admin-api';
+import { adminSessionRequest, newIdempotencyKey, versionEtag } from './admin-api';
 import {
   decodeAdminAftersaleCommandResponse,
   decodeAdminAftersaleDetailResponse,
@@ -54,11 +54,6 @@ const aftersalesPath = '/admin/aftersales';
 function identifier(value: string, label: string): string {
   if (!ULID.test(value)) throw new TypeError(`${label} must be a ULID`);
   return value;
-}
-
-function versionEtag(version: number): string {
-  if (!Number.isSafeInteger(version) || version < 1) throw new TypeError('Resource version must be a positive integer');
-  return `"${version}"`;
 }
 
 function aftersalePath(aftersaleId: string): string {

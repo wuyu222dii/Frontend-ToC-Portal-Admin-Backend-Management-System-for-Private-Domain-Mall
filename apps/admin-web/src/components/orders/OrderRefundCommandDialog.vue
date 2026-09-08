@@ -20,6 +20,7 @@ import {
   type AdminRefundCommandJournal,
 } from '../../services/admin-refund-command-journal';
 import type { AdminOrderDetail } from '../../types/orders';
+import { readableError as describeAdminError } from '../../utils/presentation';
 
 export type OrderRefundCommandMode = 'MANUAL_COMPENSATION' | 'RETRY_REFUND';
 
@@ -170,17 +171,26 @@ function readableError(error: unknown): string {
     if (error.code === 'PENDING_COMMAND') return '已有资金操作等待核验，请先恢复原确认操作';
     return '无法安全保存或读取确认操作，未发送请求';
   }
-  if (!(error instanceof AdminApiError)) return '服务响应无法确认，请保持内容不变后重试';
-  if (error.status === 0) return '网络连接中断，结果尚未确认；请保持内容不变后重试';
-  if (error.status === 403) return '当前账号无权执行该资金操作';
-  if (error.status === 404) return '订单或退款事实已不存在';
-  if (error.status === 422) return error.code === 'AFTERSALE_QUOTA_EXCEEDED'
-    ? '订单项剩余可补偿金额不足，请刷新订单'
-    : '当前业务条件不满足该操作';
-  if (error.status === 429) return error.retryAfterSeconds
-    ? `操作过于频繁，请在 ${error.retryAfterSeconds} 秒后重试`
-    : '操作过于频繁，请稍后重试';
-  return '资金操作未完成，请刷新订单后重试';
+  if (error instanceof AdminApiError && error.status === 0) {
+    return '网络连接中断，结果尚未确认；请保持内容不变后重试';
+  }
+  return describeAdminError(
+    error,
+    error instanceof AdminApiError ? '资金操作未完成，请刷新订单后重试' : '服务响应无法确认，请保持内容不变后重试',
+    {
+      codeMessages: {
+        AFTERSALE_QUOTA_EXCEEDED: '订单项剩余可补偿金额不足，请刷新订单',
+      },
+      statusMessages: {
+        403: '当前账号无权执行该资金操作',
+        404: '订单或退款事实已不存在',
+        422: '当前业务条件不满足该操作',
+        429: error instanceof AdminApiError && error.retryAfterSeconds
+          ? `操作过于频繁，请在 ${error.retryAfterSeconds} 秒后重试`
+          : '操作过于频繁，请稍后重试',
+      },
+    },
+  );
 }
 
 function handleError(error: unknown, stage: 'CONFIRM' | 'PREVIEW'): void {

@@ -25,7 +25,6 @@ import {
 } from '../../services/admin-agents';
 import { AdminApiError, newIdempotencyKey } from '../../services/admin-api';
 import { listAdminProducts } from '../../services/admin-products';
-import { authSession } from '../../stores/auth-session';
 import type {
   AdminAgentCommissionResult,
   AdminAgentDetail,
@@ -35,6 +34,7 @@ import type {
   InviteRotationResult,
   ProductAuthorization,
 } from '../../types/admin-b13';
+import { readableError as describeAdminError, handleUnauthorized } from '../../utils/presentation';
 import { formatChinaDateTime } from '../../utils/time';
 
 type CommandMode = 'DISABLE' | 'INVITE_ROTATE' | 'INVITE_STATUS' | 'PASSWORD_RESET';
@@ -105,23 +105,22 @@ async function listAllActiveProductOptions(signal: AbortSignal): Promise<Array<{
 }
 
 function readableError(error: unknown): string {
-  if (!(error instanceof AdminApiError)) return '代理详情加载失败，请稍后重试';
-  if (error.status === 0) return '网络连接失败，请检查网络后重试';
-  if (error.status === 400) return '代理标识无效';
-  if (error.status === 403) return '当前账号无权查看该代理';
-  if (error.status === 404) return '代理不存在或已不可访问';
-  return '代理详情加载失败，请稍后重试';
+  return describeAdminError(error, '代理详情加载失败，请稍后重试', {
+    statusMessages: {
+      400: '代理标识无效',
+      403: '当前账号无权查看该代理',
+      404: '代理不存在或已不可访问',
+    },
+  });
 }
 
 async function handleExpired(error: unknown): Promise<boolean> {
-  if (!(error instanceof AdminApiError) || error.status !== 401) return false;
-  ++sequence;
-  controller?.abort();
-  saveController?.abort();
-  closeSensitive();
-  authSession.clearSession();
-  await router.replace('/login');
-  return true;
+  return handleUnauthorized(error, router, () => {
+    ++sequence;
+    controller?.abort();
+    saveController?.abort();
+    closeSensitive();
+  });
 }
 
 async function load(): Promise<void> {

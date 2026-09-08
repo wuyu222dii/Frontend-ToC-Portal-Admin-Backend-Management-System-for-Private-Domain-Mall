@@ -1,4 +1,4 @@
-import { ApplicationError, generateUlid, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, generateUlid, internalError as internal, isValidUlid } from '@qingxu/platform-core';
 
 import { Prisma, type PrismaClient } from '../.generated/prisma/client';
 import type { PaymentProvider } from '../.generated/prisma/enums';
@@ -331,10 +331,6 @@ interface FinalizationLineRow extends RefundableLineRow {
   refund_item_commission_reversal: Prisma.Decimal;
   refund_item_id: string;
   refund_item_quantity: number;
-}
-
-function internal(message: string): ApplicationError {
-  return new ApplicationError('INTERNAL_ERROR', message);
 }
 
 function notFound(message = 'Refund resource was not found'): ApplicationError {

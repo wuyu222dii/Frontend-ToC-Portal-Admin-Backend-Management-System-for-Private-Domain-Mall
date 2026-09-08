@@ -18,6 +18,7 @@ import {
   clearCustomerSession,
   hasRefreshableCustomerSession,
 } from '../../utils/customer-session';
+import { isUlid } from '../../utils/ids';
 import { openLoginForAction } from '../../utils/protected-action';
 
 type PageState = 'loading' | 'ready' | 'auth-required' | 'not-found' | 'error' | 'rate-limited';
@@ -86,10 +87,6 @@ function requireLogin(reloadAddress = false) {
 
 function retryLogin() {
   requireLogin(true);
-}
-
-function isUlid(value: string): boolean {
-  return /^[0-9A-HJKMNP-TV-Z]{26}$/i.test(value);
 }
 
 function markDirty() {
@@ -630,7 +627,7 @@ onUnload(() => {
 
 .address-default-row__title {
   font-size: 25rpx;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .address-edit-page__actions {

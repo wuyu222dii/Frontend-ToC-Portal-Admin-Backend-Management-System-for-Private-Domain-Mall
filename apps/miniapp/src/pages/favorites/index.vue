@@ -11,6 +11,7 @@ import {
 } from '../../api';
 import QxAccountHeader from '../../components/storefront/QxAccountHeader.vue';
 import QxCatalogState from '../../components/storefront/QxCatalogState.vue';
+import QxIcon from '../../components/storefront/QxIcon.vue';
 import QxPrice from '../../components/storefront/QxPrice.vue';
 import QxProductImage from '../../components/storefront/QxProductImage.vue';
 import QxStoreShell from '../../components/storefront/QxStoreShell.vue';
@@ -230,12 +231,10 @@ onUnload(() => {
 
       <view class="favorites-search">
         <view class="favorites-search__field">
-          <text
-            class="favorites-search__icon"
-            aria-hidden="true"
-          >
-            ⌕
-          </text>
+          <QxIcon
+            name="search"
+            :size="28"
+          />
           <input
             v-model="keywordInput"
             class="favorites-search__input"
@@ -399,7 +398,7 @@ onUnload(() => {
 <style scoped>
 .favorites-page {
   min-height: 100vh;
-  background: var(--qx-store-background, #f4f7f5);
+  background: var(--qx-store-background, #f6f8f6);
 }
 
 .favorites-search {
@@ -412,7 +411,6 @@ onUnload(() => {
   align-items: center;
   gap: 12rpx;
   padding: 14rpx 24rpx;
-  border-bottom: 1px solid var(--qx-store-line, #e4e8e5);
   background: rgba(255, 255, 255, 0.98);
 }
 
@@ -423,9 +421,8 @@ onUnload(() => {
   grid-template-columns: 42rpx minmax(0, 1fr) 48rpx;
   align-items: center;
   padding: 0 8rpx 0 16rpx;
-  border: 1px solid var(--qx-store-line, #e4e8e5);
-  border-radius: 10rpx;
-  background: var(--qx-store-surface, #ffffff);
+  border-radius: 36rpx;
+  background: var(--qx-store-background, #f6f8f6);
 }
 
 .favorites-search__icon {
@@ -462,7 +459,7 @@ onUnload(() => {
   min-width: 0;
   min-height: 64rpx;
   font-size: 23rpx;
-  font-weight: 750;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -569,7 +566,7 @@ onUnload(() => {
   width: 100%;
   overflow: hidden;
   font-size: 24rpx;
-  font-weight: 750;
+  font-weight: 600;
   line-height: 1.45;
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;

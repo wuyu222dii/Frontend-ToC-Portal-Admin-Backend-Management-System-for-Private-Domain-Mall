@@ -23,9 +23,8 @@ import {
   type MonthlySalesReportData,
   type ProductRankingReportData,
 } from '../../services/admin-analytics';
-import { AdminApiError } from '../../services/admin-api';
-import { authSession } from '../../stores/auth-session';
 import type { AdminAgent } from '../../types/admin-b13';
+import { readableError as describeAdminError, handleUnauthorized } from '../../utils/presentation';
 import { formatChinaDateTime } from '../../utils/time';
 
 type DashboardView = 'overview' | 'daily' | 'monthly' | 'products' | 'customers';
@@ -198,26 +197,22 @@ function analyticsQuery(): {
 
 function readableError(error: unknown): string {
   if (error instanceof TypeError) return '服务响应格式不正确，已停止展示旧数据';
-  if (!(error instanceof AdminApiError)) return '经营数据加载失败，请稍后重试';
-  if (error.status === 0) return '网络连接失败，请检查网络后重试';
-  if (error.status === 400) return '筛选条件无效，请检查日期范围后重试';
-  if (error.status === 403) return '当前账号无权访问经营分析';
-  if (error.status === 404) return '指定代理不存在或已不可访问';
-  if (error.status === 422) return '当前筛选条件无法处理，请调整后重试';
-  if (error.status === 429) return error.retryAfterSeconds
-    ? `查询过于频繁，请在 ${error.retryAfterSeconds} 秒后重试`
-    : '查询过于频繁，请稍后重试';
-  return '经营数据加载失败，请稍后重试';
+  return describeAdminError(error, '经营数据加载失败，请稍后重试', {
+    statusMessages: {
+      400: '筛选条件无效，请检查日期范围后重试',
+      403: '当前账号无权访问经营分析',
+      404: '指定代理不存在或已不可访问',
+      422: '当前筛选条件无法处理，请调整后重试',
+    },
+  });
 }
 
 async function handleExpired(error: unknown): Promise<boolean> {
-  if (!(error instanceof AdminApiError) || error.status !== 401) return false;
-  ++requestSequence;
-  requestController?.abort();
-  agentController?.abort();
-  authSession.clearSession();
-  await router.replace('/login');
-  return true;
+  return handleUnauthorized(error, router, () => {
+    ++requestSequence;
+    requestController?.abort();
+    agentController?.abort();
+  });
 }
 
 async function load(): Promise<void> {

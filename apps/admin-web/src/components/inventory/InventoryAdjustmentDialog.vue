@@ -11,6 +11,7 @@ import type {
   InventoryAdjustmentPreview,
   InventoryItem,
 } from '../../types/inventory';
+import { readableError as describeAdminError } from '../../utils/presentation';
 
 interface CommandAttempt {
   key: string;
@@ -81,23 +82,27 @@ function isUnknownOutcome(error: unknown): boolean {
 }
 
 function readableError(error: unknown, fallback: string, stage: 'preview' | 'confirm'): string {
-  if (!(error instanceof AdminApiError)) return fallback;
-  if (error.code === 'STOCK_INSUFFICIENT') {
-    return '调整后的实物库存不能小于锁定库存。余额与流水均未改变，请修改调整量后重新预览。';
+  if (error instanceof AdminApiError && error.status === 0) {
+    return stage === 'preview'
+      ? '网络连接失败，影响预览未生成；请重新预览。'
+      : '网络连接失败，结果尚未确认；请保持当前内容不变并重试确认。';
   }
-  if (error.code === 'INVENTORY_QUANTITY_OUT_OF_RANGE') {
-    return '调整结果超出库存整数范围。余额与流水均未改变，请修改调整量后重新预览。';
+  if (error instanceof AdminApiError && error.status >= 500) {
+    return stage === 'preview'
+      ? '服务暂时不可用，影响预览未生成；请稍后重新预览。'
+      : '服务结果尚未确认；请使用当前按钮重试，系统不会重复调整库存。';
   }
-  if (error.status === 0) return stage === 'preview'
-    ? '网络连接失败，影响预览未生成；请重新预览。'
-    : '网络连接失败，结果尚未确认；请保持当前内容不变并重试确认。';
-  if (error.status === 403) return '当前账号无权调整库存';
-  if (error.status === 404) return 'SKU 不存在或已不可用，请刷新库存列表';
-  if (error.status === 429) return '操作过于频繁，请稍后重试';
-  if (error.status >= 500) return stage === 'preview'
-    ? '服务暂时不可用，影响预览未生成；请稍后重新预览。'
-    : '服务结果尚未确认；请使用当前按钮重试，系统不会重复调整库存。';
-  return fallback;
+  return describeAdminError(error, fallback, {
+    codeMessages: {
+      STOCK_INSUFFICIENT: '调整后的实物库存不能小于锁定库存。余额与流水均未改变，请修改调整量后重新预览。',
+      INVENTORY_QUANTITY_OUT_OF_RANGE: '调整结果超出库存整数范围。余额与流水均未改变，请修改调整量后重新预览。',
+    },
+    statusMessages: {
+      403: '当前账号无权调整库存',
+      404: 'SKU 不存在或已不可用，请刷新库存列表',
+      429: '操作过于频繁，请稍后重试',
+    },
+  });
 }
 
 function stopClock(): void {

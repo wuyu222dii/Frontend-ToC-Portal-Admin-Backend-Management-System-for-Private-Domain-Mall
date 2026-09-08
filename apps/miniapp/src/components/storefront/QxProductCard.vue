@@ -4,6 +4,7 @@ import { computed } from 'vue';
 import type { StoreProductCardData } from './storefront.types';
 import QxPrice from './QxPrice.vue';
 import QxProductImage from './QxProductImage.vue';
+import QxTag from './QxTag.vue';
 
 const props = withDefaults(
   defineProps<{
@@ -21,15 +22,15 @@ const emit = defineEmits<{
 
 const badge = computed(() => {
   if (!props.product.is_salable) {
-    return '暂时售罄';
+    return { tone: 'sold-out' as const, label: '暂时售罄' };
   }
   if (props.product.is_hot) {
-    return '热销';
+    return { tone: 'hot' as const, label: '热销' };
   }
   if (props.product.is_new) {
-    return '新品';
+    return { tone: 'new' as const, label: '新品' };
   }
-  return '';
+  return null;
 });
 
 const salesCopy = computed(() => {
@@ -57,12 +58,13 @@ const salesCopy = computed(() => {
         :alt="product.name"
         :shape="variant === 'list' ? 'fill' : 'square'"
       />
-      <text
+      <QxTag
         v-if="badge"
         class="qx-product-card__badge"
+        :tone="badge.tone"
       >
-        {{ badge }}
-      </text>
+        {{ badge.label }}
+      </QxTag>
     </view>
     <view class="qx-product-card__body">
       <text
@@ -102,15 +104,13 @@ const salesCopy = computed(() => {
   min-width: 0;
   margin: 0;
   overflow: hidden;
-  border: 1px solid var(--qx-store-line, #e4e8e5);
-  border-radius: 16rpx;
+  border-radius: var(--qx-store-radius, 16rpx);
   color: var(--qx-store-text, #202522);
   background: var(--qx-store-surface, #ffffff);
   text-align: left;
 }
 
 .qx-product-card--pressed {
-  border-color: var(--qx-store-line-strong, #cfd6d1);
   opacity: 0.88;
 }
 
@@ -118,9 +118,8 @@ const salesCopy = computed(() => {
   display: grid;
   min-height: 224rpx;
   grid-template-columns: 208rpx minmax(0, 1fr);
-  border-right: 0;
-  border-left: 0;
   border-radius: 0;
+  background: var(--qx-store-surface, #ffffff);
 }
 
 .qx-product-card__media {
@@ -128,6 +127,11 @@ const salesCopy = computed(() => {
   width: 100%;
   min-width: 0;
   overflow: hidden;
+  background: var(--qx-store-surface-soft, #eef3ef);
+}
+
+.qx-product-card--grid .qx-product-card__media {
+  border-radius: var(--qx-store-radius, 16rpx) var(--qx-store-radius, 16rpx) 0 0;
 }
 
 .qx-product-card--list .qx-product-card__media {
@@ -135,7 +139,7 @@ const salesCopy = computed(() => {
   height: 184rpx;
   align-self: center;
   margin-left: 24rpx;
-  border-radius: 12rpx;
+  border-radius: var(--qx-store-radius-sm, 12rpx);
 }
 
 .qx-product-card--sold-out .qx-product-card__media {
@@ -148,25 +152,13 @@ const salesCopy = computed(() => {
   z-index: 3;
   top: 16rpx;
   left: 16rpx;
-  padding: 8rpx 12rpx;
-  border-radius: 8rpx;
-  color: #ffffff;
-  background: var(--qx-store-accent, #e27766);
-  font-size: 18rpx;
-  font-weight: 700;
-  line-height: 1.2;
-}
-
-.qx-product-card--sold-out .qx-product-card__badge {
-  background: var(--qx-store-text-soft, #5f6762);
 }
 
 .qx-product-card__body {
   display: flex;
   min-width: 0;
-  min-height: 194rpx;
   flex-direction: column;
-  padding: 20rpx;
+  padding: 18rpx 16rpx 20rpx;
 }
 
 .qx-product-card--list .qx-product-card__body {
@@ -185,23 +177,25 @@ const salesCopy = computed(() => {
 .qx-product-card__brand {
   color: var(--qx-store-brand, #496859);
   font-size: 18rpx;
-  font-weight: 800;
+  font-weight: 600;
   line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .qx-product-card__name {
-  min-height: 72rpx;
-  margin-top: 10rpx;
+  display: -webkit-box;
+  margin-top: 8rpx;
+  overflow: hidden;
   color: var(--qx-store-text, #202522);
   font-size: 24rpx;
   font-weight: 600;
-  line-height: 1.5;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .qx-product-card--list .qx-product-card__name {
-  min-height: auto;
   font-size: 26rpx;
 }
 
@@ -219,6 +213,10 @@ const salesCopy = computed(() => {
   min-width: 0;
   align-items: flex-end;
   gap: 12rpx;
+  margin-top: 14rpx;
+}
+
+.qx-product-card--list .qx-product-card__footer {
   margin-top: auto;
   padding-top: 16rpx;
 }
@@ -228,7 +226,7 @@ const salesCopy = computed(() => {
   margin-left: auto;
   overflow: hidden;
   color: var(--qx-store-muted, #8d9690);
-  font-size: 17rpx;
+  font-size: 18rpx;
   line-height: 1.35;
   text-align: right;
   text-overflow: ellipsis;
@@ -237,12 +235,10 @@ const salesCopy = computed(() => {
 
 @media (min-width: 768px) {
   .qx-product-card__body {
-    min-height: 156px;
-    padding: 16px;
+    padding: 14px;
   }
 
   .qx-product-card__name {
-    min-height: 48px;
     font-size: 16px;
   }
 

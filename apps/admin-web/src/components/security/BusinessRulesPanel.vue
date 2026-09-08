@@ -11,6 +11,7 @@ import {
   previewAdminBusinessRules,
 } from '../../services/admin-settings';
 import type { BusinessRuleInput, BusinessRules, HighRiskPreview } from '../../types/admin-b13';
+import { readableError as describeAdminError } from '../../utils/presentation';
 import { formatChinaDateTime } from '../../utils/time';
 
 const emit = defineEmits<{
@@ -40,16 +41,20 @@ function syncForm(): void {
 }
 
 function readableError(error: unknown): string {
-  if (!(error instanceof AdminApiError)) return '业务规则加载失败，请稍后重试';
-  if (error.status === 0) return '网络连接失败，未能读取当前业务规则';
-  if (error.status === 403) return '当前账号无权读取业务规则';
-  if (error.status === 429) {
-    return error.retryAfterSeconds
-      ? `读取过于频繁，请在 ${error.retryAfterSeconds} 秒后重试`
-      : '读取过于频繁，请稍后重试';
+  if (error instanceof AdminApiError && error.status === 0) {
+    return '网络连接失败，未能读取当前业务规则';
   }
-  if (error.status >= 500) return '业务规则服务暂时不可用，请稍后重试';
-  return '业务规则加载失败，请稍后重试';
+  if (error instanceof AdminApiError && error.status >= 500) {
+    return '业务规则服务暂时不可用，请稍后重试';
+  }
+  return describeAdminError(error, '业务规则加载失败，请稍后重试', {
+    statusMessages: {
+      403: '当前账号无权读取业务规则',
+      429: error instanceof AdminApiError && error.retryAfterSeconds
+        ? `读取过于频繁，请在 ${error.retryAfterSeconds} 秒后重试`
+        : '读取过于频繁，请稍后重试',
+    },
+  });
 }
 
 async function loadRules(): Promise<void> {

@@ -8,6 +8,7 @@ import { StoreApiError } from '../../api/store-client';
 import QxAccountHeader from '../../components/storefront/QxAccountHeader.vue';
 import QxBottomNav from '../../components/storefront/QxBottomNav.vue';
 import QxCatalogState from '../../components/storefront/QxCatalogState.vue';
+import QxIcon from '../../components/storefront/QxIcon.vue';
 import QxStoreShell from '../../components/storefront/QxStoreShell.vue';
 import type { CustomerProfile, ServiceAgent } from '../../types/store-identity';
 import { clearCustomerSession } from '../../utils/customer-session';
@@ -124,37 +125,76 @@ onShow(() => {
         </section>
 
         <view class="qx-account-panel">
-          <text class="qx-account-panel__heading">账户资料</text>
           <button aria-label="编辑资料" class="qx-account-row" @click="openPage('/pages/profile/edit')">
-            <text>编辑资料</text><text class="qx-account-row__value">›</text>
+            <view class="qx-account-row__lead">
+              <view class="qx-account-row__icon"><QxIcon name="edit" :size="32" /></view>
+              <text>编辑资料</text>
+            </view>
+            <view class="qx-account-row__value">
+              <QxIcon name="chevron" :size="28" />
+            </view>
           </button>
           <button aria-label="账户手机号" class="qx-account-row" @click="openPage('/pages/profile/phone')">
-            <text>账户手机号</text>
-            <text class="qx-account-row__value">{{ profile.phone_masked || '未授权' }} ›</text>
+            <view class="qx-account-row__lead">
+              <view class="qx-account-row__icon"><QxIcon name="phone" :size="32" /></view>
+              <text>账户手机号</text>
+            </view>
+            <view class="qx-account-row__value">
+              <text>{{ profile.phone_masked || '未授权' }}</text>
+              <QxIcon name="chevron" :size="28" />
+            </view>
           </button>
           <button aria-label="服务代理" class="qx-account-row" @click="openPage('/pages/profile/agent')">
-            <text>服务代理</text>
-            <text class="qx-account-row__value">{{ serviceAgent?.display_name || '未绑定' }} ›</text>
+            <view class="qx-account-row__lead">
+              <view class="qx-account-row__icon"><QxIcon name="user" :size="32" /></view>
+              <text>服务代理</text>
+            </view>
+            <view class="qx-account-row__value">
+              <text>{{ serviceAgent?.display_name || '未绑定' }}</text>
+              <QxIcon name="chevron" :size="28" />
+            </view>
           </button>
         </view>
 
         <view class="qx-account-panel">
-          <text class="qx-account-panel__heading">消费服务</text>
           <button aria-label="商品收藏" class="qx-account-row" @click="openPage('/pages/favorites/index')">
-            <text>商品收藏</text><text class="qx-account-row__value">›</text>
+            <view class="qx-account-row__lead">
+              <view class="qx-account-row__icon"><QxIcon name="heart" :size="32" /></view>
+              <text>商品收藏</text>
+            </view>
+            <view class="qx-account-row__value">
+              <QxIcon name="chevron" :size="28" />
+            </view>
           </button>
           <button aria-label="收货地址" class="qx-account-row" @click="openPage('/pages/address/index')">
-            <text>收货地址</text><text class="qx-account-row__value">›</text>
+            <view class="qx-account-row__lead">
+              <view class="qx-account-row__icon"><QxIcon name="location" :size="32" /></view>
+              <text>收货地址</text>
+            </view>
+            <view class="qx-account-row__value">
+              <QxIcon name="chevron" :size="28" />
+            </view>
           </button>
           <button aria-label="我的订单" class="qx-account-row" @click="openPage('/pages/orders/index')">
-            <text>我的订单</text><text class="qx-account-row__value">›</text>
+            <view class="qx-account-row__lead">
+              <view class="qx-account-row__icon"><QxIcon name="order" :size="32" /></view>
+              <text>我的订单</text>
+            </view>
+            <view class="qx-account-row__value">
+              <QxIcon name="chevron" :size="28" />
+            </view>
           </button>
         </view>
 
         <view class="qx-account-panel">
-          <text class="qx-account-panel__heading">隐私与会话</text>
           <button aria-label="账号与隐私" class="qx-account-row" @click="openPage('/pages/profile/privacy')">
-            <text>账号与隐私</text><text class="qx-account-row__value">›</text>
+            <view class="qx-account-row__lead">
+              <view class="qx-account-row__icon"><QxIcon name="shield" :size="32" /></view>
+              <text>账号与隐私</text>
+            </view>
+            <view class="qx-account-row__value">
+              <QxIcon name="chevron" :size="28" />
+            </view>
           </button>
           <button class="qx-account-row profile-logout" @click="confirmLogout">
             <text>{{ logoutPending ? '正在退出…' : '退出登录' }}</text>
@@ -176,9 +216,8 @@ onShow(() => {
   min-height: 152rpx;
   align-items: center;
   gap: 24rpx;
-  padding: 24rpx 28rpx;
-  border: 1px solid var(--qx-store-line);
-  border-radius: 12rpx;
+  padding: 28rpx;
+  border-radius: var(--qx-store-radius, 16rpx);
   background: var(--qx-store-surface);
 }
 
@@ -208,7 +247,7 @@ onShow(() => {
 .profile-summary__name {
   overflow: hidden;
   font-size: 30rpx;
-  font-weight: 800;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

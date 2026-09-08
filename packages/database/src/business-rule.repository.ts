@@ -1,4 +1,4 @@
-import { ApplicationError, generateUlid, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, generateUlid, internalError as internal, isValidUlid } from '@qingxu/platform-core';
 
 import { Prisma, type PrismaClient } from '../.generated/prisma/client';
 import { acquireTransactionLock } from './advisory-lock';
@@ -78,10 +78,6 @@ type RuleRow = {
   status: string;
   version_no: number;
 };
-
-function internal(message: string): ApplicationError {
-  return new ApplicationError('INTERNAL_ERROR', message);
-}
 
 function notFound(): ApplicationError {
   return new ApplicationError('RESOURCE_NOT_FOUND', 'Published business rules were not found');

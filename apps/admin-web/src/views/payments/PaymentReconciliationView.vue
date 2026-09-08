@@ -10,7 +10,6 @@ import {
   listPaymentReconciliationTasks,
   reconcilePaymentIntent,
 } from '../../services/admin-payments';
-import { authSession } from '../../stores/auth-session';
 import type {
   PaymentIntentReconciliationStatus,
   PaymentReconciliationListQuery,
@@ -24,6 +23,7 @@ import {
   markPaymentReconciliationAttemptUncertain,
   type PaymentReconciliationAttempt,
 } from '../../utils/payment-reconciliation-attempt';
+import { readableError as describeAdminError, handleSessionError as redirectExpiredSession } from '../../utils/presentation';
 import { formatChinaDateTime } from '../../utils/time';
 
 type OptionalTaskType = '' | PaymentReconciliationTaskType;
@@ -78,26 +78,22 @@ function isAbort(error: unknown): boolean {
 }
 
 function readableListError(error: unknown): string {
-  if (!(error instanceof AdminApiError)) return '对账待办响应无法验证，请稍后重试';
-  if (error.status === 0) return '网络连接失败，请检查网络后重试';
-  if (error.status === 403) return '当前账号无权查看支付对账待办';
-  if (error.status === 429) {
-    return error.retryAfterSeconds
-      ? `查询过于频繁，请在 ${error.retryAfterSeconds} 秒后重试`
-      : '查询过于频繁，请稍后重试';
-  }
-  return '支付对账待办加载失败，请稍后重试';
+  return describeAdminError(
+    error,
+    error instanceof AdminApiError ? '支付对账待办加载失败，请稍后重试' : '对账待办响应无法验证，请稍后重试',
+    {
+      statusMessages: { 403: '当前账号无权查看支付对账待办' },
+    },
+  );
 }
 
 async function handleSessionError(error: unknown): Promise<boolean> {
-  if (authSession.state.session && (!(error instanceof AdminApiError) || error.status !== 401)) return false;
-  ++listSequence;
-  listController?.abort();
-  items.value = [];
-  total.value = 0;
-  authSession.clearSession();
-  await router.replace('/login');
-  return true;
+  return redirectExpiredSession(error, router, () => {
+    ++listSequence;
+    listController?.abort();
+    items.value = [];
+    total.value = 0;
+  });
 }
 
 function filterQuery(): PaymentReconciliationListQuery {

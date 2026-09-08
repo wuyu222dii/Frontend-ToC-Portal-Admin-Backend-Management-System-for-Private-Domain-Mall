@@ -362,7 +362,7 @@ onUnload(() => {
   height: 104rpx;
   align-items: center;
   justify-content: center;
-  border-radius: 12rpx;
+  border-radius: var(--qx-store-radius, 16rpx);
   color: #ffffff;
   background: var(--qx-store-brand);
   font-size: 48rpx;
@@ -370,7 +370,7 @@ onUnload(() => {
 
 .login-brand__title {
   font-size: 34rpx;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .login-consents {

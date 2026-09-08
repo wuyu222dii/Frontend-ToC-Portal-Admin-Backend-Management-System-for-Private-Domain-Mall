@@ -12,6 +12,7 @@ import {
 } from '@qingxu/database';
 import {
   RedisMockPaymentProvider,
+  unavailablePaymentProvider,
   type PaymentProviderPort,
   type PaymentRefundQueryPort,
 } from '@qingxu/payment';
@@ -61,52 +62,6 @@ import { WorkerController } from './worker.controller';
 
 export function workerRedisReconnectDelay(retries: number): number {
   return Math.min(100 * 2 ** Math.min(retries, 5), 5_000);
-}
-
-function unavailablePaymentProvider(): PaymentProviderPort & PaymentRefundQueryPort {
-  return {
-    close: async () => ({
-      capability: null,
-      failureCode: 'PROVIDER_UNAVAILABLE' as const,
-      occurredAt: null,
-      outcome: 'UNKNOWN' as const,
-      providerEventId: null,
-      providerIntentId: null,
-      providerTransactionId: null,
-    }),
-    create: async () => ({
-      capability: null,
-      failureCode: 'PROVIDER_UNAVAILABLE' as const,
-      occurredAt: null,
-      outcome: 'UNKNOWN' as const,
-      providerEventId: null,
-      providerIntentId: null,
-      providerTransactionId: null,
-    }),
-    query: async () => ({
-      capability: null,
-      failureCode: 'PROVIDER_UNAVAILABLE' as const,
-      occurredAt: null,
-      outcome: 'UNKNOWN' as const,
-      providerEventId: null,
-      providerIntentId: null,
-      providerTransactionId: null,
-    }),
-    queryRefund: async () => ({
-      failureCode: 'PROVIDER_UNAVAILABLE' as const,
-      occurredAt: null,
-      outcome: 'UNKNOWN' as const,
-      providerEventId: null,
-      providerRefundId: null,
-    }),
-    refund: async () => ({
-      failureCode: 'PROVIDER_UNAVAILABLE' as const,
-      occurredAt: null,
-      outcome: 'UNKNOWN' as const,
-      providerEventId: null,
-      providerRefundId: null,
-    }),
-  };
 }
 
 export function createWorkerPaymentProvider(

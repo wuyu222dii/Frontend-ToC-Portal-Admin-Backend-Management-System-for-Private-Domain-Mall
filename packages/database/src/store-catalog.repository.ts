@@ -1,4 +1,4 @@
-import { ApplicationError, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, internalError, isValidUlid, requireUlid } from '@qingxu/platform-core';
 
 import { Prisma, type PrismaClient } from '../.generated/prisma/client';
 import type { BannerTargetType } from '../.generated/prisma/enums';
@@ -212,10 +212,6 @@ function hasOnlyFields(value: unknown, fields: ReadonlySet<string>): boolean {
   return isPlainObject(value) && Object.keys(value).every((key) => fields.has(key));
 }
 
-function requireUlid(value: string, label: string): void {
-  if (!isValidUlid(value)) throw new TypeError(`${label} must be a ULID`);
-}
-
 function validateProductListInput(input: StoreCatalogProductListInput): ProductQuery {
   if (!hasOnlyFields(input, PRODUCT_LIST_FIELDS)) {
     throw new TypeError('Store product list query contains unsupported fields');
@@ -403,10 +399,6 @@ function skuSnapshot(record: SkuRecord): StoreCatalogSkuSnapshot {
     retailPrice: decimalMoney(record.retail_price),
     specification: record.spec_json,
   };
-}
-
-function internalError(message: string): ApplicationError {
-  return new ApplicationError('INTERNAL_ERROR', message);
 }
 
 export class StoreCatalogRepository {

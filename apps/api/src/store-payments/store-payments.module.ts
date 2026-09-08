@@ -2,6 +2,7 @@ import { type DynamicModule, Module } from '@nestjs/common';
 import { isMockRuntimeEnvironment, type PlatformRuntimeConfig } from '@qingxu/config';
 import {
   RedisMockPaymentProvider,
+  unavailablePaymentProvider,
   type PaymentProviderPort,
 } from '@qingxu/payment';
 
@@ -17,16 +18,7 @@ import { PAYMENT_PROVIDER, StorePaymentsService } from './store-payments.service
 function createPaymentProvider(config: PlatformRuntimeConfig, redis: ApiRedisClient): PaymentProviderPort {
   if (config.payment.provider !== 'MOCK' || config.payment.mockSigningKey === undefined ||
     !isMockRuntimeEnvironment(config.environment)) {
-    return {
-      close: async () => ({ outcome: 'UNKNOWN', providerIntentId: null, providerTransactionId: null,
-        providerEventId: null, occurredAt: null, failureCode: 'PROVIDER_UNAVAILABLE', capability: null }),
-      create: async () => ({ outcome: 'UNKNOWN', providerIntentId: null, providerTransactionId: null,
-        providerEventId: null, occurredAt: null, failureCode: 'PROVIDER_UNAVAILABLE', capability: null }),
-      query: async () => ({ outcome: 'UNKNOWN', providerIntentId: null, providerTransactionId: null,
-        providerEventId: null, occurredAt: null, failureCode: 'PROVIDER_UNAVAILABLE', capability: null }),
-      refund: async () => ({ outcome: 'UNKNOWN', providerRefundId: null, providerEventId: null,
-        occurredAt: null, failureCode: 'PROVIDER_UNAVAILABLE' }),
-    };
+    return unavailablePaymentProvider();
   }
   return new RedisMockPaymentProvider({
     environment: config.environment,

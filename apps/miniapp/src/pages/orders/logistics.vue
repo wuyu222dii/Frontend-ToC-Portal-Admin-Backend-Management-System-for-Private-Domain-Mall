@@ -10,6 +10,7 @@ import QxCatalogState from '../../components/storefront/QxCatalogState.vue';
 import QxStoreShell from '../../components/storefront/QxStoreShell.vue';
 import type { StoreLogistics, StoreLogisticsEvent, StoreShipment } from '../../types/store-orders';
 import { clearCustomerSession } from '../../utils/customer-session';
+import { isUlid } from '../../utils/ids';
 import { replaceWithLoginForAction } from '../../utils/protected-action';
 
 type PageState = 'loading' | 'ready' | 'empty' | 'invalid' | 'not-found' |
@@ -33,10 +34,6 @@ const copyPending = ref(false);
 let generation = 0;
 let slowTimer: ReturnType<typeof setTimeout> | undefined;
 let authenticationRequired = false;
-
-function isUlid(value: string): boolean {
-  return /^[0-9A-HJKMNP-TV-Z]{26}$/.test(value);
-}
 
 function clearSlowTimer() {
   if (slowTimer !== undefined) clearTimeout(slowTimer);
@@ -358,34 +355,34 @@ onUnload(() => {
 <style scoped>
 .logistics-page { min-height: 100vh; background: var(--qx-store-background); }
 .logistics-page__body { display: grid; gap: 18rpx; padding: 22rpx 22rpx calc(42rpx + env(safe-area-inset-bottom)); }
-.shipment-summary, .shipment-items, .shipment-timeline { min-width: 0; padding: 24rpx; border: 1px solid var(--qx-store-line); border-radius: 12rpx; background: var(--qx-store-surface); }
+.shipment-summary, .shipment-items, .shipment-timeline { min-width: 0; padding: 24rpx; border-radius: var(--qx-store-radius, 16rpx); background: var(--qx-store-surface); }
 .shipment-summary { display: grid; gap: 20rpx; }
 .shipment-summary__heading { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 16rpx; }
 .shipment-summary__heading > view { min-width: 0; }
 .shipment-summary__status, .shipment-summary__carrier { display: block; overflow-wrap: anywhere; }
-.shipment-summary__status { color: var(--qx-store-brand-strong); font-size: 31rpx; font-weight: 800; }
+.shipment-summary__status { color: var(--qx-store-brand-strong); font-size: 31rpx; font-weight: 600; }
 .shipment-summary__carrier { margin-top: 7rpx; color: var(--qx-store-muted); font-size: 19rpx; }
 .shipment-summary__heading button, .shipment-summary__tracking button { flex: 0 0 auto; min-height: 58rpx; padding: 8rpx 18rpx; border: 1px solid var(--qx-store-brand) !important; border-radius: 8rpx; color: var(--qx-store-brand); background: #ffffff; font-size: 19rpx; }
 .shipment-summary__tracking { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 14rpx; padding: 16rpx; border-radius: 8rpx; background: var(--qx-store-surface-soft); }
 .shipment-summary__tracking view { min-width: 0; }
 .shipment-summary__tracking text { display: block; overflow-wrap: anywhere; }
 .shipment-summary__tracking text:first-child { color: var(--qx-store-muted); font-size: 17rpx; }
-.shipment-summary__tracking text:last-child { margin-top: 5rpx; font-size: 21rpx; font-weight: 750; }
+.shipment-summary__tracking text:last-child { margin-top: 5rpx; font-size: 21rpx; font-weight: 600; }
 .shipment-summary__dates { display: grid; gap: 10rpx; }
 .shipment-summary__dates view { display: grid; min-width: 0; grid-template-columns: 116rpx minmax(0, 1fr); gap: 12rpx; font-size: 19rpx; }
 .shipment-summary__dates text:first-child { color: var(--qx-store-muted); }
 .shipment-items { display: grid; gap: 10rpx; }
-.logistics-section-title { display: block; margin-bottom: 8rpx; font-size: 24rpx; font-weight: 800; }
+.logistics-section-title { display: block; margin-bottom: 8rpx; font-size: 24rpx; font-weight: 600; }
 .shipment-item { display: grid; min-width: 0; gap: 4rpx; padding: 12rpx 0; border-top: 1px solid var(--qx-store-line); }
 .shipment-item text { display: block; overflow-wrap: anywhere; }
-.shipment-item text:first-child { font-size: 20rpx; font-weight: 750; }
+.shipment-item text:first-child { font-size: 20rpx; font-weight: 600; }
 .shipment-item text:last-child { color: var(--qx-store-text-soft); font-size: 18rpx; line-height: 1.5; }
 .shipment-timeline { display: grid; gap: 0; }
 .shipment-event { display: grid; min-width: 0; grid-template-columns: 24rpx minmax(0, 1fr); gap: 12rpx; padding: 16rpx 0 22rpx; }
 .shipment-event:last-of-type { padding-bottom: 0; }
 .shipment-event__dot { width: 16rpx; height: 16rpx; margin-top: 5rpx; border-radius: 50%; background: var(--qx-store-brand); }
 .shipment-event text { display: block; overflow-wrap: anywhere; }
-.shipment-event__title { font-size: 21rpx; font-weight: 750; }
+.shipment-event__title { font-size: 21rpx; font-weight: 600; }
 .shipment-event__description { margin-top: 5rpx; color: var(--qx-store-text-soft); font-size: 19rpx; line-height: 1.5; }
 .shipment-event__meta { margin-top: 4rpx; color: var(--qx-store-muted); font-size: 17rpx; }
 .shipment-timeline__empty { padding-top: 12rpx; color: var(--qx-store-muted); font-size: 19rpx; line-height: 1.55; }

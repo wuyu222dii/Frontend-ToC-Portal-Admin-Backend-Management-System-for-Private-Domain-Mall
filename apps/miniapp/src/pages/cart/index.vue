@@ -13,8 +13,11 @@ import {
 import { StoreApiError, type StoreCancelableRequest } from '../../api/store-client';
 import QxBottomNav from '../../components/storefront/QxBottomNav.vue';
 import QxCatalogState from '../../components/storefront/QxCatalogState.vue';
+import QxCheck from '../../components/storefront/QxCheck.vue';
+import QxIcon from '../../components/storefront/QxIcon.vue';
 import QxPrice from '../../components/storefront/QxPrice.vue';
 import QxProductImage from '../../components/storefront/QxProductImage.vue';
+import QxStepper from '../../components/storefront/QxStepper.vue';
 import QxStoreShell from '../../components/storefront/QxStoreShell.vue';
 import type { StoreProductDetail } from '../../types/store-catalog';
 import type { StoreCart, StoreCartItem } from '../../types/store-shopping';
@@ -386,6 +389,10 @@ function changeQuantity(view: GuestCartViewItem, delta: number): void {
   saveMutation(setGuestCartQuantity(cart.value, view.item.snapshot.sku_id, quantity));
 }
 
+function setCartQuantity(view: GuestCartViewItem, value: number): void {
+  changeQuantity(view, value - view.item.quantity);
+}
+
 function removeItem(view: GuestCartViewItem): void {
   void uni.showModal({
     cancelText: '取消',
@@ -476,7 +483,10 @@ onUnload(cancelRefresh);
           title="刷新最新价格与库存"
           @click="refreshCart"
         >
-          ↻
+          <QxIcon
+            name="reload"
+            :size="36"
+          />
         </button>
       </header>
 
@@ -546,15 +556,15 @@ onUnload(cancelRefresh);
           >
             <button
               class="cart-item__check"
-              :class="{ 'cart-item__check--selected': view.item.selected && view.availability === 'ready' }"
               :aria-label="view.item.selected ? '取消选择商品' : '选择商品'"
               :aria-pressed="view.item.selected && view.availability === 'ready'"
               :disabled="view.availability !== 'ready' || serverMutationPending"
               @click="toggleItem(view)"
             >
-              <text aria-hidden="true">
-                {{ view.item.selected && view.availability === 'ready' ? '✓' : '' }}
-              </text>
+              <QxCheck
+                :checked="view.item.selected && view.availability === 'ready'"
+                :disabled="view.availability !== 'ready' || serverMutationPending"
+              />
             </button>
 
             <button
@@ -593,26 +603,13 @@ onUnload(cancelRefresh);
                 </text>
               </view>
               <view class="cart-item__controls">
-                <view
-                  class="cart-stepper"
-                  aria-label="商品数量"
-                >
-                  <button
-                    aria-label="减少数量"
-                    :disabled="view.availability !== 'ready' || view.item.quantity <= 1 || mutationPending()"
-                    @click="changeQuantity(view, -1)"
-                  >
-                    −
-                  </button>
-                  <text>{{ view.item.quantity }}</text>
-                  <button
-                    aria-label="增加数量"
-                    :disabled="view.availability !== 'ready' || view.available_stock === null || view.item.quantity >= Math.min(99, view.available_stock) || mutationPending()"
-                    @click="changeQuantity(view, 1)"
-                  >
-                    +
-                  </button>
-                </view>
+                <QxStepper
+                  :value="view.item.quantity"
+                  :min="1"
+                  :max="view.available_stock === null ? 1 : Math.min(99, view.available_stock)"
+                  :disabled="view.availability !== 'ready' || mutationPending()"
+                  @change="(value) => setCartQuantity(view, value)"
+                />
                 <button
                   class="cart-item__delete"
                   aria-label="删除商品"
@@ -620,7 +617,10 @@ onUnload(cancelRefresh);
                   :disabled="mutationPending()"
                   @click="removeItem(view)"
                 >
-                  ×
+                  <QxIcon
+                    name="trash"
+                    :size="32"
+                  />
                 </button>
               </view>
             </view>
@@ -638,13 +638,10 @@ onUnload(cancelRefresh);
           :aria-pressed="allSelected"
           @click="toggleAll"
         >
-          <text
-            class="cart-summary__check"
-            :class="{ 'cart-summary__check--selected': allSelected }"
-            aria-hidden="true"
-          >
-            {{ allSelected ? '✓' : '' }}
-          </text>
+          <QxCheck
+            :checked="allSelected"
+            :disabled="eligibleItems.length === 0 || serverMutationPending"
+          />
           全选
         </button>
         <view class="cart-summary__total">
@@ -680,12 +677,12 @@ onUnload(cancelRefresh);
   position: sticky; z-index: 20; top: 0; display: grid;
   min-height: calc(92rpx + env(safe-area-inset-top));
   grid-template-columns: 80rpx minmax(0, 1fr) 80rpx; align-items: end;
-  padding-top: env(safe-area-inset-top); border-bottom: 1px solid var(--qx-store-line);
+  padding-top: env(safe-area-inset-top);
   background: rgba(255, 255, 255, 0.97);
 }
 .cart-header__title {
   display: flex; min-height: 88rpx; grid-column: 2; align-items: center; justify-content: center;
-  font-size: 30rpx; font-weight: 750;
+  font-size: 30rpx; font-weight: 600;
 }
 .cart-header__refresh {
   display: flex; width: 80rpx; min-height: 88rpx; grid-column: 3; grid-row: 1;
@@ -712,22 +709,19 @@ onUnload(cancelRefresh);
 .cart-list { display: grid; gap: 14rpx; }
 .cart-item {
   display: grid; min-width: 0; grid-template-columns: 52rpx 168rpx minmax(0, 1fr);
-  gap: 14rpx; padding: 20rpx 18rpx; border: 1px solid var(--qx-store-line);
-  border-radius: 12rpx; background: var(--qx-store-surface);
+  gap: 14rpx; padding: 20rpx 18rpx; border-radius: var(--qx-store-radius, 16rpx);
+  background: var(--qx-store-surface);
 }
 .cart-item--sold-out, .cart-item--invalid { background: #f3f5f3; }
 .cart-item__check {
   display: flex; width: 40rpx; height: 40rpx; align-self: center; align-items: center;
-  justify-content: center; border: 1px solid var(--qx-store-line-strong) !important;
-  border-radius: 50%; color: #ffffff; background: #ffffff; font-size: 22rpx;
+  justify-content: center; background: transparent;
 }
-.cart-item__check--selected { border-color: var(--qx-store-brand) !important; background: var(--qx-store-brand); }
-.cart-item__check[disabled] { background: var(--qx-store-line); opacity: 0.76; }
 .cart-item__image { width: 168rpx; height: 168rpx; overflow: hidden; border-radius: 10rpx; background: transparent; }
 .cart-item__body { display: flex; min-width: 0; flex-direction: column; }
 .cart-item__name {
   display: block; width: 100%; overflow: hidden; color: var(--qx-store-text); background: transparent;
-  font-size: 23rpx; font-weight: 700; line-height: 1.4; text-align: left;
+  font-size: 23rpx; font-weight: 600; line-height: 1.4; text-align: left;
   text-overflow: ellipsis; white-space: nowrap;
 }
 .cart-item__spec {
@@ -744,13 +738,6 @@ onUnload(cancelRefresh);
 .cart-item__controls {
   display: flex; align-items: flex-end; justify-content: space-between; gap: 12rpx; margin-top: auto; padding-top: 10rpx;
 }
-.cart-stepper {
-  display: grid; width: 164rpx; height: 50rpx; grid-template-columns: 50rpx minmax(0, 1fr) 50rpx;
-  align-items: center; overflow: hidden; border: 1px solid var(--qx-store-line); border-radius: 8rpx; text-align: center;
-}
-.cart-stepper button { height: 48rpx; color: var(--qx-store-text); background: var(--qx-store-surface-soft); font-size: 24rpx; }
-.cart-stepper button[disabled] { color: var(--qx-store-muted); opacity: 0.48; }
-.cart-stepper text { font-size: 19rpx; font-weight: 700; }
 .cart-item__delete {
   display: flex; width: 48rpx; height: 48rpx; flex: 0 0 auto; align-items: center; justify-content: center;
   color: var(--qx-store-muted); background: transparent; font-size: 30rpx;
@@ -759,7 +746,8 @@ onUnload(cancelRefresh);
   position: fixed; z-index: 26; right: 0; bottom: calc(108rpx + env(safe-area-inset-bottom)); left: 0;
   display: grid; width: 100%; max-width: 414px; min-height: 104rpx;
   grid-template-columns: 148rpx minmax(0, 1fr) 190rpx; align-items: center; gap: 10rpx;
-  margin: 0 auto; padding: 10rpx 20rpx; border-top: 1px solid var(--qx-store-line);
+  margin: 0 auto; padding: 10rpx 20rpx;
+  box-shadow: 0 -2rpx 0 var(--qx-store-line);
   background: rgba(255, 255, 255, 0.98);
 }
 .cart-summary__select-all {
@@ -767,18 +755,13 @@ onUnload(cancelRefresh);
   background: transparent; font-size: 20rpx; white-space: nowrap;
 }
 .cart-summary__select-all[disabled] { color: var(--qx-store-muted); }
-.cart-summary__check {
-  display: flex; width: 34rpx; height: 34rpx; flex: 0 0 auto; align-items: center; justify-content: center;
-  border: 1px solid var(--qx-store-line-strong); border-radius: 50%; color: #ffffff; font-size: 18rpx;
-}
-.cart-summary__check--selected { border-color: var(--qx-store-brand); background: var(--qx-store-brand); }
 .cart-summary__total { min-width: 0; text-align: right; }
 .cart-summary__total text { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cart-summary__total text:first-child { color: var(--qx-store-muted); font-size: 17rpx; }
-.cart-summary__total text:last-child { margin-top: 2rpx; color: var(--qx-store-danger); font-size: 25rpx; font-weight: 750; }
+.cart-summary__total text:last-child { margin-top: 2rpx; color: var(--qx-store-accent); font-size: 28rpx; font-weight: 700; }
 .cart-summary__checkout {
-  min-width: 0; min-height: 72rpx; border-radius: 10rpx; color: #ffffff;
-  background: var(--qx-store-brand); font-size: 22rpx; font-weight: 700;
+  min-width: 0; min-height: 72rpx; border-radius: var(--qx-store-radius, 16rpx); color: #ffffff;
+  background: var(--qx-store-brand); font-size: 22rpx; font-weight: 600;
 }
 .cart-summary__checkout[disabled] { background: var(--qx-store-muted); opacity: 0.64; }
 

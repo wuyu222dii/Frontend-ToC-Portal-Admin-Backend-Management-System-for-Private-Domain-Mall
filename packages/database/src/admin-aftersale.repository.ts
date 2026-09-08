@@ -1,6 +1,13 @@
 import { createHmac } from 'node:crypto';
 
-import { ApplicationError, generateUlid, isValidUlid } from '@qingxu/platform-core';
+import {
+  ApplicationError,
+  generateUlid,
+  internalError as internal,
+  isValidUlid,
+  requireUlid,
+  hasControlCharacter as hasControlCharacters,
+} from '@qingxu/platform-core';
 
 import { Prisma, type PrismaClient } from '../.generated/prisma/client';
 import type { AftersaleStatus, AftersaleType } from '../.generated/prisma/enums';
@@ -500,10 +507,6 @@ type ListRecord = Prisma.AftersaleGetPayload<{ include: typeof LIST_INCLUDE }>;
 type DetailRecord = Prisma.AftersaleGetPayload<{ include: typeof DETAIL_INCLUDE }>;
 type ReturnCommandRecord = Prisma.AftersaleGetPayload<{ select: typeof RETURN_COMMAND_SELECT }>;
 
-function internal(message: string): ApplicationError {
-  return new ApplicationError('INTERNAL_ERROR', message);
-}
-
 function notFound(): ApplicationError {
   return new ApplicationError('RESOURCE_NOT_FOUND', 'Aftersale was not found');
 }
@@ -538,10 +541,6 @@ function exactObject(
   }
 }
 
-function requireUlid(value: unknown, label: string): asserts value is string {
-  if (!isValidUlid(value)) throw new TypeError(`${label} must be a ULID`);
-}
-
 function safeUlid(value: unknown, label: string): string {
   if (!isValidUlid(value)) throw internal(`${label} is invalid`);
   return value;
@@ -574,13 +573,6 @@ function safeDate(value: unknown, label: string): Date {
 
 function nullableDate(value: unknown, label: string): Date | null {
   return value === null ? null : safeDate(value, label);
-}
-
-function hasControlCharacters(value: string): boolean {
-  return Array.from(value).some((character) => {
-    const point = character.codePointAt(0);
-    return point !== undefined && (point <= 0x1f || point === 0x7f);
-  });
 }
 
 function safeText(value: unknown, maximum: number, label: string): string {

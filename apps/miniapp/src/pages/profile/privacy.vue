@@ -327,7 +327,7 @@ onUnload(clearCapability);
 
 .deletion-complete__title {
   font-size: 36rpx;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .deletion-complete .qx-account-button {

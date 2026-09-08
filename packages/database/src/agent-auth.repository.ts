@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 
-import { ApplicationError, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, isValidUlid, requireUlid } from '@qingxu/platform-core';
 
 import type { AuthSession, PrismaClient } from '../.generated/prisma/client';
 import { acquireTransactionLock } from './advisory-lock';
@@ -86,10 +86,6 @@ function currentDate(clock: () => Date): Date {
     throw new TypeError('Agent auth clock must return a valid Date');
   }
   return value;
-}
-
-function requireUlid(value: string, label: string): void {
-  if (!isValidUlid(value)) throw new TypeError(`${label} must be a ULID`);
 }
 
 function requirePositiveVersion(value: number, label: string): void {

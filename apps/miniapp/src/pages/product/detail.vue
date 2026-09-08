@@ -13,9 +13,12 @@ import {
 } from '../../api';
 import { StoreApiError, type StoreCancelableRequest } from '../../api/store-client';
 import QxCatalogState from '../../components/storefront/QxCatalogState.vue';
+import QxIcon from '../../components/storefront/QxIcon.vue';
 import QxPrice from '../../components/storefront/QxPrice.vue';
 import QxProductImage from '../../components/storefront/QxProductImage.vue';
+import QxStepper from '../../components/storefront/QxStepper.vue';
 import QxStoreShell from '../../components/storefront/QxStoreShell.vue';
+import QxTag from '../../components/storefront/QxTag.vue';
 import type { StoreProductDetail, StoreSku } from '../../types/store-catalog';
 import {
   addOrMergeGuestCartItem,
@@ -25,6 +28,7 @@ import {
 } from '../../utils/guest-cart';
 import { guestCartSnapshot } from '../../utils/guest-cart-refresh';
 import { hasRefreshableCustomerSession } from '../../utils/customer-session';
+import { isUlid } from '../../utils/ids';
 import { goBackOrHome, openCheckout, openHome, showLoginPrompt } from '../../utils/store-navigation';
 
 type DetailState = 'loading' | 'ready' | 'not-found' | 'error' | 'rate-limited';
@@ -82,10 +86,6 @@ function clearSlowTimer() {
     clearTimeout(slowTimer);
     slowTimer = undefined;
   }
-}
-
-function isUlid(value: string): boolean {
-  return /^[0-9A-HJKMNP-TV-Z]{26}$/i.test(value);
 }
 
 function initialSku(skus: readonly StoreSku[]): StoreSku | undefined {
@@ -185,6 +185,10 @@ function changeQuantity(delta: number) {
   pendingCartAdd = null;
 }
 
+function setSheetQuantity(value: number) {
+  changeQuantity(value - quantity.value);
+}
+
 function openSkuSheet(purpose: 'select' | 'cart') {
   if (!product.value || product.value.skus.length === 0) return;
   sheetPurpose.value = purpose;
@@ -199,7 +203,12 @@ async function confirmSkuSelection() {
     const authenticated = hasRefreshableCustomerSession();
     if (authenticated) customerCartAuthoritative = true;
     if (customerCartAuthoritative && !authenticated) {
-      showLoginPrompt({ type: 'CART_ADD', product_id: productId.value });
+      showLoginPrompt({
+        type: 'CART_ADD',
+        product_id: productId.value,
+        sku_id: currentSku.sku_id,
+        quantity: quantity.value,
+      });
       return;
     }
     cartPending.value = true;
@@ -235,7 +244,12 @@ async function confirmSkuSelection() {
       }
       if (error instanceof StoreApiError && error.status === 401) {
         customerCartAuthoritative = true;
-        showLoginPrompt({ type: 'CART_ADD', product_id: productId.value });
+        showLoginPrompt({
+          type: 'CART_ADD',
+          product_id: productId.value,
+          sku_id: currentSku.sku_id,
+          quantity: quantity.value,
+        });
       }
       const title = error instanceof StoreApiError && error.status === 401
         ? '登录已失效，请重新登录'
@@ -349,7 +363,10 @@ onUnload(() => {
           aria-label="返回"
           @click="goBack"
         >
-          ‹
+          <QxIcon
+            name="back"
+            :size="40"
+          />
         </button>
         <text class="detail-header__title">
           商品详情
@@ -361,7 +378,10 @@ onUnload(() => {
           :disabled="state !== 'ready' || product === null || favoritePending || favoriteStateLoading"
           @click="favoriteProduct"
         >
-          {{ favoriteStateError ? '↻' : favoriteState === true ? '★' : '☆' }}
+          <QxIcon
+            :name="favoriteStateError ? 'reload' : favoriteState === true ? 'heart-fill' : 'heart'"
+            :size="40"
+          />
         </button>
       </header>
 
@@ -400,7 +420,7 @@ onUnload(() => {
             v-if="product.images.length > 0"
             class="detail-gallery__swiper"
             :current="currentImage"
-            indicator-active-color="#315f50"
+            indicator-active-color="#496859"
             indicator-color="#cfd6d1"
             indicator-dots
             @change="currentImage = $event.detail.current"
@@ -427,18 +447,18 @@ onUnload(() => {
 
         <section class="detail-summary">
           <view class="detail-summary__labels">
-            <text
+            <QxTag
               v-if="product.is_hot"
-              class="detail-label detail-label--hot"
+              tone="hot"
             >
               热销
-            </text>
-            <text
+            </QxTag>
+            <QxTag
               v-if="product.is_new"
-              class="detail-label detail-label--new"
+              tone="new"
             >
               新品
-            </text>
+            </QxTag>
             <text class="detail-summary__brand">
               {{ product.brand.name }}
             </text>
@@ -474,9 +494,10 @@ onUnload(() => {
             </text>
             <view class="detail-choice__value">
               <text>{{ selectedSku ? skuDescription(selectedSku) : '暂无可选规格' }}</text>
-              <text aria-hidden="true">
-                ›
-              </text>
+              <QxIcon
+                name="chevron"
+                :size="28"
+              />
             </view>
           </button>
           <view class="detail-choice__row">
@@ -520,7 +541,10 @@ onUnload(() => {
             :disabled="favoritePending || favoriteStateLoading"
             @click="favoriteProduct"
           >
-            {{ favoriteStateError ? '↻' : favoriteState === true ? '★' : '☆' }}
+            <QxIcon
+              :name="favoriteStateError ? 'reload' : favoriteState === true ? 'heart-fill' : 'heart'"
+              :size="40"
+            />
           </button>
           <button
             class="detail-actions__secondary"
@@ -572,7 +596,10 @@ onUnload(() => {
               :disabled="cartPending"
               @click="sheetOpen = false"
             >
-              ×
+              <QxIcon
+                name="close"
+                :size="32"
+              />
             </button>
           </view>
 
@@ -620,26 +647,13 @@ onUnload(() => {
                   {{ quantityMaximum > 0 ? `最多可选 ${quantityMaximum} 件` : '当前规格不可购买' }}
                 </text>
               </view>
-              <view
-                class="sku-stepper"
-                aria-label="购买数量"
-              >
-                <button
-                  :disabled="cartPending || quantity <= 1"
-                  aria-label="减少数量"
-                  @click="changeQuantity(-1)"
-                >
-                  −
-                </button>
-                <text>{{ quantity }}</text>
-                <button
-                  :disabled="cartPending || quantityMaximum === 0 || quantity >= quantityMaximum"
-                  aria-label="增加数量"
-                  @click="changeQuantity(1)"
-                >
-                  +
-                </button>
-              </view>
+              <QxStepper
+                :value="quantity"
+                :min="1"
+                :max="Math.max(1, quantityMaximum)"
+                :disabled="cartPending || quantityMaximum === 0"
+                @change="setSheetQuantity"
+              />
             </view>
           </scroll-view>
 
@@ -665,7 +679,7 @@ onUnload(() => {
   position: sticky; z-index: 20; top: 0; display: grid;
   min-height: calc(92rpx + env(safe-area-inset-top));
   grid-template-columns: 88rpx minmax(0, 1fr) 88rpx; align-items: end;
-  padding-top: env(safe-area-inset-top); border-bottom: 1px solid var(--qx-store-line);
+  padding-top: env(safe-area-inset-top);
   background: rgba(255, 255, 255, 0.97);
 }
 .detail-header__button, .detail-header__title {
@@ -673,25 +687,22 @@ onUnload(() => {
 }
 .detail-header__button { color: var(--qx-store-text); background: transparent; font-size: 46rpx; }
 .detail-header__title {
-  overflow: hidden; font-size: 28rpx; font-weight: 700; text-overflow: ellipsis; white-space: nowrap;
+  overflow: hidden; font-size: 28rpx; font-weight: 600; text-overflow: ellipsis; white-space: nowrap;
 }
 .detail-page__state { min-height: 650rpx; }
 .detail-gallery { background: var(--qx-store-surface); }
 .detail-gallery__swiper { width: 100%; height: 790rpx; }
 .detail-summary, .detail-choice, .detail-copy {
-  border-top: 1px solid var(--qx-store-line); background: var(--qx-store-surface);
+  background: var(--qx-store-surface);
 }
 .detail-summary { padding: 30rpx 28rpx 34rpx; }
 .detail-summary__labels { display: flex; min-width: 0; align-items: center; gap: 10rpx; }
-.detail-label { padding: 5rpx 10rpx; border-radius: 7rpx; font-size: 18rpx; font-weight: 700; }
-.detail-label--hot { color: var(--qx-store-danger); background: var(--qx-store-accent-soft); }
-.detail-label--new { color: var(--qx-store-info); background: var(--qx-store-info-soft); }
 .detail-summary__brand {
   min-width: 0; overflow: hidden; color: var(--qx-store-brand); font-size: 20rpx;
   font-weight: 700; text-overflow: ellipsis; white-space: nowrap;
 }
 .detail-summary__name, .detail-summary__subtitle { display: block; width: 100%; }
-.detail-summary__name { margin-top: 18rpx; font-size: 38rpx; font-weight: 750; line-height: 1.35; }
+.detail-summary__name { margin-top: 18rpx; font-size: 38rpx; font-weight: 600; line-height: 1.35; }
 .detail-summary__subtitle {
   margin-top: 12rpx; color: var(--qx-store-text-soft); font-size: 23rpx; line-height: 1.55;
 }
@@ -700,11 +711,12 @@ onUnload(() => {
   gap: 16rpx; margin-top: 26rpx;
 }
 .detail-summary__sales { flex: 0 0 auto; color: var(--qx-store-muted); font-size: 20rpx; }
-.detail-choice, .detail-copy { margin-top: 16rpx; }
+.detail-choice, .detail-copy { margin-top: 12rpx; }
 .detail-choice__row {
   display: flex; width: 100%; min-height: 92rpx; align-items: center; gap: 24rpx;
-  padding: 0 28rpx; border-bottom: 1px solid var(--qx-store-line); color: var(--qx-store-text);
+  padding: 0 28rpx; color: var(--qx-store-text);
   background: transparent; text-align: left;
+  box-shadow: 0 1rpx 0 var(--qx-store-line);
 }
 .detail-choice__label {
   width: 70rpx; flex: 0 0 auto; color: var(--qx-store-muted); font-size: 22rpx;
@@ -719,7 +731,6 @@ onUnload(() => {
 .detail-choice__stock { color: var(--qx-store-text-soft); font-size: 23rpx; }
 .detail-tabs {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
-  border-bottom: 1px solid var(--qx-store-line);
 }
 .detail-tab {
   min-height: 84rpx; color: var(--qx-store-muted); background: transparent; font-size: 22rpx;
@@ -736,13 +747,14 @@ onUnload(() => {
   width: 100%; max-width: 414px; min-height: calc(110rpx + env(safe-area-inset-bottom));
   grid-template-columns: 82rpx minmax(0, 1fr) minmax(0, 1fr); gap: 12rpx;
   margin: 0 auto; padding: 12rpx 20rpx calc(12rpx + env(safe-area-inset-bottom));
-  border-top: 1px solid var(--qx-store-line); background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 -2rpx 0 var(--qx-store-line); background: rgba(255, 255, 255, 0.98);
 }
 .detail-actions button {
-  min-width: 0; min-height: 76rpx; border-radius: 10rpx; font-size: 23rpx; font-weight: 700;
+  min-width: 0; min-height: 76rpx; border-radius: var(--qx-store-radius, 16rpx); font-size: 23rpx; font-weight: 600;
 }
 .detail-actions__favorite {
-  color: var(--qx-store-brand); background: var(--qx-store-surface-soft); font-size: 38rpx !important;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--qx-store-brand); background: var(--qx-store-brand-soft);
 }
 .detail-actions__secondary {
   border: 1px solid var(--qx-store-brand) !important; color: var(--qx-store-brand); background: #ffffff;
@@ -771,7 +783,7 @@ onUnload(() => {
 }
 .sku-sheet__product { min-width: 0; }
 .sku-sheet__title, .sku-sheet__section-title, .sku-quantity__hint { display: block; }
-.sku-sheet__title { margin-bottom: 12rpx; font-size: 30rpx; font-weight: 750; }
+.sku-sheet__title { margin-bottom: 12rpx; font-size: 30rpx; font-weight: 600; }
 .sku-sheet__close {
   display: flex; width: 64rpx; height: 64rpx; flex: 0 0 auto; align-items: center;
   justify-content: center; color: var(--qx-store-text-soft); background: var(--qx-store-surface-soft); font-size: 38rpx;
@@ -780,12 +792,13 @@ onUnload(() => {
 .sku-sheet__section-title { font-size: 24rpx; font-weight: 700; }
 .sku-options { display: grid; gap: 12rpx; margin-top: 18rpx; }
 .sku-option {
-  display: flex; width: 100%; min-height: 98rpx; align-items: center; justify-content: space-between;
-  gap: 16rpx; padding: 16rpx 18rpx; border: 1px solid var(--qx-store-line); border-radius: 10rpx;
-  color: var(--qx-store-text); background: var(--qx-store-surface); text-align: left;
+  display: flex; width: 100%; min-height: 88rpx; align-items: center; justify-content: space-between;
+  gap: 16rpx; padding: 16rpx 18rpx; border-radius: 28rpx;
+  color: var(--qx-store-text); background: var(--qx-store-surface-soft); text-align: left;
 }
-.sku-option--active { border-color: var(--qx-store-brand); background: var(--qx-store-surface-soft); }
-.sku-option--sold-out { color: var(--qx-store-muted); background: #f5f6f5; }
+.sku-option--active { color: var(--qx-store-brand-strong); background: var(--qx-store-brand-soft); }
+.sku-option--sold-out { color: var(--qx-store-muted); background: #f5f6f5; text-decoration: line-through; }
+.sku-option--sold-out .sku-option__meta text:last-child { text-decoration: none; }
 .sku-option__copy, .sku-option__name, .sku-option__code, .sku-option__meta {
   display: block; min-width: 0;
 }
@@ -800,16 +813,6 @@ onUnload(() => {
   display: flex; align-items: center; justify-content: space-between; gap: 20rpx; margin: 28rpx 0 34rpx;
 }
 .sku-quantity__hint { margin-top: 6rpx; color: var(--qx-store-muted); font-size: 18rpx; }
-.sku-stepper {
-  display: grid; width: 220rpx; height: 70rpx; flex: 0 0 auto;
-  grid-template-columns: 68rpx minmax(0, 1fr) 68rpx; align-items: center;
-  overflow: hidden; border: 1px solid var(--qx-store-line); border-radius: 8rpx; text-align: center;
-}
-.sku-stepper button {
-  height: 68rpx; color: var(--qx-store-text); background: var(--qx-store-surface-soft); font-size: 30rpx;
-}
-.sku-stepper button[disabled] { color: var(--qx-store-muted); opacity: 0.46; }
-.sku-stepper text { font-size: 23rpx; font-weight: 700; }
 .sku-sheet__confirm {
   min-height: 82rpx; flex: 0 0 auto; margin: 10rpx 26rpx calc(18rpx + env(safe-area-inset-bottom));
   border-radius: 10rpx; font-size: 24rpx; font-weight: 700;

@@ -1,14 +1,15 @@
 .qx-store-theme {
   --qx-store-background: #f6f8f6;
   --qx-store-surface: #ffffff;
-  --qx-store-surface-soft: #edf3ef;
+  --qx-store-surface-soft: #eef3ef;
   --qx-store-text: #202522;
   --qx-store-text-soft: #5f6762;
   --qx-store-muted: #8d9690;
-  --qx-store-line: #e4e8e5;
-  --qx-store-line-strong: #cfd6d1;
+  --qx-store-line: #e8ece9;
+  --qx-store-line-strong: #d5dcd6;
   --qx-store-brand: #496859;
   --qx-store-brand-strong: #173b31;
+  --qx-store-brand-soft: #e7efe9;
   --qx-store-accent: #e27766;
   --qx-store-accent-soft: #f7e7e2;
   --qx-store-warning: #a56d27;
@@ -16,9 +17,13 @@
   --qx-store-danger: #b84848;
   --qx-store-info: #2f6578;
   --qx-store-info-soft: #e0edf1;
+  --qx-store-radius: 16rpx;
+  --qx-store-radius-sm: 12rpx;
+  --qx-store-tap: 88rpx;
+  --qx-store-shadow: 0 8rpx 28rpx rgba(23, 59, 49, 0.05);
   color: var(--qx-store-text);
   background: var(--qx-store-background);
-  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   letter-spacing: 0;
 }
 
@@ -26,7 +31,9 @@
 .qx-store-theme view,
 .qx-store-theme text,
 .qx-store-theme button,
-.qx-store-theme image {
+.qx-store-theme image,
+.qx-store-theme input,
+.qx-store-theme scroll-view {
   box-sizing: border-box;
   letter-spacing: 0;
 }
@@ -44,3 +51,23 @@
   border: 0;
 }
 
+@keyframes qx-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.qx-skeleton {
+  background-image: linear-gradient(
+    90deg,
+    var(--qx-store-surface-soft) 20%,
+    #f7faf8 50%,
+    var(--qx-store-surface-soft) 80%
+  );
+  background-size: 200% 100%;
+  animation: qx-shimmer 1.2s ease-in-out infinite;
+}

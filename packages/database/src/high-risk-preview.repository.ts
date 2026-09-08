@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
-import { ApplicationError, canonicalJson, generateUlid, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, canonicalJson, generateUlid, isValidUlid, requireUlid } from '@qingxu/platform-core';
 
 import type { PrismaClient } from '../.generated/prisma/client';
 import { acquireTransactionLock } from './advisory-lock';
@@ -162,10 +162,6 @@ function isExactPlainObject(value: unknown, fields: ReadonlySet<string>): value 
     Object.getPrototypeOf(value) !== Object.prototype) return false;
   const keys = Object.keys(value);
   return keys.length === fields.size && keys.every((key) => fields.has(key));
-}
-
-function requireUlid(value: string, label: string): void {
-  if (!isValidUlid(value)) throw new TypeError(`${label} must be a ULID`);
 }
 
 function requireVersion(value: number, allowInitialCommissionRule: boolean): void {

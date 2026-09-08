@@ -1,4 +1,4 @@
-import { ApplicationError, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, hasControlCharacter, isValidUlid } from '@qingxu/platform-core';
 
 export const EXTERNAL_UPLOAD_FILE_PURPOSES = [
   'PRODUCT_IMAGE',
@@ -54,13 +54,6 @@ function sizeField(body: PlainBody): number {
     throw new ApplicationError('INVALID_ARGUMENT', 'size is invalid');
   }
   return Number(value);
-}
-
-function hasControlCharacter(value: string): boolean {
-  return Array.from(value).some((character) => {
-    const codePoint = character.codePointAt(0);
-    return codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f);
-  });
 }
 
 export function parseUploadIntentBody(value: unknown): UploadIntentInput {

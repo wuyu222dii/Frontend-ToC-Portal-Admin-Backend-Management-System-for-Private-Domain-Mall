@@ -3,8 +3,11 @@ import { createHmac } from 'node:crypto';
 import {
   ApplicationError,
   generateUlid,
+  internalError as internal,
   isValidUlid,
   projectOrderDisplayStatus,
+  requireUlid,
+  hasControlCharacter,
 } from '@qingxu/platform-core';
 
 import { Prisma, type PrismaClient } from '../.generated/prisma/client';
@@ -248,10 +251,6 @@ function exactObject(
   }
 }
 
-function requireUlid(value: string, label: string): void {
-  if (!isValidUlid(value)) throw new TypeError(`${label} must be a ULID`);
-}
-
 function requireVersion(value: number): void {
   if (!Number.isSafeInteger(value) || value < 1 || value >= MAX_POSTGRES_INTEGER) {
     throw new TypeError('Customer version must be a positive incrementable integer');
@@ -260,13 +259,6 @@ function requireVersion(value: number): void {
 
 function requireDate(value: Date, label: string): void {
   if (!(value instanceof Date) || !Number.isFinite(value.getTime())) throw new TypeError(`${label} must be valid`);
-}
-
-function hasControlCharacter(value: string): boolean {
-  return Array.from(value).some((character) => {
-    const codePoint = character.codePointAt(0);
-    return codePoint !== undefined && (codePoint < 0x20 || codePoint === 0x7f);
-  });
 }
 
 function normalizeKeyword(value: string | undefined): string | undefined {
@@ -380,10 +372,6 @@ function validateTransfer(input: AdminCustomerAttributionTransferInput): string 
   if (input.targetAgentId !== null) requireUlid(input.targetAgentId, 'Target Agent ID');
   requireVersion(input.expectedVersion);
   return normalizeReason(input.reason);
-}
-
-function internal(message: string): ApplicationError {
-  return new ApplicationError('INTERNAL_ERROR', message);
 }
 
 function notFound(message = 'Customer does not exist'): ApplicationError {

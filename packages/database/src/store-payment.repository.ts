@@ -1,8 +1,9 @@
-import { ApplicationError, generateUlid, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, generateUlid, internalError, isValidUlid, requireUlid } from '@qingxu/platform-core';
 
 import { Prisma } from '../.generated/prisma/client';
 import { acquireTransactionLock } from './advisory-lock';
 import type { DatabaseTransaction } from './idempotency.repository';
+import { applyInventoryBalanceUpdatesInTransaction } from './inventory-balance-updates';
 
 const MAX_POSTGRES_INTEGER = 2_147_483_647;
 const MAX_RECONCILE_DELAY_MS = 24 * 60 * 60 * 1_000;
@@ -262,14 +263,6 @@ function requireExactKeys(value: object, expected: readonly string[], label: str
   if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
     throw new TypeError(`${label} has unknown or missing fields`);
   }
-}
-
-function requireUlid(value: string, label: string): void {
-  if (typeof value !== 'string' || !isValidUlid(value)) throw new TypeError(`${label} must be a ULID`);
-}
-
-function internalError(message: string): ApplicationError {
-  return new ApplicationError('INTERNAL_ERROR', message);
 }
 
 function authenticationRequired(): ApplicationError {
@@ -794,7 +787,6 @@ export class StorePaymentRepository {
       }
     }
   }
-
 
   async prepareOwnedPaymentIntentInTransaction(
     transaction: DatabaseTransaction,
@@ -2032,43 +2024,55 @@ export class StorePaymentRepository {
 
     const activeReservation = reservation!;
     const inventoryLedgerIds: string[] = [];
-    for (const item of [...order.items].sort((left, right) => left.sku_id.localeCompare(right.sku_id))) {
-      const balance = balanceBySku.get(item.sku_id)!;
-      const physicalAfter = balance.physical_qty - item.quantity;
-      const lockedAfter = balance.locked_qty - item.quantity;
-      const updated = await transaction.inventoryBalance.updateMany({
-        data: {
-          locked_qty: lockedAfter,
-          physical_qty: physicalAfter,
-          updated_at: serverTime,
-          version: { increment: 1 },
-        },
-        where: {
-          id: balance.id,
-          locked_qty: balance.locked_qty,
-          physical_qty: balance.physical_qty,
-          sku_id: item.sku_id,
-          version: balance.version,
-        },
+    const inventoryUpdates = [...order.items]
+      .sort((left, right) => left.sku_id.localeCompare(right.sku_id))
+      .map((item) => {
+        const balance = balanceBySku.get(item.sku_id)!;
+        const physicalAfter = balance.physical_qty - item.quantity;
+        const lockedAfter = balance.locked_qty - item.quantity;
+        const ledgerId = generateUlid(serverTime.getTime());
+        inventoryLedgerIds.push(ledgerId);
+        return {
+          balance,
+          item,
+          ledgerId,
+          lockedAfter,
+          physicalAfter,
+        };
       });
-      if (updated.count !== 1) throw internalError('Payment inventory update lost its locked row');
-      const ledgerId = generateUlid(serverTime.getTime());
-      await transaction.inventoryLedger.create({
-        data: {
-          actor_account_id: null,
-          business_id: activeReservation.id,
-          id: ledgerId,
-          ledger_type: 'ORDER_PAID_DEDUCT',
-          locked_after: lockedAfter,
-          locked_change: -item.quantity,
-          occurred_at: serverTime,
-          physical_after: physicalAfter,
-          physical_change: -item.quantity,
-          reason: 'PAYMENT_SETTLED',
-          sku_id: item.sku_id,
-        },
-      });
-      inventoryLedgerIds.push(ledgerId);
+    await applyInventoryBalanceUpdatesInTransaction(
+      transaction,
+      inventoryUpdates.map(({ balance, item, lockedAfter, physicalAfter }) => ({
+        id: balance.id,
+        lockedAfter,
+        lockedQty: balance.locked_qty,
+        physicalAfter,
+        physicalQty: balance.physical_qty,
+        skuId: item.sku_id,
+        version: balance.version,
+      })),
+      serverTime,
+      () => {
+        throw internalError('Payment inventory update lost its locked row');
+      },
+    );
+    const createdLedgers = await transaction.inventoryLedger.createMany({
+      data: inventoryUpdates.map(({ item, ledgerId, lockedAfter, physicalAfter }) => ({
+        actor_account_id: null,
+        business_id: activeReservation.id,
+        id: ledgerId,
+        ledger_type: 'ORDER_PAID_DEDUCT' as const,
+        locked_after: lockedAfter,
+        locked_change: -item.quantity,
+        occurred_at: serverTime,
+        physical_after: physicalAfter,
+        physical_change: -item.quantity,
+        reason: 'PAYMENT_SETTLED',
+        sku_id: item.sku_id,
+      })),
+    });
+    if (createdLedgers.count !== inventoryUpdates.length) {
+      throw internalError('Payment inventory ledger insert count is invalid');
     }
     const reservationChanged = await transaction.inventoryReservation.updateMany({
       data: { consumed_at: paymentAt, status: 'CONSUMED' },

@@ -7,6 +7,7 @@ import {
   type EncryptedEnvelope,
 } from './encryption';
 import { isValidUlid } from './identifiers';
+import { hasControlCharacter } from './guards';
 
 const ADDRESS_PHONE_HMAC_DOMAIN = 'qingxu:store-address-phone:v1\0';
 const CIPHERTEXT_MAX_BYTES = 8_192;
@@ -73,10 +74,6 @@ function requireExactKeys(value: Record<string, unknown>, keys: readonly string[
   if (Object.keys(value).length !== keys.length || Object.keys(value).some((key) => !expected.has(key))) {
     throw new TypeError(`${label} contains invalid fields`);
   }
-}
-
-function hasControlCharacter(value: string): boolean {
-  return /\p{Cc}/u.test(value);
 }
 
 function normalizeText(value: unknown, label: string, maximumLength: number): string {

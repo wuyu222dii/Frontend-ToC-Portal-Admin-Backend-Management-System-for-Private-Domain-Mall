@@ -20,7 +20,6 @@ import {
   listActiveCatalogOptions,
   listAdminProducts,
 } from '../../services/admin-products';
-import { authSession } from '../../stores/auth-session';
 import type {
   AdminProductListItem,
   BrandReference,
@@ -29,6 +28,7 @@ import type {
   ProductListQuery,
   ProductStatus,
 } from '../../types/products';
+import { readableError as describeAdminError, handleSessionError as redirectExpiredSession } from '../../utils/presentation';
 
 type StatusFilter = '' | ProductStatus;
 
@@ -80,22 +80,21 @@ function statusLabel(value: ProductStatus): string {
 }
 
 function readableError(error: unknown, fallback: string): string {
-  if (!(error instanceof AdminApiError)) return fallback;
-  if (error.status === 0) return '网络连接失败，请检查网络后重试';
-  if (error.status === 403) return '当前账号无权访问商品管理';
-  if (error.status === 404) return '商品不存在或已不可用，请刷新列表';
-  if (error.status === 429) return '操作过于频繁，请稍后重试';
-  return fallback;
+  return describeAdminError(error, fallback, {
+    statusMessages: {
+      403: '当前账号无权访问商品管理',
+      404: '商品不存在或已不可用，请刷新列表',
+      429: '操作过于频繁，请稍后重试',
+    },
+  });
 }
 
 async function handleSessionError(error: unknown): Promise<boolean> {
-  if (authSession.state.session && (!(error instanceof AdminApiError) || error.status !== 401)) return false;
-  items.value = [];
-  total.value = 0;
-  closeLifecycle();
-  authSession.clearSession();
-  await router.replace('/login');
-  return true;
+  return redirectExpiredSession(error, router, () => {
+    items.value = [];
+    total.value = 0;
+    closeLifecycle();
+  });
 }
 
 async function loadOptions(): Promise<void> {

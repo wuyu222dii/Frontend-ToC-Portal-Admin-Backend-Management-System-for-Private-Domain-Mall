@@ -1,4 +1,4 @@
-import { ApplicationError, isValidUlid } from '@qingxu/platform-core';
+import { ApplicationError, internalError, isValidUlid, requireUlid } from '@qingxu/platform-core';
 
 import { Prisma, type PrismaClient } from '../.generated/prisma/client';
 import type { CommissionSourceType, ProductAuthorizationMode, PromotionTargetType } from '../.generated/prisma/enums';
@@ -269,10 +269,6 @@ function requireExactFields(value: unknown, fields: ReadonlySet<string>, label: 
   }
 }
 
-function requireUlid(value: string, label: string): void {
-  if (!isValidUlid(value)) throw new TypeError(`${label} must be a ULID`);
-}
-
 function validateIdentity(input: AgentCommerceIdentity): void {
   requireUlid(input.accountId, 'Agent account ID');
   requireUlid(input.agentId, 'Agent ID');
@@ -390,10 +386,6 @@ function notFound(message = 'Agent commerce resource does not exist'): Applicati
 
 function stateConflict(message: string): ApplicationError {
   return new ApplicationError('STATE_CONFLICT', message);
-}
-
-function internalError(message: string): ApplicationError {
-  return new ApplicationError('INTERNAL_ERROR', message);
 }
 
 function activeAgent(record: AgentRecord | null, identity: AgentCommerceIdentity): AgentRecord {

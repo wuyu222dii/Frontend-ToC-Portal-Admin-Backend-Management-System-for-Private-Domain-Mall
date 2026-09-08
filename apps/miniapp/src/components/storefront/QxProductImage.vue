@@ -137,7 +137,7 @@ function handleError() {
   border-radius: 14rpx 14rpx 8rpx 8rpx;
   color: var(--qx-store-brand, #496859);
   background: #faf8f1;
-  box-shadow: 0 20rpx 36rpx rgba(59, 73, 64, 0.12);
+  box-shadow: 0 8rpx 18rpx rgba(59, 73, 64, 0.06);
 }
 
 .qx-product-image__pack::before {

@@ -56,7 +56,7 @@ const formattedAmount = computed(() => {
   display: flex;
   min-width: 0;
   align-items: baseline;
-  gap: 12rpx;
+  gap: 10rpx;
   color: var(--qx-store-accent, #e27766);
 }
 
@@ -64,18 +64,21 @@ const formattedAmount = computed(() => {
   display: flex;
   min-width: 0;
   align-items: baseline;
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1;
 }
 
 .qx-price__currency {
   flex: 0 0 auto;
+  margin-right: 2rpx;
   font-size: 20rpx;
+  font-weight: 600;
 }
 
 .qx-price__value {
   overflow: hidden;
-  font-size: 32rpx;
+  font-size: 34rpx;
+  letter-spacing: -0.4rpx;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -85,7 +88,7 @@ const formattedAmount = computed(() => {
 }
 
 .qx-price--small .qx-price__value {
-  font-size: 28rpx;
+  font-size: 30rpx;
 }
 
 .qx-price--large .qx-price__currency {
@@ -93,7 +96,7 @@ const formattedAmount = computed(() => {
 }
 
 .qx-price--large .qx-price__value {
-  font-size: 42rpx;
+  font-size: 44rpx;
 }
 
 .qx-price--sold-out .qx-price__amount {
@@ -102,13 +105,12 @@ const formattedAmount = computed(() => {
 
 .qx-price__availability {
   flex: 0 0 auto;
-  padding: 5rpx 10rpx;
+  padding: 4rpx 10rpx;
   border-radius: 8rpx;
   color: var(--qx-store-text-soft, #5f6762);
-  background: var(--qx-store-surface-soft, #edf3ef);
+  background: var(--qx-store-surface-soft, #eef3ef);
   font-size: 18rpx;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.3;
 }
 </style>
-

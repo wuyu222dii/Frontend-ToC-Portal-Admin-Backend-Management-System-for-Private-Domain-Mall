@@ -8,6 +8,7 @@ import {
   changeAdminBannerStatus,
   restoreAdminBanner,
 } from '../../services/admin-banners';
+import { readableError as describeAdminError } from '../../utils/presentation';
 
 type Banner = components['schemas']['BannerView'];
 type BannerCommand = 'ACTIVATE' | 'ARCHIVE' | 'DEACTIVATE' | 'RESTORE';
@@ -67,13 +68,25 @@ function isUnknownOutcome(error: unknown): boolean {
 }
 
 function readableError(error: unknown): string {
-  if (!(error instanceof AdminApiError)) return `${actionLabel.value} Banner 失败，请稍后重试`;
-  if (error.status === 0) return '网络连接失败，操作结果尚未确认；可保持内容不变后重试';
-  if (error.status === 403) return `当前账号无权${actionLabel.value} Banner`;
-  if (error.status === 404) return 'Banner 不存在或已不可用，请刷新列表';
-  if (error.status === 429) return '操作过于频繁，请稍后重试';
-  if (error.status >= 500) return '服务暂时不可用，操作结果尚未确认；可保持内容不变后重试';
-  return `当前状态不允许${actionLabel.value} Banner，请刷新后重试`;
+  if (error instanceof AdminApiError && error.status === 0) {
+    return '网络连接失败，操作结果尚未确认；可保持内容不变后重试';
+  }
+  if (error instanceof AdminApiError && error.status >= 500) {
+    return '服务暂时不可用，操作结果尚未确认；可保持内容不变后重试';
+  }
+  return describeAdminError(
+    error,
+    error instanceof AdminApiError
+      ? `当前状态不允许${actionLabel.value} Banner，请刷新后重试`
+      : `${actionLabel.value} Banner 失败，请稍后重试`,
+    {
+      statusMessages: {
+        403: `当前账号无权${actionLabel.value} Banner`,
+        404: 'Banner 不存在或已不可用，请刷新列表',
+        429: '操作过于频繁，请稍后重试',
+      },
+    },
+  );
 }
 
 function commandKey(signature: string): string {

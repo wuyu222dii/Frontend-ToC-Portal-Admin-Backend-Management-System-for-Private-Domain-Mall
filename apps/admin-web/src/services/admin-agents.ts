@@ -21,7 +21,7 @@ import type {
   ProductAuthorizationInput,
   ReasonInput,
 } from '../types/admin-b13';
-import { adminSessionRequest } from './admin-api';
+import { adminSessionRequest, versionEtag } from './admin-api';
 import {
   decodeAdminAgentCommissionResponse,
   decodeAdminAgentCreateResponse,
@@ -64,10 +64,6 @@ const agentsPath = '/admin/agents';
 
 function agentPath(agentId: string): string {
   return `${agentsPath}/${encodeURIComponent(agentId)}`;
-}
-
-function versionEtag(version: number): string {
-  return `"${version}"`;
 }
 
 function addPage(search: URLSearchParams, query: { page?: number; pageSize?: number }): void {

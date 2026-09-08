@@ -9,6 +9,7 @@ import type {
   InventoryLedgerQuery,
   InventoryLedgerType,
 } from '../../types/inventory';
+import { readableError as describeAdminError } from '../../utils/presentation';
 import { formatChinaDateTime } from '../../utils/time';
 
 const props = defineProps<{
@@ -66,12 +67,13 @@ function isAbort(error: unknown): boolean {
 }
 
 function readableError(error: unknown): string {
-  if (!(error instanceof AdminApiError)) return '库存流水加载失败，请稍后重试';
-  if (error.status === 0) return '网络连接失败，请检查网络后重试';
-  if (error.status === 403) return '当前账号无权查看库存流水';
-  if (error.status === 404) return 'SKU 不存在或已不可用，请刷新库存列表';
-  if (error.status === 429) return '查询过于频繁，请稍后重试';
-  return '库存流水加载失败，请稍后重试';
+  return describeAdminError(error, '库存流水加载失败，请稍后重试', {
+    statusMessages: {
+      403: '当前账号无权查看库存流水',
+      404: 'SKU 不存在或已不可用，请刷新库存列表',
+      429: '查询过于频繁，请稍后重试',
+    },
+  });
 }
 
 function validDateRange(): boolean {

@@ -9,6 +9,7 @@ import {
   createAdminShipment,
 } from '../../services/admin-orders';
 import type { AdminOrderDetail, CreateShipmentInput, LogisticsEventInput } from '../../types/orders';
+import { readableError as describeAdminError } from '../../utils/presentation';
 
 type CommandMode = 'COMPLETE' | 'LOGISTICS' | 'SHIP';
 type LogisticsMode = 'STATUS' | 'TRACKING_CORRECTION';
@@ -149,24 +150,32 @@ function isUncertainFailure(error: unknown): boolean {
 }
 
 function readableError(error: unknown): string {
-  if (!(error instanceof AdminApiError)) {
-    return '服务响应无法安全确认；请使用同一请求标识重试';
+  if (error instanceof AdminApiError && error.status === 0) {
+    return '网络连接中断，操作结果尚未确认；请使用同一请求标识重试';
   }
-  if (error.status === 0) return '网络连接中断，操作结果尚未确认；请使用同一请求标识重试';
-  if (error.status === 403) return '当前账号无权执行该履约操作';
-  if (error.status === 404) return '订单或包裹已不存在';
-  if (error.status === 422) {
-    if (error.code === 'ACTIVE_AFTERSALE_BLOCKS_SHIPMENT') return '订单存在活动售后占用，当前不能发货';
-    if (error.code === 'SHIPMENT_ITEMS_MISMATCH') return '可发商品数量已变化，请刷新后重新确认';
-    return '当前订单不满足该履约操作的业务条件';
+  if (error instanceof AdminApiError && error.status >= 500) {
+    return '服务暂时不可用，操作结果尚未确认；请使用同一请求标识重试';
   }
-  if (error.status === 429) {
-    return error.retryAfterSeconds
-      ? `操作过于频繁，请在 ${error.retryAfterSeconds} 秒后重试`
-      : '操作过于频繁，请稍后重试';
-  }
-  if (error.status >= 500) return '服务暂时不可用，操作结果尚未确认；请使用同一请求标识重试';
-  return '操作未完成，请刷新订单后重试';
+  return describeAdminError(
+    error,
+    error instanceof AdminApiError
+      ? '操作未完成，请刷新订单后重试'
+      : '服务响应无法安全确认；请使用同一请求标识重试',
+    {
+      codeMessages: {
+        ACTIVE_AFTERSALE_BLOCKS_SHIPMENT: '订单存在活动售后占用，当前不能发货',
+        SHIPMENT_ITEMS_MISMATCH: '可发商品数量已变化，请刷新后重新确认',
+      },
+      statusMessages: {
+        403: '当前账号无权执行该履约操作',
+        404: '订单或包裹已不存在',
+        422: '当前订单不满足该履约操作的业务条件',
+        429: error instanceof AdminApiError && error.retryAfterSeconds
+          ? `操作过于频繁，请在 ${error.retryAfterSeconds} 秒后重试`
+          : '操作过于频繁，请稍后重试',
+      },
+    },
+  );
 }
 
 async function submit(): Promise<void> {

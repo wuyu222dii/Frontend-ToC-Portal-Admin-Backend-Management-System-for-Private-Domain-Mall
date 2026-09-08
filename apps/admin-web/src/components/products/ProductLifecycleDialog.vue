@@ -17,6 +17,7 @@ import type {
   ProductStatus,
   SkuStatus,
 } from '../../types/products';
+import { readableError as describeAdminError } from '../../utils/presentation';
 
 type LifecycleKind = 'product' | 'sku';
 type LifecycleStatus = ProductStatus | SkuStatus;
@@ -158,15 +159,22 @@ function metricLabel(key: string, fallback: string): string {
 }
 
 function readableError(error: unknown, fallback: string): string {
-  if (!(error instanceof AdminApiError)) return fallback;
-  const dependency = dependencyMessage(error.code);
-  if (dependency) return dependency;
-  if (error.status === 0) return '网络连接失败，请检查网络后重试';
-  if (error.status === 403) return '当前账号无权执行此生命周期操作';
-  if (error.status === 404) return '记录不存在或已不可用，请刷新列表';
-  if (error.status === 429) return '操作过于频繁，请稍后重试';
-  if (error.status >= 500) return fallback;
-  return '当前状态不允许执行该操作，请刷新后重试';
+  if (error instanceof AdminApiError) {
+    const dependency = dependencyMessage(error.code);
+    if (dependency) return dependency;
+    if (error.status >= 500) return fallback;
+  }
+  return describeAdminError(
+    error,
+    error instanceof AdminApiError ? '当前状态不允许执行该操作，请刷新后重试' : fallback,
+    {
+      statusMessages: {
+        403: '当前账号无权执行此生命周期操作',
+        404: '记录不存在或已不可用，请刷新列表',
+        429: '操作过于频繁，请稍后重试',
+      },
+    },
+  );
 }
 
 function clearPreview(): void {

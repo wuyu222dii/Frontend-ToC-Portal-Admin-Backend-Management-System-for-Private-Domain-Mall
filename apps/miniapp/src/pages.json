@@ -4,7 +4,7 @@
       "path": "pages/index/index",
       "style": {
         "navigationStyle": "custom",
-        "navigationBarTitleText": "青序生活"
+        "navigationBarTitleText": "泽枫洗护"
       }
     },
     {
@@ -152,12 +152,12 @@
       "style": {
         "navigationBarBackgroundColor": "#ffffff",
         "navigationBarTextStyle": "black",
-        "navigationBarTitleText": "青序生活"
+        "navigationBarTitleText": "泽枫洗护"
       }
     }
   ],
   "globalStyle": {
-    "backgroundColor": "#f6f8f6",
+    "backgroundColor": "#f7f4ee",
     "backgroundTextStyle": "dark",
     "navigationBarBackgroundColor": "#ffffff",
     "navigationBarTextStyle": "black"

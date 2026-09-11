@@ -31,27 +31,27 @@ withDefaults(
 }
 
 .qx-tag--hot {
-  color: var(--qx-store-accent, #e27766);
+  color: var(--qx-store-accent, #8A6A24);
   background: var(--qx-store-accent-soft, #f7e7e2);
 }
 
 .qx-tag--new {
-  color: var(--qx-store-info, #2f6578);
-  background: var(--qx-store-info-soft, #e0edf1);
+  color: var(--qx-store-info, #5C6B73);
+  background: var(--qx-store-info-soft, #EDE8DC);
 }
 
 .qx-tag--sold-out {
-  color: var(--qx-store-text-soft, #5f6762);
-  background: var(--qx-store-surface-soft, #eef3ef);
+  color: var(--qx-store-text-soft, #6B6458);
+  background: var(--qx-store-surface-soft, #F3EBDA);
 }
 
 .qx-tag--info {
-  color: var(--qx-store-brand, #496859);
-  background: var(--qx-store-brand-soft, #e7efe9);
+  color: var(--qx-store-brand, #C4A35A);
+  background: var(--qx-store-brand-soft, #F6EFD9);
 }
 
 .qx-tag--warning {
-  color: var(--qx-store-warning, #a56d27);
+  color: var(--qx-store-warning, #b45309);
   background: var(--qx-store-warning-soft, #f6ecdd);
 }
 </style>

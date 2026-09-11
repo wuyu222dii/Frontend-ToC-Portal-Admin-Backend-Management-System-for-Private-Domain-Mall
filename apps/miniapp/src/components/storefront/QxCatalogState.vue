@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
+import QxButton from './QxButton.vue';
 import QxIcon from './QxIcon.vue';
 import type { QxIconName } from './qx-icons';
 
@@ -110,6 +111,11 @@ const showAction = computed(
   () => props.kind !== 'loading' && Boolean(resolvedActionLabel.value),
 );
 const stateIcon = computed(() => defaults[props.kind].icon);
+const iconColor = computed(() => {
+  if (props.kind === 'error') return '#b84848';
+  if (props.kind === 'rate-limited') return '#b45309';
+  return '#6B6458';
+});
 </script>
 
 <template>
@@ -156,7 +162,8 @@ const stateIcon = computed(() => defaults[props.kind].icon);
       <QxIcon
         v-if="stateIcon"
         :name="stateIcon"
-        :size="compact ? 36 : 48"
+        :size="compact ? 36 : 72"
+        :color="iconColor"
       />
     </view>
     <view
@@ -170,16 +177,17 @@ const stateIcon = computed(() => defaults[props.kind].icon);
         {{ resolvedDescription }}
       </text>
       <slot />
-      <button
+      <QxButton
         v-if="showAction"
         class="qx-catalog-state__action"
-        :data-testid="actionTestid || undefined"
+        :block="!compact"
         :disabled="actionDisabled"
-        hover-class="qx-catalog-state__action--pressed"
+        :data-testid="actionTestid || undefined"
+        variant="primary"
         @click="emit('action')"
       >
         {{ actionCopy }}
-      </button>
+      </QxButton>
     </view>
   </view>
 </template>
@@ -193,8 +201,8 @@ const stateIcon = computed(() => defaults[props.kind].icon);
   align-items: center;
   justify-content: center;
   gap: 24rpx;
-  padding: 48rpx 32rpx;
-  color: var(--qx-store-muted, #8d9690);
+  padding: 72rpx 48rpx 48rpx;
+  color: var(--qx-store-muted, #9A9286);
   text-align: center;
 }
 
@@ -274,9 +282,9 @@ const stateIcon = computed(() => defaults[props.kind].icon);
 .qx-skeleton {
   background-image: linear-gradient(
     90deg,
-    var(--qx-store-surface-soft, #eef3ef) 20%,
-    #f7faf8 50%,
-    var(--qx-store-surface-soft, #eef3ef) 80%
+    var(--qx-store-surface-soft, #F3EBDA) 20%,
+    #faf6ee 50%,
+    var(--qx-store-surface-soft, #F3EBDA) 80%
   );
   background-size: 200% 100%;
   animation: qx-catalog-shimmer 1.2s ease-in-out infinite;
@@ -289,14 +297,14 @@ const stateIcon = computed(() => defaults[props.kind].icon);
 
 .qx-catalog-state__icon {
   display: flex;
-  width: 88rpx;
-  height: 88rpx;
+  width: 128rpx;
+  height: 128rpx;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  border-radius: var(--qx-store-radius, 16rpx);
-  color: var(--qx-store-text-soft, #5f6762);
-  background: var(--qx-store-surface-soft, #eef3ef);
+  border-radius: 50%;
+  color: var(--qx-store-text-soft, #6B6458);
+  background: var(--qx-store-surface-soft, #F3EBDA);
 }
 
 .qx-catalog-state--compact .qx-catalog-state__icon {
@@ -306,12 +314,12 @@ const stateIcon = computed(() => defaults[props.kind].icon);
 
 .qx-catalog-state--error .qx-catalog-state__icon {
   color: var(--qx-store-danger, #b84848);
-  background: var(--qx-store-accent-soft, #f7e7e2);
+  background: var(--qx-store-danger-soft, #f7e7e2);
 }
 
 .qx-catalog-state--rate-limited .qx-catalog-state__icon {
-  color: var(--qx-store-warning, #a56d27);
-  background: var(--qx-store-warning-soft, #f6ecdd);
+  color: var(--qx-store-warning, #b45309);
+  background: var(--qx-store-warning-soft, #f6e8d0);
 }
 
 .qx-catalog-state__copy {
@@ -334,43 +342,34 @@ const stateIcon = computed(() => defaults[props.kind].icon);
 }
 
 .qx-catalog-state__title {
-  color: var(--qx-store-text-soft, #5f6762);
-  font-size: 28rpx;
+  color: var(--qx-store-text, #2A2418);
+  font-size: 44rpx;
   font-weight: 600;
   line-height: 1.4;
 }
 
 .qx-catalog-state__description {
-  margin-top: 10rpx;
-  font-size: 22rpx;
+  margin-top: 16rpx;
+  font-size: 28rpx;
   line-height: 1.6;
 }
 
 .qx-catalog-state__action {
-  min-width: 192rpx;
-  min-height: 72rpx;
-  margin-top: 24rpx;
-  padding: 0 24rpx;
-  border: 1px solid var(--qx-store-brand, #496859);
-  border-radius: var(--qx-store-radius, 16rpx);
-  color: var(--qx-store-brand, #496859);
-  background: var(--qx-store-surface, #ffffff);
-  font-size: 24rpx;
-  font-weight: 600;
+  min-width: 368rpx;
+  margin-top: 48rpx;
 }
 
-.qx-catalog-state__action--pressed {
-  background: var(--qx-store-surface-soft, #eef3ef);
+.qx-catalog-state--compact .qx-catalog-state__title {
+  font-size: 28rpx;
 }
 
-.qx-catalog-state__action[disabled] {
-  border-color: var(--qx-store-line-strong, #d5dcd6);
-  color: var(--qx-store-muted, #8d9690);
-  background: var(--qx-store-background, #f6f8f6);
+.qx-catalog-state--compact .qx-catalog-state__description {
+  margin-top: 8rpx;
+  font-size: 22rpx;
 }
 
 .qx-catalog-state--compact .qx-catalog-state__action {
-  min-height: 64rpx;
+  min-width: 0;
   margin-top: 16rpx;
 }
 </style>

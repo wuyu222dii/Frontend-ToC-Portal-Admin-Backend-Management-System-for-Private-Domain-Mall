@@ -357,7 +357,7 @@ onUnload(() => {
 <template>
   <QxStoreShell surface="white">
     <view class="detail-page">
-      <header class="detail-header">
+      <header class="detail-header qx-hairline--bottom">
         <button
           class="detail-header__button"
           aria-label="返回"
@@ -420,7 +420,7 @@ onUnload(() => {
             v-if="product.images.length > 0"
             class="detail-gallery__swiper"
             :current="currentImage"
-            indicator-active-color="#496859"
+            indicator-active-color="#C4A35A"
             indicator-color="#cfd6d1"
             indicator-dots
             @change="currentImage = $event.detail.current"
@@ -672,22 +672,24 @@ onUnload(() => {
 
 <style scoped>
 .detail-page {
-  min-height: 100vh; padding-bottom: calc(124rpx + env(safe-area-inset-bottom));
+  min-height: 100%; padding-bottom: calc(124rpx + var(--qx-safe-bottom-pad, env(safe-area-inset-bottom, 0px)));
   background: var(--qx-store-background);
 }
 .detail-header {
-  position: sticky; z-index: 20; top: 0; display: grid;
-  min-height: calc(92rpx + env(safe-area-inset-top));
-  grid-template-columns: 88rpx minmax(0, 1fr) 88rpx; align-items: end;
-  padding-top: env(safe-area-inset-top);
-  background: rgba(255, 255, 255, 0.97);
+  position: sticky; z-index: 20; top: 0; box-sizing: border-box; display: grid;
+  min-height: var(--qx-nav-bar, calc(88rpx + env(safe-area-inset-top)));
+  grid-template-columns: 88rpx minmax(0, 1fr) 88rpx; align-items: center;
+  padding-top: var(--qx-status-bar, env(safe-area-inset-top));
+  padding-right: var(--qx-capsule-right, 16rpx);
+  padding-left: var(--qx-capsule-gap, 16rpx);
+  background: var(--qx-store-surface, #ffffff);
 }
 .detail-header__button, .detail-header__title {
   display: flex; min-height: 88rpx; align-items: center; justify-content: center;
 }
 .detail-header__button { color: var(--qx-store-text); background: transparent; font-size: 46rpx; }
 .detail-header__title {
-  overflow: hidden; font-size: 28rpx; font-weight: 600; text-overflow: ellipsis; white-space: nowrap;
+  overflow: hidden; font-size: 34rpx; font-weight: 600; text-overflow: ellipsis; white-space: nowrap;
 }
 .detail-page__state { min-height: 650rpx; }
 .detail-gallery { background: var(--qx-store-surface); }
@@ -744,9 +746,11 @@ onUnload(() => {
 }
 .detail-actions {
   position: fixed; z-index: 25; right: 0; bottom: 0; left: 0; display: grid;
-  width: 100%; max-width: 414px; min-height: calc(110rpx + env(safe-area-inset-bottom));
+  width: 100%; max-width: 414px; min-height: calc(110rpx + var(--qx-safe-bottom-pad, env(safe-area-inset-bottom, 0px)));
   grid-template-columns: 82rpx minmax(0, 1fr) minmax(0, 1fr); gap: 12rpx;
-  margin: 0 auto; padding: 12rpx 20rpx calc(12rpx + env(safe-area-inset-bottom));
+  margin: 0 auto; padding: 12rpx 20rpx constant(safe-area-inset-bottom);
+  padding: 12rpx 20rpx env(safe-area-inset-bottom);
+  padding: 12rpx 20rpx var(--qx-safe-bottom-pad, env(safe-area-inset-bottom, 0px));
   box-shadow: 0 -2rpx 0 var(--qx-store-line); background: rgba(255, 255, 255, 0.98);
 }
 .detail-actions button {
@@ -814,7 +818,7 @@ onUnload(() => {
 }
 .sku-quantity__hint { margin-top: 6rpx; color: var(--qx-store-muted); font-size: 18rpx; }
 .sku-sheet__confirm {
-  min-height: 82rpx; flex: 0 0 auto; margin: 10rpx 26rpx calc(18rpx + env(safe-area-inset-bottom));
+  min-height: 82rpx; flex: 0 0 auto; margin: 10rpx 26rpx calc(18rpx + var(--qx-safe-bottom-pad, env(safe-area-inset-bottom, 0px)));
   border-radius: 10rpx; font-size: 24rpx; font-weight: 700;
 }
 </style>

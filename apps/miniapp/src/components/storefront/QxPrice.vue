@@ -57,7 +57,7 @@ const formattedAmount = computed(() => {
   min-width: 0;
   align-items: baseline;
   gap: 10rpx;
-  color: var(--qx-store-accent, #e27766);
+  color: var(--qx-store-accent, #8A6A24);
 }
 
 .qx-price__amount {
@@ -100,15 +100,15 @@ const formattedAmount = computed(() => {
 }
 
 .qx-price--sold-out .qx-price__amount {
-  color: var(--qx-store-text-soft, #5f6762);
+  color: var(--qx-store-text-soft, #6B6458);
 }
 
 .qx-price__availability {
   flex: 0 0 auto;
   padding: 4rpx 10rpx;
   border-radius: 8rpx;
-  color: var(--qx-store-text-soft, #5f6762);
-  background: var(--qx-store-surface-soft, #eef3ef);
+  color: var(--qx-store-text-soft, #6B6458);
+  background: var(--qx-store-surface-soft, #F3EBDA);
   font-size: 18rpx;
   font-weight: 600;
   line-height: 1.3;

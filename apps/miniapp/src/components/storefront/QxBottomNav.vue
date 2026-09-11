@@ -31,7 +31,7 @@ const items: ReadonlyArray<{
 
 <template>
   <view
-    class="qx-bottom-nav"
+    class="qx-bottom-nav qx-hairline--top"
     role="navigation"
     aria-label="商城主导航"
   >
@@ -47,7 +47,8 @@ const items: ReadonlyArray<{
     >
       <QxIcon
         :name="active === item.target ? item.activeIcon : item.icon"
-        :size="44"
+        :size="56"
+        :color="active === item.target ? '#C4A35A' : '#9A9286'"
       />
       <text class="qx-bottom-nav__label">
         {{ item.label }}
@@ -65,14 +66,22 @@ const items: ReadonlyArray<{
   left: 0;
   display: grid;
   width: 100%;
-  max-width: 414px;
-  min-height: calc(108rpx + env(safe-area-inset-bottom));
+  min-height: calc(100rpx + constant(safe-area-inset-bottom));
+  min-height: calc(100rpx + env(safe-area-inset-bottom));
+  min-height: calc(100rpx + var(--qx-safe-bottom-pad, env(safe-area-inset-bottom, 0px)));
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin: 0 auto;
-  padding: 8rpx 8rpx env(safe-area-inset-bottom);
-  box-shadow: 0 -2rpx 0 var(--qx-store-line, #e8ece9);
-  background: rgba(255, 255, 255, 0.98);
+  padding: 6rpx 32rpx constant(safe-area-inset-bottom);
+  padding: 6rpx 32rpx env(safe-area-inset-bottom);
+  padding: 6rpx 32rpx var(--qx-safe-bottom-pad, env(safe-area-inset-bottom, 0px));
+  background: var(--qx-store-surface, #ffffff);
 }
+
+/* #ifndef MP-WEIXIN */
+.qx-bottom-nav {
+  max-width: 414px;
+}
+/* #endif */
 
 .qx-bottom-nav__item {
   display: flex;
@@ -82,16 +91,25 @@ const items: ReadonlyArray<{
   align-items: center;
   justify-content: center;
   gap: 4rpx;
-  color: var(--qx-store-muted, #8d9690);
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  color: var(--qx-store-muted, #9A9286);
   background: transparent;
+  line-height: 1.2;
 }
 
 .qx-bottom-nav__item--pressed {
-  background: var(--qx-store-surface-soft, #eef3ef);
+  background: var(--qx-store-surface-soft, #F3EBDA);
+}
+
+.qx-bottom-nav__item::after {
+  display: none;
 }
 
 .qx-bottom-nav__item--active {
-  color: var(--qx-store-brand, #496859);
+  color: var(--qx-store-brand, #C4A35A);
 }
 
 .qx-bottom-nav__label {
@@ -105,13 +123,6 @@ const items: ReadonlyArray<{
 }
 
 .qx-bottom-nav__item--active .qx-bottom-nav__label {
-  font-weight: 600;
-}
-
-@media (min-width: 768px) {
-  .qx-bottom-nav {
-    box-shadow: -1px 0 0 var(--qx-store-line, #e8ece9), 1px 0 0 var(--qx-store-line, #e8ece9),
-      0 -2rpx 0 var(--qx-store-line, #e8ece9);
-  }
+  font-weight: 700;
 }
 </style>

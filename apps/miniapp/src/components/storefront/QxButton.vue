@@ -18,7 +18,7 @@ withDefaults(
     class="qx-button"
     :class="[
       `qx-button--${variant}`,
-      { 'qx-button--block': block },
+      { 'qx-button--block': block, 'qx-button--disabled': disabled },
     ]"
     :disabled="disabled"
     hover-class="qx-button--pressed"
@@ -46,33 +46,37 @@ withDefaults(
 
 .qx-button--primary {
   color: #ffffff;
-  background: var(--qx-store-brand, #496859);
+  background: var(--qx-store-brand, #C4A35A);
 }
 
 .qx-button--secondary {
-  border: 1px solid var(--qx-store-brand, #496859);
-  color: var(--qx-store-brand, #496859);
+  border: 1px solid var(--qx-store-brand, #C4A35A);
+  color: var(--qx-store-brand, #C4A35A);
   background: var(--qx-store-surface, #ffffff);
 }
 
 .qx-button--ghost {
-  color: var(--qx-store-brand, #496859);
+  color: var(--qx-store-brand, #C4A35A);
   background: transparent;
 }
 
 .qx-button--danger {
   color: #ffffff;
-  background: var(--qx-store-accent, #e27766);
+  background: var(--qx-store-danger, #b84848);
 }
 
 .qx-button--pressed {
   opacity: 0.86;
 }
 
-.qx-button[disabled] {
+.qx-button--disabled {
   color: #ffffff;
-  background: var(--qx-store-muted, #8d9690);
+  background: var(--qx-store-muted, #9A9286);
   opacity: 0.72;
   border-color: transparent;
+}
+
+.qx-button::after {
+  display: none;
 }
 </style>

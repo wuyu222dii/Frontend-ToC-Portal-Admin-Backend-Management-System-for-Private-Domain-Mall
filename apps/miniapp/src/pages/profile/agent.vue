@@ -409,7 +409,7 @@ onUnload(() => {
   align-self: flex-start;
   padding: 6rpx 12rpx;
   border-radius: 8rpx;
-  color: #173b31;
+  color: #8A6A24;
   background: #dbe7e0;
   font-size: 20rpx;
   font-weight: 700;

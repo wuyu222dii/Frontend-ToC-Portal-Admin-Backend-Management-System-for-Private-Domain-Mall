@@ -7,6 +7,9 @@ export interface StoreProductCardData {
   brand?: {
     name: string;
   } | null;
+  category?: {
+    name: string;
+  } | null;
   primary_image?: {
     url: string;
   } | null;

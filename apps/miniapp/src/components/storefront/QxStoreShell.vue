@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+
+import { wechatChromeCssVars } from '../../utils/wechat-chrome';
+
 withDefaults(
   defineProps<{
     surface?: 'default' | 'white';
@@ -9,6 +13,8 @@ withDefaults(
     withBottomNav: false,
   },
 );
+
+const chromeStyle = computed(() => wechatChromeCssVars());
 </script>
 
 <template>
@@ -18,6 +24,7 @@ withDefaults(
       'qx-store-shell--white': surface === 'white',
       'qx-store-shell--with-nav': withBottomNav,
     }"
+    :style="chromeStyle"
   >
     <view class="qx-store-shell__viewport">
       <view class="qx-store-shell__content">
@@ -34,20 +41,21 @@ withDefaults(
 .qx-store-shell {
   width: 100%;
   min-width: 320px;
-  min-height: 100vh;
+  min-height: 100%;
   overflow-x: hidden;
-  background: var(--qx-store-background, #f6f8f6);
+  overflow-x: clip;
+  background: var(--qx-store-background, #F7F4EE);
 }
 
 .qx-store-shell--white {
-  background: var(--qx-store-background, #f6f8f6);
+  background: var(--qx-store-background, #F7F4EE);
 }
 
 .qx-store-shell__viewport {
   position: relative;
   width: 100%;
   max-width: 414px;
-  min-height: 100vh;
+  min-height: 100%;
   margin: 0 auto;
   background: var(--qx-store-background);
 }
@@ -58,12 +66,22 @@ withDefaults(
 
 .qx-store-shell__content {
   width: 100%;
-  min-height: 100vh;
+  min-height: 100%;
 }
 
 .qx-store-shell--with-nav .qx-store-shell__content {
+  padding-bottom: calc(124rpx + constant(safe-area-inset-bottom));
   padding-bottom: calc(124rpx + env(safe-area-inset-bottom));
+  padding-bottom: calc(124rpx + var(--qx-safe-bottom-pad, env(safe-area-inset-bottom, 0px)));
 }
+
+/* #ifndef MP-WEIXIN */
+.qx-store-shell,
+.qx-store-shell__viewport,
+.qx-store-shell__content {
+  min-height: 100vh;
+}
+/* #endif */
 
 @media (min-width: 768px) {
   .qx-store-shell__viewport {

@@ -327,7 +327,7 @@ onBeforeUnmount(() => {
 <template>
   <QxStoreShell surface="white">
     <view class="search-page">
-      <view class="search-header">
+      <view class="search-header qx-hairline--bottom">
         <button
           class="search-header__back"
           aria-label="返回"
@@ -336,12 +336,14 @@ onBeforeUnmount(() => {
           <QxIcon
             name="back"
             :size="40"
+            color="#2A2418"
           />
         </button>
         <view class="search-field">
           <QxIcon
             name="search"
             :size="32"
+            color="#9A9286"
           />
           <input
             v-model="keywordInput"
@@ -361,14 +363,15 @@ onBeforeUnmount(() => {
             <QxIcon
               name="close"
               :size="28"
+              color="#9A9286"
             />
           </button>
         </view>
         <button
-          class="search-header__submit"
-          @click="submitSearch"
+          class="search-header__cancel"
+          @click="goBack"
         >
-          搜索
+          取消
         </button>
       </view>
 
@@ -627,13 +630,17 @@ onBeforeUnmount(() => {
   position: sticky;
   z-index: 14;
   top: 0;
+  box-sizing: border-box;
   display: grid;
-  min-height: 120rpx;
-  grid-template-columns: 64rpx minmax(0, 1fr) 82rpx;
+  min-height: var(--qx-nav-bar, calc(88rpx + env(safe-area-inset-top)));
+  grid-template-columns: 64rpx minmax(0, 1fr) auto;
   align-items: center;
   gap: 12rpx;
-  padding: calc(18rpx + env(safe-area-inset-top)) 24rpx 18rpx;
-  background: rgba(255, 255, 255, 0.98);
+  padding-top: var(--qx-status-bar, env(safe-area-inset-top));
+  padding-right: var(--qx-capsule-right, 24rpx);
+  padding-bottom: 12rpx;
+  padding-left: var(--qx-capsule-gap, 24rpx);
+  background: var(--qx-store-surface, #ffffff);
 }
 
 .search-header__back,
@@ -642,8 +649,23 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   margin: 0;
-  color: var(--qx-store-text-soft, #5f6762);
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  color: var(--qx-store-text-soft, #6B6458);
   background: transparent;
+}
+
+.search-header__back,
+.search-field__clear,
+.search-header__cancel {
+  border-radius: 0;
+}
+
+.search-header__back::after,
+.search-field__clear::after,
+.search-header__cancel::after {
+  display: none;
 }
 
 .search-header__back {
@@ -654,20 +676,20 @@ onBeforeUnmount(() => {
 .search-field {
   display: grid;
   min-width: 0;
-  min-height: 76rpx;
+  min-height: 72rpx;
   grid-template-columns: 44rpx minmax(0, 1fr) 52rpx;
   align-items: center;
   padding: 0 10rpx 0 18rpx;
-  border-radius: 38rpx;
-  color: var(--qx-store-muted, #8d9690);
-  background: var(--qx-store-background, #f6f8f6);
+  border-radius: 8rpx;
+  color: var(--qx-store-muted, #9A9286);
+  background: var(--qx-store-surface-soft, #F3EBDA);
 }
 
 .search-field__input {
   width: 100%;
   min-width: 0;
   height: 72rpx;
-  color: var(--qx-store-text, #202522);
+  color: var(--qx-store-text, #2A2418);
   font-size: 25rpx;
 }
 
@@ -677,14 +699,18 @@ onBeforeUnmount(() => {
   font-size: 34rpx;
 }
 
-.search-header__submit {
-  min-width: 0;
+.search-header__cancel {
+  min-width: 88rpx;
   min-height: 64rpx;
   margin: 0;
-  color: var(--qx-store-brand, #496859);
+  padding: 0 8rpx;
+  overflow: visible;
+  border: 0;
+  color: var(--qx-store-text, #2A2418);
   background: transparent;
-  font-size: 24rpx;
-  font-weight: 600;
+  font-size: 30rpx;
+  font-weight: 400;
+  line-height: 64rpx;
   white-space: nowrap;
 }
 
@@ -695,7 +721,7 @@ onBeforeUnmount(() => {
   gap: 16rpx;
   padding: 18rpx 28rpx;
   color: var(--qx-store-danger, #b84848);
-  background: var(--qx-store-accent-soft, #f7e7e2);
+  background: var(--qx-store-danger-soft, #f7e7e2);
   font-size: 21rpx;
   line-height: 1.4;
 }
@@ -728,7 +754,7 @@ onBeforeUnmount(() => {
 
 .history-heading__eyebrow,
 .result-heading__eyebrow {
-  color: var(--qx-store-brand, #496859);
+  color: var(--qx-store-brand, #C4A35A);
   font-size: 18rpx;
   font-weight: 600;
 }
@@ -736,7 +762,7 @@ onBeforeUnmount(() => {
 .history-heading__title,
 .result-heading__title {
   margin-top: 8rpx;
-  color: var(--qx-store-text, #202522);
+  color: var(--qx-store-text, #2A2418);
   font-size: 32rpx;
   font-weight: 600;
   line-height: 1.3;
@@ -746,7 +772,7 @@ onBeforeUnmount(() => {
   min-height: 60rpx;
   margin: 0;
   padding: 0 10rpx;
-  color: var(--qx-store-muted, #8d9690);
+  color: var(--qx-store-muted, #9A9286);
   background: transparent;
   font-size: 22rpx;
 }
@@ -764,8 +790,8 @@ onBeforeUnmount(() => {
   margin: 0;
   padding: 0 22rpx;
   border-radius: 32rpx;
-  color: var(--qx-store-text-soft, #5f6762);
-  background: var(--qx-store-background, #f6f8f6);
+  color: var(--qx-store-text-soft, #6B6458);
+  background: var(--qx-store-background, #F7F4EE);
   font-size: 22rpx;
   line-height: 64rpx;
   text-overflow: ellipsis;
@@ -789,7 +815,7 @@ onBeforeUnmount(() => {
 
 .result-heading__count {
   flex: 0 0 auto;
-  color: var(--qx-store-muted, #8d9690);
+  color: var(--qx-store-muted, #9A9286);
   font-size: 20rpx;
 }
 
@@ -798,7 +824,7 @@ onBeforeUnmount(() => {
   padding: 24rpx 28rpx 4rpx;
   border-top: 1px solid var(--qx-store-line, #e4e8e5);
   border-bottom: 1px solid var(--qx-store-line, #e4e8e5);
-  background: var(--qx-store-background, #f6f8f6);
+  background: var(--qx-store-background, #F7F4EE);
 }
 
 .filter-group {
@@ -813,7 +839,7 @@ onBeforeUnmount(() => {
 .filter-group__label {
   display: block;
   margin-bottom: 12rpx;
-  color: var(--qx-store-muted, #8d9690);
+  color: var(--qx-store-muted, #9A9286);
   font-size: 19rpx;
   font-weight: 700;
 }
@@ -837,7 +863,7 @@ onBeforeUnmount(() => {
   margin: 0;
   padding: 0 18rpx;
   border-radius: 28rpx;
-  color: var(--qx-store-text-soft, #5f6762);
+  color: var(--qx-store-text-soft, #6B6458);
   background: var(--qx-store-surface, #ffffff);
   font-size: 20rpx;
   line-height: 56rpx;
@@ -845,13 +871,13 @@ onBeforeUnmount(() => {
 }
 
 .filter-chip--active {
-  color: var(--qx-store-brand-strong, #173b31);
-  background: var(--qx-store-brand-soft, #e7efe9);
+  color: var(--qx-store-brand-strong, #8A6A24);
+  background: var(--qx-store-brand-soft, #F6EFD9);
   font-weight: 600;
 }
 
 .filter-loading {
-  color: var(--qx-store-muted, #8d9690);
+  color: var(--qx-store-muted, #9A9286);
   font-size: 20rpx;
 }
 
@@ -865,21 +891,21 @@ onBeforeUnmount(() => {
   margin-top: 28rpx;
   border: 1px solid var(--qx-store-line-strong, #cfd6d1);
   border-radius: var(--qx-store-radius, 16rpx);
-  color: var(--qx-store-brand, #496859);
+  color: var(--qx-store-brand, #C4A35A);
   background: var(--qx-store-surface, #ffffff);
   font-size: 22rpx;
   font-weight: 700;
 }
 
 .load-more[disabled] {
-  color: var(--qx-store-muted, #8d9690);
-  background: var(--qx-store-background, #f6f8f6);
+  color: var(--qx-store-muted, #9A9286);
+  background: var(--qx-store-background, #F7F4EE);
 }
 
 .list-end {
   display: block;
   padding: 36rpx 0 8rpx;
-  color: var(--qx-store-muted, #8d9690);
+  color: var(--qx-store-muted, #9A9286);
   font-size: 20rpx;
   text-align: center;
 }

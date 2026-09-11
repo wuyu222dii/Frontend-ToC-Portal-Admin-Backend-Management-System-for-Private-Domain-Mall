@@ -13,7 +13,7 @@ function goBack() {
 </script>
 
 <template>
-  <header class="qx-account-header">
+  <header class="qx-account-header qx-hairline--bottom">
     <button
       v-if="back"
       class="qx-account-header__back"
@@ -24,10 +24,18 @@ function goBack() {
       <QxIcon
         name="back"
         :size="40"
+        color="#2A2418"
       />
     </button>
-    <view v-else class="qx-account-header__space" />
-    <text class="qx-account-header__title" role="heading" aria-level="1">
+    <view
+      v-else
+      class="qx-account-header__space"
+    />
+    <text
+      class="qx-account-header__title"
+      role="heading"
+      aria-level="1"
+    >
       {{ title }}
     </text>
     <view class="qx-account-header__space" />
@@ -36,26 +44,31 @@ function goBack() {
 
 <style scoped>
 .qx-account-header {
+  box-sizing: border-box;
   display: grid;
-  min-height: 104rpx;
-  align-items: center;
-  padding: env(safe-area-inset-top) 16rpx 0;
-  box-shadow: 0 1rpx 0 var(--qx-store-line, #e8ece9);
-  background: rgba(255, 255, 255, 0.96);
-  grid-template-columns: 72rpx minmax(0, 1fr) 72rpx;
+  min-height: var(--qx-nav-bar, calc(88rpx + env(safe-area-inset-top)));
+  align-items: stretch;
+  padding-top: var(--qx-status-bar, env(safe-area-inset-top));
+  padding-right: var(--qx-capsule-right, 16rpx);
+  padding-left: var(--qx-capsule-gap, 16rpx);
+  background: var(--qx-store-surface, #ffffff);
+  grid-template-columns: 88rpx minmax(0, 1fr) 88rpx;
 }
 
 .qx-account-header__back,
 .qx-account-header__space {
-  width: 72rpx;
-  min-height: 72rpx;
+  width: 88rpx;
+  min-height: 88rpx;
 }
 
 .qx-account-header__back {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--qx-store-text);
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  color: var(--qx-store-text, #2A2418);
   background: transparent;
 }
 
@@ -63,10 +76,19 @@ function goBack() {
   opacity: 0.65;
 }
 
+.qx-account-header__back::after {
+  display: none;
+}
+
 .qx-account-header__title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
-  font-size: 30rpx;
+  font-size: 34rpx;
   font-weight: 600;
+  line-height: 1.2;
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;

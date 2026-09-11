@@ -223,27 +223,31 @@ onUnload(() => {
   <QxStoreShell surface="white">
     <view class="qx-account-page login-page">
       <QxAccountHeader title="微信登录" />
-      <QxCatalogState
-        v-if="state !== 'ready'"
-        :kind="state === 'loading' ? 'loading' : state"
-        :retry-after-seconds="retryAfterSeconds"
-        title="协议加载失败"
-        description="登录前需要读取当前协议版本。"
-        action-label="重新加载"
-        @action="loadDocuments"
-      />
-      <view v-else class="qx-account-page__body login-page__body">
-        <view class="login-brand" aria-label="青序生活">
-          <view class="login-brand__mark" aria-hidden="true">
-            青
-          </view>
+      <view class="qx-account-page__body login-page__body">
+        <view class="login-brand" aria-label="泽枫洗护">
+          <image
+            class="login-brand__logo"
+            src="/static/brand/zefeng-care.jpg"
+            mode="aspectFit"
+          />
           <text class="login-brand__title">
-            欢迎来到青序生活
+            欢迎来到泽枫洗护
           </text>
           <text class="qx-account-muted">
             登录后可管理本人资料、账户手机号和服务关系。
           </text>
         </view>
+        <QxCatalogState
+          v-if="state !== 'ready'"
+          :kind="state === 'loading' ? 'loading' : state"
+          title="协议加载失败"
+          description="登录前需要读取当前协议版本。"
+          action-label="重新加载"
+          compact
+          :retry-after-seconds="retryAfterSeconds"
+          @action="loadDocuments"
+        />
+        <view v-if="state === 'ready'">
 
         <!-- #ifdef H5 -->
         <label v-if="mockControlsEnabled" class="qx-account-field">
@@ -254,7 +258,7 @@ onUnload(() => {
             class="qx-account-field__input"
             maxlength="512"
             password
-          >
+          />
         </label>
         <!-- #endif -->
 
@@ -281,7 +285,7 @@ onUnload(() => {
             <checkbox
               :checked="agreementAccepted"
               aria-label="用户协议"
-              color="#496859"
+              color="#C4A35A"
               @click="agreementAccepted = !agreementAccepted"
             />
             <text>
@@ -298,7 +302,7 @@ onUnload(() => {
             <checkbox
               :checked="privacyAccepted"
               aria-label="隐私政策"
-              color="#496859"
+              color="#C4A35A"
               @click="privacyAccepted = !privacyAccepted"
             />
             <text>
@@ -319,6 +323,7 @@ onUnload(() => {
         <button
           v-if="!authenticationCompleted"
           class="qx-account-button"
+          :class="{ 'qx-account-button--disabled': !canLogin }"
           :disabled="!canLogin"
           @click="submitLogin"
         >
@@ -327,6 +332,7 @@ onUnload(() => {
         <button
           v-else-if="candidateNavigationFailed"
           class="qx-account-button"
+          :class="{ 'qx-account-button--disabled': candidateNavigationPending }"
           :disabled="candidateNavigationPending"
           @click="openCandidateDecision"
         >
@@ -335,6 +341,7 @@ onUnload(() => {
         <text class="qx-account-notice">
           账户手机号是独立且自愿的授权项，登录不会读取收货地址手机号，也不会自动授权账户手机号。
         </text>
+        </view>
       </view>
     </view>
   </QxStoreShell>
@@ -356,16 +363,9 @@ onUnload(() => {
   text-align: center;
 }
 
-.login-brand__mark {
-  display: flex;
-  width: 104rpx;
-  height: 104rpx;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--qx-store-radius, 16rpx);
-  color: #ffffff;
-  background: var(--qx-store-brand);
-  font-size: 48rpx;
+.login-brand__logo {
+  width: 280rpx;
+  height: 280rpx;
 }
 
 .login-brand__title {

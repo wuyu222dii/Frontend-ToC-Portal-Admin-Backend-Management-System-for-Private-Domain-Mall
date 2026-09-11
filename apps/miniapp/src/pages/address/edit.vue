@@ -530,7 +530,7 @@ onUnload(() => {
             <switch
               aria-label="设为默认地址"
               :checked="isDefault"
-              color="#496859"
+              color="#C4A35A"
               :disabled="pending"
               @change="handleDefaultChange"
             />

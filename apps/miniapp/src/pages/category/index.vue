@@ -33,13 +33,6 @@ type ProductSort = NonNullable<StoreProductListQuery['sort']>;
 type RequestState = 'idle' | 'loading' | 'ready' | 'error' | 'rate-limited';
 
 const PAGE_SIZE = 20;
-const SORT_OPTIONS = [
-  { label: '综合', value: 'COMPREHENSIVE' },
-  { label: '热销', value: 'HOT' },
-  { label: '最新', value: 'NEWEST' },
-  { label: '价格低到高', value: 'PRICE_ASC' },
-  { label: '价格高到低', value: 'PRICE_DESC' },
-] as const satisfies ReadonlyArray<{ label: string; value: ProductSort }>;
 
 const categories = ref<StoreCategory[]>([]);
 const brands = ref<StoreBrand[]>([]);
@@ -66,13 +59,36 @@ let categoriesGeneration = 0;
 let brandsGeneration = 0;
 let productsGeneration = 0;
 
+const filterOpen = ref(false);
+
 const selectedCategoryName = computed(() => {
   if (selectedCategoryId.value === '') return '全部商品';
   return categories.value.find((item) => item.category_id === selectedCategoryId.value)?.name
     ?? '所选分类';
 });
 const hasMore = computed(() => products.value.length < total.value);
-const resultCopy = computed(() => `${total.value} 件商品`);
+const catalogCountCopy = computed(() => {
+  if (selectedCategoryId.value === '') return `全品类共 ${total.value} 件`;
+  return `${selectedCategoryName.value} 共 ${total.value} 件`;
+});
+const isPriceSort = computed(() => (
+  selectedSort.value === 'PRICE_ASC' || selectedSort.value === 'PRICE_DESC'
+));
+const priceSortMark = computed(() => {
+  if (selectedSort.value === 'PRICE_ASC') return '↑';
+  if (selectedSort.value === 'PRICE_DESC') return '↓';
+  return '⇅';
+});
+const heroTitle = computed(() => (
+  selectedCategoryId.value === ''
+    ? '沙龙专研 · 纯净洗护系统'
+    : selectedCategoryName.value
+));
+const heroDesc = computed(() => (
+  selectedCategoryId.value === ''
+    ? '按分类挑选头皮与发丝护理'
+    : catalogCountCopy.value
+));
 
 function requestFailure(error: unknown): {
   state: 'error' | 'rate-limited';
@@ -222,6 +238,14 @@ function selectSort(sort: ProductSort): void {
   resetAndLoadProducts();
 }
 
+function selectPriceSort(): void {
+  selectSort(selectedSort.value === 'PRICE_ASC' ? 'PRICE_DESC' : 'PRICE_ASC');
+}
+
+function toggleFilter(): void {
+  filterOpen.value = !filterOpen.value;
+}
+
 function loadNextPage(): void {
   if (productsState.value !== 'ready' || !hasMore.value) return;
   loadProducts(true);
@@ -254,18 +278,33 @@ onBeforeUnmount(() => {
 <template>
   <QxStoreShell :with-bottom-nav="true">
     <view class="category-page">
-      <view class="category-header">
+      <view
+        class="category-header-slot"
+        aria-hidden="true"
+      />
+      <view
+        class="category-header"
+        aria-label="商品分类"
+      >
         <view class="category-header__title-row">
-          <view>
+          <view class="category-header__copy">
             <text class="category-header__title">
               商品分类
             </text>
+            <text class="category-header__count">
+              {{ catalogCountCopy }}
+            </text>
           </view>
-          <text class="category-header__count">
-            {{ resultCopy }}
-          </text>
         </view>
-        <QxSearchTrigger @activate="openSearch()" />
+        <view class="category-header__search">
+          <QxSearchTrigger
+            variant="pill"
+            surface="cream"
+            label="搜索控油蓬松、生姜修护、鱼子酱发膜..."
+            hint="专研推荐"
+            @activate="openSearch()"
+          />
+        </view>
       </view>
 
       <view
@@ -291,9 +330,10 @@ onBeforeUnmount(() => {
           <button
             class="category-rail__item"
             :class="{ 'category-rail__item--active': selectedCategoryId === '' }"
+            hover-class="category-rail__item--pressed"
             @click="selectCategory('')"
           >
-            全部
+            全部商品
           </button>
           <button
             v-for="category in categories"
@@ -302,6 +342,7 @@ onBeforeUnmount(() => {
             :class="{
               'category-rail__item--active': selectedCategoryId === category.category_id,
             }"
+            hover-class="category-rail__item--pressed"
             @click="selectCategory(category.category_id)"
           >
             {{ category.name }}
@@ -315,42 +356,53 @@ onBeforeUnmount(() => {
         </scroll-view>
 
         <view class="category-content">
-          <view class="category-content__heading">
-            <text class="category-content__title">
-              {{ selectedCategoryName }}
-            </text>
-            <text class="category-content__summary">
-              {{ resultCopy }}
-            </text>
-          </view>
-
-          <view class="filter-group">
-            <text class="filter-group__label">
-              排序
-            </text>
-            <scroll-view
-              class="filter-scroll"
-              scroll-x
-              :show-scrollbar="false"
+          <view class="category-toolbar">
+            <view class="category-toolbar__sorts">
+              <button
+                class="category-toolbar__item"
+                :class="{ 'category-toolbar__item--active': selectedSort === 'COMPREHENSIVE' }"
+                @click="selectSort('COMPREHENSIVE')"
+              >
+                综合
+              </button>
+              <button
+                class="category-toolbar__item"
+                :class="{ 'category-toolbar__item--active': selectedSort === 'HOT' }"
+                @click="selectSort('HOT')"
+              >
+                销量
+              </button>
+              <button
+                class="category-toolbar__item"
+                :class="{ 'category-toolbar__item--active': selectedSort === 'NEWEST' }"
+                @click="selectSort('NEWEST')"
+              >
+                新品
+              </button>
+              <button
+                class="category-toolbar__item"
+                :class="{ 'category-toolbar__item--active': isPriceSort }"
+                @click="selectPriceSort"
+              >
+                价格
+                <text class="category-toolbar__mark">
+                  {{ priceSortMark }}
+                </text>
+              </button>
+            </view>
+            <button
+              class="category-toolbar__filter"
+              :class="{ 'category-toolbar__filter--open': filterOpen || selectedBrandId !== '' }"
+              @click="toggleFilter"
             >
-              <view class="filter-row">
-                <button
-                  v-for="option in SORT_OPTIONS"
-                  :key="option.value"
-                  class="filter-chip"
-                  :class="{ 'filter-chip--active': selectedSort === option.value }"
-                  @click="selectSort(option.value)"
-                >
-                  {{ option.label }}
-                </button>
-              </view>
-            </scroll-view>
+              筛选
+            </button>
           </view>
 
-          <view class="filter-group">
-            <text class="filter-group__label">
-              品牌
-            </text>
+          <view
+            v-if="filterOpen"
+            class="category-brands"
+          >
             <scroll-view
               v-if="brandsState !== 'error' && brandsState !== 'rate-limited'"
               class="filter-scroll"
@@ -393,6 +445,20 @@ onBeforeUnmount(() => {
             />
           </view>
 
+          <view class="category-hero">
+            <view class="category-hero__copy">
+              <text class="category-hero__chip">
+                SALON CARE
+              </text>
+              <text class="category-hero__title">
+                {{ heroTitle }}
+              </text>
+              <text class="category-hero__desc">
+                {{ heroDesc }}
+              </text>
+            </view>
+          </view>
+
           <QxCatalogState
             v-if="productsState === 'loading'"
             kind="loading"
@@ -413,9 +479,10 @@ onBeforeUnmount(() => {
           <template v-else-if="productsState === 'ready'">
             <view class="product-grid">
               <QxProductCard
-                v-for="product in products"
+                v-for="(product, index) in products"
                 :key="product.product_id"
                 :product="product"
+                :rank="selectedSort === 'HOT' ? index + 1 : 0"
                 variant="list"
                 @select="openProduct"
               />
@@ -437,12 +504,17 @@ onBeforeUnmount(() => {
             >
               {{ loadingMore ? '加载中…' : '加载更多' }}
             </button>
-            <text
+            <view
               v-else-if="products.length > 0"
-              class="list-end"
+              class="category-footnote"
             >
-              已展示全部商品
-            </text>
+              <text class="category-footnote__en">
+                ZEFENG CARE LUXURY SALON SYSTEM
+              </text>
+              <text class="category-footnote__zh">
+                沙龙级专研配方 · 无硅油低敏呵护
+              </text>
+            </view>
           </template>
         </view>
       </view>
@@ -459,58 +531,71 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .category-page {
-  min-height: 100vh;
-  background: var(--qx-store-background, #f6f8f6);
+  min-height: 100%;
+  background: #fbf9f5;
+}
+
+.category-header-slot {
+  height: calc(var(--qx-nav-bar, 96rpx) + 108rpx);
 }
 
 .category-header {
-  position: sticky;
-  z-index: 12;
+  position: fixed;
+  z-index: 20;
   top: 0;
-  padding: calc(20rpx + env(safe-area-inset-top)) 28rpx 20rpx;
-  background: rgba(246, 248, 246, 0.97);
+  right: 0;
+  left: 0;
+  width: 100%;
+  border-bottom: 1px solid rgba(242, 236, 227, 0.6);
+  background: #fbf9f5;
 }
 
-.category-header__title-row,
-.category-content__heading {
-  display: flex;
-  min-width: 0;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 20rpx;
+/* #ifndef MP-WEIXIN */
+.category-header {
+  max-width: 414px;
+  margin: 0 auto;
 }
+/* #endif */
 
 .category-header__title-row {
-  margin-bottom: 22rpx;
+  box-sizing: border-box;
+  display: flex;
+  min-height: var(--qx-nav-bar, 96rpx);
+  align-items: center;
+  padding-top: var(--qx-status-bar, 8rpx);
+  padding-right: var(--qx-capsule-right, 32rpx);
+  padding-left: var(--qx-capsule-gap, 32rpx);
 }
 
-.category-header__eyebrow,
-.category-header__title,
-.category-header__count,
-.category-content__title,
-.category-content__summary {
-  display: block;
-}
-
-.category-header__eyebrow {
-  color: var(--qx-store-brand, #496859);
-  font-size: 18rpx;
-  font-weight: 800;
+.category-header__copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: baseline;
+  gap: 16rpx;
 }
 
 .category-header__title {
-  margin-top: 0;
-  color: var(--qx-store-brand-strong, #173b31);
-  font-size: 36rpx;
-  font-weight: 600;
-  line-height: 1.25;
+  color: #1f1c18;
+  font-size: 40rpx;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.4rpx;
 }
 
-.category-header__count,
-.category-content__summary {
-  flex: 0 0 auto;
-  color: var(--qx-store-muted, #8d9690);
-  font-size: 20rpx;
+.category-header__count {
+  min-width: 0;
+  overflow: hidden;
+  color: #9e958b;
+  font-size: 22rpx;
+  font-weight: 400;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.category-header__search {
+  padding: 12rpx 32rpx 20rpx;
 }
 
 .category-notice {
@@ -518,58 +603,66 @@ onBeforeUnmount(() => {
 }
 
 .category-layout {
-  display: grid;
+  display: flex;
   min-height: calc(100vh - 220rpx);
-  grid-template-columns: 176rpx minmax(0, 1fr);
-  align-items: start;
+  align-items: stretch;
 }
 
 .category-rail {
   position: sticky;
-  top: 180rpx;
+  top: calc(var(--qx-nav-bar, 96rpx) + 108rpx);
   width: 176rpx;
-  height: calc(100vh - 180rpx - 108rpx - env(safe-area-inset-bottom));
-  background: var(--qx-store-surface-soft, #eef3ef);
+  height: calc(100vh - var(--qx-nav-bar, 96rpx) - 108rpx - 124rpx - var(--qx-safe-bottom-pad, env(safe-area-inset-bottom, 0px)));
+  flex: 0 0 176rpx;
+  padding: 12rpx 0;
+  border-right: 1px solid #ece6db;
+  background: #f4f0e8;
 }
 
 .category-rail__item {
   position: relative;
   display: flex;
   width: 100%;
-  min-height: 104rpx;
+  min-height: 88rpx;
   align-items: center;
-  justify-content: center;
   margin: 0;
-  padding: 16rpx 18rpx;
-  color: var(--qx-store-text-soft, #5f6762);
+  padding: 20rpx 16rpx 20rpx 28rpx;
+  color: #6e665d;
   background: transparent;
-  font-size: 22rpx;
+  font-size: 24rpx;
+  font-weight: 500;
   line-height: 1.35;
-  text-align: center;
+  text-align: left;
   word-break: break-word;
 }
 
+.category-rail__item--pressed {
+  color: #241f1a;
+}
+
 .category-rail__item--active {
-  color: var(--qx-store-brand-strong, #173b31);
-  background: var(--qx-store-surface, #ffffff);
-  font-weight: 600;
+  color: #241f1a;
+  background: #fbf9f5;
+  font-weight: 700;
+  border-radius: 0 16rpx 16rpx 0;
+  box-shadow: 0 4rpx 20rpx rgba(181, 138, 70, 0.05);
 }
 
 .category-rail__item--active::before {
   position: absolute;
-  top: 28rpx;
-  bottom: 28rpx;
+  top: 20rpx;
+  bottom: 20rpx;
   left: 0;
-  width: 6rpx;
-  border-radius: 0 6rpx 6rpx 0;
-  background: var(--qx-store-brand, #496859);
+  width: 7rpx;
+  border-radius: 0 8rpx 8rpx 0;
+  background: #b58a46;
   content: '';
 }
 
 .category-rail__loading,
 .filter-loading {
   display: block;
-  color: var(--qx-store-muted, #8d9690);
+  color: var(--qx-store-muted, #9A9286);
   font-size: 19rpx;
   text-align: center;
 }
@@ -580,35 +673,77 @@ onBeforeUnmount(() => {
 
 .category-content {
   min-width: 0;
-  padding: 28rpx 20rpx 48rpx;
+  flex: 1;
+  background: #fbf9f5;
 }
 
-.category-content__heading {
-  margin-bottom: 24rpx;
+.category-toolbar {
+  position: sticky;
+  z-index: 8;
+  top: calc(var(--qx-nav-bar, 96rpx) + 108rpx);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  padding: 16rpx 20rpx;
+  border-bottom: 1px solid #f0ebe0;
+  background: rgba(251, 249, 245, 0.94);
 }
 
-.category-content__title {
+.category-toolbar__sorts {
+  display: flex;
   min-width: 0;
-  overflow: hidden;
-  color: var(--qx-store-text, #202522);
-  font-size: 30rpx;
-  font-weight: 600;
+  flex: 1;
+  align-items: center;
+  gap: 22rpx;
+}
+
+.category-toolbar__item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  padding: 0;
+  color: #7a7268;
+  background: transparent;
+  font-size: 22rpx;
+  font-weight: 400;
   line-height: 1.3;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.filter-group {
-  min-width: 0;
-  margin-bottom: 24rpx;
-}
-
-.filter-group__label {
-  display: block;
-  margin-bottom: 12rpx;
-  color: var(--qx-store-muted, #8d9690);
-  font-size: 19rpx;
+.category-toolbar__item--active {
+  color: #a57c3a;
   font-weight: 700;
+}
+
+.category-toolbar__mark {
+  margin-left: 4rpx;
+  color: #b0a79b;
+  font-size: 18rpx;
+  line-height: 1;
+}
+
+.category-toolbar__item--active .category-toolbar__mark {
+  color: #a57c3a;
+}
+
+.category-toolbar__filter {
+  flex: 0 0 auto;
+  padding: 6rpx 16rpx;
+  border-radius: 999rpx;
+  color: #554e45;
+  background: #f1ece3;
+  font-size: 20rpx;
+  line-height: 1.3;
+}
+
+.category-toolbar__filter--open {
+  color: #a57c3a;
+  background: #f6efd9;
+  font-weight: 600;
+}
+
+.category-brands {
+  padding: 16rpx 20rpx 8rpx;
 }
 
 .filter-scroll {
@@ -625,65 +760,134 @@ onBeforeUnmount(() => {
 }
 
 .filter-chip {
-  min-height: 56rpx;
+  min-height: 52rpx;
   flex: 0 0 auto;
   margin: 0;
   padding: 0 18rpx;
   border-radius: 28rpx;
-  color: var(--qx-store-text-soft, #5f6762);
-  background: var(--qx-store-surface, #ffffff);
+  color: var(--qx-store-text-soft, #6B6458);
+  background: #ffffff;
   font-size: 20rpx;
-  line-height: 56rpx;
+  line-height: 52rpx;
   white-space: nowrap;
 }
 
 .filter-chip--active {
-  color: var(--qx-store-brand-strong, #173b31);
-  background: var(--qx-store-brand-soft, #e7efe9);
+  color: #8a6a24;
+  background: #f6efd9;
   font-weight: 600;
 }
 
-.product-grid {
-  display: grid;
+.category-hero {
+  display: flex;
+  align-items: center;
+  margin: 20rpx 20rpx 0;
+  padding: 20rpx 22rpx;
+  overflow: hidden;
+  border-radius: 24rpx;
+  color: #ffffff;
+  background:
+    radial-gradient(circle at 92% 120%, rgba(212, 175, 55, 0.18), transparent 46%),
+    linear-gradient(135deg, #2d2721 0%, #433930 50%, #29221c 100%);
+}
+
+.category-hero__copy {
   min-width: 0;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 16rpx;
+}
+
+.category-hero__chip {
+  display: inline-flex;
+  padding: 4rpx 12rpx;
+  border: 1px solid rgba(200, 160, 100, 0.5);
+  border-radius: 8rpx;
+  color: #e8ceab;
+  background: rgba(200, 160, 100, 0.3);
+  font-size: 18rpx;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.category-hero__title {
+  display: block;
+  margin-top: 8rpx;
+  overflow: hidden;
+  color: #ffffff;
+  font-size: 24rpx;
+  font-weight: 700;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.category-hero__desc {
+  display: block;
+  margin-top: 6rpx;
+  overflow: hidden;
+  color: #d0c5b6;
+  font-size: 20rpx;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.category-content :deep(.qx-catalog-state) {
+  margin: 20rpx;
+}
+
+.product-grid {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 20rpx;
+  padding: 20rpx 20rpx 8rpx;
 }
 
 .load-more {
-  width: 100%;
+  width: calc(100% - 40rpx);
   min-height: 76rpx;
-  margin-top: 24rpx;
-  border: 1px solid var(--qx-store-line-strong, #cfd6d1);
-  border-radius: var(--qx-store-radius, 16rpx);
-  color: var(--qx-store-brand, #496859);
-  background: var(--qx-store-surface, #ffffff);
+  margin: 8rpx 20rpx 24rpx;
+  border: 1px solid #e8e2d6;
+  border-radius: 16rpx;
+  color: #c4a35a;
+  background: #ffffff;
   font-size: 22rpx;
   font-weight: 700;
 }
 
 .load-more[disabled] {
-  color: var(--qx-store-muted, #8d9690);
-  background: var(--qx-store-surface-soft, #edf3ef);
+  color: #9a9286;
+  background: #f3efe8;
 }
 
-.list-end {
-  display: block;
-  padding: 32rpx 0 8rpx;
-  color: var(--qx-store-muted, #8d9690);
-  font-size: 20rpx;
+.category-footnote {
+  padding: 24rpx 20rpx 40rpx;
   text-align: center;
 }
 
+.category-footnote__en,
+.category-footnote__zh {
+  display: block;
+  color: #b8afa3;
+  font-size: 18rpx;
+  line-height: 1.5;
+  letter-spacing: 0.12em;
+}
+
+.category-footnote__zh {
+  margin-top: 6rpx;
+  color: #c4bdb1;
+  letter-spacing: 0;
+}
+
 @media (min-width: 768px) {
-  .category-header {
+  .category-header__title-row {
     padding-right: 20px;
     padding-left: 20px;
   }
 
-  .category-content {
-    padding-right: 16px;
-    padding-left: 16px;
+  .category-header__search {
+    padding-right: 20px;
+    padding-left: 20px;
   }
 }
 </style>

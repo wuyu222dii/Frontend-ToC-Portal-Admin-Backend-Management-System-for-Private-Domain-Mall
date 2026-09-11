@@ -1,26 +1,28 @@
 .qx-store-theme {
-  --qx-store-background: #f6f8f6;
+  --qx-store-background: #f7f4ee;
   --qx-store-surface: #ffffff;
-  --qx-store-surface-soft: #eef3ef;
-  --qx-store-text: #202522;
-  --qx-store-text-soft: #5f6762;
-  --qx-store-muted: #8d9690;
-  --qx-store-line: #e8ece9;
-  --qx-store-line-strong: #d5dcd6;
-  --qx-store-brand: #496859;
-  --qx-store-brand-strong: #173b31;
-  --qx-store-brand-soft: #e7efe9;
-  --qx-store-accent: #e27766;
-  --qx-store-accent-soft: #f7e7e2;
-  --qx-store-warning: #a56d27;
-  --qx-store-warning-soft: #f6ecdd;
+  --qx-store-surface-soft: #f3ebda;
+  --qx-store-text: #2a2418;
+  --qx-store-text-soft: #6b6458;
+  --qx-store-muted: #9a9286;
+  --qx-store-line: #e8e2d6;
+  --qx-store-line-strong: #d8d0c2;
+  --qx-store-brand: #c4a35a;
+  --qx-store-brand-strong: #8a6a24;
+  --qx-store-brand-soft: #f6efd9;
+  --qx-store-accent: #8a6a24;
+  --qx-store-accent-soft: #f6efd9;
+  --qx-store-warning: #b45309;
+  --qx-store-warning-soft: #f6e8d0;
   --qx-store-danger: #b84848;
-  --qx-store-info: #2f6578;
-  --qx-store-info-soft: #e0edf1;
+  --qx-store-danger-soft: #f7e7e2;
+  --qx-store-info: #5c6b73;
+  --qx-store-info-soft: #ede8dc;
   --qx-store-radius: 16rpx;
   --qx-store-radius-sm: 12rpx;
   --qx-store-tap: 88rpx;
-  --qx-store-shadow: 0 8rpx 28rpx rgba(23, 59, 49, 0.05);
+  --qx-store-shadow: 0 8rpx 28rpx rgba(138, 106, 36, 0.08);
+  --qx-safe-bottom-pad: max(env(safe-area-inset-bottom, 0px), var(--qx-safe-bottom, 0px));
   color: var(--qx-store-text);
   background: var(--qx-store-background);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -38,17 +40,50 @@
   letter-spacing: 0;
 }
 
-.qx-store-theme button {
+html body button,
+html body uni-button {
   margin: 0;
   padding: 0;
+  overflow: visible;
   border: 0;
   border-radius: 0;
+  background-color: transparent;
   font: inherit;
   line-height: inherit;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
-.qx-store-theme button::after {
+html body button::after,
+html body uni-button::after {
+  display: none;
   border: 0;
+}
+
+.qx-hairline--bottom,
+.qx-hairline--top {
+  position: relative;
+}
+
+.qx-hairline--bottom::after,
+.qx-hairline--top::before {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--qx-store-line);
+  content: '';
+  transform: scaleY(0.5);
+}
+
+.qx-hairline--bottom::after {
+  bottom: 0;
+  transform-origin: 0 100%;
+}
+
+.qx-hairline--top::before {
+  top: 0;
+  transform-origin: 0 0;
 }
 
 @keyframes qx-shimmer {
@@ -65,7 +100,7 @@
   background-image: linear-gradient(
     90deg,
     var(--qx-store-surface-soft) 20%,
-    #f7faf8 50%,
+    #faf6ee 50%,
     var(--qx-store-surface-soft) 80%
   );
   background-size: 200% 100%;

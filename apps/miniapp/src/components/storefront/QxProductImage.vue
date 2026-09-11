@@ -54,8 +54,8 @@ function handleError() {
       aria-hidden="true"
     >
       <view class="qx-product-image__pack">
-        <text>
-          青序
+        <text class="qx-product-image__pack-label">
+          泽枫
         </text>
       </view>
     </view>
@@ -135,7 +135,7 @@ function handleError() {
   justify-content: center;
   border: 1px solid rgba(32, 37, 34, 0.13);
   border-radius: 14rpx 14rpx 8rpx 8rpx;
-  color: var(--qx-store-brand, #496859);
+  color: var(--qx-store-brand, #C4A35A);
   background: #faf8f1;
   box-shadow: 0 8rpx 18rpx rgba(59, 73, 64, 0.06);
 }
@@ -147,11 +147,11 @@ function handleError() {
   width: 40%;
   height: 11%;
   border-radius: 6rpx 6rpx 0 0;
-  background: var(--qx-store-text, #202522);
+  background: var(--qx-store-text, #2A2418);
   content: '';
 }
 
-.qx-product-image__pack text {
+.qx-product-image__pack-label {
   width: 80%;
   padding: 14rpx 0;
   border-top: 1px solid #ccd8d0;

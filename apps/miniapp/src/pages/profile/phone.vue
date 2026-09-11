@@ -216,7 +216,7 @@ onLoad(() => {
           <checkbox
             :checked="consentAccepted"
             aria-label="手机号授权说明"
-            color="#496859"
+            color="#C4A35A"
             @click="consentAccepted = !consentAccepted"
           />
           <text>

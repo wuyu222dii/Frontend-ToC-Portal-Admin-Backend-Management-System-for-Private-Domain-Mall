@@ -32,9 +32,9 @@ export const QX_ICON_NAMES = [
 export type QxIconName = (typeof QX_ICON_NAMES)[number];
 
 const strokeSvg = (body: string) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+  `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
 const fillSvg = (body: string) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#000">${body}</svg>`;
+  `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="#000">${body}</svg>`;
 
 export const QX_ICON_SVG: Record<QxIconName, string> = {
   home: strokeSvg('<path d="M4 10.8 12 4l8 6.8V20a1 1 0 0 1-1 1h-5.2v-6.2H9.2V21H5a1 1 0 0 1-1-1z"/>'),
@@ -69,4 +69,12 @@ export const QX_ICON_SVG: Record<QxIconName, string> = {
 
 export function qxIconDataUri(name: QxIconName): string {
   return `url("data:image/svg+xml;utf8,${encodeURIComponent(QX_ICON_SVG[name])}")`;
+}
+
+const HEX_COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+export function qxIconImageSrc(name: QxIconName, color = '#6B6458'): string {
+  const fill = HEX_COLOR.test(color) ? color : '#6B6458';
+  const svg = QX_ICON_SVG[name].replace(/#000/g, fill);
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }

@@ -4,5 +4,6 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["@dcloudio/types", "vite/client"]
   },
-  "include": ["src/**/*.ts", "src/**/*.vue", "vite.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.vue", "vite.config.ts"],
+  "exclude": ["src/**/*.spec.ts"]
 }

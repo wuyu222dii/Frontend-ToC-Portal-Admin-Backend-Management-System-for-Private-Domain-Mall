@@ -14,7 +14,6 @@
 .qx-account-panel {
   width: 100%;
   overflow: hidden;
-  border-radius: var(--qx-store-radius, 16rpx);
   background: var(--qx-store-surface);
 }
 
@@ -53,14 +52,12 @@
 
 .qx-account-row__icon {
   display: flex;
-  width: 56rpx;
-  height: 56rpx;
+  width: 40rpx;
+  height: 40rpx;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  border-radius: 14rpx;
   color: var(--qx-store-brand);
-  background: var(--qx-store-brand-soft);
 }
 
 .qx-account-row__value {
@@ -128,7 +125,7 @@
   font-weight: 600;
 }
 
-.qx-account-button[disabled] {
+.qx-account-button--disabled {
   color: #ffffff;
   background: var(--qx-store-muted);
   opacity: 0.72;
@@ -141,7 +138,7 @@
 }
 
 .qx-account-button--danger {
-  background: var(--qx-store-accent);
+  background: var(--qx-store-danger);
 }
 
 .qx-account-link {
@@ -166,7 +163,7 @@
 
 .qx-account-notice--error {
   color: var(--qx-store-danger);
-  background: var(--qx-store-accent-soft);
+  background: var(--qx-store-danger-soft);
 }
 
 .qx-account-muted {

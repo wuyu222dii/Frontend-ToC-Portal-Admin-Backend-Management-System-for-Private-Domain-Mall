@@ -6,28 +6,29 @@ export default {
 
 <style>
 page {
-  --qx-store-background: #f6f8f6;
+  --qx-store-background: #f7f4ee;
   --qx-store-surface: #ffffff;
-  --qx-store-surface-soft: #eef3ef;
-  --qx-store-text: #202522;
-  --qx-store-text-soft: #5f6762;
-  --qx-store-muted: #8d9690;
-  --qx-store-line: #e8ece9;
-  --qx-store-line-strong: #d5dcd6;
-  --qx-store-brand: #496859;
-  --qx-store-brand-strong: #173b31;
-  --qx-store-brand-soft: #e7efe9;
-  --qx-store-accent: #e27766;
-  --qx-store-accent-soft: #f7e7e2;
-  --qx-store-warning: #a56d27;
-  --qx-store-warning-soft: #f6ecdd;
+  --qx-store-surface-soft: #f3ebda;
+  --qx-store-text: #2a2418;
+  --qx-store-text-soft: #6b6458;
+  --qx-store-muted: #9a9286;
+  --qx-store-line: #e8e2d6;
+  --qx-store-line-strong: #d8d0c2;
+  --qx-store-brand: #c4a35a;
+  --qx-store-brand-strong: #8a6a24;
+  --qx-store-brand-soft: #f6efd9;
+  --qx-store-accent: #8a6a24;
+  --qx-store-accent-soft: #f6efd9;
+  --qx-store-warning: #b45309;
+  --qx-store-warning-soft: #f6e8d0;
   --qx-store-danger: #b84848;
-  --qx-store-info: #2f6578;
-  --qx-store-info-soft: #e0edf1;
+  --qx-store-danger-soft: #f7e7e2;
+  --qx-store-info: #5c6b73;
+  --qx-store-info-soft: #ede8dc;
   --qx-store-radius: 16rpx;
   --qx-store-radius-sm: 12rpx;
   --qx-store-tap: 88rpx;
-  --qx-store-shadow: 0 8rpx 28rpx rgba(23, 59, 49, 0.05);
+  --qx-store-shadow: 0 8rpx 28rpx rgba(138, 106, 36, 0.08);
   --qx-ink: var(--qx-store-text);
   --qx-ink-soft: var(--qx-store-text-soft);
   --qx-muted: var(--qx-store-muted);
@@ -64,15 +65,40 @@ swiper-item {
   letter-spacing: 0;
 }
 
-button {
+button,
+uni-button {
   margin: 0;
   padding: 0;
+  overflow: visible;
+  border: 0;
   border-radius: 0;
+  background-color: transparent;
   line-height: inherit;
+  font-size: inherit;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
-button::after {
+button::after,
+uni-button::after,
+html body button::after,
+html body uni-button::after {
+  display: none;
   border: 0;
+}
+
+html body button,
+html body uni-button {
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background-color: transparent;
+  line-height: inherit;
+  font-size: inherit;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 image {

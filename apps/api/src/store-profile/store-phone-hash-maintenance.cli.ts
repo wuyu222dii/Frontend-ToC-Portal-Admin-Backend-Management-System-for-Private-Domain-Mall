@@ -83,17 +83,21 @@ export function storePhoneHashMaintenancePoolConfig(
     };
   }
 
-  const projectRef = config.database.projectRef;
-  if (!projectRef || !/^[a-z]{20}$/.test(projectRef)) {
-    throw new TypeError('Store phone HMAC maintenance requires an approved Supabase project');
+  if (/\.supabase\.(co|com)$/i.test(direct.hostname) || config.database.projectRef) {
+    throw new TypeError('DIRECT_URL must not use Supabase; use TencentDB PostgreSQL');
   }
-  const directHost = direct.hostname === `db.${projectRef}.supabase.co`;
-  const poolerHost = direct.hostname.endsWith('.pooler.supabase.com');
-  if ((!directHost && !poolerHost) ||
-    (directHost && username !== 'mall_migrator') ||
-    (poolerHost && username !== `mall_migrator.${projectRef}`) ||
-    (direct.port || '5432') !== '5432' || direct.pathname !== '/postgres') {
-    throw new TypeError('DIRECT_URL must be scoped to the approved mall_migrator project');
+  if (!/(?:^|\.)(?:sql|postgres|pg)\.tencentcdb\.com$/i.test(direct.hostname) ||
+    username !== 'mall_migrator') {
+    throw new TypeError('DIRECT_URL must be the approved TencentDB mall_migrator connection');
+  }
+  let databaseName: string;
+  try {
+    databaseName = decodeURIComponent(direct.pathname.replace(/^\//, ''));
+  } catch {
+    throw new TypeError('DIRECT_URL database name contains invalid percent encoding');
+  }
+  if (!/^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(databaseName)) {
+    throw new TypeError('DIRECT_URL must use a PostgreSQL database name');
   }
   const allowedParameters = new Set(['sslmode', 'sslrootcert']);
   if ([...direct.searchParams.keys()].some((key) => !allowedParameters.has(key)) ||

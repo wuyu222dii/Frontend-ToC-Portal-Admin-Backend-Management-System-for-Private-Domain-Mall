@@ -11,6 +11,7 @@ export interface DatabaseRuntimeConfig {
   poolMax: number;
   connectionTimeoutMs: number;
   applicationName: string;
+  provider?: 'tencentdb' | undefined;
   projectRef?: string | undefined;
   sslRootCertPath?: string | undefined;
   allowInsecureLocalhost?: boolean | undefined;
@@ -78,6 +79,37 @@ interface ValidatedDatabaseConnection {
 
 const LOCAL_DATABASE_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 const TLS_QUERY_PARAMETERS = ['sslmode', 'sslrootcert'] as const;
+const TENCENT_POSTGRES_HOST = /(?:^|\.)(?:sql|postgres|pg)\.tencentcdb\.com$/i;
+const POSTGRES_IDENT = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
+
+function isTencentPostgresHostname(hostname: string): boolean {
+  return TENCENT_POSTGRES_HOST.test(hostname);
+}
+
+function readVerifiedTls(url: URL, sslRootCertPath: string | undefined, label: string): string {
+  for (const parameter of url.searchParams.keys()) {
+    if (parameter !== 'sslmode' && parameter !== 'sslrootcert') {
+      throw new TypeError('DATABASE_URL contains an unsupported query parameter');
+    }
+  }
+  if (url.searchParams.getAll('sslmode').length !== 1) {
+    throw new TypeError('DATABASE_URL must contain exactly one sslmode parameter');
+  }
+  if (url.searchParams.get('sslmode') !== 'verify-full') {
+    throw new TypeError('DATABASE_URL must require full TLS verification');
+  }
+  if (url.searchParams.getAll('sslrootcert').length > 1) {
+    throw new TypeError('DATABASE_URL must not repeat sslrootcert');
+  }
+  if (!sslRootCertPath) {
+    throw new TypeError(`${label} requires an explicit TLS root certificate`);
+  }
+  const queryRootCert = url.searchParams.get('sslrootcert');
+  if (queryRootCert && queryRootCert !== sslRootCertPath) {
+    throw new TypeError('DATABASE_URL TLS root certificate path does not match runtime configuration');
+  }
+  return sslRootCertPath;
+}
 function readTrustedCa(path: string): string {
   let ca: string;
   try {
@@ -115,10 +147,10 @@ function validateRuntimeDatabaseConnection(config: DatabaseRuntimeConfig): Valid
 
   if (LOCAL_DATABASE_HOSTS.has(url.hostname)) {
     if (config.allowInsecureLocalhost !== true) {
-      throw new TypeError('Local DATABASE_URL is restricted to the explicit ephemeral test runtime');
+      throw new TypeError('Local DATABASE_URL is restricted to development or the explicit ephemeral test runtime');
     }
     if (config.sslRootCertPath || config.projectRef) {
-      throw new TypeError('Local DATABASE_URL must not use Supabase TLS configuration');
+      throw new TypeError('Local DATABASE_URL must not use remote TLS configuration');
     }
     if (url.search !== '') {
       throw new TypeError('Local DATABASE_URL must not contain query parameters');
@@ -126,45 +158,33 @@ function validateRuntimeDatabaseConnection(config: DatabaseRuntimeConfig): Valid
     return { connectionString: url.toString() };
   }
 
-  if (!config.projectRef || !/^[a-z]{20}$/.test(config.projectRef)) {
-    throw new TypeError('Supabase runtime requires an approved project reference');
+  if (/\.supabase\.(co|com)$/i.test(url.hostname) || config.projectRef) {
+    throw new TypeError('DATABASE_URL must not use Supabase; use TencentDB PostgreSQL');
   }
-  const directMatch = url.hostname.match(/^db\.([a-z]{20})\.supabase\.co$/);
-  const sessionPooler = url.hostname.endsWith('.pooler.supabase.com');
-  if ((!directMatch || directMatch[1] !== config.projectRef) && !sessionPooler) {
-    throw new TypeError('DATABASE_URL must target the approved Supabase project');
+  if (config.provider && config.provider !== 'tencentdb') {
+    throw new TypeError('Database provider must be tencentdb');
   }
-  if (directMatch && username !== 'mall_runtime') {
-    throw new TypeError('Supabase direct DATABASE_URL must authenticate as mall_runtime');
+  if (!isTencentPostgresHostname(url.hostname)) {
+    throw new TypeError('DATABASE_URL must target an approved TencentDB PostgreSQL host');
   }
-  if (sessionPooler && username !== `mall_runtime.${config.projectRef}`) {
-    throw new TypeError('Supabase pooler role must be scoped to the approved project');
+  if (username !== 'mall_runtime') {
+    throw new TypeError('DATABASE_URL must authenticate as mall_runtime');
   }
-  if ((url.port || '5432') !== '5432' || url.pathname !== '/postgres') {
-    throw new TypeError('DATABASE_URL must use the Supabase direct/session postgres endpoint');
+  let databaseName: string;
+  try {
+    databaseName = decodeURIComponent(url.pathname.replace(/^\//, ''));
+  } catch {
+    throw new TypeError('DATABASE_URL database name contains invalid percent encoding');
   }
-  for (const parameter of url.searchParams.keys()) {
-    if (parameter !== 'sslmode' && parameter !== 'sslrootcert') {
-      throw new TypeError('DATABASE_URL contains an unsupported query parameter');
-    }
+  if (!POSTGRES_IDENT.test(databaseName)) {
+    throw new TypeError('DATABASE_URL must use a PostgreSQL database name');
   }
-  if (url.searchParams.getAll('sslmode').length !== 1) {
-    throw new TypeError('DATABASE_URL must contain exactly one sslmode parameter');
+  const port = url.port || '5432';
+  if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65_535) {
+    throw new TypeError('DATABASE_URL must use a valid PostgreSQL port');
   }
-  if (url.searchParams.get('sslmode') !== 'verify-full') {
-    throw new TypeError('DATABASE_URL must require full TLS verification');
-  }
-  if (url.searchParams.getAll('sslrootcert').length > 1) {
-    throw new TypeError('DATABASE_URL must not repeat sslrootcert');
-  }
-  if (!config.sslRootCertPath) {
-    throw new TypeError('Supabase runtime requires an explicit TLS root certificate');
-  }
-  const queryRootCert = url.searchParams.get('sslrootcert');
-  if (queryRootCert && queryRootCert !== config.sslRootCertPath) {
-    throw new TypeError('DATABASE_URL TLS root certificate path does not match runtime configuration');
-  }
-  const ca = readTrustedCa(config.sslRootCertPath);
+  const sslRootCertPath = readVerifiedTls(url, config.sslRootCertPath, 'TencentDB runtime');
+  const ca = readTrustedCa(sslRootCertPath);
   for (const parameter of TLS_QUERY_PARAMETERS) url.searchParams.delete(parameter);
   return {
     connectionString: url.toString(),

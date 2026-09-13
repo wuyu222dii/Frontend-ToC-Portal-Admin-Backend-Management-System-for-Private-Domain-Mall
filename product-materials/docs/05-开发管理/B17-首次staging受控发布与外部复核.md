@@ -14,7 +14,7 @@ B12 的 `READY/PRIVATE` evidence orphan 已在 B15 实现两阶段回收代码�
 
 - B16.1 的 API/Worker `/internal/health`、数据库/Redis/MinIO 探活和脱敏启动失败日志已实现并完成受影响构建。
 - B16.2 备份、PITR、数据库/MinIO/Redis 恢复与回滚 runbook 已记录；实际 clone 恢复演练尚无可核验的目标项目证据。
-- B16.3 安全与环境准入清单已记录；staging 专用项目、Secret Manager 注入、RLS/权限和 Data API 关闭仍待现场核对。
+- B16.3 安全与环境准入清单已记录；staging 专用 TencentDB 实例、Secret Manager 注入和 RLS/权限仍待现场核对。
 - B16.4 发布演练清单已记录；实际 dry-run、依赖故障注入、敏感扫描和外部独立复核尚未完成。
 
 因此 B16 只能保持“准备项完成、staging-ready 未取得证据”，B17.0 不得直接把 B16 标记为 `staging-ready`。
@@ -24,7 +24,7 @@ B12 的 `READY/PRIVATE` evidence orphan 已在 B15 实现两阶段回收代码�
 | 批次 | 交付内容 | 退出条件 | 状态 |
 |---|---|---|---|
 | B17.0 | B16 证据核验、状态同步、CH-035、候选 SHA 冻结；闭合 B12 orphan | 唯一证据包、历史风险复核、外部复核人确认 | **orphan 隔离演练完成；候选 SHA/外部复核待执行** |
-| B17.1 | 独立 staging 环境、密钥、数据库角色/RLS、TLS、Data API 和 Mock 配置 | `config:check`、密钥/权限清单和环境隔离均通过 | **代码门禁已实现；现场证据待执行** |
+| B17.1 | 独立 staging 环境、密钥、数据库角色/RLS、TLS 和 Mock 配置 | `config:check`、密钥/权限清单和环境隔离均通过 | **代码门禁已实现；现场证据待执行** |
 | B17.2 | clone 项目迁移、PITR/快照、MinIO/Redis 恢复与回滚演练 | 迁移历史、权限、RLS、事实、对象和 `migration diff=0` 一致 | 待执行 |
 | B17.3 | API/Worker 发布、readiness、Admin/Agent/Store 脱敏核心 smoke、依赖故障与清理 | 正常 `200`、依赖异常 `503`、恢复 `200`，无残留/敏感泄露 | 待执行 |
 | B17.4 | 外部独立代码/安全/数据库/PII/恢复复核与 Go/No-Go | `P0=0/P1=0`，复核签字齐全后 B16 `staging-ready`、B17 `GO` | 待执行 |
@@ -36,7 +36,7 @@ B12 的 `READY/PRIVATE` evidence orphan 已在 B15 实现两阶段回收代码�
 共享配置现在接受 `NODE_ENV=staging`，并在启动时强制：
 
 1. `STAGING_DEIDENTIFIED_MOCK_ACK=true`；
-2. `SUPABASE_DATA_API_DISABLED_ACK=true`；
+2. 环境中不得残留任何 `SUPABASE_*`，远程库必须是 TencentDB；
 3. `AUTH_TOKEN_ISSUER`、Admin/Store/Agent 三个 audience 均使用独立于 development/test 默认值的 Secret-Manager 值，且彼此不重叠；
 4. Store identity、phone 和 payment Provider 全部为 `MOCK`；
 5. 远程 PostgreSQL/Redis/S3/推广地址使用受信 TLS/HTTPS，仍使用 `mall_runtime` 与 `mall_migrator` 分权和独立 key ring。

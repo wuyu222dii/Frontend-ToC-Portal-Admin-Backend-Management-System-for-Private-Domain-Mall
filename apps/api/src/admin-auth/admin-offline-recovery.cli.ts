@@ -88,7 +88,7 @@ export async function offlineRecoveryMain(args = process.argv.slice(2)): Promise
   const config = loadPlatformConfig(process.env, { service: 'api', requireDatabase: true, requireEncryption: true, requireStorage: false });
   const database = createDatabaseRuntime({ applicationName: 'qingxu-admin-offline-recovery',
     allowInsecureLocalhost: config.database.allowInsecureLocalhost, connectionTimeoutMs: config.database.connectionTimeoutMs,
-    databaseUrl: config.database.url, poolMax: 1, projectRef: config.database.projectRef, sslRootCertPath: config.database.sslRootCertPath });
+    databaseUrl: config.database.url, poolMax: 1, provider: config.database.provider, projectRef: config.database.projectRef, sslRootCertPath: config.database.sslRootCertPath });
   try {
     await database.connect();
     const operator = await operatorProof(config, database, parsed.operatorId, parsed.credentialType);

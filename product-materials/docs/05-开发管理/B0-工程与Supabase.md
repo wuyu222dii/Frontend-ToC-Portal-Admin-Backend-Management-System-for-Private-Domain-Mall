@@ -1,6 +1,7 @@
-# B0 工程与 Supabase
+# B0 工程与数据库
 
-> 批次：B0；更新日期：2026-08-24；数据范围：仅脱敏开发数据。
+> 批次：B0；更新日期：2026-09-13；数据范围：仅脱敏开发数据。  
+> 文件名保留历史链接。远程库已改为腾讯云 TencentDB PostgreSQL，不再使用 Supabase。
 
 ## 1. 交付边界与当前状态
 
@@ -9,11 +10,11 @@
 | pnpm monorepo 与五个应用 | 已建立 | `pnpm lint && pnpm typecheck && pnpm test && pnpm build` |
 | 本地 Redis 与 MinIO | 已建立 | `docker compose up -d --wait redis minio`、私有 bucket 初始化 |
 | 临时 PostgreSQL CI | 已建立 | 空库回放、对象计数、权限/RLS 检查及 Prisma diff |
-| Supabase 新加坡开发项目 | 已创建 | `wash-care-private-mall-dev` / `gphyhqryivtpicuqpdkq` / `ap-southeast-1` |
-| Supabase 基线迁移与本机烟测 | 已完成 | 结构、权限、TLS、Prisma history 与 drift 全部通过 |
-| GitHub Environment 烟测 | 已通过（CH-009 单人 development 例外） | `Supabase development smoke` Run `32678252828`，实现基准 SHA `a03ed8475198e81708df4a8fd9f44995c53c86f9` |
+| 远程 PostgreSQL | TencentDB | 与 API 同 VPC，内网域名 + `sslmode=verify-full` |
 
-开发库只允许脱敏测试数据；不得以本地 PostgreSQL 替代日常开发库。`supabase-development` Environment 已接入 main-only 分支策略和环境 secrets；当前只有一名维护者，独立 reviewer 按 CH-009 仅在 development 阶段例外，staging/production 不适用。
+开发库只允许脱敏测试数据。`NODE_ENV=development` 可以使用本机 loopback PostgreSQL（推荐 docker `postgres-ci`）；staging / production 必须使用 TencentDB。任何 `SUPABASE_*` 变量都会导致配置校验失败。
+
+新加坡 Supabase development 项目与历史 `Supabase development smoke` / migration workflow 已退役。既往 SHA 与 GitHub Run 记录仍是当时的 development 证据，不再作为现行连接方式。
 
 ## 2. 本地开发依赖
 
@@ -23,78 +24,24 @@
 4. 运行 `docker compose run --rm minio-init`，创建默认私有 bucket。
 5. 用 `docker compose ps` 检查健康状态。停止服务使用 `docker compose stop`；只有明确需要清空脱敏开发对象时才人工删除 volume。
 
-Compose 不包含 PostgreSQL，也不向局域网公开 Redis、MinIO API 或控制台端口。
+Compose 默认不包含业务 PostgreSQL，也不向局域网公开 Redis、MinIO API 或控制台端口。
 
-## 3. Supabase 项目人工准入
+## 3. TencentDB 准入
 
-项目所有者须在 Supabase Dashboard 完成以下步骤：
+1. 每个环境使用独立的 TencentDB 实例，与 CVM 同地域、同 VPC；关闭外网。
+2. 使用内网域名，不要填内网 IP。下载 CA，`DATABASE_URL` / `DIRECT_URL` 必须 `sslmode=verify-full`。
+3. 三端只通过 NestJS HTTPS 访问业务表。禁止前端持有数据库连接，禁止使用任何 Data API / `service_role` 密钥。
+4. 首次空库初始化只允许 `pnpm db:bootstrap`。基线创建 `mall_migrator`、`mall_runtime` 并移交 76 张应用表；中断在半成品状态时必须人工检查，不得 reset。
+5. `DATABASE_URL` 只供 API/Worker，`DIRECT_URL` 只供迁移。两个角色密码独立生成、独立保存和轮换。
+6. 初始化成功后从运行环境删除 `DATABASE_OWNER_URL`。
+7. 用 runtime 连接验证无 DDL、无 `DELETE`（四张明确例外表除外）、无 `BYPASSRLS`。
 
-1. 已建立独立 development 项目 `wash-care-private-mall-dev`，区域为 Southeast Asia (Singapore)，project ref 为 `gphyhqryivtpicuqpdkq`；不得复用为 staging 或 production。
-2. 在 API Settings 关闭 Data API。项目不得启用前端 Supabase SDK 旁路，不使用 Supabase Auth、Storage 或 Realtime 承担本商城业务。
-3. 下载项目 CA，分别取得 project-owner、`mall_migrator` 和 `mall_runtime` 的 direct/session 连接信息。迁移优先使用 direct `5432`；IPv4-only 开发机可使用 Supavisor session `5432`，不得使用 transaction pooler `6543`。
-4. 所有连接强制证书校验。`DIRECT_URL` 只供迁移，`DATABASE_URL` 只供 API/Worker；两个角色密码独立生成、独立保存和轮换。
-5. 首次初始化仅通过 `pnpm db:supabase:bootstrap`，禁止直接以 Prisma 生成结果覆盖冻结首迁移。基线创建 `mall_migrator`、`mall_runtime` 并移交 76 张应用表、59 个枚举和 15 个函数；中断在无 migration history 的半成品状态时必须人工检查，不得 reset。
-6. 两个角色的随机密码保存于本机 Secret Store；`public._prisma_migrations` 由 Prisma 以真实 checksum 登记且归 `mall_migrator`。后续迁移只使用 migrator 连接。
-7. 使用 runtime 连接验证无 DDL、无 `DELETE`（四张明确例外表除外）、无 `BYPASSRLS`；验证 `authenticator`、`anon`、`authenticated`、`service_role` 对应用表无表级或列级 CRUD grant，且不能执行 15 个应用函数。
-8. 本机已使用 `mall_migrator` 和 `mall_runtime` 完成 TLS、权限、迁移历史与 drift 烟测；远端工作流也已在实现基准 SHA 上成功运行并保存 GitHub Actions 链接。
+详细购买与安全组步骤见 [腾讯云部署方案](../03-技术设计/腾讯云部署方案.md)。脚本约定见 [scripts/db/README.md](../../../scripts/db/README.md)。
 
-若目标 `public` schema 已有业务表，停止初始化并人工评审；禁止运行 reset、drop 或覆盖迁移。
+## 4. 角色与权限
 
-## 4. GitHub Environment 配置
+应用只使用 `mall_runtime` 与 `mall_migrator`。首迁移仍会创建无登录的 `anon` / `authenticated` / `service_role`（以及 bootstrap 补齐的 `authenticator`），仅作为误授权时的拒绝面，不是远程产品能力。
 
-建立名为 `supabase-development` 的 GitHub Environment：
+## 5. 一次性本地回放
 
-- 限制为 `main` 分支。多人维护时必须设置与发起人不同的 required reviewer 并禁止自批；当前单人维护项目按 CH-009 仅对脱敏 development 豁免该组织条件，禁止创建虚假 reviewer，第一次进入 staging 前必须恢复外部独立复核。
-- 配置 environment secret `SUPABASE_DIRECT_URL` 与 `SUPABASE_RUNTIME_URL`：前者为 `mall_migrator` 的 direct `5432` 连接，后者为 `mall_runtime` 的 direct 或 session `5432` 连接；两者均带 `sslmode=verify-full`。手动工作流传入的 project ref 必须与连接串中的项目一致。
-- 不配置数据库 project-owner URL/密码、`anon` key 或 `service_role` key；`SUPABASE_RUNTIME_URL` 是工作流必需的 `mall_runtime` 受限连接，不属于禁止项。
-- `Supabase development smoke` 只允许 `workflow_dispatch` 手动触发；除只读结构/权限检查与 Prisma diff 外，B1 起允许以 runtime 角色在显式事务中运行最终 `ROLLBACK` 的公共内核烟测，不保留业务或测试数据，不创建、删除或修复数据库对象。
-- B3 开发验收证据为 [`Run 32678252828`](https://github.com/wuyu222dii/Frontend-ToC-Portal-Admin-Backend-Management-System-for-Private-Domain-Mall/actions/runs/32678252828)：Prisma/只读检查及 B1、B2、B3 文件、B3 主数据 rollback-only 步骤全部成功。该记录不代表 API + Redis 云端联调或 staging/production 准入。
-
-普通 `CI` 工作流没有 Supabase secret，仅使用单次运行的 PostgreSQL 18.3、Redis 和 MinIO。
-
-## 5. CI 门禁
-
-每个 PR 和 `main` push 依次执行：
-
-1. 锁文件安装、ESLint、类型检查；
-2. OpenAPI lint、确定性契约生成与 Git 漂移检查；
-3. Prisma validate；
-4. 通过 `pnpm db:migrate:baseline` 在空 PostgreSQL 回放原始基线迁移；
-5. 复核 76 表、59 枚举、17 条件索引、165 CHECK、76 RLS policy、15 migration-owned functions、原生对象语义指纹、Supabase 四类 Data API 角色的有效表/列/函数权限及对象所有权；
-6. 在临时数据库逐项注入并撤销越权表、列和函数 grant，确认权限门禁全部失败关闭且最终恢复干净；
-7. Prisma 可表达对象的 migration diff 必须为零；
-8. 单元、Supertest HTTP 和 Playwright 五应用纵向 E2E；
-9. MP-Weixin 构建与凭据/PII/银行卡/固定敏感值扫描。
-
-`migrate diff` 无法检查触发器、RLS、角色、CHECK 和条件索引，因此不得代替第 5 步的 PostgreSQL 原生检查。
-
-## 6. B0 验收证据
-
-B0 结束时必须归档：
-
-- 本机完整门禁结果、远端 CI 成功链接与对应实现基准 commit SHA；
-- Supabase 项目 region、Data API 关闭状态和 project ref；
-- 基线迁移与 Environment-scoped 烟测链接；
-- `mall_migrator`/`mall_runtime` 权限查询结果，内容不得含连接串或密码；
-- 五个应用构建产物清单和内部健康检查结果；
-- 剩余风险。Supabase 组织权限、项目创建或 direct IPv6 不可达均属于明确阻断，不得静默切换本地 PostgreSQL。
-
-### 6.1 交付追踪
-
-| 维度 | B0 结果 |
-|---|---|
-| 页面 | 五个应用仅交付可构建状态壳；未开放任何 MP/AGT/ADM 业务导航 |
-| FR / AC | 不改变既有 FR 142 / AC 116；本批不宣称业务验收完成 |
-| API | 196 个业务 operation 均未实现；仅 API/Worker 内部健康检查用于工程验收 |
-| 数据模型 | 根 `prisma/` 与冻结的 76 models / 59 enums 逐字节一致 |
-| 数据库 | Supabase development 回放为 76 表、17 条件索引、165 CHECK、76 RLS policy、15 个应用函数；Prisma diff 为零 |
-| E2E | Playwright 启动并访问三端状态壳，Supertest/HTTP 验证 API/Worker，另覆盖 Redis/MinIO 私有 bucket、临时 PostgreSQL 与 Supabase 云端烟测 |
-
-### 6.2 剩余风险
-
-- GitHub `supabase-development` Environment、main-only 策略、环境 secrets 和成功 Actions 链接已配置；独立 reviewer 按 CH-009 仅在单人 development 阶段例外，staging 前仍是硬门禁。
-- 当前开发机无法直连 Supabase 的 IPv6 direct host，已使用 5432 session pooler 并执行 `verify-full` TLS；不得降级到 6543 transaction pooler。
-- 2026-08-12 的 `pnpm audit --prod` 报告 30 项上游传递依赖告警（其中 9 项 high），均来自当前 uni-app/DCloud 构建链；B0 不跨 DCloud 兼容组合强制升级，须跟踪官方修复并在 B1 前复核可升级版本。
-- 本机默认 9000 端口被其他服务占用时，使用 `.env` 中 `MINIO_API_PORT` / `MINIO_CONSOLE_PORT` 改为未占用回环端口。
-- B0 纵向 E2E 已由 Playwright 在 375/390/414/1024/1440 五组视口访问三端状态壳，并由 HTTP 请求核验 API/Worker health；B1 起替换为真实业务路径。
-- 敏感扫描覆盖仓库文本与 `product-materials/prototype/**`；原型验证所需的两个测试手机号为显式合成 fixture 白名单，任何其他完整手机号、密钥或银行卡号都会阻断 CI。
+复制 `.env.local-ci.example` 为 `.env.local-ci`，只在专用终端叠加后运行 `pnpm db:migrate:baseline`。不要把它当作日常 API 的 `.env`。

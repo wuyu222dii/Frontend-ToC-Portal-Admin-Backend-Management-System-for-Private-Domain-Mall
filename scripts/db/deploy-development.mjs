@@ -42,8 +42,8 @@ function readHistory(connection) {
 }
 
 try {
-  if (process.env.SUPABASE_MIGRATION_CONFIRM !== APPROVAL) {
-    throw new Error(`SUPABASE_MIGRATION_CONFIRM must equal ${APPROVAL}`);
+  if (process.env.DATABASE_MIGRATION_CONFIRM !== APPROVAL) {
+    throw new Error(`DATABASE_MIGRATION_CONFIRM must equal ${APPROVAL}`);
   }
 
   const migrator = readConnection("DIRECT_URL", "migrator");
@@ -208,8 +208,8 @@ try {
     "B15 post-migration Prisma drift check failed",
   );
 
-  console.log("Supabase development migration and post-verification passed");
+  console.log("development migration and post-verification passed");
 } catch (error) {
-  console.error(`Supabase development migration stopped: ${error.message}`);
+  console.error(`development migration stopped: ${error.message}`);
   process.exit(1);
 }

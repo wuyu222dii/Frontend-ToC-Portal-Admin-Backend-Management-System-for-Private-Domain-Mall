@@ -5,9 +5,10 @@
 | 文件 | 用途 |
 |---|---|
 | `技术架构说明.md` | 技术栈、三端边界、认证/RBAC、事务锁序、Provider、部署与扩展策略 |
+| `腾讯云部署方案.md` | 腾讯云 CVM / CLB / Redis / COS / CDN / TencentDB PostgreSQL 国内落地步骤 |
 | `API接口文档.md` | 当前 CH-032 契约保持 173 paths、198 operations 及全部 operationId；B17 只增加 staging 环境门禁与 readiness 说明 |
 | `openapi.yaml` | OpenAPI 3.1 单一可解析契约；文本目录必须完全覆盖且 operationId 唯一 |
-| `数据库设计.md` | PostgreSQL/Supabase 表域、ERD、状态机、事务、索引、加密、RLS 与验收门禁 |
+| `数据库设计.md` | TencentDB PostgreSQL 表域、ERD、状态机、事务、索引、加密、RLS 与验收门禁 |
 | `schema.prisma` | Prisma 7.9.1 逻辑模型：76 models、59 enums、270 个 model-typed relation fields，全部位于 `public` |
 | `prisma.config.ts` | 设计验证用 Prisma 7 config；CLI 读取 `DIRECT_URL` |
 | `migrations/0001_initial/migration.sql` | Prisma 基线 DDL + PostgreSQL 专属 partial unique/CHECK/触发器/角色/RLS 草案 |

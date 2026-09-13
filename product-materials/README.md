@@ -4,7 +4,7 @@
 
 当前交付状态：B0 至 B15 development 均已通过；B15 最终 SHA `8a743a9` 的 migration Run `23` 与 rollback-only smoke Run `45` 同 SHA、依次成功，CH-033 已失效。B16 准备项已记录，当前进入 B17 首次脱敏 Mock staging 受控准入；B17.0 正在进行，staging、production、真实客户数据与真实资金仍未放行。
 
-> 2026-09-05 起取消 GitHub 普通 CI；远端测试仅保留手动 Supabase rollback-only smoke，历史 CI Run 记录继续保留。
+> 2026-09-05 起取消 GitHub 普通 CI。远程库改为腾讯云 TencentDB PostgreSQL；历史 CI Run 记录继续保留。
 
 ## 目录
 
@@ -18,8 +18,9 @@
 - [原型设计方案](docs/02-方案设计/原型设计方案.md)
 - [B3.3 功能细节拆解](docs/02-方案设计/功能细节拆解.md)
 - [技术设计索引](docs/03-技术设计/README.md)
+- [腾讯云部署方案](docs/03-技术设计/腾讯云部署方案.md)
 - [风险管控方案](docs/04-风控管理/风险管控方案.md)
-- [B0 工程与 Supabase](docs/05-开发管理/B0-工程与Supabase.md)
+- [B0 工程与数据库](docs/05-开发管理/B0-工程与Supabase.md)
 - [B1 平台公共内核](docs/05-开发管理/B1-平台公共内核.md)
 - [B2 总部安全入口](docs/05-开发管理/B2-总部安全入口.md)
 - [B3 文件、品牌与分类](docs/05-开发管理/B3-文件品牌与分类.md)

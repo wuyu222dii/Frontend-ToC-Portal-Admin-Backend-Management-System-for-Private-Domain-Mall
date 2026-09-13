@@ -7,7 +7,7 @@
 | 文档版本 | v2.4.13 |
 | 对应产品基线 | MVP/PRD v2.4.13、CH-001 至 CH-032；在线接口以 CH-032 为准 |
 | 接口阶段 | B0-B15 development `GO` 的历史证据保持；B17 只增加脱敏 staging 环境门禁与 readiness 操作说明，不新增业务 path、operationId 或迁移。OpenAPI 保持 `173 paths / 198 operations` 与全部 operationId；staging、production 和真实数据仍为 `NO-GO`。 |
-| 推荐后端 | Node.js + NestJS + Prisma + Supabase 托管 PostgreSQL |
+| 推荐后端 | Node.js + NestJS + Prisma + 腾讯云 TencentDB PostgreSQL |
 | 更新时间 | 2026-09-06 |
 
 ## 1. 设计目标
@@ -40,12 +40,12 @@ OpenAPI 与所有客户端只配置一个 server：`/api/v1`。下表及全文�
 
 ### 2.2 数据访问与认证边界
 
-- 本文全部业务接口都终止于 NestJS API；消费者小程序、代理端和总部端不得直连数据库，不得使用 Supabase client 或 Data API。
-- 部署时必须关闭 Supabase Data API；数据库 grants 与 RLS 默认拒绝继续保留，不能以“接口已关闭”为理由省略权限配置。
-- Supabase 仅托管 PostgreSQL。微信登录、管理员密码登录、access/refresh token、手机号授权和 RBAC 继续由 NestJS 实现，不接入 Supabase Auth。
+- 本文全部业务接口都终止于 NestJS API；消费者小程序、代理端和总部端不得直连数据库。
+- 远程库只使用腾讯云 TencentDB PostgreSQL；进程拒绝任何 `SUPABASE_*` 变量和 `*.supabase.co` / `*.supabase.com` 主机。
+- 微信登录、管理员密码登录、access/refresh token、手机号授权和 RBAC 继续由 NestJS 实现。
 - 前端不得获得 `anon`、`authenticated`、`service_role` 密钥、数据库连接串或数据库凭据；NestJS API/Worker 也不使用 `service_role`，而使用独立最小权限数据库 runtime 角色。
-- 应用表仅位于 `public`，不关联 Supabase `auth` 或 `storage` schema。文件上传、签名下载仍通过 NestJS File API 与独立对象存储完成。
-- PostgreSQL 对 `anon`、`authenticated` 默认拒绝访问；RLS 只隔离数据库连接角色，不替代本节定义的 NestJS 业务授权和数据范围校验。
+- 应用表仅位于 `public`。文件上传、签名下载仍通过 NestJS File API 与独立对象存储完成。
+- PostgreSQL 对首迁移创建的无登录 `anon`、`authenticated` 默认拒绝访问；RLS 只隔离数据库连接角色，不替代本节定义的 NestJS 业务授权和数据范围校验。
 
 ### 2.3 请求头
 

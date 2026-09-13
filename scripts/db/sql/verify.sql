@@ -7,7 +7,7 @@ BEGIN
   SELECT count(*) INTO actual
   FROM pg_roles
   WHERE rolname IN ('authenticator', 'anon', 'authenticated', 'service_role');
-  IF actual <> 4 THEN RAISE EXCEPTION 'expected all four Supabase Data API roles, found %', actual; END IF;
+  IF actual <> 4 THEN RAISE EXCEPTION 'expected all four denied frontend database roles, found %', actual; END IF;
 
   SELECT count(*) INTO actual
   FROM pg_class c
@@ -418,7 +418,7 @@ BEGIN
       AND pg_get_userbyid(p.proowner) = 'mall_migrator'
       AND has_function_privilege(denied.role_name, p.oid, 'EXECUTE')
   ) THEN
-    RAISE EXCEPTION 'a Data API role can execute an application function';
+    RAISE EXCEPTION 'a denied frontend role can execute an application function';
   END IF;
   IF EXISTS (
     SELECT 1
@@ -437,7 +437,7 @@ BEGIN
         )
       )
   ) THEN
-    RAISE EXCEPTION 'a runtime, PUBLIC, or Data API role can execute a B13 guard function';
+    RAISE EXCEPTION 'a runtime, PUBLIC, or denied frontend role can execute a B13 guard function';
   END IF;
 
   IF NOT EXISTS (
@@ -464,7 +464,7 @@ BEGIN
         OR (d.defaclnamespace = 0 AND grantee_role.rolname = 'mall_runtime')
       )
   ) THEN
-    RAISE EXCEPTION 'mall_migrator global function defaults expose Data API execution';
+    RAISE EXCEPTION 'mall_migrator global function defaults expose denied frontend execution';
   END IF;
 
   IF NOT EXISTS (
@@ -596,7 +596,7 @@ BEGIN
       OR has_table_privilege(denied.role_name, 'public._prisma_migrations', 'REFERENCES')
       OR has_table_privilege(denied.role_name, 'public._prisma_migrations', 'TRIGGER')
   ) THEN
-    RAISE EXCEPTION 'a Data API role can access Prisma migration history';
+    RAISE EXCEPTION 'a denied frontend role can access Prisma migration history';
   END IF;
 
   IF EXISTS (
@@ -612,7 +612,7 @@ BEGIN
     FROM unnest(ARRAY['authenticator', 'anon', 'authenticated', 'service_role']) AS denied(role_name)
     WHERE has_schema_privilege(denied.role_name, 'public', 'CREATE')
   ) THEN
-    RAISE EXCEPTION 'a Data API role can create objects in public schema';
+    RAISE EXCEPTION 'a denied frontend role can create objects in public schema';
   END IF;
 
   IF EXISTS (
@@ -780,7 +780,7 @@ BEGIN
         OR pg_has_role(denied.role_name, reachable.oid, 'USAGE')
       )
   ) THEN
-    RAISE EXCEPTION 'a Data API role can inherit or SET ROLE outside the approved Supabase role graph';
+    RAISE EXCEPTION 'a denied frontend role can inherit or SET ROLE outside the approved role graph';
   END IF;
   IF EXISTS (
     SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -795,7 +795,7 @@ BEGIN
       ON p.schemaname = g.table_schema AND p.tablename = g.table_name
     WHERE p.schemaname = 'public' AND p.policyname = 'mall_runtime_access'
       AND g.grantee IN ('authenticator', 'anon', 'authenticated', 'service_role')
-  ) THEN RAISE EXCEPTION 'a Data API role has application table privileges'; END IF;
+  ) THEN RAISE EXCEPTION 'a denied frontend role has application table privileges'; END IF;
 
   IF EXISTS (
     SELECT 1
@@ -815,7 +815,7 @@ BEGIN
         OR has_table_privilege(denied.rolname, c.oid, 'REFERENCES')
         OR has_table_privilege(denied.rolname, c.oid, 'TRIGGER')
       )
-  ) THEN RAISE EXCEPTION 'a Data API role has effective application table privileges'; END IF;
+  ) THEN RAISE EXCEPTION 'a denied frontend role has effective application table privileges'; END IF;
 
   IF EXISTS (
     SELECT 1
@@ -835,7 +835,7 @@ BEGIN
         OR has_column_privilege(denied.rolname, c.oid, a.attnum, 'UPDATE')
         OR has_column_privilege(denied.rolname, c.oid, a.attnum, 'REFERENCES')
       )
-  ) THEN RAISE EXCEPTION 'a Data API role has effective application column privileges'; END IF;
+  ) THEN RAISE EXCEPTION 'a denied frontend role has effective application column privileges'; END IF;
 
   IF EXISTS (
     SELECT 1
@@ -850,7 +850,7 @@ BEGIN
         OR has_sequence_privilege(denied.rolname, format('%I.%I', n.nspname, c.relname), 'SELECT')
         OR has_sequence_privilege(denied.rolname, format('%I.%I', n.nspname, c.relname), 'UPDATE')
       )
-  ) THEN RAISE EXCEPTION 'a Data API role has effective application sequence privileges'; END IF;
+  ) THEN RAISE EXCEPTION 'a denied frontend role has effective application sequence privileges'; END IF;
 
   IF EXISTS (
     SELECT 1 FROM pg_policies
@@ -860,7 +860,7 @@ BEGIN
         SELECT tablename FROM pg_policies
         WHERE schemaname = 'public' AND policyname = 'mall_runtime_access'
       )
-  ) THEN RAISE EXCEPTION 'a Data API role has an application RLS policy'; END IF;
+  ) THEN RAISE EXCEPTION 'a denied frontend role has an application RLS policy'; END IF;
 END $$;
 
 SELECT json_build_object(
@@ -876,7 +876,7 @@ SELECT json_build_object(
   'owned_functions', 28,
   'native_definition_fingerprints_verified', true,
   'runtime_function_execute', 16,
-  'supabase_data_api_roles', 4,
+  'denied_frontend_roles', 4,
   'data_api_function_execute_denied', true,
   'data_api_effective_table_privileges_denied', true,
   'data_api_effective_column_privileges_denied', true,

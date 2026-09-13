@@ -1,55 +1,41 @@
 # Database bootstrap and controlled migrations
 
-The development database is a dedicated Supabase PostgreSQL project in Singapore
-(`ap-southeast-1`). Local PostgreSQL is not a supported development fallback.
-Only CI may use an explicit disposable PostgreSQL database.
+Remote PostgreSQL is TencentDB in the same VPC as the API. Daily
+`NODE_ENV=development` may use loopback PostgreSQL without TLS. Staging and
+production must use TencentDB. Empty-schema replay still uses the disposable
+`postgres-ci` overlay. Any `SUPABASE_*` variable is rejected.
 
-## Secrets and connection roles
+## TencentDB
 
-Load secrets into the process environment from the approved secret manager. Do
-not put them in repository files, command arguments, shell history, or logs.
+Set `DATABASE_PROVIDER=tencentdb`. Use the TencentDB inner hostname
+(`*.sql.tencentcdb.com` or `*.postgres.tencentcdb.com`), not a private IP, so
+`sslmode=verify-full` can match the server certificate.
 
-- `SUPABASE_OWNER_URL`: direct or session-pooler port 5432 URL for `postgres`,
-  used only for the first bootstrap. It must include `sslmode=verify-full`.
-- `DIRECT_URL`: direct or session-pooler port 5432 URL for `mall_migrator`, used by Prisma Migrate.
-  Its password must equal `MALL_MIGRATOR_PASSWORD` during bootstrap.
-- `DATABASE_URL`: direct or session-pooler port 5432 URL for `mall_runtime`. Its
-  password must equal `MALL_RUNTIME_PASSWORD` during bootstrap.
-- `SUPABASE_PROJECT_REF`: the 20-letter development project reference.
-- `MALL_MIGRATOR_PASSWORD` and `MALL_RUNTIME_PASSWORD`: independent, generated
-  credentials for the two application roles.
-
-Before bootstrap, disable Supabase Data API in the dashboard and set
-`SUPABASE_DATA_API_DISABLED_ACK=true`. Project creation is an explicit operation:
+- `DATABASE_OWNER_URL`: instance-admin URL for the first bootstrap only.
+- `DIRECT_URL`: `mall_migrator` URL used by Prisma Migrate.
+- `DATABASE_URL`: `mall_runtime` URL used by API/Worker.
+- All three must include `sslmode=verify-full` and an explicit CA path.
+- `MALL_MIGRATOR_PASSWORD` and `MALL_RUNTIME_PASSWORD` must be independent.
 
 ```sh
-SUPABASE_CREATE_CONFIRM=CREATE_SINGAPORE_DEV_PROJECT \
-  node scripts/db/provision-supabase.mjs
-```
-
-After the project is active, bootstrap the empty application schema:
-
-```sh
-SUPABASE_BOOTSTRAP_CONFIRM=BOOTSTRAP_EMPTY_DEV_DATABASE \
-  node scripts/db/bootstrap.mjs
+DATABASE_PROVIDER=tencentdb \
+DATABASE_BOOTSTRAP_CONFIRM=BOOTSTRAP_EMPTY_DEV_DATABASE \
+  pnpm db:bootstrap
 node scripts/db/verify.mjs
 node scripts/db/check-drift.mjs
 ```
 
-The bootstrap applies the frozen `0001_initial` SQL as project owner, sets role
+The bootstrap applies the frozen `0001_initial` SQL as instance owner, sets role
 passwords over PostgreSQL stdin, and then runs `prisma migrate resolve` through
-`mall_migrator`. It immediately deploys the remaining checked-in migrations,
-including `0002_b9_inventory_fact_indexes` and `0003_b10_payment_fact_indexes`,
-plus the CH-023 `0004_b10_commission_position_trigger_fix` and the CH-026
-`0005_b12_aftersale_refund_guards`, followed by the CH-028
-`0006_b13_agent_finance_guards` and CH-032
-`0007_b15_development_convergence_guards`, through `mall_migrator`. Prisma
-therefore creates and records `_prisma_migrations` itself; the script never
-inserts or fabricates a migration-history row. The resulting seven-row migration
-history is owned by `mall_migrator` and inaccessible to `mall_runtime`. The
-operation can be retried after interruption only in an empty or fully registered
-B15 state. A baseline-only or otherwise partial state is refused for manual
-inspection; the script never resets or overwrites it.
+`mall_migrator`. It immediately deploys the remaining checked-in migrations
+through `mall_migrator`. Prisma creates and records `_prisma_migrations` itself;
+the script never inserts or fabricates a migration-history row. The resulting
+seven-row migration history is owned by `mall_migrator` and inaccessible to
+`mall_runtime`. The operation can be retried after interruption only in an empty
+or fully registered B15 state. A baseline-only or otherwise partial state is
+refused for manual inspection; the script never resets or overwrites it.
+
+Remove `DATABASE_OWNER_URL` from the runtime environment after verification.
 
 After the first `SUPER_ADMIN` exists and the legal retention period has external
 approval, provision the initial published business rules once:
@@ -61,24 +47,21 @@ BUSINESS_RULE_LEGAL_RECORD_RETENTION_YEARS='<approved-integer-1-to-100>' \
 ```
 
 The command fixes the approved development defaults at a 100 yuan minimum
-withdrawal, a 7-day aftersale window, and a 30-minute payment timeout. It does
-not guess the legal retention period, refuses any existing rule history, verifies
-the named account is an active `SUPER_ADMIN`, and creates the published rule and
-its immutable audit record in one serializable transaction. Keep these one-shot
-values out of `.env`; inject them from the controlled deployment environment and
-unset them immediately after use.
+withdrawal, a 7-day aftersale window, and a 30-minute payment timeout. Keep these
+one-shot values out of `.env`.
+
+## Disposable local CI database
 
 CI replay requires `CI=true`, `ALLOW_CI_EPHEMERAL_POSTGRES=1`, and an empty
-local disposable connection in `REPLAY_DATABASE_URL` (or CI `DIRECT_URL`). It
-configures the migration role inside the CI-only database and never targets the
-Supabase project:
+local disposable connection in `REPLAY_DATABASE_URL` (or CI `DIRECT_URL`):
 
 ```sh
 node scripts/db/replay-ci.mjs
 ```
 
-For a local disposable database, copy `.env.local-ci.example` to `.env.local-ci`
-and keep the existing `.env` on Supabase. Start only the profiled service:
+For a local disposable database, copy `.env.local-ci.example` to `.env.local-ci`.
+Daily development can point `.env` at the same `127.0.0.1:5433` URLs. Start only
+the profiled service:
 
 ```sh
 docker compose --env-file .env --env-file .env.local-ci --profile local-ci up -d --wait postgres-ci
@@ -86,43 +69,13 @@ set -a && source .env && source .env.local-ci && set +a
 pnpm db:migrate:baseline
 ```
 
-Do not run `db:supabase:bootstrap` against this database. Recreate `postgres-ci`
-before a second replay so `public` stays empty; do not `docker compose down -v`.
+Do not run `db:bootstrap` against this database. Recreate `postgres-ci` before a
+second replay so `public` stays empty; do not `docker compose down -v`.
 
-## Controlled Supabase development migrations
+## Controlled development migrations
 
-Post-bootstrap migrations are not applied by the rollback-only smoke workflow.
-Run the manual `Supabase development migration` GitHub workflow from `main` and
-provide all three inputs:
-
-- the 20-letter development `project_ref`;
-- the exact 40-character lowercase `target_sha`, which must equal the current
-  `main` commit used to dispatch the workflow;
-- `DEVELOPMENT_MIGRATION_APPROVED` as the explicit confirmation.
-
-The protected `supabase-development` environment supplies
-`SUPABASE_DIRECT_URL` for `mall_migrator`. The workflow pins and verifies the
-Supabase CA and validates the project-scoped connection and checksum-complete
-migration history, requiring either the exact `0001 -> 0006` predecessor or the idempotent exact
-`0001 -> 0007` target. The deploy preflights the B9-B12 uniqueness and refund envelopes
-before running `prisma migrate deploy`; migration `0007` performs its READY-file and
-commission-target historical preflight transactionally under a five-second, fail-fast
-`SHARE` write boundary. The workflow
-reconciles function privileges and finally uses read-only checks for exact history,
-permissions, native object fingerprints, and Prisma drift. A successful run publishes
-an attestation bound to the exact main SHA and Supabase project reference. The
-rollback-only smoke requires that attestation from a successful migration run created
-before the smoke run; dispatch the smoke only after migration completes. Both workflows
-share one database concurrency group, so they cannot execute concurrently.
-
-Pause development writers before dispatching `0007`; the short lock timeout is an
-intentional fail-closed control, not an online-migration retry loop. If deploy fails,
-inspect the exact `_prisma_migrations` row and database error before using the
-approved Prisma recovery procedure. Do not blindly rerun the workflow or edit
-migration history by hand.
-
-After migration succeeds on the target SHA, run `Supabase development smoke` on
-that same `main` SHA, supplying the same exact `target_sha`; the smoke workflow
-requires the matching migration attestation. Do not use the runtime
-connection for DDL, run migration SQL manually, or edit `_prisma_migrations`
-directly.
+Post-bootstrap additive migrations use `scripts/db/deploy-development.mjs` with
+`DATABASE_MIGRATION_CONFIRM=DEVELOPMENT_MIGRATION_APPROVED` and a `mall_migrator`
+`DIRECT_URL`. The script requires either the exact `0001 -> 0006` predecessor or
+the idempotent exact `0001 -> 0007` target. Do not use the runtime connection for
+DDL, run migration SQL manually, or edit `_prisma_migrations` directly.

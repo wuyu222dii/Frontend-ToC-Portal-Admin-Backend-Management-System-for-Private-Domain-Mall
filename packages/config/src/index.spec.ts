@@ -192,7 +192,7 @@ describe('loadPlatformConfig', () => {
       'postgresql://mall_runtime:service_role-secret@127.0.0.1:5432/mall';
 
     expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
-      'DATABASE_URL must not contain a Supabase API key',
+      'DATABASE_URL must not contain a Data API key',
     );
   });
 
@@ -201,42 +201,73 @@ describe('loadPlatformConfig', () => {
     environment.CI = 'false';
 
     expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
-      'local PostgreSQL is allowed only for the explicit ephemeral CI test database',
+      'local PostgreSQL is allowed only in development or the explicit ephemeral CI test database',
     );
   });
 
-  it('requires the approved Supabase project, direct/session port and verified TLS', () => {
+  it('accepts loopback PostgreSQL in development without TLS', () => {
     const environment = validEnvironment();
     environment.NODE_ENV = 'development';
     environment.CI = 'false';
     environment.ALLOW_CI_EPHEMERAL_POSTGRES = '0';
+    delete environment.DATABASE_PROVIDER;
+
+    const config = loadPlatformConfig(environment, { service: 'api' });
+    expect(config.database.allowInsecureLocalhost).toBe(true);
+    expect(config.database.provider).toBeUndefined();
+    expect(config.database.sslRootCertPath).toBeUndefined();
+  });
+
+  it('rejects leftover Supabase environment variables', () => {
+    const environment = validEnvironment();
     environment.SUPABASE_PROJECT_REF = 'abcdefghijklmnopqrst';
+
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'SUPABASE_* environment variables are no longer accepted; use TencentDB PostgreSQL',
+    );
+  });
+
+  it('accepts TencentDB PostgreSQL with verified TLS', () => {
+    const environment = validEnvironment();
+    environment.NODE_ENV = 'development';
+    environment.CI = 'false';
+    environment.ALLOW_CI_EPHEMERAL_POSTGRES = '0';
+    environment.DATABASE_PROVIDER = 'tencentdb';
     environment.DATABASE_URL =
-      'postgresql://mall_runtime.abcdefghijklmnopqrst:runtime-password@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres';
+      'postgresql://mall_runtime:runtime-password@postgres-abc.sql.tencentcdb.com:5432/postgres';
+    environment.PGSSLROOTCERT = '/run/secrets/tencent-postgres-ca.crt';
 
     expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
       'DATABASE_URL must contain exactly one sslmode parameter',
     );
 
     environment.DATABASE_URL += '?sslmode=verify-full';
-    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
-      'DATABASE_URL requires an explicit trusted CA path',
-    );
-
-    environment.PGSSLROOTCERT = '/run/secrets/supabase-ca.crt';
     const config = loadPlatformConfig(environment, { service: 'api' });
-    expect(config.database.url).toBe(environment.DATABASE_URL);
-    expect(config.database.projectRef).toBe('abcdefghijklmnopqrst');
-    expect(config.database.sslRootCertPath).toBe('/run/secrets/supabase-ca.crt');
+    expect(config.database.provider).toBe('tencentdb');
+    expect(config.database.projectRef).toBeUndefined();
+    expect(config.database.sslRootCertPath).toBe('/run/secrets/tencent-postgres-ca.crt');
     expect(config.database.allowInsecureLocalhost).toBe(false);
+  });
+
+  it('rejects a non-Tencent host when DATABASE_PROVIDER=tencentdb', () => {
+    const environment = validEnvironment();
+    environment.NODE_ENV = 'development';
+    environment.DATABASE_PROVIDER = 'tencentdb';
+    environment.PGSSLROOTCERT = '/run/secrets/tencent-postgres-ca.crt';
+    environment.DATABASE_URL =
+      'postgresql://mall_runtime:runtime-password@db.abcdefghijklmnopqrst.supabase.co:5432/postgres?sslmode=verify-full';
+
+    expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
+      'DATABASE_URL must not use Supabase; use TencentDB PostgreSQL',
+    );
   });
 
   it('rejects conflicting trusted CA paths', () => {
     const environment = validEnvironment();
     environment.NODE_ENV = 'development';
-    environment.SUPABASE_PROJECT_REF = 'abcdefghijklmnopqrst';
+    environment.DATABASE_PROVIDER = 'tencentdb';
     environment.DATABASE_URL =
-      'postgresql://mall_runtime.abcdefghijklmnopqrst:runtime-password@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=verify-full&sslrootcert=%2Furl%2Fca.crt';
+      'postgresql://mall_runtime:runtime-password@postgres-abc.sql.tencentcdb.com:5432/postgres?sslmode=verify-full&sslrootcert=%2Furl%2Fca.crt';
     environment.PGSSLROOTCERT = '/environment/ca.crt';
 
     expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
@@ -247,17 +278,17 @@ describe('loadPlatformConfig', () => {
   it('rejects duplicate TLS parameters even when the first value is secure', () => {
     const environment = validEnvironment();
     environment.NODE_ENV = 'development';
-    environment.SUPABASE_PROJECT_REF = 'abcdefghijklmnopqrst';
-    environment.PGSSLROOTCERT = '/run/secrets/supabase-ca.crt';
+    environment.DATABASE_PROVIDER = 'tencentdb';
+    environment.PGSSLROOTCERT = '/run/secrets/tencent-postgres-ca.crt';
     environment.DATABASE_URL =
-      'postgresql://mall_runtime.abcdefghijklmnopqrst:runtime-password@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=verify-full&sslmode=disable';
+      'postgresql://mall_runtime:runtime-password@postgres-abc.sql.tencentcdb.com:5432/postgres?sslmode=verify-full&sslmode=disable';
 
     expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
       'DATABASE_URL must contain exactly one sslmode parameter',
     );
 
     environment.DATABASE_URL =
-      'postgresql://mall_runtime.abcdefghijklmnopqrst:runtime-password@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=verify-full&sslrootcert=%2Frun%2Fsecrets%2Fsupabase-ca.crt&sslrootcert=%2Ftmp%2Fevil.crt';
+      'postgresql://mall_runtime:runtime-password@postgres-abc.sql.tencentcdb.com:5432/postgres?sslmode=verify-full&sslrootcert=%2Frun%2Fsecrets%2Ftencent-postgres-ca.crt&sslrootcert=%2Ftmp%2Fevil.crt';
     expect(() => loadPlatformConfig(environment, { service: 'api' })).toThrow(
       'DATABASE_URL must not repeat sslrootcert',
     );
@@ -266,10 +297,10 @@ describe('loadPlatformConfig', () => {
   it('rejects query parameters that can override the approved database target', () => {
     const environment = validEnvironment();
     environment.NODE_ENV = 'development';
-    environment.SUPABASE_PROJECT_REF = 'abcdefghijklmnopqrst';
-    environment.PGSSLROOTCERT = '/run/secrets/supabase-ca.crt';
+    environment.DATABASE_PROVIDER = 'tencentdb';
+    environment.PGSSLROOTCERT = '/run/secrets/tencent-postgres-ca.crt';
     const base =
-      'postgresql://mall_runtime.abcdefghijklmnopqrst:runtime-password@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=verify-full';
+      'postgresql://mall_runtime:runtime-password@postgres-abc.sql.tencentcdb.com:5432/postgres?sslmode=verify-full';
 
     for (const override of ['host=evil.example', 'user=postgres', 'options=-c%20search_path%3Devil']) {
       environment.DATABASE_URL = `${base}&${override}`;
@@ -720,7 +751,6 @@ describe('loadPlatformConfig', () => {
     const staging = validEnvironment();
     staging.NODE_ENV = 'staging';
     staging.STAGING_DEIDENTIFIED_MOCK_ACK = 'true';
-    staging.SUPABASE_DATA_API_DISABLED_ACK = 'true';
     delete staging.DATABASE_URL;
     delete staging.REDIS_URL;
     delete staging.S3_ENDPOINT;
@@ -747,7 +777,6 @@ describe('loadPlatformConfig', () => {
     staging.NODE_ENV = 'staging';
     staging.CI = 'false';
     staging.STAGING_DEIDENTIFIED_MOCK_ACK = 'true';
-    staging.SUPABASE_DATA_API_DISABLED_ACK = 'true';
     delete staging.DATABASE_URL;
     delete staging.REDIS_URL;
     delete staging.S3_ENDPOINT;

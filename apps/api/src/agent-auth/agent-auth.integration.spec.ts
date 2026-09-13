@@ -141,7 +141,7 @@ function rollbackDatabaseRuntime(): DatabaseRuntime {
     connectionTimeoutMs: 15_000,
     databaseUrl: requiredEnvironment('DATABASE_URL'),
     poolMax: 4,
-    projectRef: requiredEnvironment('SUPABASE_PROJECT_REF'),
+    provider: 'tencentdb',
     sslRootCertPath: requiredEnvironment('PGSSLROOTCERT'),
   });
 }

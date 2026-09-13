@@ -117,11 +117,12 @@ function deployPostBaselineMigrations(connection) {
 }
 
 try {
-  if (process.env.SUPABASE_BOOTSTRAP_CONFIRM !== "BOOTSTRAP_EMPTY_DEV_DATABASE") {
-    throw new Error("SUPABASE_BOOTSTRAP_CONFIRM must equal BOOTSTRAP_EMPTY_DEV_DATABASE");
+  const leftoverSupabase = Object.keys(process.env).filter((name) => name.startsWith("SUPABASE_"));
+  if (leftoverSupabase.length > 0) {
+    throw new Error("SUPABASE_* environment variables are no longer accepted; use TencentDB PostgreSQL");
   }
-  if (process.env.SUPABASE_DATA_API_DISABLED_ACK !== "true") {
-    throw new Error("Data API must be disabled and SUPABASE_DATA_API_DISABLED_ACK=true");
+  if (process.env.DATABASE_BOOTSTRAP_CONFIRM !== "BOOTSTRAP_EMPTY_DEV_DATABASE") {
+    throw new Error("DATABASE_BOOTSTRAP_CONFIRM must equal BOOTSTRAP_EMPTY_DEV_DATABASE");
   }
 
   const migratorPassword = process.env.MALL_MIGRATOR_PASSWORD;
@@ -135,7 +136,7 @@ try {
     throw new Error("mall_migrator and mall_runtime must use independent passwords");
   }
 
-  const owner = readConnection("SUPABASE_OWNER_URL", "owner");
+  const owner = readConnection("DATABASE_OWNER_URL", "owner");
   const migrator = readConnection("DIRECT_URL", "migrator");
   const runtime = readConnection("DATABASE_URL", "runtime");
   if (migrator.password !== process.env.MALL_MIGRATOR_PASSWORD) {
@@ -297,7 +298,7 @@ END $$;
 GRANT mall_migrator TO postgres WITH INHERIT FALSE, SET TRUE;
 `);
     runPsql(owner, ["--single-transaction", "-f", migrationPath]);
-    console.log("frozen baseline SQL applied by the Supabase project owner");
+    console.log("frozen baseline SQL applied by the TencentDB instance owner");
   }
   if (state === "EMPTY") {
     runPsql(owner, ["-f", "scripts/db/sql/verify-baseline.sql"]);

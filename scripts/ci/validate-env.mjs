@@ -5,6 +5,10 @@ import { URL } from 'node:url';
 
 import { readConnection } from "../db/lib/connection.mjs";
 
+const leftoverSupabase = Object.keys(process.env).filter((name) => name.startsWith("SUPABASE_"));
+if (leftoverSupabase.length > 0) {
+  throw new Error("SUPABASE_* environment variables are no longer accepted; use TencentDB PostgreSQL");
+}
 const runtimeEnvironment = process.env.NODE_ENV;
 if (!["development", "test", "staging", "production"].includes(runtimeEnvironment)) {
   throw new Error("NODE_ENV must be development, test, staging, or production");
@@ -14,9 +18,6 @@ const DEFAULT_AUTH_ISSUER = "qingxu-api";
 const DEFAULT_AUTH_AUDIENCES = new Set(["qingxu-admin-web", "qingxu-store", "qingxu-agent-web"]);
 if (isStaging && process.env.STAGING_DEIDENTIFIED_MOCK_ACK !== "true") {
   throw new Error("STAGING_DEIDENTIFIED_MOCK_ACK=true is required for deidentified Mock staging");
-}
-if (isStaging && process.env.SUPABASE_DATA_API_DISABLED_ACK !== "true") {
-  throw new Error("SUPABASE_DATA_API_DISABLED_ACK=true is required for staging");
 }
 
 const required = [
@@ -220,7 +221,7 @@ try {
   }
   for (const [name, url] of [["DATABASE_URL", runtime], ["DIRECT_URL", migrator]]) {
     if (/service_role|anon[_-]?key/i.test(url.toString())) {
-      throw new Error(`${name} must not contain a Supabase API key`);
+      throw new Error(`${name} must not contain a Data API key`);
     }
   }
   if (!redis.hostname || redisPassword.length < 12) {

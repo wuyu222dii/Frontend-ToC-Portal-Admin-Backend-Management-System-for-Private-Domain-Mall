@@ -7,9 +7,8 @@ import type { PoolClient } from 'pg';
 
 import { createDatabaseRuntime, runPgTransactionOnClient, type DatabaseRuntime } from './runtime';
 
-const PROJECT_REF = 'abcdefghijklmnopqrst';
-const POOLER_URL =
-  `postgresql://mall_runtime.${PROJECT_REF}:runtime-password@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres`;
+const TENCENT_URL =
+  'postgresql://mall_runtime:runtime-password@postgres-abc.sql.tencentcdb.com:5432/postgres';
 const TEST_CERTIFICATE = [
   '-----BEGIN CERTIFICATE-----',
   'bG9jYWwtdGVzdC1jZXJ0aWZpY2F0ZQ==',
@@ -32,7 +31,7 @@ function baseConfig(databaseUrl: string) {
 function rootCertificate(): string {
   const directory = mkdtempSync(join(tmpdir(), 'qingxu-database-test-'));
   temporaryDirectories.push(directory);
-  const path = join(directory, 'supabase-ca.crt');
+  const path = join(directory, 'tencent-postgres-ca.crt');
   writeFileSync(path, TEST_CERTIFICATE);
   return path;
 }
@@ -46,7 +45,7 @@ describe('createDatabaseRuntime', () => {
   it('permits plaintext PostgreSQL only through the explicit local test capability', () => {
     const databaseUrl = 'postgresql://mall_runtime:runtime-password@127.0.0.1:5432/mall_ci';
     expect(() => createDatabaseRuntime(baseConfig(databaseUrl))).toThrow(
-      'Local DATABASE_URL is restricted to the explicit ephemeral test runtime',
+      'Local DATABASE_URL is restricted to development or the explicit ephemeral test runtime',
     );
 
     const runtime = createDatabaseRuntime({ ...baseConfig(databaseUrl), allowInsecureLocalhost: true });
@@ -59,26 +58,48 @@ describe('createDatabaseRuntime', () => {
     expect(runtime.coordinationPool.listenerCount('error')).toBeGreaterThan(0);
   });
 
-  it('requires the approved Supabase endpoint, project scope and trusted CA', () => {
+  it('accepts TencentDB PostgreSQL with verified TLS and no project ref', () => {
+    const sslRootCertPath = rootCertificate();
+    const databaseUrl =
+      'postgresql://mall_runtime:runtime-password@postgres-abc.sql.tencentcdb.com:15432/mall?sslmode=verify-full';
+    const runtime = createDatabaseRuntime({
+      ...baseConfig(databaseUrl),
+      provider: 'tencentdb',
+      sslRootCertPath,
+    });
+    runtimes.push(runtime);
+
+    expect(runtime.pool.options.connectionString).not.toMatch(/sslmode|sslrootcert/);
+    expect(runtime.pool.options.ssl).toEqual({ ca: TEST_CERTIFICATE, rejectUnauthorized: true });
+  });
+
+  it('rejects a TencentDB URL without a trusted CA', () => {
+    expect(() => createDatabaseRuntime({
+      ...baseConfig('postgresql://mall_runtime:runtime-password@postgres-abc.sql.tencentcdb.com:5432/postgres?sslmode=verify-full'),
+      provider: 'tencentdb',
+    })).toThrow('TencentDB runtime requires an explicit TLS root certificate');
+  });
+
+  it('rejects leftover Supabase hosts and project references', () => {
     const sslRootCertPath = rootCertificate();
     expect(() => createDatabaseRuntime({
-      ...baseConfig(`${POOLER_URL}?sslmode=verify-full`),
-      projectRef: 'zyxwvutsrqponmlkjihg',
+      ...baseConfig('postgresql://mall_runtime:runtime-password@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=verify-full'),
       sslRootCertPath,
-    })).toThrow('Supabase pooler role must be scoped to the approved project');
+    })).toThrow('DATABASE_URL must not use Supabase; use TencentDB PostgreSQL');
 
     expect(() => createDatabaseRuntime({
-      ...baseConfig(`${POOLER_URL}?sslmode=verify-full`),
-      projectRef: PROJECT_REF,
-    })).toThrow('Supabase runtime requires an explicit TLS root certificate');
+      ...baseConfig(`${TENCENT_URL}?sslmode=verify-full`),
+      projectRef: 'abcdefghijklmnopqrst',
+      sslRootCertPath,
+    })).toThrow('DATABASE_URL must not use Supabase; use TencentDB PostgreSQL');
   });
 
   it('removes URL TLS controls and passes an explicit verified TLS object to pg', () => {
     const sslRootCertPath = rootCertificate();
-    const databaseUrl = `${POOLER_URL}?sslmode=verify-full&sslrootcert=${encodeURIComponent(sslRootCertPath)}`;
+    const databaseUrl = `${TENCENT_URL}?sslmode=verify-full&sslrootcert=${encodeURIComponent(sslRootCertPath)}`;
     const runtime = createDatabaseRuntime({
       ...baseConfig(databaseUrl),
-      projectRef: PROJECT_REF,
+      provider: 'tencentdb',
       sslRootCertPath,
     });
     runtimes.push(runtime);
@@ -91,8 +112,8 @@ describe('createDatabaseRuntime', () => {
   it('rejects query options that could override explicit TLS verification', () => {
     const sslRootCertPath = rootCertificate();
     expect(() => createDatabaseRuntime({
-      ...baseConfig(`${POOLER_URL}?sslmode=verify-full&sslnegotiation=direct`),
-      projectRef: PROJECT_REF,
+      ...baseConfig(`${TENCENT_URL}?sslmode=verify-full&sslnegotiation=direct`),
+      provider: 'tencentdb',
       sslRootCertPath,
     })).toThrow('DATABASE_URL contains an unsupported query parameter');
   });
@@ -101,8 +122,8 @@ describe('createDatabaseRuntime', () => {
     const sslRootCertPath = rootCertificate();
     for (const override of ['host=evil.example', 'user=postgres', 'options=-c%20search_path%3Devil']) {
       expect(() => createDatabaseRuntime({
-        ...baseConfig(`${POOLER_URL}?sslmode=verify-full&${override}`),
-        projectRef: PROJECT_REF,
+        ...baseConfig(`${TENCENT_URL}?sslmode=verify-full&${override}`),
+        provider: 'tencentdb',
         sslRootCertPath,
       })).toThrow('DATABASE_URL contains an unsupported query parameter');
     }
@@ -111,14 +132,14 @@ describe('createDatabaseRuntime', () => {
   it('rejects duplicate TLS parameters', () => {
     const sslRootCertPath = rootCertificate();
     expect(() => createDatabaseRuntime({
-      ...baseConfig(`${POOLER_URL}?sslmode=verify-full&sslmode=disable`),
-      projectRef: PROJECT_REF,
+      ...baseConfig(`${TENCENT_URL}?sslmode=verify-full&sslmode=disable`),
+      provider: 'tencentdb',
       sslRootCertPath,
     })).toThrow('DATABASE_URL must contain exactly one sslmode parameter');
 
     expect(() => createDatabaseRuntime({
-      ...baseConfig(`${POOLER_URL}?sslmode=verify-full&sslrootcert=${encodeURIComponent(sslRootCertPath)}&sslrootcert=%2Ftmp%2Fevil.crt`),
-      projectRef: PROJECT_REF,
+      ...baseConfig(`${TENCENT_URL}?sslmode=verify-full&sslrootcert=${encodeURIComponent(sslRootCertPath)}&sslrootcert=%2Ftmp%2Fevil.crt`),
+      provider: 'tencentdb',
       sslRootCertPath,
     })).toThrow('DATABASE_URL must not repeat sslrootcert');
   });

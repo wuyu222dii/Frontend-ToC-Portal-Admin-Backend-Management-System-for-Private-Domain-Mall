@@ -113,6 +113,7 @@ export async function bootstrapSuperAdmin(): Promise<string> {
     connectionTimeoutMs: config.database.connectionTimeoutMs,
     databaseUrl: config.database.url,
     poolMax: 1,
+    provider: config.database.provider,
     projectRef: config.database.projectRef,
     sslRootCertPath: config.database.sslRootCertPath,
   });

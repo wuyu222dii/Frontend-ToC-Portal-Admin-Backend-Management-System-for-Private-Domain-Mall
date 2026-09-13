@@ -21,6 +21,7 @@ export const FILE_STORAGE_LIMITS = {
 
 export type ServiceName = keyof typeof SERVICE_DEFAULT_PORTS;
 export type RuntimeEnvironment = 'development' | 'test' | 'staging' | 'production';
+export type DatabaseProvider = 'tencentdb';
 export type StoreProvider = 'MOCK' | 'WECHAT';
 export type PaymentProviderName = 'MOCK' | 'WECHAT';
 
@@ -58,6 +59,7 @@ export interface PlatformRuntimeConfig {
     url: string;
     poolMax: number;
     connectionTimeoutMs: number;
+    provider: DatabaseProvider | undefined;
     projectRef: string | undefined;
     sslRootCertPath: string | undefined;
     allowInsecureLocalhost: boolean;
@@ -201,9 +203,58 @@ function readBase64Key(
 
 interface RuntimeDatabaseConnection {
   url: string;
+  provider: DatabaseProvider | undefined;
   projectRef: string | undefined;
   sslRootCertPath: string | undefined;
   allowInsecureLocalhost: boolean;
+}
+
+const TENCENT_POSTGRES_HOST = /(?:^|\.)(?:sql|postgres|pg)\.tencentcdb\.com$/i;
+const POSTGRES_IDENT = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
+
+function assertNoSupabaseEnvironment(source: NodeJS.ProcessEnv): void {
+  const leftover = Object.keys(source).filter((name) => name.startsWith('SUPABASE_'));
+  if (leftover.length > 0) {
+    throw new Error('SUPABASE_* environment variables are no longer accepted; use TencentDB PostgreSQL');
+  }
+}
+
+function readDeclaredDatabaseProvider(source: NodeJS.ProcessEnv): DatabaseProvider | undefined {
+  const raw = source.DATABASE_PROVIDER?.trim();
+  if (!raw) return undefined;
+  if (raw === 'tencentdb') return raw;
+  throw new Error('DATABASE_PROVIDER must be tencentdb');
+}
+
+function isTencentPostgresHostname(hostname: string): boolean {
+  return TENCENT_POSTGRES_HOST.test(hostname);
+}
+
+function readVerifiedTlsRootCert(url: URL, source: NodeJS.ProcessEnv, envName: string): string {
+  for (const parameter of url.searchParams.keys()) {
+    if (parameter !== 'sslmode' && parameter !== 'sslrootcert') {
+      throw new Error(`${envName} contains an unsupported query parameter`);
+    }
+  }
+  if (url.searchParams.getAll('sslmode').length !== 1) {
+    throw new Error(`${envName} must contain exactly one sslmode parameter`);
+  }
+  if (url.searchParams.get('sslmode') !== 'verify-full') {
+    throw new Error(`${envName} must set sslmode=verify-full`);
+  }
+  if (url.searchParams.getAll('sslrootcert').length > 1) {
+    throw new Error(`${envName} must not repeat sslrootcert`);
+  }
+  const queryRootCert = url.searchParams.get('sslrootcert') ?? undefined;
+  const environmentRootCert = source.PGSSLROOTCERT?.trim() || undefined;
+  if (queryRootCert && environmentRootCert && queryRootCert !== environmentRootCert) {
+    throw new Error(`${envName} sslrootcert must match PGSSLROOTCERT`);
+  }
+  const sslRootCertPath = queryRootCert ?? environmentRootCert;
+  if (!sslRootCertPath) {
+    throw new Error(`${envName} requires an explicit trusted CA path`);
+  }
+  return sslRootCertPath;
 }
 
 function readRuntimeRedisUrl(
@@ -527,6 +578,7 @@ function readRuntimeDatabaseConnection(
     if (!required) {
       return {
         url: '',
+        provider: undefined,
         projectRef: undefined,
         sslRootCertPath: undefined,
         allowInsecureLocalhost: false,
@@ -558,70 +610,69 @@ function readRuntimeDatabaseConnection(
     throw new Error('DATABASE_URL must authenticate as mall_runtime');
   }
   if (/service_role|anon[_-]?key/i.test(raw)) {
-    throw new Error('DATABASE_URL must not contain a Supabase API key');
+    throw new Error('DATABASE_URL must not contain a Data API key');
+  }
+  if (/\.supabase\.(co|com)$/i.test(url.hostname)) {
+    throw new Error('DATABASE_URL must not use Supabase; use TencentDB PostgreSQL');
   }
 
   const localHosts = new Set(['127.0.0.1', 'localhost', '::1']);
   if (localHosts.has(url.hostname)) {
+    const isDevelopmentLocal = environment === 'development';
     const isEphemeralTest = environment === 'test'
       && source.CI === 'true'
       && source.ALLOW_CI_EPHEMERAL_POSTGRES === '1';
-    if (!isEphemeralTest) {
-      throw new Error('local PostgreSQL is allowed only for the explicit ephemeral CI test database');
+    if (!isDevelopmentLocal && !isEphemeralTest) {
+      throw new Error(
+        'local PostgreSQL is allowed only in development or the explicit ephemeral CI test database',
+      );
     }
     if (url.search !== '') {
       throw new Error('local DATABASE_URL must not contain query parameters');
     }
     return {
       url: raw,
+      provider: undefined,
       projectRef: undefined,
       sslRootCertPath: undefined,
       allowInsecureLocalhost: true,
     };
   }
 
-  const projectRef = source.SUPABASE_PROJECT_REF;
-  if (!projectRef || !/^[a-z]{20}$/.test(projectRef)) {
-    throw new Error('SUPABASE_PROJECT_REF must identify the approved Supabase project');
+  const declaredProvider = readDeclaredDatabaseProvider(source);
+  if (declaredProvider && declaredProvider !== 'tencentdb') {
+    throw new Error('DATABASE_PROVIDER must be tencentdb');
   }
-  const directMatch = url.hostname.match(/^db\.([a-z]{20})\.supabase\.co$/);
-  const isPooler = /\.pooler\.supabase\.com$/.test(url.hostname);
-  if ((!directMatch || directMatch[1] !== projectRef) && !isPooler) {
-    throw new Error('DATABASE_URL must target the approved Supabase project');
+  if (!isTencentPostgresHostname(url.hostname)) {
+    throw new Error('DATABASE_URL must target an approved TencentDB PostgreSQL host');
   }
-  if (isPooler && !decodeURIComponent(url.username).endsWith(`.${projectRef}`)) {
-    throw new Error('DATABASE_URL pooler role must be scoped to SUPABASE_PROJECT_REF');
+  let fullUsername: string;
+  try {
+    fullUsername = decodeURIComponent(url.username);
+  } catch {
+    throw new Error('DATABASE_URL username contains invalid percent encoding');
   }
-  if ((url.port || '5432') !== '5432' || url.pathname !== '/postgres') {
-    throw new Error('DATABASE_URL must use the Supabase direct/session postgres endpoint');
+  if (fullUsername !== 'mall_runtime') {
+    throw new Error('DATABASE_URL must authenticate as mall_runtime');
   }
-  for (const parameter of url.searchParams.keys()) {
-    if (parameter !== 'sslmode' && parameter !== 'sslrootcert') {
-      throw new Error('DATABASE_URL contains an unsupported query parameter');
-    }
+  let databaseName: string;
+  try {
+    databaseName = decodeURIComponent(url.pathname.replace(/^\//, ''));
+  } catch {
+    throw new Error('DATABASE_URL database name contains invalid percent encoding');
   }
-  if (url.searchParams.getAll('sslmode').length !== 1) {
-    throw new Error('DATABASE_URL must contain exactly one sslmode parameter');
+  if (!POSTGRES_IDENT.test(databaseName)) {
+    throw new Error('DATABASE_URL must use a PostgreSQL database name');
   }
-  if (url.searchParams.get('sslmode') !== 'verify-full') {
-    throw new Error('DATABASE_URL must set sslmode=verify-full');
-  }
-  if (url.searchParams.getAll('sslrootcert').length > 1) {
-    throw new Error('DATABASE_URL must not repeat sslrootcert');
-  }
-  const queryRootCert = url.searchParams.get('sslrootcert') ?? undefined;
-  const environmentRootCert = source.PGSSLROOTCERT?.trim() || undefined;
-  if (queryRootCert && environmentRootCert && queryRootCert !== environmentRootCert) {
-    throw new Error('DATABASE_URL sslrootcert must match PGSSLROOTCERT');
-  }
-  const sslRootCertPath = queryRootCert ?? environmentRootCert;
-  if (!sslRootCertPath) {
-    throw new Error('DATABASE_URL requires an explicit trusted CA path');
+  const port = url.port || '5432';
+  if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65_535) {
+    throw new Error('DATABASE_URL must use a valid PostgreSQL port');
   }
   return {
     url: raw,
-    projectRef,
-    sslRootCertPath,
+    provider: 'tencentdb',
+    projectRef: undefined,
+    sslRootCertPath: readVerifiedTlsRootCert(url, source, 'DATABASE_URL'),
     allowInsecureLocalhost: false,
   };
 }
@@ -965,16 +1016,12 @@ export function loadPlatformConfig(
   source: NodeJS.ProcessEnv,
   options: LoadPlatformConfigOptions,
 ): PlatformRuntimeConfig {
+  assertNoSupabaseEnvironment(source);
   const environment = readEnvironment(source.NODE_ENV);
-  if (environment === 'staging') {
-    if (source.STAGING_DEIDENTIFIED_MOCK_ACK !== 'true') {
-      throw new Error(
-        'STAGING_DEIDENTIFIED_MOCK_ACK=true is required for deidentified Mock staging',
-      );
-    }
-    if (source.SUPABASE_DATA_API_DISABLED_ACK !== 'true') {
-      throw new Error('SUPABASE_DATA_API_DISABLED_ACK=true is required for staging');
-    }
+  if (environment === 'staging' && source.STAGING_DEIDENTIFIED_MOCK_ACK !== 'true') {
+    throw new Error(
+      'STAGING_DEIDENTIFIED_MOCK_ACK=true is required for deidentified Mock staging',
+    );
   }
   const requireDatabase = options.requireDatabase ?? true;
   const requireEncryption = options.requireEncryption ?? true;

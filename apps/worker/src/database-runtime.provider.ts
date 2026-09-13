@@ -10,6 +10,7 @@ export function createWorkerDatabaseRuntime(config: PlatformRuntimeConfig): Data
     poolMax: config.database.poolMax,
     connectionTimeoutMs: config.database.connectionTimeoutMs,
     applicationName: 'qingxu-worker',
+    provider: config.database.provider,
     projectRef: config.database.projectRef,
     sslRootCertPath: config.database.sslRootCertPath,
     allowInsecureLocalhost: config.database.allowInsecureLocalhost,

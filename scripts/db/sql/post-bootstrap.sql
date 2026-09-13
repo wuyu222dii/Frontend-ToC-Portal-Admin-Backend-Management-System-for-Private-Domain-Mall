@@ -5,6 +5,9 @@ DECLARE
   member_name text;
   granted_name text;
 BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticator') THEN
+    CREATE ROLE authenticator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+  END IF;
   FOREACH member_name IN ARRAY ARRAY['authenticator', 'anon', 'authenticated', 'service_role']
   LOOP
     FOREACH granted_name IN ARRAY ARRAY['mall_runtime', 'mall_migrator']

@@ -35,7 +35,7 @@
     "db:test-b12-aftersales": "node scripts/ci/test-b12-aftersales.mjs",
     "db:test-b13-agent": "node scripts/ci/test-b13-agent.mjs",
     "db:check-frozen": "node scripts/db/check-frozen.mjs",
-    "db:supabase:bootstrap": "node scripts/db/bootstrap.mjs",
+    "db:bootstrap": "node scripts/db/bootstrap.mjs",
     "db:diff": "scripts/ci/verify-migration-diff.sh",
     "scan:sensitive": "node scripts/ci/scan-sensitive.mjs",
     "pretest": "pnpm build:packages",

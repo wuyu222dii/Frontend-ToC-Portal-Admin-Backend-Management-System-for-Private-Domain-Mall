@@ -2174,8 +2174,8 @@ try {
     throw new Error("CI replay database must have an empty public schema");
   }
 
-  // Supabase provides this login role outside application migrations. Create a
-  // CI-only equivalent so permission verification exercises the same role graph.
+  // Create the denied frontend login role graph so permission verification
+  // matches the TencentDB post-bootstrap checks.
   runPsql(replay, [], `
     DO $setup$
     BEGIN

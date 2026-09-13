@@ -10,6 +10,7 @@ export function createApiDatabaseRuntime(config: PlatformRuntimeConfig): Databas
     connectionTimeoutMs: config.database.connectionTimeoutMs,
     databaseUrl: config.database.url,
     poolMax: config.database.poolMax,
+    provider: config.database.provider,
     projectRef: config.database.projectRef,
     sslRootCertPath: config.database.sslRootCertPath,
     allowInsecureLocalhost: config.database.allowInsecureLocalhost,

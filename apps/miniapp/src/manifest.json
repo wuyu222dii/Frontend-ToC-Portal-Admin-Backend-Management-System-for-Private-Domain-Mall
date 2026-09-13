@@ -11,6 +11,7 @@
   "h5": {},
   "mp-weixin": {
     "appid": "wx43d9ae5d376d7512",
+    "lazyCodeLoading": "requiredComponents",
     "setting": {
       "urlCheck": false
     },

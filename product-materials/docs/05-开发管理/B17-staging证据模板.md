@@ -22,8 +22,8 @@
 
 ## B17.1 环境与密钥
 
-- [ ] `NODE_ENV=staging`、`STAGING_DEIDENTIFIED_MOCK_ACK=true`、`SUPABASE_DATA_API_DISABLED_ACK=true`。
-- [ ] 独立 Supabase/Redis/S3、不同于 development/test 默认值的 JWT audience/issuer、字段加密/HMAC key ring。
+- [ ] `NODE_ENV=staging`、`STAGING_DEIDENTIFIED_MOCK_ACK=true`。环境中不得残留任何 `SUPABASE_*`。
+- [ ] 独立 TencentDB/Redis/S3、不同于 development/test 默认值的 JWT audience/issuer、字段加密/HMAC key ring。
 - [ ] `mall_runtime`/`mall_migrator` 分权、RLS/default grants、TLS、非 root S3 账号通过。
 - [ ] Store identity/phone/payment 均为 `MOCK`，不含真实数据。
 - [ ] `pnpm config:check` 在候选 SHA 通过。

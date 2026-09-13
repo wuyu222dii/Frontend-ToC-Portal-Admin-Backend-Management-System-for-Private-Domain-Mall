@@ -2,7 +2,7 @@
 
 本仓库实现消费者微信小程序、一级代理工作台、总部管理后台，以及共享的 NestJS API 和 Worker。B15 development `GO` 已完成；当前进入 B19 管理员凭据重置与双人离线恢复 development 实施，产品/API 基线为 `v2.4.14 / CH-036`、OpenAPI `2.4.14-ch036`。B16/B17 staging 证据尚未闭合，staging/production 仍为 `NO-GO`。
 
-> 2026-09-05 起取消 GitHub 普通 CI；远端测试仅保留手动 Supabase rollback-only smoke，development migration 继续作为同 SHA 前置部署与 attestation。历史 CI Run 记录保持不变。
+> 2026-09-05 起取消 GitHub 普通 CI。远程库改为腾讯云 TencentDB PostgreSQL；历史 Supabase smoke / migration Run 记录只作当时证据，不再作为现行连接方式。
 
 ## 工程结构
 
@@ -26,11 +26,11 @@ product-materials/
   prototype/      三端可点击原型、设计素材与验收截图
 ```
 
-产品资料统一从 [资料索引](product-materials/README.md) 进入，业务契约以 [技术设计索引](product-materials/docs/03-技术设计/README.md) 为准。三端只访问 NestJS API，不使用 Supabase SDK、Data API、数据库连接或 `service_role`。
+产品资料统一从 [资料索引](product-materials/README.md) 进入，业务契约以 [技术设计索引](product-materials/docs/03-技术设计/README.md) 为准。国内腾讯云落地（含 TencentDB PostgreSQL）见 [腾讯云部署方案](product-materials/docs/03-技术设计/腾讯云部署方案.md)。三端只访问 NestJS API，不持有数据库连接或 `service_role`。
 
 ## 本地启动
 
-前置条件：Node.js `22.23.1`、pnpm `10.34.5`、Docker Desktop。日常开发 PostgreSQL 仍指向新加坡区域的 Supabase 开发项目。本地 Compose 默认只启动 Redis 与 MinIO；一次性空库回放可通过 `local-ci` profile 启用 PostgreSQL 18.3，不得替代 `.env` 中的 Supabase 连接。
+前置条件：Node.js `22.23.1`、pnpm `10.34.5`、Docker Desktop。运行库使用腾讯云 TencentDB PostgreSQL。本地 Compose 默认只启动 Redis 与 MinIO；一次性空库回放可通过 `local-ci` profile 启用 PostgreSQL 18.3，不得替代 `.env` 中的托管库连接。
 
 ```bash
 pnpm install --frozen-lockfile
@@ -56,7 +56,7 @@ pnpm admin:bootstrap-business-rules # 受控创建唯一首版经营规则
 pnpm contracts:lint
 pnpm prisma:validate
 pnpm db:migrate:baseline # CI 临时空库专用
-pnpm db:supabase:bootstrap # 受控的 Supabase 首次初始化
+pnpm db:bootstrap          # 受控空库首次初始化（TencentDB）
 pnpm db:test-permissions # 数据库权限与故障注入门禁
 pnpm db:test-b10-payments # 支付、结算、佣金与迟到退款门禁
 pnpm db:test-b12-aftersales # 售后、验货与退款门禁
@@ -67,8 +67,8 @@ pnpm staging:readiness # 仅在 NODE_ENV=staging 时只读探测 API/Worker read
 
 B7.2 账户手机号 HMAC 轮换是受控维护操作，不是日常启动命令。先排空所有仍持有旧 current key 的 API 写实例，并以 `mall_migrator` 连接一次性注入 `STORE_PHONE_HASH_DRAIN_OLD_WRITERS_APPROVAL=DRAIN_OLD_STORE_PHONE_HASH_WRITERS_APPROVED`，运行 `pnpm store:phone-hash:rehash`。重算成功后从配置移除 previous key，再以相同一次性审批运行 `pnpm store:phone-hash:verify`；current-only 验证成功前不得销毁旧密钥。审批变量不得写入 `.env` 或长期 Secret。
 
-数据库与纵向门禁的 full 模式只允许显式 `CI=true`、`NODE_ENV=test` 和一次性本地测试基础设施；rollback 模式只允许带可信 CA 的受控 Supabase development runtime 连接，并以外层事务归零。禁止指向 Supabase development 日常数据库执行 full 模式。
+数据库与纵向门禁的 full 模式只允许显式 `CI=true`、`NODE_ENV=test` 和一次性本地测试基础设施；rollback 模式只允许带可信 CA 的受控 TencentDB runtime 连接，并以外层事务归零。禁止对日常库执行 full 模式。
 
-Supabase 项目创建、连接分权和受保护烟测见 [B0 工程与 Supabase](product-materials/docs/05-开发管理/B0-工程与Supabase.md)，公共内核边界见 [B1 平台公共内核](product-materials/docs/05-开发管理/B1-平台公共内核.md)，总部认证实现与安全操作见 [B2 总部安全入口](product-materials/docs/05-开发管理/B2-总部安全入口.md)，B3-B8 历史批次见对应开发记录；B9 的订单与库存预占见 [B9 订单报价与库存预占](product-materials/docs/05-开发管理/B9-订单报价与库存预占.md)，B10 的支付、对账和迟到支付退款见 [B10 支付对账与迟到支付退款](product-materials/docs/05-开发管理/B10-支付对账与迟到支付退款.md)，B11 的准入边界与实施批次见 [B11 订单履约与物流](product-materials/docs/05-开发管理/B11-订单履约与物流.md)，B12 的售后边界见 [B12 售后验货与普通退款](product-materials/docs/05-开发管理/B12-售后验货与普通退款.md)，B13 的代理资金闭环见 [B13 一级代理经营与资金闭环](product-materials/docs/05-开发管理/B13-一级代理经营与资金闭环.md)，B14 的经营分析闭环见 [B14 总部经营看板与销售分析闭环](product-materials/docs/05-开发管理/B14-总部经营看板与销售分析闭环.md)，B15 的可靠性收敛见 [B15 development 可靠性与 P2 收敛](product-materials/docs/05-开发管理/B15-development可靠性与P2收敛.md)。普通 PR 不再自动运行 GitHub CI；Supabase 凭据只提供给受保护的手动 migration 与 smoke workflow。
+工程与数据库准入见 [B0 工程与数据库](product-materials/docs/05-开发管理/B0-工程与Supabase.md)，公共内核边界见 [B1 平台公共内核](product-materials/docs/05-开发管理/B1-平台公共内核.md)，总部认证实现与安全操作见 [B2 总部安全入口](product-materials/docs/05-开发管理/B2-总部安全入口.md)，B3-B8 历史批次见对应开发记录；B9 的订单与库存预占见 [B9 订单报价与库存预占](product-materials/docs/05-开发管理/B9-订单报价与库存预占.md)，B10 的支付、对账和迟到支付退款见 [B10 支付对账与迟到支付退款](product-materials/docs/05-开发管理/B10-支付对账与迟到支付退款.md)，B11 的准入边界与实施批次见 [B11 订单履约与物流](product-materials/docs/05-开发管理/B11-订单履约与物流.md)，B12 的售后边界见 [B12 售后验货与普通退款](product-materials/docs/05-开发管理/B12-售后验货与普通退款.md)，B13 的代理资金闭环见 [B13 一级代理经营与资金闭环](product-materials/docs/05-开发管理/B13-一级代理经营与资金闭环.md)，B14 的经营分析闭环见 [B14 总部经营看板与销售分析闭环](product-materials/docs/05-开发管理/B14-总部经营看板与销售分析闭环.md)，B15 的可靠性收敛见 [B15 development 可靠性与 P2 收敛](product-materials/docs/05-开发管理/B15-development可靠性与P2收敛.md)。普通 PR 不再自动运行 GitHub CI。
 
 B3-B16 的历史证据继续以各阶段记录为准。B15 最终 SHA `8a743a901ff878bd92654c9c3ff54dcd68ca5413` 的 development migration Run `23` 与 rollback-only smoke Run `45` 同 SHA、依次成功；未把未运行的全仓回归或纵向测试记为通过。B17 当前仅完成配置门禁和文档准备；B12 orphan 现场回收、恢复演练、依赖故障注入和外部独立复核未完成，staging/production/真实数据继续 `NO-GO`。详见 [B17 首次 staging 受控发布与外部复核](product-materials/docs/05-开发管理/B17-首次staging受控发布与外部复核.md)。

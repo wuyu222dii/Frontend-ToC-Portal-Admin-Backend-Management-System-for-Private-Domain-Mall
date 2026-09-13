@@ -74,7 +74,7 @@ try {
   if (history.error) throw history.error;
   if (history.status !== 0) throw new Error("Prisma migration history query failed");
   if (history.stdout.trim() !== "7|1|1|1|1|1|1|1|0|0") {
-    throw new Error("Supabase development database is not on the exact completed B15 migration chain");
+    throw new Error("development database is not on the exact completed B15 migration chain");
   }
 
   const prisma = prismaInvocation([
@@ -98,7 +98,7 @@ try {
   if (result.error) throw result.error;
   if (result.status === 2) throw new Error("Prisma datamodel drift detected");
   if (result.status !== 0) throw new Error("Prisma drift command failed");
-  console.log("Prisma datamodel and Supabase development database are in sync");
+  console.log("Prisma datamodel and development database are in sync");
 } catch (error) {
   console.error(`database drift check failed: ${error.message}`);
   process.exit(1);

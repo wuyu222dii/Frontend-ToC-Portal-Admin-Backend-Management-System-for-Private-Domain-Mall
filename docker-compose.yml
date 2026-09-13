@@ -87,7 +87,7 @@ services:
     image: postgres:18.3-alpine3.23
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${LOCAL_CI_POSTGRES_PASSWORD:?Set LOCAL_CI_POSTGRES_PASSWORD in .env.local-ci}
+      POSTGRES_PASSWORD: ${LOCAL_CI_POSTGRES_PASSWORD:-}
       POSTGRES_DB: ${LOCAL_CI_POSTGRES_DB:-mall_ci_test}
     ports:
       - "127.0.0.1:${LOCAL_CI_POSTGRES_PORT:-5433}:5432"

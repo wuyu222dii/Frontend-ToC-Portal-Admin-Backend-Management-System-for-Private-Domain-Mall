@@ -403,37 +403,33 @@ onBeforeUnmount(() => {
             v-if="filterOpen"
             class="category-brands"
           >
-            <scroll-view
+            <view
               v-if="brandsState !== 'error' && brandsState !== 'rate-limited'"
-              class="filter-scroll"
-              scroll-x
-              :show-scrollbar="false"
+              class="filter-wrap"
             >
-              <view class="filter-row">
-                <button
-                  class="filter-chip"
-                  :class="{ 'filter-chip--active': selectedBrandId === '' }"
-                  @click="selectBrand('')"
-                >
-                  全部品牌
-                </button>
-                <button
-                  v-for="brand in brands"
-                  :key="brand.brand_id"
-                  class="filter-chip"
-                  :class="{ 'filter-chip--active': selectedBrandId === brand.brand_id }"
-                  @click="selectBrand(brand.brand_id)"
-                >
-                  {{ brand.name }}
-                </button>
-                <text
-                  v-if="brandsState === 'loading'"
-                  class="filter-loading"
-                >
-                  品牌加载中
-                </text>
-              </view>
-            </scroll-view>
+              <button
+                class="filter-chip"
+                :class="{ 'filter-chip--active': selectedBrandId === '' }"
+                @click="selectBrand('')"
+              >
+                全部品牌
+              </button>
+              <button
+                v-for="brand in brands"
+                :key="brand.brand_id"
+                class="filter-chip"
+                :class="{ 'filter-chip--active': selectedBrandId === brand.brand_id }"
+                @click="selectBrand(brand.brand_id)"
+              >
+                {{ brand.name }}
+              </button>
+              <text
+                v-if="brandsState === 'loading'"
+                class="filter-loading"
+              >
+                品牌加载中
+              </text>
+            </view>
             <QxCatalogState
               v-else
               :kind="brandsState"
@@ -746,17 +742,11 @@ onBeforeUnmount(() => {
   padding: 16rpx 20rpx 8rpx;
 }
 
-.filter-scroll {
-  width: 100%;
-  white-space: nowrap;
-}
-
-.filter-row {
-  display: inline-flex;
-  min-width: 100%;
+.filter-wrap {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12rpx;
-  padding-right: 12rpx;
 }
 
 .filter-chip {

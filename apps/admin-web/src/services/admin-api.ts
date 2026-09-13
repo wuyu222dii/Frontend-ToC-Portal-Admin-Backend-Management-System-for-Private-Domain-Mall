@@ -17,6 +17,7 @@ export interface AdminApiRequestOptions {
 }
 
 const refreshInFlight = new Map<string, Promise<AdminAuthSession>>();
+const refreshKeys = new WeakMap<AdminAuthSession, string>();
 
 export class AdminApiError extends Error {
   readonly status: number;
@@ -70,13 +71,6 @@ function bearer(kind: 'access' | 'preauth'): string | undefined {
     : authSession.state.preauth?.pre_auth_token;
 }
 
-function sameAdminSession(
-  current: AdminAuthSession | null,
-  expected: AdminAuthSession,
-): current is AdminAuthSession {
-  return current?.account_id === expected.account_id && current.session_id === expected.session_id;
-}
-
 function sessionChangedError(): AdminApiError {
   return new AdminApiError('登录状态已经变化，请重新发起操作', {
     status: 409,
@@ -84,8 +78,35 @@ function sessionChangedError(): AdminApiError {
   });
 }
 
+function authRequiredError(): AdminApiError {
+  return new AdminApiError('登录状态已失效，请重新登录', { status: 401, code: 'AUTH_REQUIRED' });
+}
+
 function refreshIdentity(session: AdminAuthSession): string {
   return `${session.account_id}:${session.session_id}:${session.refresh_token}`;
+}
+
+function currentDescendsFrom(previous: AdminAuthSession): boolean {
+  return authSession.descendsFrom(previous);
+}
+
+function terminalRefreshFailure(error: unknown): error is AdminApiError {
+  return error instanceof AdminApiError && (
+    error.status === 401 || (error.status === 409 && error.code === 'STATE_CONFLICT')
+  );
+}
+
+function isRotatedAdminSession(previous: AdminAuthSession, next: AdminAuthSession): boolean {
+  return (
+    next.account_id === previous.account_id &&
+    next.session_id !== previous.session_id &&
+    next.access_token !== previous.access_token &&
+    next.refresh_token !== previous.refresh_token &&
+    next.role === 'SUPER_ADMIN' &&
+    next.assurance === 'MFA' &&
+    next.restriction === 'NONE' &&
+    next.mfa_required === false
+  );
 }
 
 export async function adminApiRequest<T>(
@@ -148,18 +169,30 @@ function refreshAdminSessionFor(session: AdminAuthSession): Promise<AdminAuthSes
   const identity = refreshIdentity(session);
   const existing = refreshInFlight.get(identity);
   if (existing) return existing;
+  const idempotencyKey = refreshKeys.get(session) ?? newIdempotencyKey();
+  refreshKeys.set(session, idempotencyKey);
   const pending = adminApiRequest<components['schemas']['AdminAuthSessionResponse']>('/admin/auth/refresh', {
     body: { refresh_token: session.refresh_token },
-    idempotencyKey: newIdempotencyKey(),
+    idempotencyKey,
     method: 'POST',
   }).then((response) => {
-    if (!sameAdminSession(response.data, session)) {
+    const next = response.data;
+    if (!isRotatedAdminSession(session, next)) {
       throw new AdminApiError('服务响应中的管理员会话不匹配', {
         status: 502,
         code: 'INVALID_RESPONSE',
       });
     }
-    return response.data;
+    if (authSession.matchesSession(session)) {
+      if (!authSession.replaceSession(session, next)) throw sessionChangedError();
+    } else if (!currentDescendsFrom(session)) {
+      throw sessionChangedError();
+    }
+    refreshKeys.delete(session);
+    return next;
+  }).catch((error: unknown) => {
+    if (terminalRefreshFailure(error)) refreshKeys.delete(session);
+    throw error;
   }).finally(() => {
     refreshInFlight.delete(identity);
   });
@@ -169,14 +202,16 @@ function refreshAdminSessionFor(session: AdminAuthSession): Promise<AdminAuthSes
 
 export function refreshAdminSession(): Promise<AdminAuthSession> {
   const session = authSession.state.session;
-  if (!session) throw new AdminApiError('登录状态已失效，请重新登录', { status: 401, code: 'AUTH_REQUIRED' });
+  if (!session) throw authRequiredError();
   return refreshAdminSessionFor(session).then(
     (refreshed) => {
-      if (!sameAdminSession(authSession.state.session, session)) throw sessionChangedError();
+      if (!currentDescendsFrom(session)) throw sessionChangedError();
       return refreshed;
     },
     (error: unknown) => {
-      if (!sameAdminSession(authSession.state.session, session)) throw sessionChangedError();
+      if (!authSession.matchesSession(session) && !currentDescendsFrom(session)) {
+        throw sessionChangedError();
+      }
       throw error;
     },
   );
@@ -184,19 +219,23 @@ export function refreshAdminSession(): Promise<AdminAuthSession> {
 
 async function retryWithCurrentSession<T>(
   operation: () => Promise<T>,
-  session: AdminAuthSession,
+  ancestor: AdminAuthSession,
 ): Promise<T> {
-  if (!sameAdminSession(authSession.state.session, session)) throw sessionChangedError();
+  const current = authSession.state.session;
+  if (!current || !currentDescendsFrom(ancestor)) throw sessionChangedError();
   try {
     const result = await operation();
-    if (!sameAdminSession(authSession.state.session, session)) throw sessionChangedError();
+    if (!currentDescendsFrom(ancestor)) throw sessionChangedError();
     return result;
   } catch (error) {
     if (error instanceof AdminApiError && error.code === 'SESSION_CHANGED') throw error;
-    if (!sameAdminSession(authSession.state.session, session)) throw sessionChangedError();
+    if (!currentDescendsFrom(ancestor)) throw sessionChangedError();
     if (!(error instanceof AdminApiError) || error.status !== 401) throw error;
+    if (!authSession.matchesSession(current)) {
+      return retryWithCurrentSession(operation, ancestor);
+    }
     authSession.clearSession();
-    throw new AdminApiError('登录状态已失效，请重新登录', { status: 401, code: 'AUTH_REQUIRED' });
+    throw authRequiredError();
   }
 }
 
@@ -204,7 +243,7 @@ export async function withSessionRefresh<T>(operation: () => Promise<T>): Promis
   const attemptedSession = authSession.state.session;
   try {
     const result = await operation();
-    if (attemptedSession && !sameAdminSession(authSession.state.session, attemptedSession)) {
+    if (attemptedSession && !currentDescendsFrom(attemptedSession)) {
       throw sessionChangedError();
     }
     return result;
@@ -212,22 +251,20 @@ export async function withSessionRefresh<T>(operation: () => Promise<T>): Promis
     if (error instanceof AdminApiError && error.code === 'SESSION_CHANGED') throw error;
     if (!(error instanceof AdminApiError) || error.status !== 401 || !attemptedSession) throw error;
   }
-  if (!sameAdminSession(authSession.state.session, attemptedSession)) throw sessionChangedError();
-  if (authSession.state.session.access_token !== attemptedSession.access_token) {
+  if (currentDescendsFrom(attemptedSession) && !authSession.matchesSession(attemptedSession)) {
     return retryWithCurrentSession(operation, attemptedSession);
   }
+  if (!authSession.matchesSession(attemptedSession)) throw sessionChangedError();
   try {
-    const refreshed = await refreshAdminSessionFor(attemptedSession);
-    if (!sameAdminSession(authSession.state.session, attemptedSession)) throw sessionChangedError();
-    if (authSession.state.session.refresh_token === attemptedSession.refresh_token) {
-      authSession.acceptSession(refreshed);
-    }
+    await refreshAdminSessionFor(attemptedSession);
   } catch (error) {
     if (error instanceof AdminApiError && error.code === 'SESSION_CHANGED') throw error;
-    if (!sameAdminSession(authSession.state.session, attemptedSession)) throw sessionChangedError();
+    if (!authSession.matchesSession(attemptedSession)) throw sessionChangedError();
+    if (!terminalRefreshFailure(error)) throw error;
     authSession.clearSession();
-    throw new AdminApiError('登录状态已失效，请重新登录', { status: 401, code: 'AUTH_REQUIRED' });
+    throw authRequiredError();
   }
+  if (!currentDescendsFrom(attemptedSession)) throw sessionChangedError();
   return retryWithCurrentSession(operation, attemptedSession);
 }
 

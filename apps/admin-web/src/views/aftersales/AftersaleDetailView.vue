@@ -158,14 +158,14 @@ async function downloadEvidence(fileId: string): Promise<void> {
   const downloadController = new AbortController();
   const currentSequence = sequence;
   const currentAftersaleId = aftersaleId.value;
-  const currentSessionId = authSession.state.session?.session_id ?? null;
+  const currentAccountId = authSession.state.session?.account_id ?? null;
   evidenceControllers.set(fileId, downloadController);
   downloading.value = new Set(downloading.value).add(fileId);
   try {
     const result = await getAdminFileDownloadUrl(fileId, downloadController.signal);
     if (!active || downloadController.signal.aborted || currentSequence !== sequence ||
-      currentAftersaleId !== aftersaleId.value || currentSessionId === null ||
-      currentSessionId !== authSession.state.session?.session_id) return;
+      currentAftersaleId !== aftersaleId.value || currentAccountId === null ||
+      currentAccountId !== authSession.state.session?.account_id) return;
     const anchor = document.createElement('a');
     anchor.href = result.download_url;
     anchor.target = '_blank';
@@ -199,7 +199,7 @@ watch(aftersaleId, () => {
   void loadDetail();
 }, { immediate: true });
 
-watch(() => authSession.state.session?.session_id ?? null, (current, previous) => {
+watch(() => authSession.state.session?.account_id ?? null, (current, previous) => {
   if (previous !== undefined && current !== previous) {
     ++sequence;
     controller?.abort();

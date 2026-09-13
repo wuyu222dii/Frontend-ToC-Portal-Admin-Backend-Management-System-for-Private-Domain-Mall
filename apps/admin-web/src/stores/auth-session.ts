@@ -8,6 +8,7 @@ import type {
 } from '../types/auth';
 
 const REMEMBERED_LOGIN_KEY = 'qingxu.admin.remembered_login';
+const sessionLineage = new Map<string, string>();
 
 interface AuthMemoryState {
   preauth: AuthPreauthData | null;
@@ -42,6 +43,28 @@ function rememberLogin(loginName: string, remember: boolean): void {
   }
 }
 
+function sameSession(left: AdminAuthSession | null, right: AdminAuthSession): boolean {
+  return (
+    left?.account_id === right.account_id &&
+    left.session_id === right.session_id &&
+    left.access_token === right.access_token &&
+    left.refresh_token === right.refresh_token
+  );
+}
+
+function sessionIdentity(session: AdminAuthSession): string {
+  return `${session.account_id}:${session.session_id}`;
+}
+
+function isValidAdminSession(session: AdminAuthSession): boolean {
+  return (
+    session.role === 'SUPER_ADMIN' &&
+    session.assurance === 'MFA' &&
+    session.restriction === 'NONE' &&
+    session.mfa_required === false
+  );
+}
+
 function clearOneTimeValues(): void {
   state.enrollment = null;
   state.recoveryCodes.splice(0);
@@ -55,6 +78,7 @@ function clearPreauth(): void {
 function clearSession(): void {
   state.session = null;
   state.current = null;
+  sessionLineage.clear();
   clearPreauth();
   clearOneTimeValues();
 }
@@ -65,13 +89,39 @@ function acceptPreauth(preauth: AuthPreauthData): void {
 }
 
 function acceptSession(session: AdminAuthSession): void {
-  if (session.role !== 'SUPER_ADMIN' || session.assurance !== 'MFA' || session.restriction !== 'NONE') {
+  if (!isValidAdminSession(session)) {
     clearSession();
     throw new TypeError('The server returned an invalid administrator session');
   }
+  sessionLineage.clear();
   state.session = session;
   state.preauth = null;
   state.enrollment = null;
+}
+
+function replaceSession(previous: AdminAuthSession, next: AdminAuthSession): boolean {
+  if (!sameSession(state.session, previous) || !isValidAdminSession(next)) return false;
+  sessionLineage.set(sessionIdentity(next), sessionIdentity(previous));
+  state.session = next;
+  return true;
+}
+
+function descendsFrom(previous: AdminAuthSession): boolean {
+  const current = state.session;
+  if (!current || current.account_id !== previous.account_id) return false;
+  const ancestor = sessionIdentity(previous);
+  let cursor = sessionIdentity(current);
+  for (let depth = 0; depth < 20; depth += 1) {
+    if (cursor === ancestor) return true;
+    const parent = sessionLineage.get(cursor);
+    if (parent === undefined) return false;
+    cursor = parent;
+  }
+  return false;
+}
+
+function matchesSession(session: AdminAuthSession): boolean {
+  return sameSession(state.session, session);
 }
 
 function setRecoveryCodes(codes: readonly string[]): void {
@@ -86,9 +136,11 @@ export const authSession = {
   rememberLogin,
   acceptPreauth,
   acceptSession,
+  replaceSession,
+  descendsFrom,
+  matchesSession,
   clearPreauth,
   clearSession,
   clearOneTimeValues,
   setRecoveryCodes,
 };
-

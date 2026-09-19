@@ -29,6 +29,7 @@ import {
 import { guestCartSnapshot } from '../../utils/guest-cart-refresh';
 import { hasRefreshableCustomerSession } from '../../utils/customer-session';
 import { isUlid } from '../../utils/ids';
+import { consumePromotionLaunch } from '../../utils/promotion-handoff';
 import { goBackOrHome, openCheckout, openHome, showLoginPrompt } from '../../utils/store-navigation';
 
 type DetailState = 'loading' | 'ready' | 'not-found' | 'error' | 'rate-limited';
@@ -338,6 +339,7 @@ function returnHome() {
 
 onLoad((query) => {
   productId.value = typeof query?.product_id === 'string' ? query.product_id : '';
+  void consumePromotionLaunch(query);
   void loadProduct();
 });
 

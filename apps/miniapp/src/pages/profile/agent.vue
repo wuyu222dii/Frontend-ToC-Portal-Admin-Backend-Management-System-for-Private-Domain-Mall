@@ -24,8 +24,8 @@ import {
   replaceWithLoginForCandidateDecision,
   resumeProtectedAction,
 } from '../../utils/protected-action';
-import { isUlid } from '../../utils/ids';
-import { isSafeHttpsUrl, openHome } from '../../utils/store-navigation';
+import { resolvePublicStoreNavigation, takePromotionLaunchQuery } from '../../utils/promotion-launch';
+import { openHome } from '../../utils/store-navigation';
 
 type PageState = 'loading' | 'ready' | 'error' | 'rate-limited';
 
@@ -61,19 +61,37 @@ function requireLogin() {
   });
 }
 
-function replaceWithPublicTargetOrHome(publicTargetUrl: string | null) {
-  if (publicTargetUrl === null || !isSafeHttpsUrl(publicTargetUrl)) {
-    openHome();
+function openNativeStorePage(page: string, mode: 'reLaunch' | 'navigateTo'): void {
+  if (mode === 'reLaunch' || page === '/pages/index/index') {
+    void uni.reLaunch({ url: page });
     return;
   }
-  // #ifdef H5
-  window.location.assign(publicTargetUrl);
-  // #endif
-  // #ifndef H5
-  void uni.reLaunch({
-    url: `/pages/webview/index?url=${encodeURIComponent(publicTargetUrl)}`,
+  void uni.navigateTo({
+    url: page,
+    fail: () => {
+      void uni.reLaunch({ url: page });
+    },
   });
-  // #endif
+}
+
+function replaceWithPublicTargetOrHome(publicTargetUrl: string | null) {
+  const next = resolvePublicStoreNavigation(publicTargetUrl);
+  if (next.kind === 'native') {
+    openNativeStorePage(next.page, 'reLaunch');
+    return;
+  }
+  if (next.kind === 'https') {
+    // #ifdef H5
+    window.location.assign(next.url);
+    // #endif
+    // #ifndef H5
+    void uni.reLaunch({
+      url: `/pages/webview/index?url=${encodeURIComponent(next.url)}`,
+    });
+    // #endif
+    return;
+  }
+  openHome();
 }
 
 async function returnAfterCandidateDecision(publicTargetUrl: string | null) {
@@ -260,12 +278,17 @@ async function rejectRelationship() {
 }
 
 function openPublicTarget(url: string | null) {
-  if (!url || !isSafeHttpsUrl(url)) return;
+  const next = resolvePublicStoreNavigation(url);
+  if (next.kind === 'native') {
+    openNativeStorePage(next.page, 'navigateTo');
+    return;
+  }
+  if (next.kind !== 'https') return;
   // #ifdef H5
-  window.open(url, '_blank', 'noopener,noreferrer');
+  window.open(next.url, '_blank', 'noopener,noreferrer');
   // #endif
   // #ifndef H5
-  void uni.navigateTo({ url: `/pages/webview/index?url=${encodeURIComponent(url)}` });
+  void uni.navigateTo({ url: `/pages/webview/index?url=${encodeURIComponent(next.url)}` });
   // #endif
 }
 
@@ -275,18 +298,14 @@ function openFallback() {
 
 onLoad((query) => {
   clearsHandoffOnUnload = query?.source === 'login';
-  const inviteCode = typeof query?.invite_code === 'string' ? query.invite_code : '';
-  const promotionAssetId = typeof query?.promotion_asset_id === 'string'
-    ? query.promotion_asset_id
-    : '';
-  if ((inviteCode.length > 0 || promotionAssetId.length > 0) &&
-    (inviteCode.length < 1 || inviteCode.length > 128 || !isUlid(promotionAssetId))) {
+  const parsed = takePromotionLaunchQuery(query);
+  if (parsed.kind === 'invalid') {
     state.value = 'error';
     message.value = '推广链接格式无效。';
     return;
   }
-  if (inviteCode.length > 0) {
-    promotionInput = { invite_code: inviteCode, promotion_asset_id: promotionAssetId };
+  if (parsed.kind === 'ready') {
+    promotionInput = parsed.input;
   }
   void loadPage();
 });

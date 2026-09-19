@@ -31,6 +31,13 @@ import { decryptAgentInviteCode } from '../platform/security/agent-security';
 import { storeSkuSpecification } from '../store-catalog/store-sku-specification';
 import { FileObjectLeaseManager } from '../files/file-object-lease';
 import type { AgentProductListInput, CreatePromotionAssetInput } from './agent-commerce.dto';
+import {
+  promotionMiniProgramPath,
+  promotionMiniProgramQuery,
+  promotionShareUrl,
+  promotionTargetUrl,
+} from './promotion-target-url';
+import { WechatUrlLinkClient } from './wechat-url-link';
 
 const ROUTE = '/agent/promotion-assets';
 type ReplayRecord = Extract<IdempotencyClaimResult, { kind: 'replay' }>['record'];
@@ -39,21 +46,8 @@ function storageFailure(): ApplicationError {
   return new ApplicationError('INTERNAL_ERROR', 'Promotion QR storage operation failed');
 }
 
-function fallbackUrl(baseUrl: string, input: CreatePromotionAssetInput): string {
-  const url = new URL(baseUrl);
-  if (input.targetType === 'PRODUCT') {
-    url.pathname = `${url.pathname.replace(/\/$/, '')}/products/${input.targetId}`;
-  }
-  const value = url.toString();
-  if (value.length > 500) throw new ApplicationError('INTERNAL_ERROR', 'Promotion target URL is too long');
-  return value;
-}
-
-function shareUrl(publicTargetUrl: string, inviteCode: string, promotionAssetId: string): string {
-  const url = new URL(publicTargetUrl);
-  url.searchParams.set('invite_code', inviteCode);
-  url.searchParams.set('promotion_asset_id', promotionAssetId);
-  return url.toString();
+function miniProgramLinkUnavailable(): ApplicationError {
+  return new ApplicationError('INTERNAL_ERROR', 'Promotion mini program link is unavailable');
 }
 
 @Injectable()
@@ -70,6 +64,7 @@ export class AgentCommerceService {
     @Optional() @Inject(API_DATABASE_RUNTIME) private readonly database?: DatabaseRuntime,
     @Optional() @Inject(API_OBJECT_STORAGE) private readonly storage?: ObjectStoragePort,
     @Optional() @Inject(FileObjectLeaseManager) private readonly leases?: FileObjectLeaseManager,
+    @Optional() private readonly urlLinks?: WechatUrlLinkClient,
   ) {
     if (config && database) {
       this.commerce = new AgentCommerceRepository(database.prisma);
@@ -136,8 +131,8 @@ export class AgentCommerceService {
       context.inviteCode.encryptionKeyId,
       config.encryption.fieldKeys,
     );
-    const publicTargetUrl = fallbackUrl(config.promotion.publicBaseUrl, input);
-    const promotionUrl = shareUrl(publicTargetUrl, inviteCode, promotionAssetId);
+    const publicTargetUrl = promotionTargetUrl(config.promotion.publicBaseUrl, input);
+    const promotionUrl = await this.promotionPublicUrl(config, input, inviteCode, promotionAssetId);
     let qr: Buffer;
     try {
       qr = await QRCode.toBuffer(promotionUrl, {
@@ -259,7 +254,7 @@ export class AgentCommerceService {
         return this.replay(session, outcome.record);
       }
       await this.cleanup(storage, stagingKey);
-      return this.promotionView(outcome.asset, config);
+      return this.promotionView(outcome.asset, config, promotionUrl);
     } catch (error) {
       if (error instanceof ObjectStorageError) throw storageFailure();
       throw error;
@@ -279,7 +274,7 @@ export class AgentCommerceService {
       promotionAssetId: record.resource_id,
     });
     this.idempotency.assertHashOnlyReplay(record, this.hashOnlyResult(asset));
-    return this.promotionView(asset, config);
+    return await this.promotionView(asset, config);
   }
 
   private productView(product: AgentProductSnapshot) {
@@ -330,7 +325,11 @@ export class AgentCommerceService {
     };
   }
 
-  private promotionView(asset: AgentPromotionAssetSnapshot, config: PlatformRuntimeConfig) {
+  private async promotionView(
+    asset: AgentPromotionAssetSnapshot,
+    config: PlatformRuntimeConfig,
+    publicUrl?: string,
+  ) {
     const inviteCode = decryptAgentInviteCode(
       asset.inviteCode.id,
       Buffer.from(asset.inviteCode.ciphertext),
@@ -341,7 +340,13 @@ export class AgentCommerceService {
       attribution_eligible: asset.attributionEligible,
       expires_at: asset.expiresAt?.toISOString() ?? null,
       promotion_asset_id: asset.id,
-      public_url: shareUrl(asset.publicUrl, inviteCode, asset.id),
+      public_url: publicUrl ?? await this.promotionPublicUrl(
+        config,
+        { targetId: asset.targetProductId, targetType: asset.targetType },
+        inviteCode,
+        asset.id,
+        asset.publicUrl,
+      ),
       qr_file: {
         file_id: asset.qrFile.id,
         purpose: 'PROMOTION_QR' as const,
@@ -351,6 +356,38 @@ export class AgentCommerceService {
       target_id: asset.targetProductId,
       target_type: asset.targetType,
     };
+  }
+
+  private async promotionPublicUrl(
+    config: PlatformRuntimeConfig,
+    input: CreatePromotionAssetInput,
+    inviteCode: string,
+    promotionAssetId: string,
+    storedPublicUrl?: string,
+  ): Promise<string> {
+    const httpsShare = promotionShareUrl(
+      storedPublicUrl ?? promotionTargetUrl(config.promotion.publicBaseUrl, input),
+      inviteCode,
+      promotionAssetId,
+    );
+    if (config.store.identityProvider !== 'WECHAT') return httpsShare;
+    const secret = config.store.wechatAppSecret;
+    const envVersion = config.store.wechatMiniappEnvVersion;
+    if (!secret || envVersion === undefined || this.urlLinks === undefined) {
+      throw miniProgramLinkUnavailable();
+    }
+    return this.urlLinks.generate({
+      appId: config.store.wechatAppId,
+      appSecret: secret,
+      envVersion,
+      path: promotionMiniProgramPath(input),
+      query: promotionMiniProgramQuery({
+        inviteCode,
+        promotionAssetId,
+        targetId: input.targetId,
+        targetType: input.targetType,
+      }),
+    });
   }
 
   private hashOnlyResult(asset: AgentPromotionAssetSnapshot) {

@@ -141,6 +141,7 @@ describe('loadPlatformConfig', () => {
       phoneProvider: 'MOCK',
       wechatAppId: 'qingxu-mock-store-app',
       wechatAppSecret: undefined,
+      wechatMiniappEnvVersion: undefined,
       legalDocuments: {
         userAgreement: {
           version: 'user-v1', title: 'User agreement', url: 'https://example.invalid/legal/user-v1',
@@ -867,7 +868,34 @@ describe('loadPlatformConfig', () => {
     );
 
     environment.STORE_WECHAT_APP_SECRET = 'development-secret-value';
+    environment.STORE_WECHAT_MINIAPP_ENV_VERSION = 'develop';
     expect(loadPlatformConfig(environment, { service: 'api' }).store.identityProvider).toBe('WECHAT');
+    expect(loadPlatformConfig(environment, { service: 'api' }).store.wechatMiniappEnvVersion).toBe('develop');
+  });
+
+  it('requires a WeChat mini-program env version only for WeChat identity', () => {
+    const missing = validEnvironment();
+    missing.STORE_IDENTITY_PROVIDER = 'WECHAT';
+    missing.STORE_WECHAT_APP_SECRET = 'development-secret-value';
+    expect(() => loadPlatformConfig(missing, { service: 'api' })).toThrow(
+      'STORE_WECHAT_MINIAPP_ENV_VERSION must be develop, trial, or release',
+    );
+
+    const production = validEnvironment();
+    production.NODE_ENV = 'production';
+    production.STORE_IDENTITY_PROVIDER = 'WECHAT';
+    production.STORE_PHONE_PROVIDER = 'WECHAT';
+    production.STORE_PAYMENT_PROVIDER = 'WECHAT';
+    production.STORE_WECHAT_APP_SECRET = 'development-secret-value';
+    production.STORE_WECHAT_MINIAPP_ENV_VERSION = 'trial';
+    delete production.DATABASE_URL;
+    delete production.REDIS_URL;
+    delete production.S3_ENDPOINT;
+    delete production.S3_PUBLIC_BASE_URL;
+    delete production.PAYMENT_MOCK_SIGNING_KEY_BASE64;
+    expect(() => loadPlatformConfig(production, {
+      service: 'api', requireDatabase: false, requireStorage: false,
+    })).toThrow('production STORE_WECHAT_MINIAPP_ENV_VERSION must be release');
   });
 
   it('requires HTTPS legal documents and the frozen Store rate limits', () => {

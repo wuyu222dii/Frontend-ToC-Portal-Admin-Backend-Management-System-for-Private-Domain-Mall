@@ -26,7 +26,7 @@ product-materials/
   prototype/      三端可点击原型、设计素材与验收截图
 ```
 
-产品资料统一从 [资料索引](product-materials/README.md) 进入，业务契约以 [技术设计索引](product-materials/docs/03-技术设计/README.md) 为准。国内腾讯云落地（含 TencentDB PostgreSQL）见 [腾讯云部署方案](product-materials/docs/03-技术设计/腾讯云部署方案.md)。三端只访问 NestJS API，不持有数据库连接或 `service_role`。
+产品资料统一从 [资料索引](product-materials/README.md) 进入，业务契约以 [技术设计索引](product-materials/docs/03-技术设计/README.md) 为准。国内腾讯云落地（含 TencentDB PostgreSQL）见 [腾讯云部署方案](product-materials/docs/03-技术设计/腾讯云部署方案.md)；VPC / Redis / COS / TencentDB 逐步点击见 [腾讯云 staging 基础设施操作手册](product-materials/docs/03-技术设计/腾讯云staging基础设施操作手册.md)。三端只访问 NestJS API，不持有数据库连接或 `service_role`。
 
 ## 本地启动
 

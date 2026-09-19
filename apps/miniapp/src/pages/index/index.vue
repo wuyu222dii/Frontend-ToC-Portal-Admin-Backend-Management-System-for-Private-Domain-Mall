@@ -13,6 +13,7 @@ import QxSearchTrigger from '../../components/storefront/QxSearchTrigger.vue';
 import QxSectionHeading from '../../components/storefront/QxSectionHeading.vue';
 import QxStoreShell from '../../components/storefront/QxStoreShell.vue';
 import type { StoreHomeData, StoreProductListItem } from '../../types/store-catalog';
+import { consumePromotionLaunch } from '../../utils/promotion-handoff';
 import {
   handleBottomNavigation,
   openBannerTarget,
@@ -117,7 +118,8 @@ function markCategoryImageFailed(categoryId: string) {
   failedCategoryImages.value = { ...failedCategoryImages.value, [categoryId]: true };
 }
 
-onLoad(() => {
+onLoad((query) => {
+  void consumePromotionLaunch(query);
   void loadHome();
 });
 

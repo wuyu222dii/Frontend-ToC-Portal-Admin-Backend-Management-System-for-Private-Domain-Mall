@@ -8,6 +8,7 @@
     "build:mp-weixin": "uni build -p mp-weixin",
     "dev:h5": "uni -p h5 --host 0.0.0.0",
     "dev:mp-weixin": "uni -p mp-weixin",
+    "test": "vitest run --config vitest.config.ts",
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {

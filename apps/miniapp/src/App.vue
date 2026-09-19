@@ -1,6 +1,11 @@
 <script lang="ts">
+import { rememberPromotionLaunch } from './utils/promotion-launch';
+
 export default {
   name: 'QingxuMiniapp',
+  onLaunch(options?: { query?: Record<string, unknown> }) {
+    rememberPromotionLaunch(options?.query);
+  },
 };
 </script>
 

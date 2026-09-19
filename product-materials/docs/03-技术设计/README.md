@@ -6,6 +6,7 @@
 |---|---|
 | `技术架构说明.md` | 技术栈、三端边界、认证/RBAC、事务锁序、Provider、部署与扩展策略 |
 | `腾讯云部署方案.md` | 腾讯云 CVM / CLB / Redis / COS / CDN / TencentDB PostgreSQL 国内落地步骤 |
+| `腾讯云staging基础设施操作手册.md` | 一人创业精简：本机开发；公网演练才买 Redis/COS/TencentDB/一台 CVM；不开 SSM/CLB/CDN |
 | `API接口文档.md` | 当前 CH-032 契约保持 173 paths、198 operations 及全部 operationId；B17 只增加 staging 环境门禁与 readiness 说明 |
 | `openapi.yaml` | OpenAPI 3.1 单一可解析契约；文本目录必须完全覆盖且 operationId 唯一 |
 | `数据库设计.md` | TencentDB PostgreSQL 表域、ERD、状态机、事务、索引、加密、RLS 与验收门禁 |

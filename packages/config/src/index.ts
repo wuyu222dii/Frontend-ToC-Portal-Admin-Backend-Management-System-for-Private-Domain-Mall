@@ -24,6 +24,7 @@ export type RuntimeEnvironment = 'development' | 'test' | 'staging' | 'productio
 export type DatabaseProvider = 'tencentdb';
 export type StoreProvider = 'MOCK' | 'WECHAT';
 export type PaymentProviderName = 'MOCK' | 'WECHAT';
+export type WechatMiniappEnvVersion = 'develop' | 'trial' | 'release';
 
 const DEFAULT_AUTH_ISSUER = 'qingxu-api';
 const DEFAULT_AUTH_AUDIENCES = new Set(['qingxu-admin-web', 'qingxu-store', 'qingxu-agent-web']);
@@ -117,6 +118,7 @@ export interface PlatformRuntimeConfig {
     phoneProvider: StoreProvider;
     wechatAppId: string;
     wechatAppSecret: string | undefined;
+    wechatMiniappEnvVersion: WechatMiniappEnvVersion | undefined;
     legalDocuments: {
       userAgreement: StoreLegalDocumentConfig;
       privacyPolicy: StoreLegalDocumentConfig;
@@ -813,6 +815,22 @@ function readStoreProvider(
   return value;
 }
 
+function readWechatMiniappEnvVersion(
+  source: NodeJS.ProcessEnv,
+  identityProvider: StoreProvider,
+  environment: RuntimeEnvironment,
+): WechatMiniappEnvVersion | undefined {
+  const raw = source.STORE_WECHAT_MINIAPP_ENV_VERSION?.trim();
+  if (identityProvider !== 'WECHAT') return undefined;
+  if (raw !== 'develop' && raw !== 'trial' && raw !== 'release') {
+    throw new Error('STORE_WECHAT_MINIAPP_ENV_VERSION must be develop, trial, or release');
+  }
+  if (environment === 'production' && raw !== 'release') {
+    throw new Error('production STORE_WECHAT_MINIAPP_ENV_VERSION must be release');
+  }
+  return raw;
+}
+
 function readPaymentConfig(
   source: NodeJS.ProcessEnv,
   required: boolean,
@@ -952,6 +970,7 @@ function readStoreConfig(
     phoneProvider,
     wechatAppId,
     wechatAppSecret: rawWechatSecret || undefined,
+    wechatMiniappEnvVersion: readWechatMiniappEnvVersion(source, identityProvider, environment),
     legalDocuments: {
       userAgreement: document('USER_AGREEMENT'),
       privacyPolicy: document('PRIVACY_POLICY'),

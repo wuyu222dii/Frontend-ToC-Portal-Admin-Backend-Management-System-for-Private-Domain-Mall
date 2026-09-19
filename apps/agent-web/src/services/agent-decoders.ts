@@ -510,11 +510,12 @@ export function decodeAgentPromotion(value: unknown, path = 'response.data'): Ag
   const data = record(value, path);
   exact(
     data,
-    ['promotion_asset_id', 'target_type', 'public_url', 'qr_file', 'attribution_eligible', 'expires_at'],
+    ['promotion_asset_id', 'target_type', 'public_url', 'qr_file', 'invite_code', 'attribution_eligible', 'expires_at'],
     ['target_id'],
     path,
   );
   text(data.promotion_asset_id, `${path}.promotion_asset_id`);
+  text(data.invite_code, `${path}.invite_code`);
   oneOf(data.target_type, ['STOREFRONT', 'PRODUCT'] as const, `${path}.target_type`);
   if (Object.prototype.hasOwnProperty.call(data, 'target_id')) nullableText(data.target_id, `${path}.target_id`);
   uri(data.public_url, `${path}.public_url`);
@@ -945,6 +946,7 @@ function commissionLedgerItem(value: unknown, path: string): void {
       'commission_snapshot_id',
       'order_id',
       'order_no',
+      'customer_alias',
       'order_item_id',
       'product_id',
       'product_name',
@@ -968,6 +970,7 @@ function commissionLedgerItem(value: unknown, path: string): void {
   text(item.commission_snapshot_id, `${path}.commission_snapshot_id`);
   text(item.order_id, `${path}.order_id`);
   text(item.order_no, `${path}.order_no`);
+  text(item.customer_alias, `${path}.customer_alias`);
   text(item.order_item_id, `${path}.order_item_id`);
   text(item.product_id, `${path}.product_id`);
   text(item.product_name, `${path}.product_name`);

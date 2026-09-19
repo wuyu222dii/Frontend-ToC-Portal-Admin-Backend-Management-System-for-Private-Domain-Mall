@@ -79,7 +79,7 @@ export class StoreAttributionService {
     const claim = this.claim(actorId, key, ROUTES.candidates, {
       credential_kind: credential.kind,
       invite_code: input.inviteCode,
-      promotion_asset_id: input.promotionAssetId,
+      ...(input.promotionAssetId === undefined ? {} : { promotion_asset_id: input.promotionAssetId }),
       ...(credential.kind === 'CANDIDATE_TOKEN'
         ? { candidate_credential_hash: credential.tokenHashCandidates[0] }
         : {}),
@@ -102,30 +102,36 @@ export class StoreAttributionService {
           candidateId,
           customerId: credential.session.customerId,
           inviteCodeHashCandidates,
-          promotionAssetId: input.promotionAssetId,
+          ...(input.promotionAssetId === undefined ? {} : { promotionAssetId: input.promotionAssetId }),
         })
         : await this.repository().createAnonymousCandidateInTransaction(transaction, {
           candidateId,
           candidateTokenHash,
           inviteCodeHashCandidates,
-          promotionAssetId: input.promotionAssetId,
+          ...(input.promotionAssetId === undefined ? {} : { promotionAssetId: input.promotionAssetId }),
           ...(credential.kind === 'CANDIDATE_TOKEN'
             ? { replacementTokenHashCandidates: credential.tokenHashCandidates }
             : {}),
         });
       const response = this.createResponse(result,
         credential.kind === 'CUSTOMER' ? null : candidateToken);
+      const resolvedPromotionId = input.promotionAssetId
+        ?? (result.kind === 'public_fallback'
+          ? result.promotionAssetId
+          : this.createResourceId(result, result.kind === 'candidate'
+            ? result.candidate.id
+            : result.serviceAgent.agentId));
       await this.auditMutation(transaction, {
         action: 'CREATE',
         credential,
         idempotencyKey: key,
         ...(ipAddress ? { ipAddress } : {}),
-        objectId: input.promotionAssetId,
+        objectId: resolvedPromotionId,
         objectType: 'promotion',
         requestId,
       });
       await this.idempotency.complete(transaction, claim, {
-        resourceId: this.createResourceId(result, input.promotionAssetId),
+        resourceId: this.createResourceId(result, resolvedPromotionId),
         responseForHash: this.createResponseHash(result),
         responseStatus: 200,
         storage: 'HASH_ONLY',

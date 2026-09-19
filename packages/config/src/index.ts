@@ -1002,7 +1002,7 @@ function readAgentConfig(
   const accessTokenTtlSeconds = readInteger(
     source,
     'AGENT_ACCESS_TOKEN_TTL_SECONDS',
-    900,
+    3_600,
     300,
     3_600,
   );
@@ -1183,7 +1183,7 @@ export function loadPlatformConfig(
     payment,
     storage,
     authentication: {
-      accessTokenTtlSeconds: readInteger(source, 'AUTH_ACCESS_TOKEN_TTL_SECONDS', 900, 300, 3_600),
+      accessTokenTtlSeconds: readInteger(source, 'AUTH_ACCESS_TOKEN_TTL_SECONDS', 3_600, 300, 3_600),
       audience: adminAudience,
       issuer: authIssuer,
       preAuthTokenTtlSeconds: readInteger(source, 'AUTH_PREAUTH_TOKEN_TTL_SECONDS', 300, 60, 300),

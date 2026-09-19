@@ -79,14 +79,23 @@ async function create(): Promise<void> {
   }
 }
 
+async function copyText(value: string, success: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(value);
+    ElMessage.success(success);
+  } catch {
+    ElMessage.error('复制失败，请手动选择文本');
+  }
+}
+
+async function copyInvite(): Promise<void> {
+  if (!result.value) return;
+  await copyText(result.value.invite_code, '邀请码已复制');
+}
+
 async function copyLink(): Promise<void> {
   if (!result.value) return;
-  try {
-    await navigator.clipboard.writeText(result.value.public_url);
-    ElMessage.success('推广链接已复制');
-  } catch {
-    ElMessage.error('复制失败，请手动选择链接');
-  }
+  await copyText(result.value.public_url, '推广链接已复制');
 }
 
 async function downloadQr(): Promise<void> {
@@ -128,6 +137,10 @@ async function downloadQr(): Promise<void> {
       <div>
         <strong>{{ result.attribution_eligible ? '当前可用于归属绑定' : '当前仅可访问，不产生新归属' }}</strong>
         <p class="dialog-note">{{ result.expires_at ? `有效至 ${formatChinaDateTime(result.expires_at)}` : '链接有效期由当前邀请码状态控制' }}</p>
+        <div class="copy-row">
+          <el-input :model-value="result.invite_code" readonly aria-label="邀请码" />
+          <el-button data-testid="promotion-copy-invite" :icon="CopyDocument" title="复制邀请码" @click="copyInvite" />
+        </div>
         <div class="copy-row">
           <el-input :model-value="result.public_url" readonly aria-label="推广链接" />
           <el-button data-testid="promotion-copy" :icon="CopyDocument" title="复制推广链接" @click="copyLink" />

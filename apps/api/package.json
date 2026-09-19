@@ -7,7 +7,7 @@
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
     "start": "node dist/main.js",
-    "test": "vitest run --maxWorkers=4 src/platform/access/rbac.guard.spec.ts src/platform/auth/authentication.guard.spec.ts src/platform/security/agent-security.spec.ts src/platform/security/bank-account-security.spec.ts src/agent-commerce/promotion-target-url.spec.ts src/agent-commerce/wechat-url-link.spec.ts",
+    "test": "vitest run --maxWorkers=4 src/platform/access/rbac.guard.spec.ts src/platform/auth/authentication.guard.spec.ts src/platform/security/agent-security.spec.ts src/platform/security/bank-account-security.spec.ts src/agent-commerce/promotion-target-url.spec.ts src/agent-commerce/wechat-url-link.spec.ts src/store-attribution/store-attribution.dto.spec.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

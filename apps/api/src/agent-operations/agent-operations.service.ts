@@ -406,6 +406,7 @@ export class AgentOperationsService {
         commission_snapshot_id: commission.commissionSnapshotId,
         order_id: commission.orderId,
         order_no: commission.orderNo,
+        customer_alias: commission.customerAlias,
         order_item_id: commission.orderItemId,
         product_id: commission.productId,
         product_name: commission.productName,

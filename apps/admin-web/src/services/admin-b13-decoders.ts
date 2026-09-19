@@ -321,6 +321,26 @@ function issuedInvite(value: unknown, path: string): void {
   integer(result.version, `${path}.version`, 1);
 }
 
+function storefrontPromotion(value: unknown, path: string): void {
+  if (value === null) return;
+  const result = object(value, ['promotion_asset_id', 'public_url', 'qr_file'], path);
+  ulid(result.promotion_asset_id, `${path}.promotion_asset_id`);
+  text(result.public_url, `${path}.public_url`);
+  try {
+    const parsed = new URL(String(result.public_url));
+    if ((parsed.protocol !== 'https:' && parsed.protocol !== 'http:') || parsed.username || parsed.password) {
+      invalid(`${path}.public_url`);
+    }
+  } catch {
+    invalid(`${path}.public_url`);
+  }
+  const qr = object(result.qr_file, ['file_id', 'status', 'visibility', 'purpose'], `${path}.qr_file`);
+  ulid(qr.file_id, `${path}.qr_file.file_id`);
+  if (qr.status !== 'READY' || qr.visibility !== 'PRIVATE' || qr.purpose !== 'PROMOTION_QR') {
+    invalid(`${path}.qr_file`);
+  }
+}
+
 function maskedInvite(value: unknown, path: string): void {
   const result = object(value, ['invite_code_id', 'code_masked', 'status', 'expires_at', 'version'], path);
   ulid(result.invite_code_id, `${path}.invite_code_id`);
@@ -418,10 +438,11 @@ export function decodeAdminAgentListResponse(value: unknown): AdminAgentListResu
 export function decodeAdminAgentDetailResponse(value: unknown, agentId?: string): AdminAgentDetail {
   const data = object(
     envelope(value),
-    ['agent', 'invite_code', 'operating_summary', 'wallet_summary', 'withdrawal_summary'],
+    ['agent', 'invite_code', 'storefront_promotion', 'operating_summary', 'wallet_summary', 'withdrawal_summary'],
     'response.data',
   );
   agent(data.agent, 'response.data.agent', agentId);
+  storefrontPromotion(data.storefront_promotion, 'response.data.storefront_promotion');
   if (data.invite_code !== null) maskedInvite(data.invite_code, 'response.data.invite_code');
   const operating = object(
     data.operating_summary,
@@ -464,11 +485,15 @@ export function decodeAdminAgentResponse(value: unknown, agentId?: string): Admi
 export function decodeAdminAgentCreateResponse(value: unknown): AgentCreateResult {
   const data = object(
     envelope(value),
-    ['agent', 'temporary_password', 'expires_at', 'must_change_password', 'initial_invite_code', 'disclosure_state', 'reissue_required'],
+    ['agent', 'temporary_password', 'expires_at', 'must_change_password', 'initial_invite_code', 'storefront_promotion', 'disclosure_state', 'reissue_required'],
     'response.data',
   );
   agent(data.agent, 'response.data.agent');
   disclosure(data, 'response.data', 'initial_invite_code');
+  if (data.disclosure_state === 'REPLAY_REDACTED' && data.storefront_promotion !== null) {
+    invalid('response.data.storefront_promotion');
+  }
+  storefrontPromotion(data.storefront_promotion, 'response.data.storefront_promotion');
   return data as AgentCreateResult;
 }
 

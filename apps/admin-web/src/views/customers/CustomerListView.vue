@@ -182,15 +182,15 @@ onBeforeUnmount(() => {
         <template v-else>
           <div class="b13-table-wrap">
             <el-table :data="items" min-width="980">
-              <el-table-column label="客户" min-width="180">
+              <el-table-column label="成交用户" min-width="180">
                 <template #default="scope"><strong>{{ scope.row.customer_alias }}</strong><small>{{ scope.row.nickname_masked ?? '未设置昵称' }} · {{ scope.row.phone_masked ?? '无手机号' }}</small></template>
               </el-table-column>
-              <el-table-column label="当前归属" min-width="150">
+              <el-table-column label="所属代理" min-width="150">
                 <template #default="scope"><el-tag :type="scope.row.binding ? 'success' : 'info'" effect="plain">{{ bindingLabel(scope.row) }}</el-tag></template>
               </el-table-column>
-              <el-table-column prop="consumption_amount" label="累计消费" min-width="120" />
-              <el-table-column prop="consumption_count" label="订单数" width="90" />
-              <el-table-column prop="last_product_name" label="最近商品" min-width="150" />
+              <el-table-column prop="consumption_amount" label="成交金额" min-width="120" />
+              <el-table-column prop="consumption_count" label="订单数量" width="90" />
+              <el-table-column prop="last_product_name" label="成交商品" min-width="150" />
               <el-table-column label="注册时间" min-width="170"><template #default="scope">{{ formatChinaDateTime(scope.row.registered_at) }}</template></el-table-column>
               <el-table-column label="操作" width="92" fixed="right"><template #default="scope"><el-button link type="primary" @click="router.push(`/customers/${scope.row.customer_id}`)"><el-icon><View /></el-icon>详情</el-button></template></el-table-column>
             </el-table>

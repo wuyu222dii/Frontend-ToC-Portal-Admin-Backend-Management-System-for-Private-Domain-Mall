@@ -32,6 +32,7 @@ import {
   hashPassword,
 } from '@qingxu/platform-core';
 
+import { AgentCommerceService } from '../agent-commerce/agent-commerce.service';
 import { API_RUNTIME_CONFIG } from '../platform/config/api-runtime-config';
 import { API_DATABASE_RUNTIME } from '../platform/database/api-database-runtime';
 import { preEnvelopedResponse } from '../platform/http/success-envelope.interceptor';
@@ -91,6 +92,7 @@ export class AdminAgentsService {
   constructor(
     @Optional() @Inject(API_RUNTIME_CONFIG) private readonly config?: PlatformRuntimeConfig,
     @Optional() @Inject(API_DATABASE_RUNTIME) private readonly database?: DatabaseRuntime,
+    @Optional() private readonly promotions?: AgentCommerceService,
   ) {
     if (config && database) {
       this.agents = new AdminAgentRepository(database.prisma);
@@ -112,7 +114,8 @@ export class AdminAgentsService {
 
   async detail(agentId: string) {
     this.runtime();
-    return this.detailView(await this.agents.getAgentDetail(agentId));
+    const current = await this.agents.getAgentDetail(agentId);
+    return this.detailView(current, await this.loadStorefrontPromotion(current.agent));
   }
 
   async productAuthorization(agentId: string) {
@@ -230,6 +233,7 @@ export class AdminAgentsService {
         initial_invite_code: null,
         must_change_password: true as const,
         reissue_required: true as const,
+        storefront_promotion: null,
         temporary_password: null,
       };
     }
@@ -246,6 +250,11 @@ export class AdminAgentsService {
       },
       must_change_password: true as const,
       reissue_required: false as const,
+      storefront_promotion: await this.provisionStorefrontPromotion(
+        request,
+        result.created.agent,
+        idempotencyKey,
+      ),
       temporary_password: temporaryPassword,
     };
   }
@@ -798,9 +807,50 @@ export class AdminAgentsService {
     };
   }
 
-  private detailView(detail: AdminAgentDetail) {
+  private async loadStorefrontPromotion(agent: AdminAgentSnapshot) {
+    if (!this.promotions) return null;
+    try {
+      return await this.promotions.getStorefrontPromotion({
+        accountId: agent.accountId,
+        agentId: agent.id,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  private async provisionStorefrontPromotion(
+    request: AdminAgentRequestContext,
+    agent: AdminAgentSnapshot,
+    idempotencyKey: string,
+  ) {
+    if (!this.promotions) return null;
+    try {
+      const created = await this.promotions.createPromotionAsset(
+        { accountId: agent.accountId, agentId: agent.id },
+        { targetId: null, targetType: 'STOREFRONT' },
+        `${idempotencyKey}:storefront`,
+        request.requestId,
+        adminAgentRequestIp(request),
+        { accountId: request.principal.accountId, role: 'SUPER_ADMIN' },
+      );
+      return {
+        promotion_asset_id: created.promotion_asset_id,
+        public_url: created.public_url,
+        qr_file: created.qr_file,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private detailView(
+    detail: AdminAgentDetail,
+    storefrontPromotion: Awaited<ReturnType<AdminAgentsService['loadStorefrontPromotion']>>,
+  ) {
     return {
       agent: this.agentView(detail.agent),
+      storefront_promotion: storefrontPromotion,
       invite_code: detail.inviteCode === null ? null : {
         code_masked: detail.inviteCode.codeMasked,
         expires_at: detail.inviteCode.expiresAt?.toISOString() ?? null,

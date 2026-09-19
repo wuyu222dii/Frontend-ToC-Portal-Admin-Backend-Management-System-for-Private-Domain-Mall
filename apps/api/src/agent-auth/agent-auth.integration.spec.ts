@@ -1082,6 +1082,7 @@ integrationDescribe('B13.1 Agent lifecycle and authentication PostgreSQL/Redis i
       expires_at: null,
       initial_invite_code: null,
       reissue_required: true,
+      storefront_promotion: null,
       temporary_password: null,
     });
     expect(await database.prisma.agentProfile.count({ where: { id: agentId } })).toBe(1);

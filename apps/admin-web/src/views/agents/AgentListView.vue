@@ -7,6 +7,7 @@ import { useRouter } from 'vue-router';
 import AdminShell from '../../layouts/AdminShell.vue';
 import { createAdminAgent, listAdminAgents } from '../../services/admin-agents';
 import { AdminApiError, newIdempotencyKey } from '../../services/admin-api';
+import { getAdminFileDownloadUrl } from '../../services/admin-files';
 import type { AgentCreateInput, AgentCreateResult, AdminAgentListItem, AdminAgentListQuery } from '../../types/admin-b13';
 import { readableError as describeAdminError, handleUnauthorized } from '../../utils/presentation';
 import { formatChinaDateTime } from '../../utils/time';
@@ -26,6 +27,7 @@ const creating = ref(false);
 const createUncertain = ref(false);
 const createError = ref('');
 const disclosure = ref<AgentCreateResult | null>(null);
+const qrPreviewUrl = ref('');
 const form = reactive<AgentCreateInput>({
   contact_name: '',
   contact_phone: null,
@@ -113,6 +115,30 @@ function clearDisclosure(): void {
   if (disclosureTimer !== null) clearTimeout(disclosureTimer);
   disclosureTimer = null;
   disclosure.value = null;
+  qrPreviewUrl.value = '';
+}
+
+async function previewDisclosureQr(result: AgentCreateResult): Promise<void> {
+  if (result.disclosure_state !== 'FIRST_ISSUE' || result.storefront_promotion === null) return;
+  try {
+    const download = await getAdminFileDownloadUrl(result.storefront_promotion.qr_file.file_id);
+    qrPreviewUrl.value = download.download_url;
+  } catch {
+    qrPreviewUrl.value = '';
+  }
+}
+
+async function downloadDisclosureQr(): Promise<void> {
+  const promotion = disclosure.value?.disclosure_state === 'FIRST_ISSUE' ? disclosure.value.storefront_promotion : null;
+  if (promotion === null) return;
+  const download = qrPreviewUrl.value
+    ? { download_url: qrPreviewUrl.value }
+    : await getAdminFileDownloadUrl(promotion.qr_file.file_id);
+  const anchor = document.createElement('a');
+  anchor.href = download.download_url;
+  anchor.download = `${disclosure.value?.agent.name ?? '代理'}-推广二维码.png`;
+  anchor.rel = 'noopener';
+  anchor.click();
 }
 
 async function create(): Promise<void> {
@@ -144,6 +170,7 @@ async function create(): Promise<void> {
     if (result.disclosure_state === 'FIRST_ISSUE') {
       const remaining = Math.max(0, Math.min(10 * 60_000, Date.parse(result.expires_at) - Date.now()));
       disclosureTimer = setTimeout(clearDisclosure, remaining);
+      await previewDisclosureQr(result);
     }
     await load();
   } catch (error) {
@@ -248,6 +275,11 @@ onBeforeUnmount(() => {
         <div class="disclosure-list">
           <div><span>临时密码</span><code data-testid="agent-temporary-password">{{ disclosure.temporary_password }}</code><el-button text @click="copySecret(disclosure.temporary_password)">复制</el-button></div>
           <div><span>初始邀请码</span><code data-testid="agent-initial-invite-code">{{ disclosure.initial_invite_code.code }}</code><el-button text @click="copySecret(disclosure.initial_invite_code.code)">复制</el-button></div>
+          <div v-if="disclosure.storefront_promotion" class="disclosure-qr">
+            <span>独立二维码</span>
+            <img v-if="qrPreviewUrl" :src="qrPreviewUrl" alt="代理推广二维码" data-testid="agent-storefront-qr">
+            <el-button text :disabled="!qrPreviewUrl" @click="downloadDisclosureQr">下载</el-button>
+          </div>
           <small>安全交接截止：{{ formatChinaDateTime(disclosure.expires_at) }}</small>
         </div>
       </template>
@@ -273,6 +305,8 @@ onBeforeUnmount(() => {
 .disclosure-list > div { display: grid; grid-template-columns: 90px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--admin-border); }
 .disclosure-list code { min-width: 0; overflow-wrap: anywhere; color: var(--admin-brand-dark); font-size: 14px; }
 .disclosure-list small { color: var(--admin-muted); }
+.disclosure-qr { display: grid; grid-template-columns: 90px minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.disclosure-qr img { width: 128px; height: 128px; object-fit: contain; background: #fff; }
 @media (max-width: 900px) { .agent-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .agent-filter-actions { grid-column: 1 / -1; } }
 @media (max-width: 600px) { .agent-filters, .agent-form-grid { grid-template-columns: 1fr; } .agent-filter-actions { grid-column: auto; } .agent-filter-actions .el-button { flex: 1; } .agent-pagination { align-items: flex-start; flex-direction: column; } .disclosure-list > div { grid-template-columns: 1fr auto; } .disclosure-list > div span { grid-column: 1 / -1; } }
 </style>

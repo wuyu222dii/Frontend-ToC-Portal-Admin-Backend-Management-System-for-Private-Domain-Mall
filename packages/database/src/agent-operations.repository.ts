@@ -78,6 +78,7 @@ export interface AgentCommissionLedgerSnapshot {
   availableChange: string;
   commissionBase: string;
   commissionSnapshotId: string;
+  customerAlias: string;
   effectiveRate: string;
   expectedChange: string;
   ledgerId: string;
@@ -576,7 +577,13 @@ const COMMISSION_SNAPSHOT_FACT_SELECT = {
       id: true,
       order: {
         select: {
-          attribution_snapshot: { select: { agent_id_snapshot: true } },
+          attribution_snapshot: {
+            select: {
+              agent_id_snapshot: true,
+              privacy_projection: { select: { agent_id: true, customer_alias: true, customer_id: true } },
+            },
+          },
+          customer_id: true,
           final_agent_id: true,
           final_channel: true,
           id: true,
@@ -1437,9 +1444,15 @@ function commissionListItem(record: CommissionLedgerListRecord, agentId: string)
   if (record.snapshot === null) throw internal('Stored Agent commission list snapshot is missing');
   const snapshot = commissionSnapshot(record.snapshot, agentId);
   const ledger = commissionLedger(record, agentId, snapshot.commissionSnapshotId);
+  const order = record.snapshot.order_item.order;
+  const projection = order.attribution_snapshot?.privacy_projection;
+  if (!projection || projection.agent_id !== agentId || projection.customer_id !== order.customer_id) {
+    throw internal('Stored Agent commission customer alias is missing');
+  }
   return {
     ...snapshot,
     availableChange: ledger.availableChange,
+    customerAlias: safeText(projection.customer_alias, 80, 'Stored Agent commission customer alias'),
     expectedChange: ledger.expectedChange,
     ledgerId: ledger.ledgerId,
     ledgerType: ledger.ledgerType,

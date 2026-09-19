@@ -24,6 +24,7 @@ import {
   updateAdminAgentProductAuthorization,
 } from '../../services/admin-agents';
 import { AdminApiError, newIdempotencyKey } from '../../services/admin-api';
+import { getAdminFileDownloadUrl } from '../../services/admin-files';
 import { listAdminProducts } from '../../services/admin-products';
 import type {
   AdminAgentCommissionResult,
@@ -61,6 +62,7 @@ const saveError = ref('');
 const inviteExpiry = ref('');
 const passwordDisclosure = ref<AgentPasswordResetResult | null>(null);
 const inviteDisclosure = ref<InviteRotationResult | null>(null);
+const qrPreviewUrl = ref('');
 const editForm = reactive({ clearContactPhone: false, contactName: '', contactPhone: '', name: '' });
 const authForm = reactive<{ mode: ProductAuthorization['mode']; productIds: string[] }>({ mode: 'ALL_ACTIVE_PRODUCTS', productIds: [] });
 let sequence = 0;
@@ -140,6 +142,17 @@ async function load(): Promise<void> {
     ]);
     if (currentSequence !== sequence) return;
     detail.value = agent;
+    qrPreviewUrl.value = '';
+    if (agent.storefront_promotion) {
+      try {
+        const download = await getAdminFileDownloadUrl(agent.storefront_promotion.qr_file.file_id, current.signal);
+        if (currentSequence !== sequence) return;
+        qrPreviewUrl.value = download.download_url;
+      } catch {
+        if (currentSequence !== sequence) return;
+        qrPreviewUrl.value = '';
+      }
+    }
     authorization.value = productAuth;
     commissions.value = commissionResult;
     walletLedger.value = walletResult;
@@ -334,6 +347,19 @@ function closeSensitive(): void {
   inviteExpiry.value = '';
 }
 
+async function downloadStorefrontQr(): Promise<void> {
+  const fileId = detail.value?.storefront_promotion?.qr_file.file_id;
+  if (!fileId) return;
+  const download = qrPreviewUrl.value
+    ? { download_url: qrPreviewUrl.value }
+    : await getAdminFileDownloadUrl(fileId);
+  const anchor = document.createElement('a');
+  anchor.href = download.download_url;
+  anchor.download = `${detail.value?.agent.name ?? '代理'}-推广二维码.png`;
+  anchor.rel = 'noopener';
+  anchor.click();
+}
+
 async function copySecret(value: string): Promise<void> {
   await navigator.clipboard.writeText(value);
   ElMessage.success('已复制，请通过受控渠道交接');
@@ -381,7 +407,7 @@ onBeforeUnmount(() => {
         </section>
 
         <section class="agent-grid">
-          <article class="agent-panel invite-panel"><header><div><p>推广入口</p><h2>邀请码</h2></div><el-tag :type="detail.invite_code?.status === 'ACTIVE' ? 'success' : 'info'">{{ detail.invite_code?.status ?? '未签发' }}</el-tag></header><template v-if="detail.invite_code"><strong class="masked-code">{{ detail.invite_code.code_masked }}</strong><span>{{ detail.invite_code.expires_at ? `有效至 ${formatChinaDateTime(detail.invite_code.expires_at)}` : '长期有效' }}</span><div><el-button @click="openCommand('INVITE_ROTATE')">轮换邀请码</el-button><el-button @click="openCommand('INVITE_STATUS')">{{ detail.invite_code.status === 'ACTIVE' ? '停用' : '启用' }}</el-button></div></template><el-empty v-else description="暂无邀请码" :image-size="54" /></article>
+          <article class="agent-panel invite-panel"><header><div><p>推广入口</p><h2>邀请码与二维码</h2></div><el-tag :type="detail.invite_code?.status === 'ACTIVE' ? 'success' : 'info'">{{ detail.invite_code?.status ?? '未签发' }}</el-tag></header><template v-if="detail.invite_code"><strong class="masked-code">{{ detail.invite_code.code_masked }}</strong><span>{{ detail.invite_code.expires_at ? `有效至 ${formatChinaDateTime(detail.invite_code.expires_at)}` : '长期有效' }}</span><div v-if="detail.storefront_promotion" class="qr-preview"><img v-if="qrPreviewUrl" :src="qrPreviewUrl" alt="代理推广二维码"><el-button @click="downloadStorefrontQr">下载二维码</el-button></div><div><el-button @click="openCommand('INVITE_ROTATE')">轮换邀请码</el-button><el-button @click="openCommand('INVITE_STATUS')">{{ detail.invite_code.status === 'ACTIVE' ? '停用' : '启用' }}</el-button></div></template><el-empty v-else description="暂无邀请码" :image-size="54" /></article>
           <article class="agent-panel"><header><div><p>提现概览</p><h2>资金审核</h2></div></header><dl><dt>待审核</dt><dd>{{ detail.withdrawal_summary.pending_count }}</dd><dt>已批准</dt><dd>{{ detail.withdrawal_summary.approved_count }}</dd><dt>累计已付</dt><dd>¥{{ detail.withdrawal_summary.total_paid_amount }}</dd></dl><el-button link type="primary" @click="router.push({ path: '/withdrawals', query: { agent_id: agentId } })">查看代理提现</el-button></article>
         </section>
 
@@ -424,6 +450,8 @@ onBeforeUnmount(() => {
 .agent-panel p { margin: 0; color: var(--admin-brand); font-size: 11px; font-weight: 700; }
 .agent-panel h2 { margin: 4px 0 0; font-size: 17px; }
 .masked-code { display: block; margin: 10px 0 4px; font-family: ui-monospace, monospace; font-size: 22px; }
+.qr-preview { display: flex; align-items: center; gap: 12px; margin: 12px 0; }
+.qr-preview img { width: 120px; height: 120px; object-fit: contain; background: #fff; }
 .agent-panel dl { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
 .agent-panel dt { color: var(--admin-muted); font-size: 12px; }
 .agent-panel dd { margin: 0; font-weight: 700; }

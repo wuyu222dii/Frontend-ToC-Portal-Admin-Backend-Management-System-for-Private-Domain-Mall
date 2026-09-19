@@ -16,7 +16,7 @@ export interface StoreAttributionIdentity {
 
 export interface StoreAttributionTargetInput {
   inviteCodeHashCandidates: readonly string[];
-  promotionAssetId: string;
+  promotionAssetId?: string;
 }
 
 export interface StoreAttributionCandidateSnapshot {
@@ -36,7 +36,7 @@ export interface StoreServiceAgentSnapshot {
 export type StoreAttributionCreateResult =
   | { kind: 'candidate'; candidate: StoreAttributionCandidateSnapshot }
   | { kind: 'service_agent'; serviceAgent: StoreServiceAgentSnapshot }
-  | { kind: 'public_fallback'; publicTargetUrl: string };
+  | { kind: 'public_fallback'; promotionAssetId: string; publicTargetUrl: string };
 
 export type StoreAttributionMigrationResult =
   | { kind: 'candidate'; candidate: StoreAttributionCandidateSnapshot }
@@ -113,8 +113,12 @@ function validateIdentity(input: StoreAttributionIdentity): void {
 }
 
 function validateTarget(input: StoreAttributionTargetInput): void {
-  requireUlid(input.promotionAssetId, 'Promotion asset ID');
   requireHashCandidates(input.inviteCodeHashCandidates, 'Invite code hash candidates');
+  if (input.promotionAssetId !== undefined) requireUlid(input.promotionAssetId, 'Promotion asset ID');
+}
+
+function storefrontPromotionMissing(): ApplicationError {
+  return new ApplicationError('STATE_CONFLICT', 'Storefront promotion is not ready');
 }
 
 function parsePublicTargetUrl(value: string): string | null {
@@ -260,24 +264,73 @@ export class StoreAttributionRepository {
     }
   }
 
+  private async resolveStorefrontPromotionAssetId(
+    transaction: DatabaseTransaction,
+    inviteCodeHashCandidates: readonly string[],
+  ): Promise<string> {
+    const invites = await transaction.agentInviteCode.findMany({
+      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+      select: { agent_id: true, effective_at: true, expires_at: true, id: true },
+      where: {
+        code_hash: { in: [...inviteCodeHashCandidates] },
+        ended_at: null,
+        status: 'ACTIVE',
+      },
+    });
+    if (invites.length === 0) throw unavailablePromotion();
+    const agentIds = new Set(invites.map((invite) => invite.agent_id));
+    if (agentIds.size !== 1) throw unavailablePromotion();
+    const invite = invites[0];
+    if (invite === undefined) throw unavailablePromotion();
+    await acquireTransactionLock(transaction, 'store-attribution-agent', [invite.agent_id]);
+    await acquireTransactionLock(transaction, 'store-attribution-invite', [invite.id]);
+    const locked = await transaction.agentInviteCode.findUnique({
+      select: { agent_id: true, effective_at: true, ended_at: true, expires_at: true, id: true, status: true },
+      where: { id: invite.id },
+    });
+    const now = currentDate(this.now);
+    if (!locked || locked.agent_id !== invite.agent_id || locked.status !== 'ACTIVE' ||
+      locked.ended_at !== null || locked.effective_at.getTime() > now.getTime() ||
+      (locked.expires_at !== null && locked.expires_at.getTime() <= now.getTime())) {
+      throw unavailablePromotion();
+    }
+    const assets = await transaction.promotionAsset.findMany({
+      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+      select: { expires_at: true, id: true },
+      where: {
+        agent_id: locked.agent_id,
+        invite_code_id: locked.id,
+        revoked_at: null,
+        status: 'ACTIVE',
+        target_product_id: null,
+        target_type: 'STOREFRONT',
+      },
+    });
+    const asset = assets.find((item) => item.expires_at === null || item.expires_at.getTime() > now.getTime());
+    if (asset === undefined) throw storefrontPromotionMissing();
+    return asset.id;
+  }
+
   private async readPromotionResolution(
     transaction: DatabaseTransaction,
     input: StoreAttributionTargetInput,
   ): Promise<PromotionResolution> {
     validateTarget(input);
+    const promotionAssetId = input.promotionAssetId
+      ?? await this.resolveStorefrontPromotionAssetId(transaction, input.inviteCodeHashCandidates);
     const initial = await transaction.promotionAsset.findUnique({
-      where: { id: input.promotionAssetId },
+      where: { id: promotionAssetId },
       select: { agent_id: true, invite_code_id: true, target_product_id: true },
     });
     if (!initial) throw unavailablePromotion();
     await acquireTransactionLock(transaction, 'store-attribution-agent', [initial.agent_id]);
     await acquireTransactionLock(transaction, 'store-attribution-invite', [initial.invite_code_id]);
-    await acquireTransactionLock(transaction, 'store-attribution-promotion', [input.promotionAssetId]);
+    await acquireTransactionLock(transaction, 'store-attribution-promotion', [promotionAssetId]);
     if (initial.target_product_id) {
       await acquireTransactionLock(transaction, 'store-attribution-product', [initial.target_product_id]);
     }
     const asset = await transaction.promotionAsset.findUnique({
-      where: { id: input.promotionAssetId },
+      where: { id: promotionAssetId },
       select: {
         agent_id: true,
         authorization_version: true,
@@ -525,7 +578,11 @@ export class StoreAttributionRepository {
 
     const resolution = await this.readPromotionResolution(transaction, input);
     if (!resolution.attributionEligible) {
-      return { kind: 'public_fallback', publicTargetUrl: resolution.publicTargetUrl };
+      return {
+        kind: 'public_fallback',
+        promotionAssetId: resolution.promotionAssetId,
+        publicTargetUrl: resolution.publicTargetUrl,
+      };
     }
     const now = currentDate(this.now);
     if (replaced) {
@@ -570,7 +627,11 @@ export class StoreAttributionRepository {
     if (binding) return { kind: 'service_agent', serviceAgent: binding };
     const resolution = await this.readPromotionResolution(transaction, input);
     if (!resolution.attributionEligible) {
-      return { kind: 'public_fallback', publicTargetUrl: resolution.publicTargetUrl };
+      return {
+        kind: 'public_fallback',
+        promotionAssetId: resolution.promotionAssetId,
+        publicTargetUrl: resolution.publicTargetUrl,
+      };
     }
     const now = currentDate(this.now);
     if (currentCandidate) {

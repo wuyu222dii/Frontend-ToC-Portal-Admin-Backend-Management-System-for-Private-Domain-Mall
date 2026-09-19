@@ -51,7 +51,7 @@ function validEnvironment(): NodeJS.ProcessEnv {
     BANK_ACCOUNT_HASH_KEY_ID: 'test-bank-account-v1',
     BANK_ACCOUNT_PREVIOUS_HASH_KEYS_JSON: '[]',
     AGENT_AUTH_TOKEN_AUDIENCE: 'qingxu-agent-web',
-    AGENT_ACCESS_TOKEN_TTL_SECONDS: '900',
+    AGENT_ACCESS_TOKEN_TTL_SECONDS: '3600',
     AGENT_SESSION_TTL_SECONDS: '604800',
     AGENT_LOGIN_RATE_LIMIT_MAX: '10',
     AGENT_LOGIN_RATE_LIMIT_WINDOW_SECONDS: '900',
@@ -123,7 +123,7 @@ describe('loadPlatformConfig', () => {
       previous: [],
     });
     expect(api.authentication).toMatchObject({
-      accessTokenTtlSeconds: 900,
+      accessTokenTtlSeconds: 3_600,
       audience: 'qingxu-admin-test',
       issuer: 'qingxu-api-test',
       preAuthTokenTtlSeconds: 300,
@@ -161,7 +161,7 @@ describe('loadPlatformConfig', () => {
       customerRateLimitWindowSeconds: 60,
     });
     expect(api.agent).toEqual({
-      accessTokenTtlSeconds: 900,
+      accessTokenTtlSeconds: 3_600,
       authTokenAudience: 'qingxu-agent-web',
       loginRateLimitMax: 10,
       loginRateLimitWindowSeconds: 900,
@@ -632,7 +632,7 @@ describe('loadPlatformConfig', () => {
 
   it('loads the isolated Agent realm and rejects audience drift or collision', () => {
     expect(loadPlatformConfig(validEnvironment(), { service: 'api' }).agent).toEqual({
-      accessTokenTtlSeconds: 900,
+      accessTokenTtlSeconds: 3_600,
       authTokenAudience: 'qingxu-agent-web',
       loginRateLimitMax: 10,
       loginRateLimitWindowSeconds: 900,

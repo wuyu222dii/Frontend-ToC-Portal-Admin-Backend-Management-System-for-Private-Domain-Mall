@@ -102,20 +102,37 @@ export class AgentCommerceService {
     }));
   }
 
+  async getStorefrontPromotion(identity: { accountId: string; agentId: string }) {
+    const { commerce, config } = this.runtime();
+    const existing = await commerce.findActiveStorefrontPromotion(identity);
+    return existing ? this.storefrontPromotionView(existing, config) : null;
+  }
+
   async createPromotionAsset(
-    session: CurrentAgentSession,
+    session: Pick<CurrentAgentSession, 'accountId' | 'agentId'>,
     input: CreatePromotionAssetInput,
     idempotencyKey: string,
     requestId: string,
     ipAddress?: string,
+    audit?: { accountId: string; role: 'AGENT_ADMIN' | 'SUPER_ADMIN' },
   ) {
     const { commerce, config, database, storage } = this.runtime();
     const claim = this.claim(session.accountId, idempotencyKey, input);
+    const existingStorefront = input.targetType === 'STOREFRONT'
+      ? await commerce.findActiveStorefrontPromotion({
+          accountId: session.accountId,
+          agentId: session.agentId,
+        })
+      : null;
     const prior = await runSerializableTransaction(database.prisma, async (transaction) => {
       const result = await this.idempotency.claim(transaction, claim);
-      return result.kind === 'replay' ? result.record : null;
+      if (result.kind === 'replay') return { kind: 'replay' as const, record: result.record };
+      if (!existingStorefront) return null;
+      await this.idempotency.complete(transaction, claim, this.hashOnlyResult(existingStorefront));
+      return { kind: 'existing' as const, asset: existingStorefront };
     });
-    if (prior) return this.replay(session, prior);
+    if (prior?.kind === 'replay') return this.replay(session, prior.record);
+    if (prior?.kind === 'existing') return this.promotionView(prior.asset, config);
 
     const promotionAssetId = generateUlid();
     const fileId = generateUlid();
@@ -213,8 +230,8 @@ export class AgentCommerceService {
         });
         await this.audit.append(transaction, {
           action: 'CREATE',
-          actorAccountId: session.accountId,
-          actorRole: 'AGENT_ADMIN',
+          actorAccountId: audit?.accountId ?? session.accountId,
+          actorRole: audit?.role ?? 'AGENT_ADMIN',
           idempotencyKey,
           ...(ipAddress === undefined ? {} : { ipAddress }),
           module: 'promotion',
@@ -253,6 +270,10 @@ export class AgentCommerceService {
         await this.cleanup(storage, stagingKey, copied.copied ? finalKey : undefined);
         return this.replay(session, outcome.record);
       }
+      if (outcome.asset.id !== promotionAssetId) {
+        await this.cleanup(storage, stagingKey, copied.copied ? finalKey : undefined);
+        return this.promotionView(outcome.asset, config);
+      }
       await this.cleanup(storage, stagingKey);
       return this.promotionView(outcome.asset, config, promotionUrl);
     } catch (error) {
@@ -263,7 +284,7 @@ export class AgentCommerceService {
     }
   }
 
-  private async replay(session: CurrentAgentSession, record: ReplayRecord) {
+  private async replay(session: Pick<CurrentAgentSession, 'accountId' | 'agentId'>, record: ReplayRecord) {
     const { commerce, config } = this.runtime();
     if (record.resource_id === null) {
       throw new ApplicationError('INTERNAL_ERROR', 'Promotion idempotency record is incomplete');
@@ -339,6 +360,7 @@ export class AgentCommerceService {
     return {
       attribution_eligible: asset.attributionEligible,
       expires_at: asset.expiresAt?.toISOString() ?? null,
+      invite_code: inviteCode,
       promotion_asset_id: asset.id,
       public_url: publicUrl ?? await this.promotionPublicUrl(
         config,
@@ -356,6 +378,31 @@ export class AgentCommerceService {
       target_id: asset.targetProductId,
       target_type: asset.targetType,
     };
+  }
+
+  private async storefrontPromotionView(
+    asset: AgentPromotionAssetSnapshot,
+    config: PlatformRuntimeConfig,
+  ) {
+    try {
+      const view = await this.promotionView(asset, config);
+      return {
+        promotion_asset_id: view.promotion_asset_id,
+        public_url: view.public_url,
+        qr_file: view.qr_file,
+      };
+    } catch {
+      return {
+        promotion_asset_id: asset.id,
+        public_url: asset.publicUrl,
+        qr_file: {
+          file_id: asset.qrFile.id,
+          purpose: 'PROMOTION_QR' as const,
+          status: 'READY' as const,
+          visibility: 'PRIVATE' as const,
+        },
+      };
+    }
   }
 
   private async promotionPublicUrl(

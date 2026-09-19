@@ -1,8 +1,8 @@
 openapi: "3.1.0"
 info:
   title: "洗化产品私域商城 API"
-  version: "2.4.14-ch036"
-  description: "CH-036 单一线协议，继承既有变更；B19 增加 HR-15 本人凭据重置的条件新密码字段，保留既有 paths、operationId、数据库表和迁移链。双人全凭据恢复仅由受控 CLI 执行，不开放 HTTP。真实资金、真实客户数据、真实 Provider、staging 和 production 在 B16/B17 证据闭合前继续不开放；所有路径相对 /api/v1。"
+  version: "2.4.15-ch037"
+  description: "CH-037 单一线协议，继承既有变更；总部创建一级代理可预置独立商城首页二维码，归因候选允许只提交邀请码并解析唯一 STOREFRONT 物料，佣金明细增加成交用户别名。保留既有 paths、operationId、数据库表和迁移链。真实资金、真实客户数据、真实 Provider、staging 和 production 在 B16/B17 证据闭合前继续不开放；所有路径相对 /api/v1。"
   license:
     name: "Proprietary"
     identifier: "LicenseRef-Proprietary"
@@ -465,7 +465,7 @@ paths:
       tags:
         - "Store"
       summary: "打开代理推广链接时校验并保存 30 分钟候选"
-      description: "客户端只提交 invite_code 与 promotion_asset_id；服务端从同一 promotion_asset 解析并校验唯一公开目标，不接受客户端 target_type/target_id。候选固定 30 分钟，游客 candidate_token 使用 32..512 字符高熵值、数据库只存 domain-separated HMAC 且仅首次签发；candidate token、幂等请求和 IP 限流使用互不相同的 scope/domain，禁止跨用途关联。匿名新请求仅在携带有效旧 X-Candidate-Token 时替换该 token 定位的候选；未携带旧 token 时旧候选按 TTL 自然过期，无效链接不得覆盖。已绑定 CUSTOMER 不创建候选。此 mutation 使用 HASH_ONLY，不缓存或重放 token。"
+      description: "客户端必须提交 invite_code，promotion_asset_id 可选；同时提交时服务端从同一 promotion_asset 解析并校验唯一公开目标。省略 promotion_asset_id 时，服务端用邀请码定位 ACTIVE 邀请码所属代理，再解析该代理当前唯一仍有效的 STOREFRONT 推广物料；没有可用商城首页物料时返回 409，不接受客户端 target_type/target_id。候选固定 30 分钟，游客 candidate_token 使用 32..512 字符高熵值、数据库只存 domain-separated HMAC 且仅首次签发；candidate token、幂等请求和 IP 限流使用互不相同的 scope/domain，禁止跨用途关联。匿名新请求仅在携带有效旧 X-Candidate-Token 时替换该 token 定位的候选；未携带旧 token 时旧候选按 TTL 自然过期，无效链接不得覆盖。已绑定 CUSTOMER 不创建候选。此 mutation 使用 HASH_ONLY，不缓存或重放 token。"
       operationId: "postStoreAttributionCandidates"
       x-ch016-result-invariant: "只允许三个互斥分支：有效候选、已有绑定，或不可归因但仍可公开访问的 fallback。"
       security:
@@ -10886,7 +10886,7 @@ paths:
       tags:
         - "Files"
       summary: "按角色和业务对象返回短时签名 URL"
-      description: "仅 READY 且通过角色和业务归属校验的文件可下载：CUSTOMER 只能读取由本账户创建的 AFTERSALE_EVIDENCE；SUPER_ADMIN 可读取本人创建且 purpose 通过角色校验的私有文件，跨创建者读取仅限已绑定至任一 aftersale_evidence 且实测为 READY/PRIVATE/AFTERSALE_EVIDENCE、对象键精确为 private/{file_id} 的文件，不得因 SUPER_ADMIN 角色放宽其他跨账户私有文件。AGENT_ADMIN 仅可通过 agentBearerAuth 读取实测为 READY/PRIVATE/PROMOTION_QR、对象键精确为 private/{file_id}，且已作为 qr_file_id 绑定至当前 Agent 本人 promotion_asset 的文件；Agent token 不得下载其他 purpose 或其他 Agent 的 QR。private/ 对象返回有效期 5 分钟的签名 URL；公开素材的稳定地址由 FileUploadCompleteResponse.public_url 提供。本 GET operation 不接受 Idempotency-Key、不创建幂等记录；响应必须 no-store/private，且不得持久化或记录签名 URL。存储桶默认私有，仅 public/* 允许匿名 GET，private/* 始终禁止匿名访问。PENDING/staging 满 24 小时仅进入既有清理候选；READY/PUBLIC 或 READY/PRIVATE 文件仅在唯一完成 Outbox 已满 7 天、七类业务关系（含软删除和历史关系）均无引用时进入两阶段回收，删除前必须在数据库锁内再次确认无引用；完成 Outbox 缺失或重复时 fail closed。"
+      description: "仅 READY 且通过角色和业务归属校验的文件可下载：CUSTOMER 只能读取由本账户创建的 AFTERSALE_EVIDENCE；SUPER_ADMIN 可读取本人创建且 purpose 通过角色校验的私有文件，跨创建者读取仅限已绑定至任一 aftersale_evidence 且实测为 READY/PRIVATE/AFTERSALE_EVIDENCE、对象键精确为 private/{file_id} 的文件，或已作为 qr_file_id 绑定至任一 promotion_asset 且实测为 READY/PRIVATE/PROMOTION_QR、对象键精确为 private/{file_id} 的文件，不得因 SUPER_ADMIN 角色放宽其他跨账户私有文件。AGENT_ADMIN 仅可通过 agentBearerAuth 读取实测为 READY/PRIVATE/PROMOTION_QR、对象键精确为 private/{file_id}，且已作为 qr_file_id 绑定至当前 Agent 本人 promotion_asset 的文件；Agent token 不得下载其他 purpose 或其他 Agent 的 QR。private/ 对象返回有效期 5 分钟的签名 URL；公开素材的稳定地址由 FileUploadCompleteResponse.public_url 提供。本 GET operation 不接受 Idempotency-Key、不创建幂等记录；响应必须 no-store/private，且不得持久化或记录签名 URL。存储桶默认私有，仅 public/* 允许匿名 GET，private/* 始终禁止匿名访问。PENDING/staging 满 24 小时仅进入既有清理候选；READY/PUBLIC 或 READY/PRIVATE 文件仅在唯一完成 Outbox 已满 7 天、七类业务关系（含软删除和历史关系）均无引用时进入两阶段回收，删除前必须在数据库锁内再次确认无引用；完成 Outbox 缺失或重复时 fail closed。"
       operationId: "getFilesByFileIdDownloadUrl"
       security:
         -
@@ -12637,7 +12637,6 @@ components:
       additionalProperties: false
       required:
         - "invite_code"
-        - "promotion_asset_id"
       properties:
         invite_code:
           type: "string"
@@ -12647,6 +12646,7 @@ components:
         promotion_asset_id:
           type: "string"
           pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+          description: "扫码进入时与 invite_code 成对提交。省略时服务端解析该邀请码所属代理当前唯一仍有效的 STOREFRONT 推广物料。"
     CartItemWriteRequest:
       type: "object"
       additionalProperties: false
@@ -18332,11 +18332,17 @@ components:
             - "target_type"
             - "public_url"
             - "qr_file"
+            - "invite_code"
             - "attribution_eligible"
             - "expires_at"
           properties:
             promotion_asset_id:
               type: "string"
+            invite_code:
+              type: "string"
+              minLength: 1
+              maxLength: 128
+              description: "仅当前代理本人推广物料回显，供客户在小程序服务代理页手动绑定；不得写入日志或缓存。"
             target_type:
               type: "string"
               enum:
@@ -18652,6 +18658,7 @@ components:
         - "commission_snapshot_id"
         - "order_id"
         - "order_no"
+        - "customer_alias"
         - "order_item_id"
         - "product_id"
         - "product_name"
@@ -18676,6 +18683,11 @@ components:
           type: "string"
         order_no:
           type: "string"
+        customer_alias:
+          type: "string"
+          minLength: 1
+          maxLength: 80
+          description: "支付时冻结的代理侧客户别名，不得回传手机号或其他直接识别信息。"
         order_item_id:
           type: "string"
         product_id:
@@ -19972,6 +19984,39 @@ components:
                   const: true
         request_id:
           type: "string"
+    StorefrontPromotionView:
+      type: "object"
+      additionalProperties: false
+      description: "一级代理当前唯一仍有效的商城首页推广物料；二维码下载必须另行重新鉴权。"
+      required:
+        - "promotion_asset_id"
+        - "public_url"
+        - "qr_file"
+      properties:
+        promotion_asset_id:
+          type: "string"
+          pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+        public_url:
+          type: "string"
+          format: "uri"
+        qr_file:
+          type: "object"
+          additionalProperties: false
+          required:
+            - "file_id"
+            - "status"
+            - "visibility"
+            - "purpose"
+          properties:
+            file_id:
+              type: "string"
+              pattern: "^[0-9A-HJKMNP-TV-Z]{26}$"
+            status:
+              const: "READY"
+            visibility:
+              const: "PRIVATE"
+            purpose:
+              const: "PROMOTION_QR"
     AgentCreateResponse:
       type: "object"
       additionalProperties: false
@@ -19991,7 +20036,7 @@ components:
               title: "首次披露"
               type: "object"
               additionalProperties: false
-              required: ["agent", "temporary_password", "expires_at", "must_change_password", "initial_invite_code", "disclosure_state", "reissue_required"]
+              required: ["agent", "temporary_password", "expires_at", "must_change_password", "initial_invite_code", "storefront_promotion", "disclosure_state", "reissue_required"]
               properties:
                 agent:
                   "$ref": "#/components/schemas/AgentView"
@@ -20007,6 +20052,13 @@ components:
                   const: true
                 initial_invite_code:
                   "$ref": "#/components/schemas/IssuedInviteCodeView"
+                storefront_promotion:
+                  oneOf:
+                    -
+                      "$ref": "#/components/schemas/StorefrontPromotionView"
+                    -
+                      type: "null"
+                  description: "创建时预置的独立商城首页二维码；存储失败时为 null，不阻断一次性密码和邀请码披露。"
                 disclosure_state:
                   allOf:
                     -
@@ -20019,7 +20071,7 @@ components:
               title: "幂等重放脱敏"
               type: "object"
               additionalProperties: false
-              required: ["agent", "temporary_password", "expires_at", "must_change_password", "initial_invite_code", "disclosure_state", "reissue_required"]
+              required: ["agent", "temporary_password", "expires_at", "must_change_password", "initial_invite_code", "storefront_promotion", "disclosure_state", "reissue_required"]
               properties:
                 agent:
                   "$ref": "#/components/schemas/AgentView"
@@ -20031,6 +20083,8 @@ components:
                 must_change_password:
                   const: true
                 initial_invite_code:
+                  type: "null"
+                storefront_promotion:
                   type: "null"
                 disclosure_state:
                   allOf:
@@ -22703,10 +22757,16 @@ components:
         data:
           type: "object"
           additionalProperties: false
-          required: ["agent", "invite_code", "operating_summary", "wallet_summary", "withdrawal_summary"]
+          required: ["agent", "invite_code", "storefront_promotion", "operating_summary", "wallet_summary", "withdrawal_summary"]
           properties:
             agent:
               "$ref": "#/components/schemas/AgentView"
+            storefront_promotion:
+              oneOf:
+                -
+                  "$ref": "#/components/schemas/StorefrontPromotionView"
+                -
+                  type: "null"
             invite_code:
               oneOf:
                 -

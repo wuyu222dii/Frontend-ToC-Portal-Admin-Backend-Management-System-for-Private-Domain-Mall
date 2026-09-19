@@ -8,5 +8,6 @@ import { WechatUrlLinkClient } from './wechat-url-link';
 @Module({
   controllers: [AgentCommerceController],
   providers: [AgentCommerceService, FileObjectLeaseManager, WechatUrlLinkClient],
+  exports: [AgentCommerceService, FileObjectLeaseManager, WechatUrlLinkClient],
 })
 export class AgentCommerceModule {}

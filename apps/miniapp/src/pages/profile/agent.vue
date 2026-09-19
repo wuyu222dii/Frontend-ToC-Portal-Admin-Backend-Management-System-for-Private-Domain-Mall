@@ -37,7 +37,9 @@ const pending = ref(false);
 const message = ref('');
 const retryAfterSeconds = ref(0);
 const candidateRemainingSeconds = ref(0);
-let promotionInput: { invite_code: string; promotion_asset_id: string } | null = null;
+const inviteCodeInput = ref('');
+const bindingByInvite = ref(false);
+let promotionInput: { invite_code: string; promotion_asset_id?: string } | null = null;
 let candidateTimer: ReturnType<typeof setInterval> | undefined;
 let candidateExpiresAt = 0;
 let skipInitialShowReload = true;
@@ -149,11 +151,11 @@ function applyCandidate(next: AttributionCandidate | null) {
 
 async function loadCurrentRelationship() {
   if (!signedIn.value) {
-    if (peekCandidateToken() === null) {
-      requireLogin();
-      return;
+    if (peekCandidateToken() !== null) {
+      applyCandidate(await getAttributionCandidate());
+    } else {
+      applyCandidate(null);
     }
-    applyCandidate(await getAttributionCandidate());
     return;
   }
   const [currentAgent, currentCandidate] = await Promise.all([
@@ -296,6 +298,48 @@ function openFallback() {
   openPublicTarget(publicFallbackUrl.value);
 }
 
+async function bindByInvite() {
+  const inviteCode = inviteCodeInput.value.trim();
+  if (inviteCode.length < 1 || pending.value || serviceAgent.value) return;
+  pending.value = true;
+  bindingByInvite.value = true;
+  message.value = '';
+  try {
+    const created = await createAttributionCandidate({ invite_code: inviteCode });
+    applyCandidate(created.candidate);
+    serviceAgent.value = created.service_agent;
+    publicFallbackUrl.value = created.public_fallback?.public_target_url ?? null;
+    if (created.service_agent !== null) {
+      void uni.showToast({ icon: 'success', title: '已绑定服务代理' });
+      return;
+    }
+    if (created.candidate !== null) {
+      if (!signedIn.value) {
+        requireLogin();
+        return;
+      }
+      message.value = '请确认服务关系以完成绑定。';
+      return;
+    }
+    message.value = created.public_fallback
+      ? '邀请码有效但当前无法建立新的服务关系，仍可浏览公开内容。'
+      : '邀请码未能绑定，请核对后重试。';
+  } catch (error) {
+    if (error instanceof StoreApiError && error.status === 409) {
+      message.value = '邀请码有效但推广物料尚未就绪，请联系代理重新生成推广商城，或核对邀请码后重试。';
+    } else if (error instanceof StoreApiError && error.status === 401) {
+      requireLogin();
+    } else if (error instanceof StoreApiError && error.status === 429) {
+      message.value = `请求较频繁，请在 ${error.retryAfterSeconds ?? 1} 秒后重试。`;
+    } else {
+      message.value = '邀请码绑定失败，请稍后重试。';
+    }
+  } finally {
+    pending.value = false;
+    bindingByInvite.value = false;
+  }
+}
+
 onLoad((query) => {
   clearsHandoffOnUnload = query?.source === 'login';
   const parsed = takePromotionLaunchQuery(query);
@@ -381,7 +425,22 @@ onUnload(() => {
 
         <view v-else-if="publicFallbackUrl" class="qx-account-panel agent-empty">
           <text class="qx-account-panel__heading">推广归因不可用</text>
-          <text class="qx-account-muted">该公开内容仍可浏览，但不会建立服务关系。</text>
+          <text class="qx-account-muted">该公开内容仍可浏览。也可改用邀请码绑定所属一级代理。</text>
+          <input
+            v-model="inviteCodeInput"
+            class="invite-input"
+            maxlength="128"
+            placeholder="输入一级代理邀请码"
+            confirm-type="done"
+            @confirm="bindByInvite"
+          >
+          <button
+            class="qx-account-button"
+            :disabled="pending || inviteCodeInput.trim().length < 1"
+            @click="bindByInvite"
+          >
+            {{ bindingByInvite ? '绑定中…' : '使用邀请码绑定' }}
+          </button>
           <button class="qx-account-button qx-account-button--secondary" @click="openFallback">
             继续浏览公开内容
           </button>
@@ -389,7 +448,22 @@ onUnload(() => {
 
         <view v-else class="qx-account-panel agent-empty">
           <text class="qx-account-panel__heading">暂无服务代理</text>
-          <text class="qx-account-muted">通过有效代理推广入口登录后，可明确确认服务关系。</text>
+          <text class="qx-account-muted">扫描代理二维码，或在下方输入邀请码绑定所属一级代理。</text>
+          <input
+            v-model="inviteCodeInput"
+            class="invite-input"
+            maxlength="128"
+            placeholder="输入一级代理邀请码"
+            confirm-type="done"
+            @confirm="bindByInvite"
+          >
+          <button
+            class="qx-account-button"
+            :disabled="pending || inviteCodeInput.trim().length < 1"
+            @click="bindByInvite"
+          >
+            {{ bindingByInvite ? '绑定中…' : '使用邀请码绑定' }}
+          </button>
         </view>
 
         <text v-if="message" class="qx-account-notice" role="status">
@@ -453,5 +527,16 @@ onUnload(() => {
   gap: 16rpx;
   padding: 0 28rpx 28rpx;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.invite-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 80rpx;
+  padding: 16rpx 20rpx;
+  border: 1rpx solid #d7ddd8;
+  border-radius: 10rpx;
+  background: #ffffff;
+  font-size: 28rpx;
 }
 </style>

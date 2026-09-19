@@ -371,6 +371,13 @@ export class FileAssetRepository {
             status: 'READY',
             visibility: 'PRIVATE',
           },
+          {
+            object_key: buildFinalObjectKey(input.fileId, 'PROMOTION_QR'),
+            promotion_qr_files: { some: {} },
+            purpose: 'PROMOTION_QR',
+            status: 'READY',
+            visibility: 'PRIVATE',
+          },
         ],
       },
     });

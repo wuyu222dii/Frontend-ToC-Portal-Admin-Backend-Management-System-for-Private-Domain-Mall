@@ -199,7 +199,7 @@ export interface paths {
         put?: never;
         /**
          * 打开代理推广链接时校验并保存 30 分钟候选
-         * @description 客户端只提交 invite_code 与 promotion_asset_id；服务端从同一 promotion_asset 解析并校验唯一公开目标，不接受客户端 target_type/target_id。候选固定 30 分钟，游客 candidate_token 使用 32..512 字符高熵值、数据库只存 domain-separated HMAC 且仅首次签发；candidate token、幂等请求和 IP 限流使用互不相同的 scope/domain，禁止跨用途关联。匿名新请求仅在携带有效旧 X-Candidate-Token 时替换该 token 定位的候选；未携带旧 token 时旧候选按 TTL 自然过期，无效链接不得覆盖。已绑定 CUSTOMER 不创建候选。此 mutation 使用 HASH_ONLY，不缓存或重放 token。
+         * @description 客户端必须提交 invite_code，promotion_asset_id 可选；同时提交时服务端从同一 promotion_asset 解析并校验唯一公开目标。省略 promotion_asset_id 时，服务端用邀请码定位 ACTIVE 邀请码所属代理，再解析该代理当前唯一仍有效的 STOREFRONT 推广物料；没有可用商城首页物料时返回 409，不接受客户端 target_type/target_id。候选固定 30 分钟，游客 candidate_token 使用 32..512 字符高熵值、数据库只存 domain-separated HMAC 且仅首次签发；candidate token、幂等请求和 IP 限流使用互不相同的 scope/domain，禁止跨用途关联。匿名新请求仅在携带有效旧 X-Candidate-Token 时替换该 token 定位的候选；未携带旧 token 时旧候选按 TTL 自然过期，无效链接不得覆盖。已绑定 CUSTOMER 不创建候选。此 mutation 使用 HASH_ONLY，不缓存或重放 token。
          */
         post: operations["postStoreAttributionCandidates"];
         delete?: never;
@@ -3295,7 +3295,7 @@ export interface paths {
         };
         /**
          * 按角色和业务对象返回短时签名 URL
-         * @description 仅 READY 且通过角色和业务归属校验的文件可下载：CUSTOMER 只能读取由本账户创建的 AFTERSALE_EVIDENCE；SUPER_ADMIN 可读取本人创建且 purpose 通过角色校验的私有文件，跨创建者读取仅限已绑定至任一 aftersale_evidence 且实测为 READY/PRIVATE/AFTERSALE_EVIDENCE、对象键精确为 private/{file_id} 的文件，不得因 SUPER_ADMIN 角色放宽其他跨账户私有文件。AGENT_ADMIN 仅可通过 agentBearerAuth 读取实测为 READY/PRIVATE/PROMOTION_QR、对象键精确为 private/{file_id}，且已作为 qr_file_id 绑定至当前 Agent 本人 promotion_asset 的文件；Agent token 不得下载其他 purpose 或其他 Agent 的 QR。private/ 对象返回有效期 5 分钟的签名 URL；公开素材的稳定地址由 FileUploadCompleteResponse.public_url 提供。本 GET operation 不接受 Idempotency-Key、不创建幂等记录；响应必须 no-store/private，且不得持久化或记录签名 URL。存储桶默认私有，仅 public/* 允许匿名 GET，private/* 始终禁止匿名访问。PENDING/staging 满 24 小时仅进入既有清理候选；READY/PUBLIC 或 READY/PRIVATE 文件仅在唯一完成 Outbox 已满 7 天、七类业务关系（含软删除和历史关系）均无引用时进入两阶段回收，删除前必须在数据库锁内再次确认无引用；完成 Outbox 缺失或重复时 fail closed。
+         * @description 仅 READY 且通过角色和业务归属校验的文件可下载：CUSTOMER 只能读取由本账户创建的 AFTERSALE_EVIDENCE；SUPER_ADMIN 可读取本人创建且 purpose 通过角色校验的私有文件，跨创建者读取仅限已绑定至任一 aftersale_evidence 且实测为 READY/PRIVATE/AFTERSALE_EVIDENCE、对象键精确为 private/{file_id} 的文件，或已作为 qr_file_id 绑定至任一 promotion_asset 且实测为 READY/PRIVATE/PROMOTION_QR、对象键精确为 private/{file_id} 的文件，不得因 SUPER_ADMIN 角色放宽其他跨账户私有文件。AGENT_ADMIN 仅可通过 agentBearerAuth 读取实测为 READY/PRIVATE/PROMOTION_QR、对象键精确为 private/{file_id}，且已作为 qr_file_id 绑定至当前 Agent 本人 promotion_asset 的文件；Agent token 不得下载其他 purpose 或其他 Agent 的 QR。private/ 对象返回有效期 5 分钟的签名 URL；公开素材的稳定地址由 FileUploadCompleteResponse.public_url 提供。本 GET operation 不接受 Idempotency-Key、不创建幂等记录；响应必须 no-store/private，且不得持久化或记录签名 URL。存储桶默认私有，仅 public/* 允许匿名 GET，private/* 始终禁止匿名访问。PENDING/staging 满 24 小时仅进入既有清理候选；READY/PUBLIC 或 READY/PRIVATE 文件仅在唯一完成 Outbox 已满 7 天、七类业务关系（含软删除和历史关系）均无引用时进入两阶段回收，删除前必须在数据库锁内再次确认无引用；完成 Outbox 缺失或重复时 fail closed。
          */
         get: operations["getFilesByFileIdDownloadUrl"];
         put?: never;
@@ -3706,7 +3706,8 @@ export interface components {
         };
         AttributionCandidateRequest: {
             invite_code: string;
-            promotion_asset_id: string;
+            /** @description 扫码进入时与 invite_code 成对提交。省略时服务端解析该邀请码所属代理当前唯一仍有效的 STOREFRONT 推广物料。 */
+            promotion_asset_id?: string;
         };
         CartItemWriteRequest: {
             quantity: number;
@@ -5731,6 +5732,8 @@ export interface components {
             message: "success";
             data: {
                 promotion_asset_id: string;
+                /** @description 仅当前代理本人推广物料回显，供客户在小程序服务代理页手动绑定；不得写入日志或缓存。 */
+                invite_code: string;
                 /** @enum {string} */
                 target_type: "STOREFRONT" | "PRODUCT";
                 target_id?: string | null;
@@ -5853,6 +5856,8 @@ export interface components {
             commission_snapshot_id: string;
             order_id: string;
             order_no: string;
+            /** @description 支付时冻结的代理侧客户别名，不得回传手机号或其他直接识别信息。 */
+            customer_alias: string;
             order_item_id: string;
             product_id: string;
             product_name: string;
@@ -6386,6 +6391,21 @@ export interface components {
             };
             request_id: string;
         };
+        /** @description 一级代理当前唯一仍有效的商城首页推广物料；二维码下载必须另行重新鉴权。 */
+        StorefrontPromotionView: {
+            promotion_asset_id: string;
+            /** Format: uri */
+            public_url: string;
+            qr_file: {
+                file_id: string;
+                /** @constant */
+                status: "READY";
+                /** @constant */
+                visibility: "PRIVATE";
+                /** @constant */
+                purpose: "PROMOTION_QR";
+            };
+        };
         AgentCreateResponse: {
             /** @constant */
             code: "OK";
@@ -6403,6 +6423,8 @@ export interface components {
                 /** @constant */
                 must_change_password: true;
                 initial_invite_code: components["schemas"]["IssuedInviteCodeView"];
+                /** @description 创建时预置的独立商城首页二维码；存储失败时为 null，不阻断一次性密码和邀请码披露。 */
+                storefront_promotion: components["schemas"]["StorefrontPromotionView"] | null;
                 disclosure_state: components["schemas"]["OneTimeDisclosureState"] & "FIRST_ISSUE";
                 /** @constant */
                 reissue_required: false;
@@ -6414,6 +6436,7 @@ export interface components {
                 /** @constant */
                 must_change_password: true;
                 initial_invite_code: null;
+                storefront_promotion: null;
                 disclosure_state: components["schemas"]["OneTimeDisclosureState"] & "REPLAY_REDACTED";
                 /** @constant */
                 reissue_required: true;
@@ -7540,6 +7563,7 @@ export interface components {
             message: "success";
             data: {
                 agent: components["schemas"]["AgentView"];
+                storefront_promotion: components["schemas"]["StorefrontPromotionView"] | null;
                 invite_code: components["schemas"]["InviteCodeView"] | null;
                 operating_summary: {
                     net_sales_amount: components["schemas"]["SignedMoney"];

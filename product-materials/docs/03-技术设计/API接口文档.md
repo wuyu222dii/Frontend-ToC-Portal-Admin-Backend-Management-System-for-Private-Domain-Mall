@@ -328,7 +328,7 @@ B7 固定一个消费者微信 AppID，服务端按 `(AppID, openid)` 语义识�
 规则：
 
 - 已登录且未绑定用户立即得到 `confirmation_required: true`，无需退出登录再进入流程。
-- `invite_code` 长度固定 1-128，`promotion_asset_id` 固定为 26 字符 Crockford ULID；服务端从仍有效且匹配邀请码/代理的 promotion asset 解析 target type、target ID 和公开跳转，拒绝客户端覆盖目标。
+- `invite_code` 长度固定 1-128；`promotion_asset_id` 可选，提交时固定为 26 字符 Crockford ULID。同时提交时服务端从仍有效且匹配邀请码/代理的 promotion asset 解析目标。省略物料 ID 时，服务端解析该邀请码所属代理当前唯一仍有效的商城首页物料；没有可用物料返回 409。拒绝客户端覆盖 target type、target ID 和公开跳转。
 - 游客首次创建候选时响应一次 `candidate_token`，数据库只保存用途隔离的 HMAC/哈希，且与幂等键、来源 IP 使用不同 domain/scope；固定 30 分钟有效。游客后续 GET 和创建时的可选旧候选定位均使用 `X-Candidate-Token`：GET 不消费，候选替换或登录迁移原子失效 token hash，confirm/reject 消费迁移后的候选事实。不采集或复用设备标识；只有提交有效旧 token 时新候选才能使旧候选失效，未携带时不可强行关联，旧候选按 TTL 自然过期。登录迁移、confirm/reject 重新校验 token/客户/候选绑定，不匹配返回 `ATTRIBUTION_CANDIDATE_MISMATCH` 409。
 - 候选创建允许 bearer、candidate token 或无凭据三种入口，候选查询只允许前两种，但都严格 fail closed：同时携带两种凭据返回 `INVALID_ARGUMENT` 400；存在 Authorization 时只校验 `qingxu-store/CUSTOMER/WECHAT` bearer，否则存在候选 token 时必须校验该 token，任何无效或过期凭据均返回 401，不得降级为另一凭据或匿名分支。仅创建接口在两者都未携带时按匿名请求处理；查询接口无凭据返回 401。
 - 候选创建、查询和拒绝分别使用 `AttributionCandidateCreateResponse`、`AttributionCandidateQueryResponse`、`AttributionCandidateRejectResponse`。创建响应是闭合三选一：有效 candidate（service_agent/public_fallback 为 null）、已有最小 service_agent（candidate/token/fallback 为 null），或不可归因但仍可公开访问的 public_fallback（candidate/token/service_agent 为 null）。有效 candidate 分支中，无凭据匿名请求和 candidate-token 请求必须签发新的非空 32-512 字符 token，bearer 请求必须返回 null；其他两个分支 token 始终为 null。创建响应必须返回 `Cache-Control: no-store, private` 与 `Pragma: no-cache`；查询和拒绝 DTO 不得出现 token 字段。

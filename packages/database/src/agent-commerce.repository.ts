@@ -693,6 +693,11 @@ export class AgentCommerceRepository {
     const occurredAt = currentTime(this.now);
     const identity = { accountId: input.accountId, agentId: input.agentId };
     const agent = await this.lockActiveAgent(transaction, identity);
+    if (input.targetType === 'STOREFRONT') {
+      await acquireTransactionLock(transaction, 'agent-storefront-promotion', [agent.id]);
+      const existing = await this.readActiveStorefrontInTransaction(transaction, identity, occurredAt);
+      if (existing) return existing;
+    }
     const initialInvite = await this.currentInvite(transaction, agent.id, occurredAt);
     if (initialInvite.id !== input.inviteCodeId) {
       throw stateConflict('Agent invite code changed while promotion material was generated');
@@ -773,6 +778,110 @@ export class AgentCommerceRepository {
       qrFile: completed.asset,
       targetProductId: created.target_product_id,
       targetType: created.target_type,
+    };
+  }
+
+  async findActiveStorefrontPromotion(
+    input: AgentCommerceIdentity,
+  ): Promise<AgentPromotionAssetSnapshot | null> {
+    validateIdentity(input);
+    return this.prisma.$transaction(async (transaction) => {
+      await this.readActiveAgent(transaction, input);
+      return this.readActiveStorefrontInTransaction(transaction, input, currentTime(this.now));
+    }, { isolationLevel: 'RepeatableRead' });
+  }
+
+  private async readActiveStorefrontInTransaction(
+    transaction: DatabaseTransaction,
+    input: AgentCommerceIdentity,
+    now: Date,
+  ): Promise<AgentPromotionAssetSnapshot | null> {
+    const asset = await transaction.promotionAsset.findFirst({
+      include: { invite_code: true, qr_file: true },
+      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+      where: {
+        agent_id: input.agentId,
+        revoked_at: null,
+        status: 'ACTIVE',
+        target_product_id: null,
+        target_type: 'STOREFRONT',
+        OR: [{ expires_at: null }, { expires_at: { gt: now } }],
+      },
+    });
+    return asset ? this.promotionAssetSnapshot(asset, input) : null;
+  }
+
+  private promotionAssetSnapshot(
+    asset: {
+      agent_id: string;
+      authorization_version: number;
+      created_at: Date;
+      expires_at: Date | null;
+      id: string;
+      invite_code: {
+        agent_id: string;
+        code_ciphertext: Uint8Array;
+        encryption_key_id: string;
+        id: string;
+      };
+      invite_code_id: string;
+      public_url: string;
+      qr_file: {
+        byte_size: bigint;
+        created_at: Date;
+        created_by_id: string | null;
+        deleted_at: Date | null;
+        id: string;
+        mime_type: string;
+        object_key: string;
+        original_name: string;
+        purpose: string;
+        sha256: string;
+        status: string;
+        visibility: string;
+      } | null;
+      target_product_id: string | null;
+      target_type: PromotionTargetType;
+    },
+    input: AgentCommerceIdentity,
+  ): AgentPromotionAssetSnapshot | null {
+    const file = asset.qr_file;
+    if (asset.invite_code.agent_id !== input.agentId || !file || file.deleted_at !== null ||
+      file.created_by_id !== input.accountId || file.mime_type !== 'image/png' ||
+      file.object_key !== buildFinalObjectKey(file.id, 'PROMOTION_QR') || file.purpose !== 'PROMOTION_QR' ||
+      file.status !== 'READY' || file.visibility !== 'PRIVATE') {
+      return null;
+    }
+    return {
+      agentId: asset.agent_id,
+      attributionEligible: true,
+      authorizationVersion: asset.authorization_version,
+      createdAt: asset.created_at,
+      expiresAt: asset.expires_at,
+      id: asset.id,
+      inviteCode: {
+        ciphertext: Uint8Array.from(asset.invite_code.code_ciphertext),
+        encryptionKeyId: asset.invite_code.encryption_key_id,
+        id: asset.invite_code.id,
+      },
+      inviteCodeId: asset.invite_code_id,
+      publicUrl: asset.public_url,
+      qrFile: {
+        byteSize: file.byte_size,
+        createdAt: file.created_at,
+        createdById: file.created_by_id,
+        deletedAt: file.deleted_at,
+        id: file.id,
+        mimeType: 'image/png',
+        objectKey: file.object_key,
+        originalName: file.original_name,
+        purpose: 'PROMOTION_QR',
+        sha256: file.sha256,
+        status: 'READY',
+        visibility: 'PRIVATE',
+      },
+      targetProductId: asset.target_product_id,
+      targetType: asset.target_type,
     };
   }
 

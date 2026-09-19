@@ -505,7 +505,7 @@ databaseDescribe('B13.2 Agent commerce PostgreSQL integration', () => {
               ...target,
               candidateId: ids.candidateIds[candidateIndex],
               candidateTokenHash: candidateHashes[candidateIndex]!,
-            })).resolves.toEqual({ kind: 'public_fallback', publicTargetUrl: publicUrl });
+            })).resolves.toMatchObject({ kind: 'public_fallback', publicTargetUrl: publicUrl });
             await expect(transaction.attributionCandidate.count({
               where: { id: ids.candidateIds[candidateIndex] },
             })).resolves.toBe(0);

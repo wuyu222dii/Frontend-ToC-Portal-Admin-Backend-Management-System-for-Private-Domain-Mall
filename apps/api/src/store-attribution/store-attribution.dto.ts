@@ -4,20 +4,24 @@ type PlainRecord = Record<string, unknown>;
 
 export interface StoreAttributionCandidateInput {
   inviteCode: string;
-  promotionAssetId: string;
+  promotionAssetId?: string;
 }
 
 function invalid(message: string): never {
   throw new ApplicationError('INVALID_ARGUMENT', message);
 }
 
-function objectWithExactFields(value: unknown, required: readonly string[]): PlainRecord {
+function objectWithAllowedFields(
+  value: unknown,
+  required: readonly string[],
+  optional: readonly string[],
+): PlainRecord {
   if (typeof value !== 'object' || value === null || Array.isArray(value) ||
     (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)) {
     return invalid('Request body must be an object');
   }
   const body = value as PlainRecord;
-  const allowed = new Set(required);
+  const allowed = new Set([...required, ...optional]);
   if (required.some((field) => !(field in body)) || Object.keys(body).some((field) => !allowed.has(field))) {
     return invalid('Request body fields are invalid');
   }
@@ -33,13 +37,15 @@ function boundedSecret(value: unknown, field: string, minimum: number, maximum: 
 }
 
 export function parseStoreAttributionCandidateBody(value: unknown): StoreAttributionCandidateInput {
-  const body = objectWithExactFields(value, ['invite_code', 'promotion_asset_id']);
+  const body = objectWithAllowedFields(value, ['invite_code'], ['promotion_asset_id']);
+  const parsed: StoreAttributionCandidateInput = {
+    inviteCode: boundedSecret(body.invite_code, 'invite_code', 1, 128),
+  };
+  if (!('promotion_asset_id' in body)) return parsed;
   const promotionAssetId = body.promotion_asset_id;
   if (typeof promotionAssetId !== 'string' || !isValidUlid(promotionAssetId)) {
     return invalid('promotion_asset_id is invalid');
   }
-  return {
-    inviteCode: boundedSecret(body.invite_code, 'invite_code', 1, 128),
-    promotionAssetId,
-  };
+  parsed.promotionAssetId = promotionAssetId;
+  return parsed;
 }
